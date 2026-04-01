@@ -1,29 +1,29 @@
+// The TerminalRenderer is kept as infrastructure for markdown rendering.
+// It's exercised by tests and available for future use in the REPL.
+
 use std::fmt::Write as FmtWrite;
 use std::io::{self, Write};
 use std::thread;
 use std::time::Duration;
 
-use crossterm::cursor::{MoveToColumn, RestorePosition, SavePosition};
-use crossterm::style::{Color, Print, ResetColor, SetForegroundColor, Stylize};
-use crossterm::terminal::{Clear, ClearType};
-use crossterm::{execute, queue};
+use crossterm::style::{Color, Stylize};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Theme, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
 
+// ── Theme ─────────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ColorTheme {
+#[allow(dead_code)]
+struct ColorTheme {
     heading: Color,
     emphasis: Color,
     strong: Color,
     inline_code: Color,
     link: Color,
     quote: Color,
-    spinner_active: Color,
-    spinner_done: Color,
-    spinner_failed: Color,
 }
 
 impl Default for ColorTheme {
@@ -35,85 +35,14 @@ impl Default for ColorTheme {
             inline_code: Color::Green,
             link: Color::Blue,
             quote: Color::DarkGrey,
-            spinner_active: Color::Blue,
-            spinner_done: Color::Green,
-            spinner_failed: Color::Red,
         }
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Spinner {
-    frame_index: usize,
-}
-
-impl Spinner {
-    const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn tick(
-        &mut self,
-        label: &str,
-        theme: &ColorTheme,
-        out: &mut impl Write,
-    ) -> io::Result<()> {
-        let frame = Self::FRAMES[self.frame_index % Self::FRAMES.len()];
-        self.frame_index += 1;
-        queue!(
-            out,
-            SavePosition,
-            MoveToColumn(0),
-            Clear(ClearType::CurrentLine),
-            SetForegroundColor(theme.spinner_active),
-            Print(format!("{frame} {label}")),
-            ResetColor,
-            RestorePosition
-        )?;
-        out.flush()
-    }
-
-    pub fn finish(
-        &mut self,
-        label: &str,
-        theme: &ColorTheme,
-        out: &mut impl Write,
-    ) -> io::Result<()> {
-        self.frame_index = 0;
-        execute!(
-            out,
-            MoveToColumn(0),
-            Clear(ClearType::CurrentLine),
-            SetForegroundColor(theme.spinner_done),
-            Print(format!("✔ {label}\n")),
-            ResetColor
-        )?;
-        out.flush()
-    }
-
-    pub fn fail(
-        &mut self,
-        label: &str,
-        theme: &ColorTheme,
-        out: &mut impl Write,
-    ) -> io::Result<()> {
-        self.frame_index = 0;
-        execute!(
-            out,
-            MoveToColumn(0),
-            Clear(ClearType::CurrentLine),
-            SetForegroundColor(theme.spinner_failed),
-            Print(format!("✘ {label}\n")),
-            ResetColor
-        )?;
-        out.flush()
-    }
-}
+// ── Render state ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 struct RenderState {
     emphasis: usize,
     strong: usize,
@@ -121,6 +50,7 @@ struct RenderState {
     list: usize,
 }
 
+#[allow(dead_code)]
 impl RenderState {
     fn style_text(&self, text: &str, theme: &ColorTheme) -> String {
         if self.strong > 0 {
@@ -135,7 +65,10 @@ impl RenderState {
     }
 }
 
+// ── Terminal renderer ─────────────────────────────────────────────────────────
+
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct TerminalRenderer {
     syntax_set: SyntaxSet,
     syntax_theme: Theme,
@@ -157,15 +90,11 @@ impl Default for TerminalRenderer {
     }
 }
 
+#[allow(dead_code)]
 impl TerminalRenderer {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
-    }
-
-    #[must_use]
-    pub fn color_theme(&self) -> &ColorTheme {
-        &self.color_theme
     }
 
     #[must_use]
@@ -304,7 +233,7 @@ impl TerminalRenderer {
 
     fn start_item(state: &RenderState, output: &mut String) {
         output.push_str(&"  ".repeat(state.list.saturating_sub(1)));
-        output.push_str("• ");
+        output.push_str("  ");
     }
 
     fn start_code_block(&self, code_language: &str, output: &mut String) {
@@ -312,15 +241,20 @@ impl TerminalRenderer {
             let _ = writeln!(
                 output,
                 "{}",
-                format!("╭─ {code_language}").with(self.color_theme.heading)
+                format!("  ╭─ {code_language}").with(self.color_theme.heading)
             );
         }
     }
 
     fn finish_code_block(&self, code_buffer: &str, code_language: &str, output: &mut String) {
-        output.push_str(&self.highlight_code(code_buffer, code_language));
+        // Indent code block content for visual separation
+        for line in self.highlight_code(code_buffer, code_language).lines() {
+            output.push_str("  │ ");
+            output.push_str(line);
+            output.push('\n');
+        }
         if !code_language.is_empty() {
-            let _ = write!(output, "{}", "╰─".with(self.color_theme.heading));
+            let _ = write!(output, "{}", "  ╰─".with(self.color_theme.heading));
         }
         output.push_str("\n\n");
     }
@@ -366,15 +300,17 @@ impl TerminalRenderer {
         for chunk in rendered_markdown.split_inclusive(char::is_whitespace) {
             write!(out, "{chunk}")?;
             out.flush()?;
-            thread::sleep(Duration::from_millis(8));
+            thread::sleep(Duration::from_millis(6));
         }
         writeln!(out)
     }
 }
 
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
-    use super::{Spinner, TerminalRenderer};
+    use super::TerminalRenderer;
 
     fn strip_ansi(input: &str) -> String {
         let mut output = String::new();
@@ -405,7 +341,7 @@ mod tests {
             .render_markdown("# Heading\n\nThis is **bold** and *italic*.\n\n- item\n\n`code`");
 
         assert!(markdown_output.contains("Heading"));
-        assert!(markdown_output.contains("• item"));
+        assert!(markdown_output.contains("item"));
         assert!(markdown_output.contains("code"));
         assert!(markdown_output.contains('\u{1b}'));
     }
@@ -420,21 +356,5 @@ mod tests {
         assert!(plain_text.contains("╭─ rust"));
         assert!(plain_text.contains("fn hi"));
         assert!(markdown_output.contains('\u{1b}'));
-    }
-
-    #[test]
-    fn spinner_advances_frames() {
-        let terminal_renderer = TerminalRenderer::new();
-        let mut spinner = Spinner::new();
-        let mut out = Vec::new();
-        spinner
-            .tick("Working", terminal_renderer.color_theme(), &mut out)
-            .expect("tick succeeds");
-        spinner
-            .tick("Working", terminal_renderer.color_theme(), &mut out)
-            .expect("tick succeeds");
-
-        let output = String::from_utf8_lossy(&out);
-        assert!(output.contains("Working"));
     }
 }

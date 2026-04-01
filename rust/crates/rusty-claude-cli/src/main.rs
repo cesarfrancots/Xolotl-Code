@@ -3,6 +3,7 @@ mod input;
 mod mcp;
 mod openai;
 mod render;
+mod style;
 
 use std::collections::HashSet;
 use std::env;
@@ -19,7 +20,6 @@ use api::{
 use commands::handle_slash_command;
 use compat_harness::{extract_manifest, UpstreamPaths};
 use mcp::McpManager;
-use render::TerminalRenderer;
 use runtime::{
     load_system_prompt, ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ContentBlock,
     ConversationMessage, ConversationRuntime, MessageRole, PermissionMode, PermissionPolicy,
@@ -463,17 +463,35 @@ fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
     let mut editor = input::LineEditor::new("› ");
 
     // ── Startup banner ─────────────────────────────────────────────────────────
+    use style::*;
     println!();
-    println!("  \x1b[1;36m⚡ claw\x1b[0m  \x1b[2m{}\x1b[0m", cli.model);
-    println!("  \x1b[2m/help for commands · Shift+Enter for newlines\x1b[0m");
-    println!("  \x1b[2msession → {}\x1b[0m", cli.auto_save_path.display());
+    println!(
+        "  {ACCENT}{BOLD}  claw{RESET}  {MUTED}v0.1.0{RESET}"
+    );
+    println!(
+        "  {MUTED}{DIVIDER_SHORT}{RESET}"
+    );
+    println!(
+        "  {MUTED}model{RESET}    {WHITE_BOLD}{}{RESET}",
+        format_model(&cli.model)
+    );
+    println!(
+        "  {MUTED}session{RESET}  {MUTED}{}{RESET}",
+        cli.auto_save_path.display()
+    );
     {
         let mcp_tool_count = cli.mcp.lock().map(|m| m.tools.len()).unwrap_or(0);
         if mcp_tool_count > 0 {
-            println!("  \x1b[2m{mcp_tool_count} MCP tool{} loaded  (/mcp for details)\x1b[0m",
-                if mcp_tool_count == 1 { "" } else { "s" });
+            println!(
+                "  {MUTED}mcp{RESET}      {GREEN}{mcp_tool_count}{RESET}{MUTED} tool{} loaded{RESET}",
+                if mcp_tool_count == 1 { "" } else { "s" }
+            );
         }
     }
+    println!();
+    println!(
+        "  {MUTED}/help for commands {DOT} Shift+Enter for newlines {DOT} {ARROW_UP}/{ARROW_DOWN} for history{RESET}"
+    );
     println!();
 
     while let Some(input) = editor.read_line()? {
@@ -517,7 +535,7 @@ fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 other => {
-                    println!("\n  \x1b[31m✘ Unknown command: {other}\x1b[0m  \x1b[2m(try /help)\x1b[0m\n");
+                    style::print_err(&format!("Unknown command: {other}  (try /help)"));
                 }
             }
             continue;
@@ -525,36 +543,39 @@ fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
 
         // Check cost budget before running a turn
         if cli.is_over_budget() {
-            println!("\n  \x1b[31m✘ Cost budget exceeded (${:.2}). Use /budget <amount> to increase.\x1b[0m\n",
-                cli.budget_limit.unwrap_or(0.0));
+            style::print_err(&format!(
+                "Cost budget exceeded (${:.2}). Use /budget <amount> to increase.",
+                cli.budget_limit.unwrap_or(0.0)
+            ));
             continue;
         }
 
         cli.run_turn(trimmed)?;
     }
 
-    println!("\n  \x1b[2mBye.\x1b[0m\n");
+    println!("\n  {}Bye.{}\n", style::MUTED, style::RESET);
     Ok(())
 }
 
 fn print_slash_help() {
+    use style::*;
     println!();
-    println!("  \x1b[1mCommands\x1b[0m");
-    println!("  \x1b[2m────────────────────────────────────\x1b[0m");
-    println!("  \x1b[36m/help\x1b[0m               show this help");
-    println!("  \x1b[36m/status\x1b[0m             token usage & cost");
-    println!("  \x1b[36m/cost\x1b[0m               detailed cost breakdown");
-    println!("  \x1b[36m/budget\x1b[0m \x1b[2m<usd>\x1b[0m       set/show spending limit");
-    println!("  \x1b[36m/compact\x1b[0m            compact session history");
-    println!("  \x1b[36m/clear\x1b[0m              clear session and start fresh");
-    println!("  \x1b[36m/model\x1b[0m \x1b[2m<name>\x1b[0m       switch model");
-    println!("  \x1b[36m/mcp\x1b[0m                list connected MCP servers and tools");
-    println!("  \x1b[36m/sessions\x1b[0m           list saved sessions");
-    println!("  \x1b[36m/doctor\x1b[0m             check config, credentials & connectivity");
-    println!("  \x1b[36m/init\x1b[0m               generate CLAUDE.md for this project");
-    println!("  \x1b[36m/save\x1b[0m               save session to disk");
-    println!("  \x1b[36m/exit\x1b[0m               quit");
-    println!("  \x1b[2m↑/↓ arrows to browse input history\x1b[0m");
+    println!("  {WHITE_BOLD}Commands{RESET}");
+    println!("  {MUTED}{DIVIDER_SHORT}{RESET}");
+    println!("  {CYAN}/help{RESET}               show this help");
+    println!("  {CYAN}/status{RESET}             token usage & cost");
+    println!("  {CYAN}/cost{RESET}               detailed cost breakdown");
+    println!("  {CYAN}/budget{RESET} {MUTED}<usd>{RESET}       set/show spending limit");
+    println!("  {CYAN}/compact{RESET}            compact session history");
+    println!("  {CYAN}/clear{RESET}              clear session and start fresh");
+    println!("  {CYAN}/model{RESET} {MUTED}<name>{RESET}       switch model");
+    println!("  {CYAN}/mcp{RESET}                list connected MCP servers");
+    println!("  {CYAN}/sessions{RESET}           list saved sessions");
+    println!("  {CYAN}/doctor{RESET}             check config & credentials");
+    println!("  {CYAN}/init{RESET}               generate CLAUDE.md for this project");
+    println!("  {CYAN}/save{RESET}               save session to disk");
+    println!("  {CYAN}/exit{RESET}               quit");
+    println!("  {MUTED}{ARROW_UP}/{ARROW_DOWN} arrows to browse input history{RESET}");
     println!();
 }
 
@@ -610,17 +631,18 @@ impl LiveCli {
                 let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
                 let usage = self.runtime.usage().cumulative_usage();
                 println!(
-                    "\n  \x1b[2m↑{} ↓{}  ${cost:.4}\x1b[0m",
-                    usage.input_tokens, usage.output_tokens,
+                    "\n  {}{}{} {}{}  ${cost:.4}{}",
+                    style::MUTED, style::ARROW_UP, usage.input_tokens,
+                    style::ARROW_DOWN, usage.output_tokens, style::RESET,
                 );
                 // Auto-save after every successful turn
                 if let Err(e) = self.runtime.session().save_to_path(&self.auto_save_path) {
-                    eprintln!("  \x1b[33m⚠ auto-save failed: {e}\x1b[0m");
+                    style::print_warn(&format!("auto-save failed: {e}"));
                 }
                 Ok(())
             }
             Err(error) => {
-                println!("\n  \x1b[31m✘ {error}\x1b[0m");
+                style::print_err(&error.to_string());
                 Err(Box::new(error))
             }
         }
@@ -629,15 +651,17 @@ impl LiveCli {
     fn print_status(&self) {
         let usage = self.runtime.usage().cumulative_usage();
         let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
-        println!();
-        println!("  \x1b[1mSession\x1b[0m");
-        println!("  \x1b[2m────────────────────────────────────\x1b[0m");
-        println!("  \x1b[36mmodel\x1b[0m       {}", self.model);
-        println!("  \x1b[36mmessages\x1b[0m    {}", self.runtime.session().messages.len());
-        println!("  \x1b[36mturns\x1b[0m       {}", self.runtime.usage().turns());
-        println!("  \x1b[36m↑ tokens\x1b[0m    {}", usage.input_tokens);
-        println!("  \x1b[36m↓ tokens\x1b[0m    {}", usage.output_tokens);
-        println!("  \x1b[36mcost\x1b[0m        \x1b[1m${cost:.4}\x1b[0m");
+        style::print_header("Session");
+        style::print_kv("model", &style::format_model(&self.model));
+        style::print_kv("messages", &self.runtime.session().messages.len().to_string());
+        style::print_kv("turns", &self.runtime.usage().turns().to_string());
+        style::print_kv(&format!("{} tokens", style::ARROW_UP), &usage.input_tokens.to_string());
+        style::print_kv(&format!("{} tokens", style::ARROW_DOWN), &usage.output_tokens.to_string());
+        println!(
+            "  {}cost{RESET}          {}{WHITE_BOLD}${cost:.4}{RESET}",
+            style::CYAN, style::RESET,
+            RESET = style::RESET, WHITE_BOLD = style::WHITE_BOLD,
+        );
         println!();
     }
 
@@ -651,12 +675,12 @@ impl LiveCli {
             Arc::clone(&self.mcp),
             true,
         )?;
-        println!("\n  \x1b[32m✔\x1b[0m Compacted \x1b[1m{removed}\x1b[0m messages.\n");
+        style::print_ok(&format!("Compacted {BOLD}{removed}{RESET} messages.",
+            BOLD = style::BOLD, RESET = style::RESET));
         Ok(())
     }
 
     fn clear_session(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Allocate a fresh auto-save path for the new session
         let dir = sessions_dir();
         std::fs::create_dir_all(&dir)?;
         let ts = std::time::SystemTime::now()
@@ -671,7 +695,7 @@ impl LiveCli {
             Arc::clone(&self.mcp),
             true,
         )?;
-        println!("\n  \x1b[32m✔\x1b[0m Session cleared.\n");
+        style::print_ok("Session cleared.");
         Ok(())
     }
 
@@ -686,23 +710,25 @@ impl LiveCli {
         )?;
         self.model = expanded.clone();
         if let Some(i) = expanded.find('+') {
-            println!(
-                "\n  \x1b[32m✔\x1b[0m Dual model  \x1b[36mplanner\x1b[0m {} \x1b[2m+\x1b[0m \x1b[36mexecutor\x1b[0m {}\n",
-                &expanded[..i],
-                &expanded[i + 1..]
-            );
+            style::print_ok(&format!(
+                "Dual model  {}planner{} {} {}+{} {}executor{} {}",
+                style::CYAN, style::RESET, &expanded[..i],
+                style::MUTED, style::RESET,
+                style::CYAN, style::RESET, &expanded[i + 1..]
+            ));
         } else {
-            println!("\n  \x1b[32m✔\x1b[0m Model → \x1b[1m{expanded}\x1b[0m\n");
+            style::print_ok(&format!("Model {ARROW} {BOLD}{}{RESET}",
+                style::format_model(&expanded),
+                ARROW = style::ARROW_RIGHT, BOLD = style::WHITE_BOLD, RESET = style::RESET));
         }
         Ok(())
     }
 
     fn save_session(&self) -> Result<(), Box<dyn std::error::Error>> {
         self.runtime.session().save_to_path(&self.auto_save_path)?;
-        println!(
-            "\n  \x1b[32m✔\x1b[0m Saved → \x1b[2m{}\x1b[0m\n",
-            self.auto_save_path.display()
-        );
+        style::print_ok(&format!("Saved {ARROW} {MUTED}{}{RESET}",
+            self.auto_save_path.display(),
+            ARROW = style::ARROW_RIGHT, MUTED = style::MUTED, RESET = style::RESET));
         Ok(())
     }
 
@@ -710,39 +736,38 @@ impl LiveCli {
         let usage = self.runtime.usage().cumulative_usage();
         let primary = primary_model_name(&self.model);
         let cost = self.runtime.usage().cost_usd(primary);
-        println!();
-        println!("  \x1b[1mCost\x1b[0m");
-        println!("  \x1b[2m────────────────────────────────────\x1b[0m");
+        style::print_header("Cost");
         if let Some(plus) = self.model.find('+') {
-            println!("  \x1b[36mplanner\x1b[0m     {}", &self.model[..plus]);
-            println!("  \x1b[36mexecutor\x1b[0m    {}", &self.model[plus + 1..]);
+            style::print_kv("planner", &style::format_model(&self.model[..plus]));
+            style::print_kv("executor", &style::format_model(&self.model[plus + 1..]));
         } else {
-            println!("  \x1b[36mmodel\x1b[0m       {}", self.model);
+            style::print_kv("model", &style::format_model(&self.model));
         }
-        println!("  \x1b[36m↑ tokens\x1b[0m    {}", usage.input_tokens);
-        println!("  \x1b[36m↓ tokens\x1b[0m    {}", usage.output_tokens);
-        println!("  \x1b[36mcache wr\x1b[0m     {}", usage.cache_creation_input_tokens);
-        println!("  \x1b[36mcache rd\x1b[0m     {}", usage.cache_read_input_tokens);
-        println!("  \x1b[36mcost\x1b[0m        \x1b[1m${cost:.4}\x1b[0m  \x1b[2m(planner rate)\x1b[0m");
+        style::print_kv(&format!("{} tokens", style::ARROW_UP), &usage.input_tokens.to_string());
+        style::print_kv(&format!("{} tokens", style::ARROW_DOWN), &usage.output_tokens.to_string());
+        style::print_kv("cache write", &usage.cache_creation_input_tokens.to_string());
+        style::print_kv("cache read", &usage.cache_read_input_tokens.to_string());
+        println!(
+            "  {}cost{RESET}          {WHITE_BOLD}${cost:.4}{RESET}",
+            style::CYAN, RESET = style::RESET, WHITE_BOLD = style::WHITE_BOLD,
+        );
         println!();
     }
 
     fn print_mcp_status(&self) {
-        println!();
-        println!("  \x1b[1mMCP Servers\x1b[0m");
-        println!("  \x1b[2m────────────────────────────────────\x1b[0m");
+        style::print_header("MCP Servers");
         if let Ok(manager) = self.mcp.lock() {
             if manager.is_empty() {
-                println!("  \x1b[2mNo MCP servers connected.\x1b[0m");
-                println!("  \x1b[2mAdd servers to ~/.claude/settings.json under \"mcpServers\".\x1b[0m");
+                style::print_muted("No MCP servers connected.");
+                style::print_muted("Add servers to ~/.claude/settings.json under \"mcpServers\".");
             } else {
                 let mut current_server = String::new();
                 for tool in &manager.tools {
                     if tool.server_name != current_server {
                         current_server = tool.server_name.clone();
-                        println!("  \x1b[36m{current_server}\x1b[0m");
+                        println!("  {}{current_server}{}", style::CYAN, style::RESET);
                     }
-                    println!("    \x1b[2m{}\x1b[0m  {}", tool.qualified_name, tool.description);
+                    println!("    {}{}{}  {}", style::MUTED, tool.qualified_name, style::RESET, tool.description);
                 }
             }
         }
@@ -751,21 +776,21 @@ impl LiveCli {
 
     fn set_budget(&mut self, usd: f64) {
         self.budget_limit = Some(usd);
-        println!("\n  \x1b[32m✔\x1b[0m Budget set to \x1b[1m${usd:.2}\x1b[0m\n");
+        style::print_ok(&format!("Budget set to {}${usd:.2}{}", style::WHITE_BOLD, style::RESET));
     }
 
     fn print_budget(&self) {
         let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
-        println!();
+        style::print_header("Budget");
         match self.budget_limit {
             Some(limit) => {
                 let pct = if limit > 0.0 { cost / limit * 100.0 } else { 0.0 };
-                println!("  \x1b[36mbudget\x1b[0m   ${limit:.2}");
-                println!("  \x1b[36mspent\x1b[0m    ${cost:.4}  ({pct:.1}%)");
+                style::print_kv("budget", &format!("${limit:.2}"));
+                style::print_kv("spent", &format!("${cost:.4}  ({pct:.1}%)"));
             }
             None => {
-                println!("  \x1b[36mspent\x1b[0m    ${cost:.4}");
-                println!("  \x1b[2mNo budget set. Use /budget <usd> to set one.\x1b[0m");
+                style::print_kv("spent", &format!("${cost:.4}"));
+                style::print_muted("No budget set. Use /budget <usd> to set one.");
             }
         }
         println!();
@@ -783,9 +808,8 @@ impl LiveCli {
 // ── /doctor — diagnostics ─────────────────────────────────────────────────────
 
 fn run_doctor() {
-    println!();
-    println!("  \x1b[1mDoctor\x1b[0m");
-    println!("  \x1b[2m────────────────────────────────────\x1b[0m");
+    use style::*;
+    print_header("Doctor");
 
     // Check credentials
     let checks: &[(&str, &str)] = &[
@@ -799,11 +823,14 @@ fn run_doctor() {
     ];
 
     for (var, label) in checks {
-        let status = match env::var(var) {
-            Ok(val) if !val.is_empty() => format!("\x1b[32m✔\x1b[0m {label}  \x1b[2m({var} set)\x1b[0m"),
-            _ => format!("\x1b[2m·\x1b[0m {label}  \x1b[2m({var} not set)\x1b[0m"),
-        };
-        println!("  {status}");
+        match env::var(var) {
+            Ok(val) if !val.is_empty() => {
+                println!("  {GREEN}{CHECK}{RESET} {label}  {MUTED}({var} set){RESET}");
+            }
+            _ => {
+                println!("  {MUTED}{DOT}{RESET} {label}  {MUTED}({var} not set){RESET}");
+            }
+        }
     }
 
     // Check config files
@@ -821,22 +848,21 @@ fn run_doctor() {
     ];
 
     for (path, label) in &config_files {
-        let status = if path.exists() {
-            format!("\x1b[32m✔\x1b[0m {label}  \x1b[2m({})\x1b[0m", path.display())
+        if path.exists() {
+            println!("  {GREEN}{CHECK}{RESET} {label}  {MUTED}({}){RESET}", path.display());
         } else {
-            format!("\x1b[2m·\x1b[0m {label}  \x1b[2m(not found)\x1b[0m")
-        };
-        println!("  {status}");
+            println!("  {MUTED}{DOT}{RESET} {label}  {MUTED}(not found){RESET}");
+        }
     }
 
-    // Check disk space
+    // Session info and platform
     println!();
     let session_dir = sessions_dir();
     let session_count = std::fs::read_dir(&session_dir)
         .map(|entries| entries.count())
         .unwrap_or(0);
-    println!("  \x1b[36msessions\x1b[0m  {session_count} saved  \x1b[2m({})\x1b[0m", session_dir.display());
-    println!("  \x1b[36mplatform\x1b[0m  {}  \x1b[2m({})\x1b[0m", env::consts::OS, env::consts::ARCH);
+    print_kv("sessions", &format!("{session_count} saved"));
+    print_kv("platform", &format!("{} ({})", env::consts::OS, env::consts::ARCH));
     println!();
 }
 
@@ -845,7 +871,8 @@ fn run_doctor() {
 fn run_init() -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("CLAUDE.md");
     if path.exists() {
-        println!("\n  \x1b[33m⚠\x1b[0m CLAUDE.md already exists. Delete it first if you want to regenerate.\n");
+        style::print_warn("CLAUDE.md already exists. Delete it first if you want to regenerate.");
+        println!();
         return Ok(());
     }
 
@@ -883,16 +910,18 @@ fn run_init() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     std::fs::write(&path, &content)?;
-    println!("\n  \x1b[32m✔\x1b[0m Created CLAUDE.md ({stack})");
-    println!("  \x1b[2mEdit it to add build commands, conventions, and project structure.\x1b[0m\n");
+    style::print_ok(&format!("Created CLAUDE.md ({stack})"));
+    style::print_muted("Edit it to add build commands, conventions, and project structure.");
+    println!();
     Ok(())
 }
 
 // ── /sessions — list saved sessions ───────────────────────────────────────────
 
 fn list_sessions() {
+    use style::*;
     let dir = sessions_dir();
-    let mut entries: Vec<(String, u64, usize)> = Vec::new(); // (filename, timestamp, size_bytes)
+    let mut entries: Vec<(String, u64, usize)> = Vec::new();
 
     if let Ok(reader) = std::fs::read_dir(&dir) {
         for entry in reader.flatten() {
@@ -900,7 +929,6 @@ fn list_sessions() {
             if !name.ends_with(".json") { continue; }
             let meta = entry.metadata().ok();
             let size = meta.as_ref().map_or(0, |m| m.len() as usize);
-            // Extract timestamp from filename: session-<ts>.json
             let ts = name.strip_prefix("session-")
                 .and_then(|s| s.strip_suffix(".json"))
                 .and_then(|s| s.parse::<u64>().ok())
@@ -909,24 +937,24 @@ fn list_sessions() {
         }
     }
 
-    entries.sort_by(|a, b| b.1.cmp(&a.1)); // newest first
+    entries.sort_by(|a, b| b.1.cmp(&a.1));
 
+    print_header("Saved Sessions");
+    print_muted(&dir.display().to_string());
     println!();
-    println!("  \x1b[1mSaved Sessions\x1b[0m  \x1b[2m({})\x1b[0m", dir.display());
-    println!("  \x1b[2m────────────────────────────────────\x1b[0m");
 
     if entries.is_empty() {
-        println!("  \x1b[2mNo saved sessions.\x1b[0m");
+        print_muted("No saved sessions.");
     } else {
         for (name, _ts, size) in entries.iter().take(20) {
             let size_kb = size / 1024;
-            println!("  \x1b[36m{name}\x1b[0m  \x1b[2m({size_kb} KB)\x1b[0m");
+            println!("  {CYAN}{name}{RESET}  {MUTED}({size_kb} KB){RESET}");
         }
         if entries.len() > 20 {
-            println!("  \x1b[2m...and {} more\x1b[0m", entries.len() - 20);
+            print_muted(&format!("...and {} more", entries.len() - 20));
         }
         println!();
-        println!("  \x1b[2mResume with: claw --resume {}\x1b[0m", dir.join(&entries[0].0).display());
+        print_muted(&format!("Resume with: claw --resume {}", dir.join(&entries[0].0).display()));
     }
     println!();
 }
@@ -1220,16 +1248,12 @@ fn push_output_block(
 
 
 struct CliToolExecutor {
-    renderer: TerminalRenderer,
     mcp: Arc<Mutex<McpManager>>,
 }
 
 impl CliToolExecutor {
     fn new(mcp: Arc<Mutex<McpManager>>) -> Self {
-        Self {
-            renderer: TerminalRenderer::new(),
-            mcp,
-        }
+        Self { mcp }
     }
 
     /// Return all tool specs: builtin MVP tools + MCP tools.
@@ -1253,6 +1277,13 @@ impl CliToolExecutor {
 
 impl ToolExecutor for CliToolExecutor {
     fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
+        // Print tool header
+        let display_name = tool_name.strip_prefix("mcp__").unwrap_or(tool_name);
+        println!(
+            "\n  {}{} {}{display_name}{}",
+            style::ACCENT, style::DOT, style::WHITE_BOLD, style::RESET
+        );
+
         // Route MCP tools
         if tool_name.starts_with("mcp__") {
             let output = self
@@ -1261,10 +1292,12 @@ impl ToolExecutor for CliToolExecutor {
                 .map_err(|e| ToolError::new(format!("MCP lock poisoned: {e}")))?
                 .execute(tool_name, input)
                 .map_err(ToolError::new)?;
-            let markdown = format!("### Tool `{tool_name}`\n\n```\n{output}\n```\n");
-            self.renderer
-                .stream_markdown(&markdown, &mut io::stdout())
-                .map_err(|e| ToolError::new(e.to_string()))?;
+            // Render output concisely
+            let truncated = if output.len() > 500 { &output[..500] } else { &output };
+            println!("  {}{truncated}{}", style::MUTED, style::RESET);
+            if output.len() > 500 {
+                println!("  {}...({} chars total){}", style::MUTED, output.len(), style::RESET);
+            }
             return Ok(output);
         }
 
@@ -1272,10 +1305,18 @@ impl ToolExecutor for CliToolExecutor {
             .map_err(|error| ToolError::new(format!("invalid tool input JSON: {error}")))?;
         match execute_tool(tool_name, &value) {
             Ok(output) => {
-                let markdown = format!("### Tool `{tool_name}`\n\n```json\n{output}\n```\n");
-                self.renderer
-                    .stream_markdown(&markdown, &mut io::stdout())
-                    .map_err(|error| ToolError::new(error.to_string()))?;
+                // Compact output display — only show first few lines for large results
+                let lines: Vec<&str> = output.lines().collect();
+                if lines.len() <= 8 {
+                    for line in &lines {
+                        println!("  {}{line}{}", style::MUTED, style::RESET);
+                    }
+                } else {
+                    for line in lines.iter().take(6) {
+                        println!("  {}{line}{}", style::MUTED, style::RESET);
+                    }
+                    println!("  {}...({} lines total){}", style::MUTED, lines.len(), style::RESET);
+                }
                 Ok(output)
             }
             Err(error) => Err(ToolError::new(error)),
