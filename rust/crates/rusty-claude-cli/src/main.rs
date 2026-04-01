@@ -1,5 +1,6 @@
 mod bedrock;
 mod input;
+mod mcp;
 mod openai;
 mod render;
 
@@ -7,6 +8,7 @@ use std::collections::HashSet;
 use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use api::{
     AnthropicClient, ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest,
@@ -16,6 +18,7 @@ use api::{
 
 use commands::handle_slash_command;
 use compat_harness::{extract_manifest, UpstreamPaths};
+use mcp::McpManager;
 use render::TerminalRenderer;
 use runtime::{
     load_system_prompt, ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ContentBlock,
@@ -23,7 +26,7 @@ use runtime::{
     PermissionPromptDecision, PermissionPrompter, PermissionRequest, RuntimeError, Session,
     TokenUsage, ToolError, ToolExecutor,
 };
-use tools::{execute_tool, mvp_tool_specs};
+use tools::{execute_tool, mvp_tool_specs, DynamicToolSpec};
 
 const DEFAULT_BEDROCK_MODEL: &str = "bedrock/global.anthropic.claude-sonnet-4-6-v1";
 const DEFAULT_MAX_TOKENS: u32 = 8192;
@@ -463,6 +466,14 @@ fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("  \x1b[1;36m⚡ claw\x1b[0m  \x1b[2m{}\x1b[0m", cli.model);
     println!("  \x1b[2m/help for commands · Shift+Enter for newlines\x1b[0m");
+    println!("  \x1b[2msession → {}\x1b[0m", cli.auto_save_path.display());
+    {
+        let mcp_tool_count = cli.mcp.lock().map(|m| m.tools.len()).unwrap_or(0);
+        if mcp_tool_count > 0 {
+            println!("  \x1b[2m{mcp_tool_count} MCP tool{} loaded  (/mcp for details)\x1b[0m",
+                if mcp_tool_count == 1 { "" } else { "s" });
+        }
+    }
     println!();
 
     while let Some(input) = editor.read_line()? {
@@ -482,6 +493,7 @@ fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
                 "/compact" => cli.compact()?,
                 "/clear" => cli.clear_session()?,
                 "/save" => cli.save_session()?,
+                "/mcp" => cli.print_mcp_status(),
                 "/model" => {
                     if let Some(name) = parts.get(1).copied() {
                         cli.set_model(name.trim())?;
@@ -518,6 +530,7 @@ fn print_slash_help() {
     println!("  \x1b[36m/compact\x1b[0m            compact session history");
     println!("  \x1b[36m/clear\x1b[0m              clear session and start fresh");
     println!("  \x1b[36m/model\x1b[0m \x1b[2m<name>\x1b[0m       switch model");
+    println!("  \x1b[36m/mcp\x1b[0m                list connected MCP servers and tools");
     println!("  \x1b[36m/save\x1b[0m               save session to disk");
     println!("  \x1b[36m/exit\x1b[0m               quit");
     println!();
@@ -528,22 +541,39 @@ struct LiveCli {
     system_prompt: Vec<String>,
     runtime: ConversationRuntime<AnyApiClient, CliToolExecutor>,
     prompter: ReplPermissionPrompter,
+    /// Path where this session is auto-saved after every turn.
+    auto_save_path: PathBuf,
+    /// Shared MCP manager (kept alive for the duration of the REPL session).
+    mcp: Arc<Mutex<McpManager>>,
 }
 
 impl LiveCli {
     fn new(model: String, enable_tools: bool) -> Result<Self, Box<dyn std::error::Error>> {
+        // Connect to MCP servers (errors are warnings, not fatal)
+        let mcp = Arc::new(Mutex::new(McpManager::connect()));
         let system_prompt = build_system_prompt()?;
         let runtime = build_runtime(
             Session::new(),
             model.clone(),
             system_prompt.clone(),
+            Arc::clone(&mcp),
             enable_tools,
         )?;
+        // Create a stable session path for this REPL invocation.
+        let dir = sessions_dir();
+        std::fs::create_dir_all(&dir)?;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let auto_save_path = dir.join(format!("session-{ts}.json"));
         Ok(Self {
             model,
             system_prompt,
             runtime,
             prompter: ReplPermissionPrompter::new(),
+            auto_save_path,
+            mcp,
         })
     }
 
@@ -558,6 +588,10 @@ impl LiveCli {
                     "\n  \x1b[2m↑{} ↓{}  ${cost:.4}\x1b[0m",
                     usage.input_tokens, usage.output_tokens,
                 );
+                // Auto-save after every successful turn
+                if let Err(e) = self.runtime.session().save_to_path(&self.auto_save_path) {
+                    eprintln!("  \x1b[33m⚠ auto-save failed: {e}\x1b[0m");
+                }
                 Ok(())
             }
             Err(error) => {
@@ -589,6 +623,7 @@ impl LiveCli {
             result.compacted_session,
             self.model.clone(),
             self.system_prompt.clone(),
+            Arc::clone(&self.mcp),
             true,
         )?;
         println!("\n  \x1b[32m✔\x1b[0m Compacted \x1b[1m{removed}\x1b[0m messages.\n");
@@ -596,10 +631,19 @@ impl LiveCli {
     }
 
     fn clear_session(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Allocate a fresh auto-save path for the new session
+        let dir = sessions_dir();
+        std::fs::create_dir_all(&dir)?;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.auto_save_path = dir.join(format!("session-{ts}.json"));
         self.runtime = build_runtime(
             Session::new(),
             self.model.clone(),
             self.system_prompt.clone(),
+            Arc::clone(&self.mcp),
             true,
         )?;
         println!("\n  \x1b[32m✔\x1b[0m Session cleared.\n");
@@ -612,6 +656,7 @@ impl LiveCli {
             self.runtime.session().clone(),
             expanded.clone(),
             self.system_prompt.clone(),
+            Arc::clone(&self.mcp),
             true,
         )?;
         self.model = expanded.clone();
@@ -628,15 +673,11 @@ impl LiveCli {
     }
 
     fn save_session(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let dir = sessions_dir();
-        std::fs::create_dir_all(&dir)?;
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let path = dir.join(format!("session-{ts}.json"));
-        self.runtime.session().save_to_path(&path)?;
-        println!("\n  \x1b[32m✔\x1b[0m Saved → \x1b[2m{}\x1b[0m\n", path.display());
+        self.runtime.session().save_to_path(&self.auto_save_path)?;
+        println!(
+            "\n  \x1b[32m✔\x1b[0m Saved → \x1b[2m{}\x1b[0m\n",
+            self.auto_save_path.display()
+        );
         Ok(())
     }
 
@@ -658,6 +699,28 @@ impl LiveCli {
         println!("  \x1b[36mcache wr\x1b[0m     {}", usage.cache_creation_input_tokens);
         println!("  \x1b[36mcache rd\x1b[0m     {}", usage.cache_read_input_tokens);
         println!("  \x1b[36mcost\x1b[0m        \x1b[1m${cost:.4}\x1b[0m  \x1b[2m(planner rate)\x1b[0m");
+        println!();
+    }
+
+    fn print_mcp_status(&self) {
+        println!();
+        println!("  \x1b[1mMCP Servers\x1b[0m");
+        println!("  \x1b[2m────────────────────────────────────\x1b[0m");
+        if let Ok(manager) = self.mcp.lock() {
+            if manager.is_empty() {
+                println!("  \x1b[2mNo MCP servers connected.\x1b[0m");
+                println!("  \x1b[2mAdd servers to ~/.claude/settings.json under \"mcpServers\".\x1b[0m");
+            } else {
+                let mut current_server = String::new();
+                for tool in &manager.tools {
+                    if tool.server_name != current_server {
+                        current_server = tool.server_name.clone();
+                        println!("  \x1b[36m{current_server}\x1b[0m");
+                    }
+                    println!("    \x1b[2m{}\x1b[0m  {}", tool.qualified_name, tool.description);
+                }
+            }
+        }
         println!();
     }
 }
@@ -697,21 +760,25 @@ fn primary_model_name(model: &str) -> &str {
 /// Build a single (non-dual) API client for a model spec.
 fn build_single_client(
     model: &str,
+    tool_specs: Vec<DynamicToolSpec>,
     enable_tools: bool,
 ) -> Result<AnyApiClient, Box<dyn std::error::Error>> {
     if bedrock::is_bedrock_model(model) {
         Ok(AnyApiClient::Bedrock(bedrock::BedrockRuntimeClient::new(
             model,
+            tool_specs,
             enable_tools,
         )?))
     } else if openai::is_anthropic_model(model) {
         Ok(AnyApiClient::Anthropic(AnthropicRuntimeClient::new(
             model.to_string(),
+            tool_specs,
             enable_tools,
         )?))
     } else {
         Ok(AnyApiClient::OpenAi(OpenAiRuntimeClient::new(
             model.to_string(),
+            tool_specs,
             enable_tools,
         )?))
     }
@@ -721,25 +788,34 @@ fn build_runtime(
     session: Session,
     model: String,
     system_prompt: Vec<String>,
+    mcp: Arc<Mutex<McpManager>>,
     enable_tools: bool,
 ) -> Result<ConversationRuntime<AnyApiClient, CliToolExecutor>, Box<dyn std::error::Error>> {
     let model = expand_model_spec(&model);
+
+    // Build the combined tool spec list (builtin + MCP) to send to the model
+    let tool_executor = CliToolExecutor::new(Arc::clone(&mcp));
+    let tool_specs = if enable_tools {
+        tool_executor.all_tool_specs()
+    } else {
+        Vec::new()
+    };
 
     let client = if let Some(plus) = model.find('+') {
         let planner_spec = &model[..plus];
         let executor_spec = &model[plus + 1..];
         AnyApiClient::Dual {
-            planner: Box::new(build_single_client(planner_spec, enable_tools)?),
-            executor: Box::new(build_single_client(executor_spec, enable_tools)?),
+            planner: Box::new(build_single_client(planner_spec, tool_specs.clone(), enable_tools)?),
+            executor: Box::new(build_single_client(executor_spec, tool_specs, enable_tools)?),
         }
     } else {
-        build_single_client(&model, enable_tools)?
+        build_single_client(&model, tool_specs, enable_tools)?
     };
 
     Ok(ConversationRuntime::new(
         session,
         client,
-        CliToolExecutor::new(),
+        tool_executor,
         permission_policy_from_env(),
         system_prompt,
     ))
@@ -749,15 +825,17 @@ struct AnthropicRuntimeClient {
     runtime: tokio::runtime::Runtime,
     client: AnthropicClient,
     model: String,
+    tool_specs: Vec<DynamicToolSpec>,
     enable_tools: bool,
 }
 
 impl AnthropicRuntimeClient {
-    fn new(model: String, enable_tools: bool) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(model: String, tool_specs: Vec<DynamicToolSpec>, enable_tools: bool) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             client: AnthropicClient::from_env()?,
             model,
+            tool_specs,
             enable_tools,
         })
     }
@@ -771,12 +849,12 @@ impl ApiClient for AnthropicRuntimeClient {
             messages: convert_messages(&request.messages),
             system: (!request.system_prompt.is_empty()).then(|| request.system_prompt.join("\n\n")),
             tools: self.enable_tools.then(|| {
-                mvp_tool_specs()
-                    .into_iter()
+                self.tool_specs
+                    .iter()
                     .map(|spec| ToolDefinition {
-                        name: spec.name.to_string(),
-                        description: Some(spec.description.to_string()),
-                        input_schema: spec.input_schema,
+                        name: spec.name.clone(),
+                        description: Some(spec.description.clone()),
+                        input_schema: spec.input_schema.clone(),
                     })
                     .collect()
             }),
@@ -904,18 +982,53 @@ fn push_output_block(
 
 struct CliToolExecutor {
     renderer: TerminalRenderer,
+    mcp: Arc<Mutex<McpManager>>,
 }
 
 impl CliToolExecutor {
-    fn new() -> Self {
+    fn new(mcp: Arc<Mutex<McpManager>>) -> Self {
         Self {
             renderer: TerminalRenderer::new(),
+            mcp,
         }
+    }
+
+    /// Return all tool specs: builtin MVP tools + MCP tools.
+    fn all_tool_specs(&self) -> Vec<DynamicToolSpec> {
+        let mut specs: Vec<DynamicToolSpec> = mvp_tool_specs()
+            .iter()
+            .map(DynamicToolSpec::from)
+            .collect();
+        if let Ok(manager) = self.mcp.lock() {
+            for mcp_tool in &manager.tools {
+                specs.push(DynamicToolSpec {
+                    name: mcp_tool.qualified_name.clone(),
+                    description: mcp_tool.description.clone(),
+                    input_schema: mcp_tool.input_schema.clone(),
+                });
+            }
+        }
+        specs
     }
 }
 
 impl ToolExecutor for CliToolExecutor {
     fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
+        // Route MCP tools
+        if tool_name.starts_with("mcp__") {
+            let output = self
+                .mcp
+                .lock()
+                .map_err(|e| ToolError::new(format!("MCP lock poisoned: {e}")))?
+                .execute(tool_name, input)
+                .map_err(ToolError::new)?;
+            let markdown = format!("### Tool `{tool_name}`\n\n```\n{output}\n```\n");
+            self.renderer
+                .stream_markdown(&markdown, &mut io::stdout())
+                .map_err(|e| ToolError::new(e.to_string()))?;
+            return Ok(output);
+        }
+
         let value = serde_json::from_str(input)
             .map_err(|error| ToolError::new(format!("invalid tool input JSON: {error}")))?;
         match execute_tool(tool_name, &value) {
@@ -937,18 +1050,20 @@ struct OpenAiRuntimeClient {
     runtime: tokio::runtime::Runtime,
     http: reqwest::Client,
     config: openai::ProviderConfig,
+    tool_specs: Vec<DynamicToolSpec>,
     max_tokens: u32,
     enable_tools: bool,
 }
 
 impl OpenAiRuntimeClient {
-    fn new(model_spec: String, enable_tools: bool) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(model_spec: String, tool_specs: Vec<DynamicToolSpec>, enable_tools: bool) -> Result<Self, Box<dyn std::error::Error>> {
         let config = openai::resolve_provider(&model_spec)
             .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             http: reqwest::Client::new(),
             config,
+            tool_specs,
             max_tokens: DEFAULT_MAX_TOKENS,
             enable_tools,
         })
@@ -959,7 +1074,7 @@ impl ApiClient for OpenAiRuntimeClient {
     fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
         let messages =
             openai::to_openai_messages(&request.system_prompt, &request.messages);
-        let tools = self.enable_tools.then(openai::to_openai_tools);
+        let tools = self.enable_tools.then(|| openai::to_openai_tools(&self.tool_specs));
         let body = openai::OaiRequest {
             model: self.config.model.clone(),
             messages,
@@ -1018,9 +1133,12 @@ fn permission_policy_from_env() -> PermissionPolicy {
         "read-only" => PermissionPolicy::new(PermissionMode::Deny)
             .with_tool_mode("read_file", PermissionMode::Allow)
             .with_tool_mode("glob_search", PermissionMode::Allow)
-            .with_tool_mode("grep_search", PermissionMode::Allow),
+            .with_tool_mode("grep_search", PermissionMode::Allow)
+            .with_tool_mode("web_fetch", PermissionMode::Allow)
+            .with_tool_mode("todo_read", PermissionMode::Allow),
         "allow-all" => PermissionPolicy::new(PermissionMode::Allow),
-        // Default: read-only tools auto-approved, write/exec tools need confirmation
+        // Default: read/fetch/todo tools auto-approved; write/exec tools need confirmation;
+        // MCP tools are auto-approved (they have their own server-side permissions)
         _ => PermissionPolicy::new(PermissionMode::Allow)
             .with_tool_mode("bash", PermissionMode::Prompt)
             .with_tool_mode("write_file", PermissionMode::Prompt)
@@ -1084,12 +1202,12 @@ fn print_help() {
     println!("  claw --resume SESSION.json [/compact]   Resume a saved session");
     println!();
     println!("Slash commands (inside REPL):");
-    println!("  /help   /status   /cost   /compact   /clear   /model <name>   /save   /exit");
+    println!("  /help   /status   /cost   /compact   /clear   /model <name>   /mcp   /save   /exit");
     println!();
     println!("Environment (or save with 'claw setup'):");
-    println!("  BEDROCK_API_KEY                 Bedrock API key — default when set (create in AWS console)");
+    println!("  BEDROCK_API_KEY                 Bedrock API key (create in AWS console)");
     println!("  AWS_DEFAULT_REGION              Bedrock region (default: us-east-1)");
-    println!("  ANTHROPIC_API_KEY               Anthropic direct API — default when BEDROCK_API_KEY not set");
+    println!("  ANTHROPIC_API_KEY               Anthropic direct API");
     println!("  KIMI_API_KEY                    Required for kimi/ models");
     println!("  GLM_API_KEY                     Required for glm/ models");
     println!("  MINIMAX_API_KEY                 Required for minimax/ models");
@@ -1098,6 +1216,10 @@ fn print_help() {
     println!("  AWS_SECRET_ACCESS_KEY           Bedrock IAM auth");
     println!("  AWS_SESSION_TOKEN               Optional — temporary IAM credentials");
     println!("  RUSTY_CLAUDE_PERMISSION_MODE    read-only | allow-all (default: prompt for writes)");
+    println!();
+    println!("MCP servers:");
+    println!("  Configure in ~/.claude/settings.json (same format as Claude Code / OpenCode):");
+    println!("  {{ \"mcpServers\": {{ \"name\": {{ \"command\": \"npx\", \"args\": [...] }} }} }}");
 }
 
 #[cfg(test)]

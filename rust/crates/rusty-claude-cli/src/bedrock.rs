@@ -7,6 +7,9 @@
 ///
 /// **IAM / Sig V4**: Set `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (+ optional
 /// `AWS_SESSION_TOKEN` and `AWS_DEFAULT_REGION`).
+///
+/// Uses the streaming `/invoke-with-response-stream` endpoint so tokens appear in
+/// real time, exactly like the Anthropic and OpenAI clients.
 
 use std::io::{self, Write};
 
@@ -14,7 +17,7 @@ use reqwest::Client;
 use ring::{digest, hmac};
 
 use runtime::{ApiClient, ApiRequest, AssistantEvent, RuntimeError, TokenUsage};
-use tools::mvp_tool_specs;
+use tools::{DynamicToolSpec, mvp_tool_specs};
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -35,7 +38,7 @@ pub struct BedrockConfig {
     pub auth: BedrockAuth,
 }
 
-/// Parse a `bedrock/anthropic.claude-opus-4-5-20251101` model spec and choose
+/// Parse a `bedrock/global.anthropic.claude-sonnet-4-6-v1` model spec and choose
 /// auth based on available env vars.
 ///
 /// Priority:
@@ -210,18 +213,253 @@ fn leap(year: u32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
+// ── AWS event-stream frame decoder ────────────────────────────────────────────
+//
+// Bedrock's streaming endpoint returns a binary framing protocol:
+//
+//   [total_length: u32 BE]
+//   [headers_length: u32 BE]
+//   [prelude_crc: u32 BE]      ← crc32 of the first 8 bytes
+//   [headers: bytes]
+//   [payload: bytes]
+//   [message_crc: u32 BE]      ← crc32 of everything before this field
+//
+// Each frame carries one JSON event. The `:event-type` header identifies the
+// event. For Anthropic models the relevant event type is `chunk`, and the
+// payload is the familiar Anthropic SSE JSON object
+// (`{"type":"content_block_delta",...}`).
+
+fn crc32(data: &[u8]) -> u32 {
+    // CRC-32/ISO-HDLC (standard Ethernet CRC, same as used by AWS)
+    const POLY: u32 = 0xEDB8_8320;
+    let mut crc: u32 = 0xFFFF_FFFF;
+    for &byte in data {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            if crc & 1 != 0 {
+                crc = (crc >> 1) ^ POLY;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    !crc
+}
+
+/// Extract the event-type value from the binary headers section.
+/// Headers are encoded as: [name_len: u8][name: bytes][type: u8][value_len: u16 BE][value: bytes]
+fn parse_event_type(headers: &[u8]) -> Option<String> {
+    let mut pos = 0;
+    while pos < headers.len() {
+        if pos >= headers.len() {
+            break;
+        }
+        let name_len = headers[pos] as usize;
+        pos += 1;
+        if pos + name_len > headers.len() {
+            break;
+        }
+        let name = std::str::from_utf8(&headers[pos..pos + name_len]).ok()?;
+        pos += name_len;
+        // header value type byte
+        if pos >= headers.len() {
+            break;
+        }
+        let _hdr_type = headers[pos];
+        pos += 1;
+        // value length (u16 BE)
+        if pos + 2 > headers.len() {
+            break;
+        }
+        let val_len = u16::from_be_bytes([headers[pos], headers[pos + 1]]) as usize;
+        pos += 2;
+        if pos + val_len > headers.len() {
+            break;
+        }
+        let value = std::str::from_utf8(&headers[pos..pos + val_len]).ok()?;
+        pos += val_len;
+
+        if name == ":event-type" {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+/// Decode one AWS event-stream frame from `buf` starting at `offset`.
+/// Returns `(event_type, payload_bytes, next_offset)` or `None` if not enough data.
+fn decode_frame(buf: &[u8], offset: usize) -> Option<(String, Vec<u8>, usize)> {
+    if buf.len() < offset + 12 {
+        return None; // need at least prelude + trailing crc
+    }
+    let total_len =
+        u32::from_be_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]])
+            as usize;
+    if buf.len() < offset + total_len {
+        return None; // incomplete frame
+    }
+    let headers_len =
+        u32::from_be_bytes([buf[offset + 4], buf[offset + 5], buf[offset + 6], buf[offset + 7]])
+            as usize;
+
+    // Verify prelude CRC (first 8 bytes)
+    let prelude_crc_expected = u32::from_be_bytes([
+        buf[offset + 8],
+        buf[offset + 9],
+        buf[offset + 10],
+        buf[offset + 11],
+    ]);
+    let prelude_crc_actual = crc32(&buf[offset..offset + 8]);
+    if prelude_crc_expected != prelude_crc_actual {
+        // CRC mismatch — skip this frame (corrupt data)
+        return None;
+    }
+
+    let headers_start = offset + 12;
+    let headers_end = headers_start + headers_len;
+    let payload_start = headers_end;
+    let payload_end = offset + total_len - 4; // exclude trailing message CRC
+
+    if payload_end > offset + total_len || headers_end > payload_end {
+        return None;
+    }
+
+    let headers = &buf[headers_start..headers_end];
+    let payload = buf[payload_start..payload_end].to_vec();
+    let event_type = parse_event_type(headers).unwrap_or_default();
+
+    Some((event_type, payload, offset + total_len))
+}
+
+// ── Streaming event processing ─────────────────────────────────────────────
+
+/// Process a single Anthropic streaming event JSON object.
+/// Mirrors the event types from the Anthropic Messages API SSE stream.
+fn process_bedrock_chunk(
+    chunk_json: &serde_json::Value,
+    stdout: &mut impl Write,
+    events: &mut Vec<AssistantEvent>,
+    pending_tool: &mut Option<(String, String, String)>, // (id, name, accumulated_input)
+    usage_out: &mut Option<TokenUsage>,
+) -> Result<bool, RuntimeError> {
+    // Returns true if this was a message_stop event
+    let event_type = chunk_json
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    match event_type {
+        "message_start" => {
+            // May contain initial usage
+            if let Some(usage) = chunk_json
+                .pointer("/message/usage")
+                .and_then(|u| parse_token_usage(u))
+            {
+                *usage_out = Some(usage);
+            }
+        }
+        "content_block_start" => {
+            let block = chunk_json.get("content_block");
+            if let Some(block) = block {
+                let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                if block_type == "tool_use" {
+                    let id = block
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let name = block
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    *pending_tool = Some((id, name, String::new()));
+                } else if block_type == "text" {
+                    // Initial text (usually empty)
+                    if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                        if !text.is_empty() {
+                            let _ = write!(stdout, "{text}");
+                            let _ = stdout.flush();
+                            events.push(AssistantEvent::TextDelta(text.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+        "content_block_delta" => {
+            let delta = chunk_json.get("delta");
+            if let Some(delta) = delta {
+                let delta_type = delta.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                match delta_type {
+                    "text_delta" => {
+                        if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
+                            if !text.is_empty() {
+                                let _ = write!(stdout, "{text}");
+                                let _ = stdout.flush();
+                                events.push(AssistantEvent::TextDelta(text.to_string()));
+                            }
+                        }
+                    }
+                    "input_json_delta" => {
+                        if let Some(partial) =
+                            delta.get("partial_json").and_then(|v| v.as_str())
+                        {
+                            if let Some((_, _, ref mut input)) = pending_tool.as_mut() {
+                                input.push_str(partial);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        "content_block_stop" => {
+            if let Some((id, name, input)) = pending_tool.take() {
+                events.push(AssistantEvent::ToolUse { id, name, input });
+            }
+        }
+        "message_delta" => {
+            if let Some(usage) = chunk_json.get("usage").and_then(|u| parse_token_usage(u)) {
+                *usage_out = Some(usage);
+            }
+        }
+        "message_stop" => {
+            return Ok(true);
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+fn parse_token_usage(usage: &serde_json::Value) -> Option<TokenUsage> {
+    let get_u32 = |key: &str| -> u32 {
+        usage
+            .get(key)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32
+    };
+    Some(TokenUsage {
+        input_tokens: get_u32("input_tokens"),
+        output_tokens: get_u32("output_tokens"),
+        cache_creation_input_tokens: get_u32("cache_creation_input_tokens"),
+        cache_read_input_tokens: get_u32("cache_read_input_tokens"),
+    })
+}
+
 // ── Client ────────────────────────────────────────────────────────────────────
 
 pub struct BedrockRuntimeClient {
     runtime: tokio::runtime::Runtime,
     http: Client,
     config: BedrockConfig,
+    tool_specs: Vec<DynamicToolSpec>,
     enable_tools: bool,
 }
 
 impl BedrockRuntimeClient {
     pub fn new(
         model_spec: &str,
+        tool_specs: Vec<DynamicToolSpec>,
         enable_tools: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config = resolve_bedrock(model_spec)
@@ -230,13 +468,16 @@ impl BedrockRuntimeClient {
             runtime: tokio::runtime::Runtime::new()?,
             http: Client::new(),
             config,
+            tool_specs,
             enable_tools,
         })
     }
-}
 
-impl ApiClient for BedrockRuntimeClient {
-    fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+    /// Build the request body shared between streaming and non-streaming calls.
+    fn build_body(
+        &self,
+        request: &ApiRequest,
+    ) -> Result<Vec<u8>, RuntimeError> {
         let messages = crate::convert_messages(&request.messages);
         let messages_val = serde_json::to_value(&messages)
             .map_err(|e| RuntimeError::new(format!("message serialize error: {e}")))?;
@@ -260,8 +501,21 @@ impl ApiClient for BedrockRuntimeClient {
         }
 
         if self.enable_tools {
-            let tools: Vec<serde_json::Value> = mvp_tool_specs()
-                .into_iter()
+            let specs = if self.tool_specs.is_empty() {
+                // Fallback: use MVP specs (e.g. during tests or non-MCP builds)
+                mvp_tool_specs()
+                    .into_iter()
+                    .map(|s| DynamicToolSpec {
+                        name: s.name.to_string(),
+                        description: s.description.to_string(),
+                        input_schema: s.input_schema,
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                self.tool_specs.clone()
+            };
+            let tools: Vec<serde_json::Value> = specs
+                .iter()
                 .map(|spec| {
                     serde_json::json!({
                         "name": spec.name,
@@ -277,25 +531,22 @@ impl ApiClient for BedrockRuntimeClient {
             );
         }
 
-        let body_bytes = serde_json::to_vec(&serde_json::Value::Object(body))
-            .map_err(|e| RuntimeError::new(format!("serialize error: {e}")))?;
+        serde_json::to_vec(&serde_json::Value::Object(body))
+            .map_err(|e| RuntimeError::new(format!("serialize error: {e}")))
+    }
 
-        let host = format!(
-            "bedrock-runtime.{}.amazonaws.com",
-            self.config.region
-        );
-        let path = format!("/model/{}/invoke", self.config.model_id);
-        let url = format!("https://{host}{path}");
-
-        // Build the request with the appropriate auth
-        let builder = match &self.config.auth {
-            BedrockAuth::ApiKey(key) => self
-                .http
-                .post(&url)
+    /// Add authentication headers to a request builder.
+    fn add_auth(
+        &self,
+        builder: reqwest::RequestBuilder,
+        body_bytes: &[u8],
+        host: &str,
+        path: &str,
+    ) -> reqwest::RequestBuilder {
+        match &self.config.auth {
+            BedrockAuth::ApiKey(key) => builder
                 .header("Content-Type", "application/json")
-                .header("Authorization", format!("Bearer {key}"))
-                .body(body_bytes),
-
+                .header("Authorization", format!("Bearer {key}")),
             BedrockAuth::SigV4 {
                 access_key,
                 secret_key,
@@ -304,29 +555,46 @@ impl ApiClient for BedrockRuntimeClient {
                 let datetime = utc_compact();
                 let sig = sign_request(
                     "POST",
-                    &host,
-                    &path,
-                    &body_bytes,
+                    host,
+                    path,
+                    body_bytes,
                     access_key,
                     secret_key,
                     session_token.as_deref(),
                     &self.config.region,
                     &datetime,
                 );
-                let mut b = self
-                    .http
-                    .post(&url)
+                let mut b = builder
                     .header("Content-Type", "application/json")
                     .header("Authorization", &sig.authorization)
                     .header("x-amz-date", &sig.x_amz_date)
-                    .header("x-amz-content-sha256", &sig.x_amz_content_sha256)
-                    .body(body_bytes);
+                    .header("x-amz-content-sha256", &sig.x_amz_content_sha256);
                 if let Some(ref tok) = sig.x_amz_security_token {
                     b = b.header("x-amz-security-token", tok);
                 }
                 b
             }
-        };
+        }
+    }
+}
+
+impl ApiClient for BedrockRuntimeClient {
+    fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+        let body_bytes = self.build_body(&request)?;
+
+        let host = format!(
+            "bedrock-runtime.{}.amazonaws.com",
+            self.config.region
+        );
+        // Use the streaming endpoint
+        let path = format!("/model/{}/invoke-with-response-stream", self.config.model_id);
+        let url = format!("https://{host}{path}");
+
+        let builder = self
+            .http
+            .post(&url)
+            .body(body_bytes.clone());
+        let builder = self.add_auth(builder, &body_bytes, &host, &path);
 
         self.runtime.block_on(async {
             let resp = tokio::select! {
@@ -350,63 +618,172 @@ impl ApiClient for BedrockRuntimeClient {
                 )));
             }
 
-            let resp_val: serde_json::Value = resp
-                .json()
-                .await
-                .map_err(|e| RuntimeError::new(format!("Failed to parse Bedrock response: {e}")))?;
+            // Collect the full response body then decode frames.
+            // reqwest's bytes_stream() would allow incremental processing but
+            // for simplicity (and because we want Ctrl-C support) we read all
+            // bytes and then process the event-stream frames synchronously.
+            let body_bytes = tokio::select! {
+                result = resp.bytes() => {
+                    result.map_err(|e| RuntimeError::new(format!("Bedrock read error: {e}")))?
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("\nInterrupted.");
+                    return Ok(vec![
+                        AssistantEvent::TextDelta("[Interrupted]".to_string()),
+                        AssistantEvent::MessageStop,
+                    ]);
+                }
+            };
 
             let mut events: Vec<AssistantEvent> = Vec::new();
             let mut stdout = io::stdout();
+            let mut pending_tool: Option<(String, String, String)> = None;
+            let mut usage_acc: Option<TokenUsage> = None;
+            let mut saw_stop = false;
 
-            if let Some(content) = resp_val.get("content").and_then(|v| v.as_array()) {
-                for block in content {
-                    match block.get("type").and_then(|v| v.as_str()).unwrap_or("") {
-                        "text" => {
-                            let text = block.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                            if !text.is_empty() {
-                                let _ = write!(stdout, "{text}");
-                                let _ = stdout.flush();
-                                events.push(AssistantEvent::TextDelta(text.to_string()));
+            let buf = body_bytes.as_ref();
+            let mut offset = 0;
+
+            while offset < buf.len() {
+                match decode_frame(buf, offset) {
+                    Some((event_type, payload, next_offset)) => {
+                        offset = next_offset;
+                        // We only care about "chunk" events — everything else
+                        // (e.g. "initial-response", "end") is ignored.
+                        if event_type == "chunk" {
+                            if let Ok(chunk_json) = serde_json::from_slice::<serde_json::Value>(&payload) {
+                                // Bedrock wraps the Anthropic payload in {"bytes": "<base64>"}
+                                let inner = if let Some(b64) = chunk_json
+                                    .get("bytes")
+                                    .and_then(|v| v.as_str())
+                                {
+                                    use_base64_decode(b64)
+                                        .and_then(|decoded| serde_json::from_slice(&decoded).ok())
+                                        .unwrap_or(chunk_json)
+                                } else {
+                                    chunk_json
+                                };
+
+                                let stopped = process_bedrock_chunk(
+                                    &inner,
+                                    &mut stdout,
+                                    &mut events,
+                                    &mut pending_tool,
+                                    &mut usage_acc,
+                                )
+                                .map_err(|e| RuntimeError::new(e.to_string()))?;
+                                if stopped {
+                                    saw_stop = true;
+                                }
                             }
                         }
-                        "tool_use" => {
-                            let id = block
-                                .get("id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let name = block
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let input = block
-                                .get("input")
-                                .map(|v| v.to_string())
-                                .unwrap_or_default();
-                            events.push(AssistantEvent::ToolUse { id, name, input });
-                        }
-                        _ => {}
+                    }
+                    None => {
+                        // Incomplete frame or end of buffer
+                        break;
                     }
                 }
             }
 
-            let usage = resp_val.get("usage");
-            let get_u32 = |key: &str| -> u32 {
-                usage
-                    .and_then(|u| u.get(key))
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32
-            };
-            events.push(AssistantEvent::Usage(TokenUsage {
-                input_tokens: get_u32("input_tokens"),
-                output_tokens: get_u32("output_tokens"),
-                cache_creation_input_tokens: get_u32("cache_creation_input_tokens"),
-                cache_read_input_tokens: get_u32("cache_read_input_tokens"),
-            }));
-            events.push(AssistantEvent::MessageStop);
+            // Flush any pending tool that didn't get a content_block_stop
+            if let Some((id, name, input)) = pending_tool.take() {
+                events.push(AssistantEvent::ToolUse { id, name, input });
+            }
+
+            if let Some(usage) = usage_acc {
+                events.push(AssistantEvent::Usage(usage));
+            }
+
+            if !saw_stop {
+                // Ensure conversation runtime doesn't error on missing stop
+                events.push(AssistantEvent::MessageStop);
+            } else {
+                events.push(AssistantEvent::MessageStop);
+            }
 
             Ok(events)
         })
     }
+}
+
+/// Minimal base64 decoder (standard alphabet, with padding).
+/// Avoids adding a dependency — only used here for Bedrock chunk decoding.
+fn use_base64_decode(input: &str) -> Option<Vec<u8>> {
+    const TABLE: [u8; 128] = {
+        let mut t = [0xff_u8; 128];
+        let mut i = 0_u8;
+        loop {
+            let c = b'A' + i;
+            if c > b'Z' { break; }
+            t[c as usize] = i;
+            i += 1;
+        }
+        let mut i = 0_u8;
+        loop {
+            let c = b'a' + i;
+            if c > b'z' { break; }
+            t[c as usize] = 26 + i;
+            i += 1;
+        }
+        let mut i = 0_u8;
+        loop {
+            if i > 9 { break; }
+            t[(b'0' + i) as usize] = 52 + i;
+            i += 1;
+        }
+        t[b'+' as usize] = 62;
+        t[b'/' as usize] = 63;
+        t
+    };
+
+    let input = input.trim_end_matches('=');
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4 + 1);
+    let mut i = 0;
+    while i + 3 < bytes.len() {
+        let b0 = bytes[i];
+        let b1 = bytes[i + 1];
+        let b2 = bytes[i + 2];
+        let b3 = bytes[i + 3];
+        if b0 > 127 || b1 > 127 || b2 > 127 || b3 > 127 {
+            return None;
+        }
+        let v0 = TABLE[b0 as usize];
+        let v1 = TABLE[b1 as usize];
+        let v2 = TABLE[b2 as usize];
+        let v3 = TABLE[b3 as usize];
+        if v0 == 0xff || v1 == 0xff || v2 == 0xff || v3 == 0xff {
+            return None;
+        }
+        let combined = (u32::from(v0) << 18)
+            | (u32::from(v1) << 12)
+            | (u32::from(v2) << 6)
+            | u32::from(v3);
+        out.push((combined >> 16) as u8);
+        out.push((combined >> 8) as u8);
+        out.push(combined as u8);
+        i += 4;
+    }
+    // remaining 2 or 3 chars
+    match bytes.len() - i {
+        2 => {
+            if bytes[i] > 127 || bytes[i + 1] > 127 { return None; }
+            let v0 = TABLE[bytes[i] as usize];
+            let v1 = TABLE[bytes[i + 1] as usize];
+            if v0 == 0xff || v1 == 0xff { return None; }
+            out.push(((u32::from(v0) << 2) | (u32::from(v1) >> 4)) as u8);
+        }
+        3 => {
+            if bytes[i] > 127 || bytes[i + 1] > 127 || bytes[i + 2] > 127 { return None; }
+            let v0 = TABLE[bytes[i] as usize];
+            let v1 = TABLE[bytes[i + 1] as usize];
+            let v2 = TABLE[bytes[i + 2] as usize];
+            if v0 == 0xff || v1 == 0xff || v2 == 0xff { return None; }
+            let combined = (u32::from(v0) << 10) | (u32::from(v1) << 4) | (u32::from(v2) >> 2);
+            out.push((combined >> 8) as u8);
+            out.push(combined as u8);
+        }
+        _ => {}
+    }
+    Some(out)
 }

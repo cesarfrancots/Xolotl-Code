@@ -1,6 +1,6 @@
 use runtime::{
-    edit_file, execute_bash, glob_search, grep_search, read_file, write_file, BashCommandInput,
-    GrepSearchInput,
+    edit_file, execute_bash, glob_search, grep_search, read_file, todo_read, todo_write, web_fetch,
+    write_file, BashCommandInput, GrepSearchInput, TodoWriteInput, WebFetchInput,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -39,6 +39,25 @@ pub struct ToolSpec {
     pub name: &'static str,
     pub description: &'static str,
     pub input_schema: Value,
+}
+
+/// Like `ToolSpec` but with owned `String` fields — used for dynamic tools
+/// such as MCP server tools whose names aren't known at compile time.
+#[derive(Debug, Clone)]
+pub struct DynamicToolSpec {
+    pub name: String,
+    pub description: String,
+    pub input_schema: Value,
+}
+
+impl From<&ToolSpec> for DynamicToolSpec {
+    fn from(s: &ToolSpec) -> Self {
+        Self {
+            name: s.name.to_string(),
+            description: s.description.to_string(),
+            input_schema: s.input_schema.clone(),
+        }
+    }
 }
 
 #[must_use]
@@ -140,6 +159,78 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
                 "additionalProperties": false
             }),
         },
+        ToolSpec {
+            name: "web_fetch",
+            description: "Fetch the content of a URL. Returns the page text (HTML is converted to readable text). Use start_index and max_length to paginate large pages.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch (http:// or https:// only)"
+                    },
+                    "max_length": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Maximum characters to return (default: 20000)"
+                    },
+                    "start_index": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Character offset to start from (default: 0)"
+                    },
+                    "raw": {
+                        "type": "boolean",
+                        "description": "If true, return raw HTML/text without conversion"
+                    }
+                },
+                "required": ["url"],
+                "additionalProperties": false
+            }),
+        },
+        ToolSpec {
+            name: "todo_write",
+            description: "Create and manage a structured task list. Call this tool proactively when starting complex tasks, when a user provides multiple tasks, or after completing tasks to track progress. The todo list persists across sessions. Pass the COMPLETE updated list every time — it replaces the previous list entirely.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "todos": {
+                        "type": "array",
+                        "description": "The complete updated todo list",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string", "description": "Unique identifier" },
+                                "content": { "type": "string", "description": "Task description" },
+                                "status": {
+                                    "type": "string",
+                                    "enum": ["pending", "in_progress", "completed", "cancelled"],
+                                    "description": "Current status"
+                                },
+                                "priority": {
+                                    "type": "string",
+                                    "enum": ["high", "medium", "low"],
+                                    "description": "Priority level"
+                                }
+                            },
+                            "required": ["id", "content", "status", "priority"],
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "required": ["todos"],
+                "additionalProperties": false
+            }),
+        },
+        ToolSpec {
+            name: "todo_read",
+            description: "Read the current todo list. Use this to check on pending tasks at the start of a session or when the user asks about outstanding work.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+            }),
+        },
     ]
 }
 
@@ -151,6 +242,9 @@ pub fn execute_tool(name: &str, input: &Value) -> Result<String, String> {
         "edit_file" => from_value::<EditFileInput>(input).and_then(run_edit_file),
         "glob_search" => from_value::<GlobSearchInputValue>(input).and_then(run_glob_search),
         "grep_search" => from_value::<GrepSearchInput>(input).and_then(run_grep_search),
+        "web_fetch" => from_value::<WebFetchInput>(input).and_then(run_web_fetch),
+        "todo_write" => from_value::<TodoWriteInput>(input).and_then(run_todo_write),
+        "todo_read" => run_todo_read(),
         _ => Err(format!("unsupported tool: {name}")),
     }
 }
@@ -190,6 +284,18 @@ fn run_glob_search(input: GlobSearchInputValue) -> Result<String, String> {
 
 fn run_grep_search(input: GrepSearchInput) -> Result<String, String> {
     to_pretty_json(grep_search(&input).map_err(io_to_string)?)
+}
+
+fn run_web_fetch(input: WebFetchInput) -> Result<String, String> {
+    to_pretty_json(web_fetch(&input)?)
+}
+
+fn run_todo_write(input: TodoWriteInput) -> Result<String, String> {
+    to_pretty_json(todo_write(&input)?)
+}
+
+fn run_todo_read() -> Result<String, String> {
+    to_pretty_json(todo_read()?)
 }
 
 fn to_pretty_json<T: serde::Serialize>(value: T) -> Result<String, String> {

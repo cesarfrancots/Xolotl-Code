@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use runtime::{AssistantEvent, ContentBlock, ConversationMessage, MessageRole, RuntimeError, TokenUsage};
-use tools::mvp_tool_specs;
+use tools::DynamicToolSpec;
 
 // ── Provider config ────────────────────────────────────────────────────────────
 
@@ -299,15 +299,15 @@ pub fn to_openai_messages(
 }
 
 /// Convert our tool specs to OpenAI's function-calling format.
-pub fn to_openai_tools() -> Vec<OaiTool> {
-    mvp_tool_specs()
-        .into_iter()
+pub fn to_openai_tools(specs: &[DynamicToolSpec]) -> Vec<OaiTool> {
+    specs
+        .iter()
         .map(|spec| OaiTool {
             tool_type: "function".to_string(),
             function: OaiToolDef {
-                name: spec.name.to_string(),
-                description: Some(spec.description.to_string()),
-                parameters: spec.input_schema,
+                name: spec.name.clone(),
+                description: Some(spec.description.clone()),
+                parameters: spec.input_schema.clone(),
             },
         })
         .collect()

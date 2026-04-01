@@ -8,7 +8,9 @@ mod json;
 mod permissions;
 mod prompt;
 mod session;
+mod todo;
 mod usage;
+mod web_fetch;
 
 pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
 pub use bootstrap::{BootstrapPhase, BootstrapPlan};
@@ -38,4 +40,6 @@ pub use prompt::{
     SystemPromptBuilder, FRONTIER_MODEL_NAME, SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
 };
 pub use session::{ContentBlock, ConversationMessage, MessageRole, Session, SessionError};
+pub use todo::{todo_read, todo_write, TodoItem, TodoOutput, TodoPriority, TodoStatus, TodoWriteInput};
 pub use usage::{TokenUsage, UsageTracker};
+pub use web_fetch::{web_fetch, WebFetchInput, WebFetchOutput};
