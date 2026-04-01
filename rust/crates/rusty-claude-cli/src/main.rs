@@ -193,37 +193,91 @@ fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
 /// Prints a one-line preview of each tool call and waits for y/n/a.
 struct ReplPermissionPrompter {
     always_allow: HashSet<String>,
+    /// If true, every tool call is auto-approved without prompting.
+    auto_accept: bool,
 }
 
 impl ReplPermissionPrompter {
-    fn new() -> Self {
+    fn new(auto_accept: bool) -> Self {
         Self {
             always_allow: HashSet::new(),
+            auto_accept,
         }
+    }
+
+    fn set_auto_accept(&mut self, on: bool) {
+        self.auto_accept = on;
     }
 }
 
 impl PermissionPrompter for ReplPermissionPrompter {
     fn decide(&mut self, request: &PermissionRequest) -> PermissionPromptDecision {
+        // Auto-accept: skip all prompts
+        if self.auto_accept {
+            return PermissionPromptDecision::Allow;
+        }
         if self.always_allow.contains(&request.tool_name) {
             return PermissionPromptDecision::Allow;
         }
-        let preview: String = request.input.chars().take(120).collect();
+
+        // ── Styled permission prompt ──────────────────────────────────────────
+        let preview: String = request.input.chars().take(200).collect();
+        let display_name = request.tool_name.strip_prefix("mcp__").unwrap_or(&request.tool_name);
+        let width = 52usize;
+        let bar = style::BOX_H.repeat(width);
+
         eprintln!();
-        eprintln!("  Tool:  {}", request.tool_name);
-        eprintln!("  Input: {preview}");
-        eprint!("  Allow? [y]es / [n]o / [a]lways : ");
+        eprintln!("  {}{}{}{}{}",
+            style::YELLOW, style::BOX_TL, bar, style::BOX_TR, style::RESET);
+        eprintln!("  {}{}{}  {}Permission required{}  {}{}{}",
+            style::YELLOW, style::BOX_V, style::RESET,
+            style::WHITE_BOLD, style::RESET,
+            style::YELLOW, style::BOX_V, style::RESET);
+        eprintln!("  {}{}{}",
+            style::YELLOW, style::BOX_V, style::RESET);
+        eprintln!("  {}{}{}  {}tool{}   {}{}",
+            style::YELLOW, style::BOX_V, style::RESET,
+            style::CYAN, style::RESET, display_name, "");
+        // Print input preview (wrapping at width-4)
+        let wrap_width = width.saturating_sub(9);
+        let input_clean: String = preview.replace('\n', " ").replace('\t', " ");
+        let input_line = if input_clean.chars().count() > wrap_width {
+            format!("{}…", input_clean.chars().take(wrap_width.saturating_sub(1)).collect::<String>())
+        } else {
+            input_clean
+        };
+        eprintln!("  {}{}{}  {}input{}  {}{}",
+            style::YELLOW, style::BOX_V, style::RESET,
+            style::CYAN, style::RESET, input_line, "");
+        eprintln!("  {}{}{}",
+            style::YELLOW, style::BOX_V, style::RESET);
+        eprintln!("  {}{}{}  {}[y]{} Allow  {}[n]{} Deny  {}[a]{} Always  {}[!]{} Accept all",
+            style::YELLOW, style::BOX_V, style::RESET,
+            style::GREEN, style::RESET,
+            style::RED, style::RESET,
+            style::CYAN, style::RESET,
+            style::ACCENT, style::RESET);
+        eprintln!("  {}{}{}{}{}",
+            style::YELLOW, style::BOX_BL, bar, style::BOX_BR, style::RESET);
+        eprint!("  {} ", style::PROMPT_ARROW);
         let _ = io::stderr().flush();
+
         let mut line = String::new();
         if io::stdin().lock().read_line(&mut line).is_err() {
             return PermissionPromptDecision::Deny {
                 reason: "could not read permission response".to_string(),
             };
         }
-        match line.trim() {
+        match line.trim().to_lowercase().as_str() {
             "y" | "yes" | "" => PermissionPromptDecision::Allow,
             "a" | "always" => {
                 self.always_allow.insert(request.tool_name.clone());
+                PermissionPromptDecision::Allow
+            }
+            "!" | "accept-all" => {
+                self.auto_accept = true;
+                eprintln!("  {}{}  Auto-accept mode enabled for this session.{}",
+                    style::ACCENT, style::WARN_SYM, style::RESET);
                 PermissionPromptDecision::Allow
             }
             _ => PermissionPromptDecision::Deny {
@@ -259,8 +313,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             session_path,
             command,
         } => resume_session(&session_path, command),
-        CliAction::Prompt { prompt, model } => LiveCli::new(model, false)?.run_turn(&prompt)?,
-        CliAction::Repl { model } => run_repl(model)?,
+        CliAction::Prompt { prompt, model } => LiveCli::new(model, false, false)?.run_turn(&prompt)?,
+        CliAction::Repl { model, auto_accept } => run_repl(model, auto_accept)?,
         CliAction::Setup => run_setup()?,
         CliAction::Help => print_help(),
     }
@@ -285,6 +339,7 @@ enum CliAction {
     },
     Repl {
         model: String,
+        auto_accept: bool,
     },
     Setup,
     Help,
@@ -292,6 +347,7 @@ enum CliAction {
 
 fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut model = default_model();
+    let mut auto_accept = false;
     let mut rest = Vec::new();
     let mut index = 0;
 
@@ -308,6 +364,11 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 model = flag[8..].to_string();
                 index += 1;
             }
+            // Auto-accept flags (all equivalent)
+            "--yes" | "-y" | "--dangerously-skip-permissions" | "-Y" => {
+                auto_accept = true;
+                index += 1;
+            }
             other => {
                 rest.push(other.to_string());
                 index += 1;
@@ -316,7 +377,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     if rest.is_empty() {
-        return Ok(CliAction::Repl { model });
+        return Ok(CliAction::Repl { model, auto_accept });
     }
     if matches!(rest.first().map(String::as_str), Some("--help" | "-h")) {
         return Ok(CliAction::Help);
@@ -458,41 +519,11 @@ fn resume_session(session_path: &Path, command: Option<String>) {
     }
 }
 
-fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
-    let mut cli = LiveCli::new(model, true)?;
+fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut cli = LiveCli::new(model, true, auto_accept)?;
     let mut editor = input::LineEditor::new("› ");
 
-    // ── Startup banner ─────────────────────────────────────────────────────────
-    use style::*;
-    println!();
-    println!(
-        "  {ACCENT}{BOLD}  claw{RESET}  {MUTED}v0.1.0{RESET}"
-    );
-    println!(
-        "  {MUTED}{DIVIDER_SHORT}{RESET}"
-    );
-    println!(
-        "  {MUTED}model{RESET}    {WHITE_BOLD}{}{RESET}",
-        format_model(&cli.model)
-    );
-    println!(
-        "  {MUTED}session{RESET}  {MUTED}{}{RESET}",
-        cli.auto_save_path.display()
-    );
-    {
-        let mcp_tool_count = cli.mcp.lock().map(|m| m.tools.len()).unwrap_or(0);
-        if mcp_tool_count > 0 {
-            println!(
-                "  {MUTED}mcp{RESET}      {GREEN}{mcp_tool_count}{RESET}{MUTED} tool{} loaded{RESET}",
-                if mcp_tool_count == 1 { "" } else { "s" }
-            );
-        }
-    }
-    println!();
-    println!(
-        "  {MUTED}/help for commands {DOT} Shift+Enter for newlines {DOT} {ARROW_UP}/{ARROW_DOWN} for history{RESET}"
-    );
-    println!();
+    print_startup_banner(&cli);
 
     while let Some(input) = editor.read_line()? {
         let trimmed = input.trim();
@@ -515,6 +546,7 @@ fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
                 "/doctor" => run_doctor(),
                 "/init" => run_init()?,
                 "/sessions" => list_sessions(),
+                "/accept-all" | "/permissions" => cli.toggle_auto_accept(),
                 "/budget" => {
                     if let Some(amount) = parts.get(1).and_then(|s| s.trim().parse::<f64>().ok()) {
                         cli.set_budget(amount);
@@ -526,18 +558,7 @@ fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(name) = parts.get(1).copied() {
                         cli.set_model(name.trim())?;
                     } else {
-                        use style::*;
-                        println!();
-                        print_kv("current", &format_model(&cli.model));
-                        println!();
-                        print_muted("Usage:  /model <name>");
-                        println!();
-                        print_muted("Aliases:");
-                        println!("    {CYAN}sonnet{RESET}     Sonnet 4.6       {CYAN}opus{RESET}       Opus 4.6");
-                        println!("    {CYAN}sonnet4.5{RESET}  Sonnet 4.5       {CYAN}opus4.5{RESET}    Opus 4.5");
-                        println!("    {CYAN}sonnet4{RESET}    Sonnet 4         {CYAN}opus4{RESET}      Opus 4");
-                        println!("    {CYAN}haiku{RESET}      Haiku 4.5        {CYAN}opusplan{RESET}   Opus plans + Sonnet runs");
-                        println!();
+                        print_model_help(&cli.model);
                     }
                 }
                 other => {
@@ -559,8 +580,72 @@ fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
         cli.run_turn(trimmed)?;
     }
 
-    println!("\n  {}Bye.{}\n", style::MUTED, style::RESET);
+    println!("\n  {}{}{}\n",
+        style::MUTED, "Bye.", style::RESET);
     Ok(())
+}
+
+fn print_startup_banner(cli: &LiveCli) {
+    use style::*;
+
+    // Gather info
+    let model_display = format_model(&cli.model);
+    let cwd = env::current_dir()
+        .map(|p| shorten_path(&p))
+        .unwrap_or_else(|_| ".".to_string());
+    let mcp_count = cli.mcp.lock().map(|m| m.tools.len()).unwrap_or(0);
+    let builtin_count = tools::mvp_tool_specs().len();
+    let tool_str = if mcp_count > 0 {
+        format!("{builtin_count} built-in  {ACCENT}{SPARKLE}{RESET} {mcp_count} MCP")
+    } else {
+        format!("{builtin_count} built-in")
+    };
+    let mode_str = if cli.auto_accept {
+        format!("{YELLOW}{WARN_SYM} auto-accept (all tools approved){RESET}")
+    } else {
+        format!("{MUTED}prompt for writes{RESET}")
+    };
+
+    // Inner width of the box (between the vertical bars)
+    let inner = 52usize;
+    let bar   = BOX_H.repeat(inner);
+    let pad   = |s: &str| {
+        let vis = strip_ansi_len(s);
+        let p   = inner.saturating_sub(2).saturating_sub(vis);
+        format!("  {ACCENT}{BOX_V}{RESET}  {s}{}{ACCENT}{BOX_V}{RESET}", " ".repeat(p))
+    };
+
+    println!();
+    println!("  {ACCENT}{BOX_TL}{bar}{BOX_TR}{RESET}");
+    // Logo row
+    let logo = format!("{ACCENT}{BOLD}{CLAW_ICON} claw{RESET}  {MUTED}v0.1.0{RESET}");
+    println!("{}", pad(&logo));
+    // Divider row
+    let div_inner = BOX_H.repeat(inner.saturating_sub(2));
+    println!("  {ACCENT}{BOX_V}{BOX_LM}{div_inner}{BOX_RM}{BOX_V}{RESET}");
+    // model
+    let model_row = format!("{GRAY}model   {RESET}{WHITE_BOLD}{model_display}{RESET}");
+    println!("{}", pad(&model_row));
+    // cwd
+    let cwd_row = format!("{GRAY}cwd     {RESET}{MUTED}{cwd}{RESET}");
+    println!("{}", pad(&cwd_row));
+    // tools
+    let tools_row = format!("{GRAY}tools   {RESET}{tool_str}");
+    println!("{}", pad(&tools_row));
+    // mode
+    let mode_row = format!("{GRAY}mode    {RESET}{mode_str}");
+    println!("{}", pad(&mode_row));
+    // Divider row before session
+    println!("  {ACCENT}{BOX_V}{BOX_LM}{div_inner}{BOX_RM}{BOX_V}{RESET}");
+    // session path
+    let sess_short = shorten_path(&cli.auto_save_path);
+    let sess_row = format!("{GRAY}session {RESET}{MUTED}{sess_short}{RESET}");
+    println!("{}", pad(&sess_row));
+    // Bottom
+    println!("  {ACCENT}{BOX_BL}{bar}{BOX_BR}{RESET}");
+    println!();
+    println!("  {MUTED}/help for commands  ·  {ARROW_UP}/{ARROW_DOWN} history  ·  Shift+Enter newline{RESET}");
+    println!();
 }
 
 fn print_slash_help() {
@@ -568,20 +653,34 @@ fn print_slash_help() {
     println!();
     println!("  {WHITE_BOLD}Commands{RESET}");
     println!("  {MUTED}{DIVIDER_SHORT}{RESET}");
-    println!("  {CYAN}/help{RESET}               show this help");
-    println!("  {CYAN}/status{RESET}             token usage & cost");
-    println!("  {CYAN}/cost{RESET}               detailed cost breakdown");
-    println!("  {CYAN}/budget{RESET} {MUTED}<usd>{RESET}       set/show spending limit");
-    println!("  {CYAN}/compact{RESET}            compact session history");
-    println!("  {CYAN}/clear{RESET}              clear session and start fresh");
-    println!("  {CYAN}/model{RESET} {MUTED}<name>{RESET}       switch model");
-    println!("  {CYAN}/mcp{RESET}                list connected MCP servers");
-    println!("  {CYAN}/sessions{RESET}           list saved sessions");
-    println!("  {CYAN}/doctor{RESET}             check config & credentials");
-    println!("  {CYAN}/init{RESET}               generate CLAUDE.md for this project");
-    println!("  {CYAN}/save{RESET}               save session to disk");
-    println!("  {CYAN}/exit{RESET}               quit");
-    println!("  {MUTED}{ARROW_UP}/{ARROW_DOWN} arrows to browse input history{RESET}");
+    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Conversation  {CYAN}/clear{RESET} · {CYAN}/compact{RESET} · {CYAN}/save{RESET} · {CYAN}/model{RESET}");
+    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Info          {CYAN}/status{RESET} · {CYAN}/cost{RESET} · {CYAN}/budget{RESET} · {CYAN}/sessions{RESET}");
+    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Tools         {CYAN}/mcp{RESET} · {CYAN}/permissions{RESET} · {CYAN}/accept-all{RESET}");
+    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Project       {CYAN}/init{RESET} · {CYAN}/doctor{RESET}");
+    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Session       {CYAN}/help{RESET} · {CYAN}/exit{RESET}");
+    println!();
+    println!("  {GRAY}Keyboard{RESET}");
+    println!("  {MUTED}  {ARROW_UP}/{ARROW_DOWN}   Browse input history{RESET}");
+    println!("  {MUTED}  Shift+Enter   Insert newline{RESET}");
+    println!("  {MUTED}  Ctrl+C        Cancel current input{RESET}");
+    println!();
+}
+
+fn print_model_help(current: &str) {
+    use style::*;
+    println!();
+    println!("  {GRAY}current{RESET}  {WHITE_BOLD}{}{RESET}", format_model(current));
+    println!();
+    println!("  {MUTED}Usage: /model <alias or full-id>{RESET}");
+    println!();
+    println!("  {CYAN}sonnet{RESET}       Claude Sonnet 4.6  {GRAY}(default){RESET}");
+    println!("  {CYAN}opus{RESET}         Claude Opus 4.6");
+    println!("  {CYAN}haiku{RESET}        Claude Haiku 4.5   {GRAY}(fast · cheap){RESET}");
+    println!("  {CYAN}sonnet4.5{RESET}    Claude Sonnet 4.5");
+    println!("  {CYAN}opus4.5{RESET}      Claude Opus 4.5");
+    println!("  {CYAN}opusplan{RESET}     Opus 4.6 plans, Sonnet 4.6 executes");
+    println!();
+    println!("  {MUTED}Dual model:  /model opus+sonnet{RESET}");
     println!();
 }
 
@@ -596,10 +695,14 @@ struct LiveCli {
     mcp: Arc<Mutex<McpManager>>,
     /// Optional spending limit in USD. None = no limit.
     budget_limit: Option<f64>,
+    /// When true, all tool calls are auto-approved without prompting.
+    auto_accept: bool,
+    /// Timestamp when last turn started (for duration display).
+    turn_start: Option<std::time::Instant>,
 }
 
 impl LiveCli {
-    fn new(model: String, enable_tools: bool) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(model: String, enable_tools: bool, auto_accept: bool) -> Result<Self, Box<dyn std::error::Error>> {
         // Connect to MCP servers (errors are warnings, not fatal)
         let mcp = Arc::new(Mutex::new(McpManager::connect()));
         let system_prompt = build_system_prompt()?;
@@ -622,24 +725,44 @@ impl LiveCli {
             model,
             system_prompt,
             runtime,
-            prompter: ReplPermissionPrompter::new(),
+            prompter: ReplPermissionPrompter::new(auto_accept),
             auto_save_path,
             mcp,
             budget_limit: None,
+            auto_accept,
+            turn_start: None,
         })
     }
 
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
+        use style::fmt_num;
         println!(); // breathing room before response
+        self.turn_start = Some(std::time::Instant::now());
         let result = self.runtime.run_turn(input, Some(&mut self.prompter));
+        let elapsed = self.turn_start.take().map(|s| s.elapsed()).unwrap_or_default();
         match result {
             Ok(_) => {
                 let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
                 let usage = self.runtime.usage().cumulative_usage();
+                let secs = elapsed.as_secs_f64();
+                let dur_str = if secs < 60.0 {
+                    format!("{secs:.1}s")
+                } else {
+                    format!("{:.0}m{:.0}s", secs / 60.0, secs % 60.0)
+                };
                 println!(
-                    "\n  {}{}{} {}{}  ${cost:.4}{}",
-                    style::MUTED, style::ARROW_UP, usage.input_tokens,
-                    style::ARROW_DOWN, usage.output_tokens, style::RESET,
+                    "\n  {muted}{up}{in_tok} in · {down}{out_tok} out{cache_str}  ·  ${cost:.4}  ·  {dur}{reset}",
+                    muted  = style::MUTED,
+                    up     = style::ARROW_UP,
+                    in_tok = fmt_num(usage.input_tokens),
+                    down   = style::ARROW_DOWN,
+                    out_tok= fmt_num(usage.output_tokens),
+                    cache_str = if usage.cache_read_input_tokens > 0 {
+                        format!(" · {}✦ {} cached{}", style::ACCENT, fmt_num(usage.cache_read_input_tokens), style::MUTED)
+                    } else { String::new() },
+                    cost   = cost,
+                    dur    = dur_str,
+                    reset  = style::RESET,
                 );
                 // Auto-save after every successful turn
                 if let Err(e) = self.runtime.session().save_to_path(&self.auto_save_path) {
@@ -654,20 +777,86 @@ impl LiveCli {
         }
     }
 
+    fn toggle_auto_accept(&mut self) {
+        self.auto_accept = !self.auto_accept;
+        self.prompter.set_auto_accept(self.auto_accept);
+        if self.auto_accept {
+            println!();
+            println!("  {}{}{}  {}Auto-accept ON{} — all tool calls approved automatically",
+                style::YELLOW, style::WARN_SYM, style::RESET,
+                style::YELLOW, style::RESET);
+            println!("  {}  Run /accept-all again to turn off{}",
+                style::MUTED, style::RESET);
+            println!();
+        } else {
+            style::print_ok("Auto-accept OFF — tool calls will prompt for permission.");
+        }
+    }
+
     fn print_status(&self) {
+        use style::*;
         let usage = self.runtime.usage().cumulative_usage();
         let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
-        style::print_header("Session");
-        style::print_kv("model", &style::format_model(&self.model));
-        style::print_kv("messages", &self.runtime.session().messages.len().to_string());
-        style::print_kv("turns", &self.runtime.usage().turns().to_string());
-        style::print_kv(&format!("{} tokens", style::ARROW_UP), &usage.input_tokens.to_string());
-        style::print_kv(&format!("{} tokens", style::ARROW_DOWN), &usage.output_tokens.to_string());
-        println!(
-            "  {}cost{RESET}          {}{WHITE_BOLD}${cost:.4}{RESET}",
-            style::CYAN, style::RESET,
-            RESET = style::RESET, WHITE_BOLD = style::WHITE_BOLD,
-        );
+        let mode_str = if self.auto_accept {
+            format!("{YELLOW}{WARN_SYM} auto-accept{RESET}")
+        } else {
+            format!("{MUTED}prompt for writes{RESET}")
+        };
+        let cwd = env::current_dir()
+            .map(|p| shorten_path(&p))
+            .unwrap_or_else(|_| ".".to_string());
+
+        print_header("Session");
+        print_kv_w("model",    &format_model(&self.model), 12);
+        print_kv_w("cwd",      &format!("{MUTED}{cwd}{RESET}"), 12);
+        print_kv_w("mode",     &mode_str, 12);
+        print_kv_w("turns",    &self.runtime.usage().turns().to_string(), 12);
+        print_kv_w("messages", &fmt_num(self.runtime.session().messages.len() as u32), 12);
+        println!("  {MUTED}──────────────────────────────────{RESET}");
+        print_kv_w(&format!("{ARROW_UP} in"),   &fmt_num(usage.input_tokens), 12);
+        print_kv_w(&format!("{ARROW_DOWN} out"),  &fmt_num(usage.output_tokens), 12);
+        if usage.cache_read_input_tokens > 0 {
+            print_kv_w(&format!("{SPARKLE} cached"), &fmt_num(usage.cache_read_input_tokens), 12);
+        }
+        println!("  {MUTED}──────────────────────────────────{RESET}");
+        println!("  {CYAN}{:<12}{RESET}{WHITE_BOLD}${cost:.4}{RESET}", "cost");
+        println!();
+    }
+
+    fn print_cost(&self) {
+        use style::*;
+        let usage = self.runtime.usage().cumulative_usage();
+        let primary = primary_model_name(&self.model);
+        let cost = self.runtime.usage().cost_usd(primary);
+
+        // Compute cache savings estimate (cache reads are ~10x cheaper)
+        let saved = if usage.cache_read_input_tokens > 0 {
+            let full_cost = (usage.cache_read_input_tokens as f64 / 1_000_000.0) * 3.0; // $3/MTok full rate
+            let cache_cost = (usage.cache_read_input_tokens as f64 / 1_000_000.0) * 0.3; // ~$0.30/MTok cached
+            full_cost - cache_cost
+        } else { 0.0 };
+
+        print_header("Cost breakdown");
+        if let Some(plus) = self.model.find('+') {
+            print_kv_w("planner",  &friendly_model_name(&self.model[..plus]), 14);
+            print_kv_w("executor", &friendly_model_name(&self.model[plus + 1..]), 14);
+        } else {
+            print_kv_w("model", &format_model(&self.model), 14);
+        }
+        println!("  {MUTED}──────────────────────────────────{RESET}");
+        print_kv_w(&format!("{ARROW_UP} input"),    &fmt_num(usage.input_tokens), 14);
+        print_kv_w(&format!("{ARROW_DOWN} output"),   &fmt_num(usage.output_tokens), 14);
+        if usage.cache_creation_input_tokens > 0 {
+            print_kv_w("cache write", &fmt_num(usage.cache_creation_input_tokens), 14);
+        }
+        if usage.cache_read_input_tokens > 0 {
+            print_kv_w("cache read",  &fmt_num(usage.cache_read_input_tokens), 14);
+        }
+        println!("  {MUTED}──────────────────────────────────{RESET}");
+        println!("  {CYAN}{:<14}{RESET}{WHITE_BOLD}${cost:.4}{RESET}", "total cost");
+        if saved > 0.0001 {
+            println!("  {CYAN}{:<14}{RESET}{GREEN}${saved:.4} saved{RESET}  {MUTED}(via prompt cache){RESET}", "cache saved");
+        }
         println!();
     }
 
@@ -717,47 +906,25 @@ impl LiveCli {
         self.model = expanded.clone();
         if let Some(i) = expanded.find('+') {
             style::print_ok(&format!(
-                "Dual model  {}planner{} {} {}+{} {}executor{} {}",
-                style::CYAN, style::RESET, &expanded[..i],
+                "Dual model  {}{}+{}{}",
+                style::friendly_model_name(&expanded[..i]),
                 style::MUTED, style::RESET,
-                style::CYAN, style::RESET, &expanded[i + 1..]
+                style::friendly_model_name(&expanded[i + 1..]),
             ));
         } else {
-            style::print_ok(&format!("Model {ARROW} {BOLD}{}{RESET}",
-                style::format_model(&expanded),
-                ARROW = style::ARROW_RIGHT, BOLD = style::WHITE_BOLD, RESET = style::RESET));
+            style::print_ok(&format!("Model {} {}",
+                style::ARROW_RIGHT,
+                style::friendly_model_name(&expanded)));
         }
         Ok(())
     }
 
     fn save_session(&self) -> Result<(), Box<dyn std::error::Error>> {
         self.runtime.session().save_to_path(&self.auto_save_path)?;
-        style::print_ok(&format!("Saved {ARROW} {MUTED}{}{RESET}",
-            self.auto_save_path.display(),
-            ARROW = style::ARROW_RIGHT, MUTED = style::MUTED, RESET = style::RESET));
+        style::print_ok(&format!("Saved {} {}",
+            style::ARROW_RIGHT,
+            style::shorten_path(&self.auto_save_path)));
         Ok(())
-    }
-
-    fn print_cost(&self) {
-        let usage = self.runtime.usage().cumulative_usage();
-        let primary = primary_model_name(&self.model);
-        let cost = self.runtime.usage().cost_usd(primary);
-        style::print_header("Cost");
-        if let Some(plus) = self.model.find('+') {
-            style::print_kv("planner", &style::format_model(&self.model[..plus]));
-            style::print_kv("executor", &style::format_model(&self.model[plus + 1..]));
-        } else {
-            style::print_kv("model", &style::format_model(&self.model));
-        }
-        style::print_kv(&format!("{} tokens", style::ARROW_UP), &usage.input_tokens.to_string());
-        style::print_kv(&format!("{} tokens", style::ARROW_DOWN), &usage.output_tokens.to_string());
-        style::print_kv("cache write", &usage.cache_creation_input_tokens.to_string());
-        style::print_kv("cache read", &usage.cache_read_input_tokens.to_string());
-        println!(
-            "  {}cost{RESET}          {WHITE_BOLD}${cost:.4}{RESET}",
-            style::CYAN, RESET = style::RESET, WHITE_BOLD = style::WHITE_BOLD,
-        );
-        println!();
     }
 
     fn print_mcp_status(&self) {
@@ -1335,12 +1502,28 @@ impl CliToolExecutor {
 
 impl ToolExecutor for CliToolExecutor {
     fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
-        // Print tool header
+        let start = std::time::Instant::now();
         let display_name = tool_name.strip_prefix("mcp__").unwrap_or(tool_name);
-        println!(
-            "\n  {}{} {}{display_name}{}",
-            style::ACCENT, style::DOT, style::WHITE_BOLD, style::RESET
-        );
+
+        // Parse input to extract a meaningful preview line
+        let input_preview = extract_tool_preview(tool_name, input);
+
+        // ── Tool header box ───────────────────────────────────────────────────
+        let inner = 52usize;
+        let title = format!("{ACCENT_C}{BOLD_C}{display_name}{RESET_C}",
+            ACCENT_C = style::ACCENT, BOLD_C = style::BOLD, RESET_C = style::RESET);
+        let title_vis = display_name.len(); // no ANSI in visible part
+        let bar_right = style::BOX_H.repeat(inner.saturating_sub(title_vis + 4));
+        println!("\n  {}{TL}{H} {title} {bar_right}{TR}{}",
+            style::ACCENT, style::RESET,
+            TL = style::BOX_TL, H = style::BOX_H,
+            TR = style::BOX_TR);
+        if !input_preview.is_empty() {
+            let preview_vis = style::strip_ansi_len(&input_preview);
+            let pad = " ".repeat(inner.saturating_sub(2).saturating_sub(preview_vis));
+            println!("  {acc}{v}{res}  {input_preview}{pad}{acc}{v}{res}",
+                acc = style::ACCENT, v = style::BOX_V, res = style::RESET);
+        }
 
         // Route MCP tools
         if tool_name.starts_with("mcp__") {
@@ -1350,12 +1533,10 @@ impl ToolExecutor for CliToolExecutor {
                 .map_err(|e| ToolError::new(format!("MCP lock poisoned: {e}")))?
                 .execute(tool_name, input)
                 .map_err(ToolError::new)?;
-            // Render output concisely
-            let truncated = if output.len() > 500 { &output[..500] } else { &output };
-            println!("  {}{truncated}{}", style::MUTED, style::RESET);
-            if output.len() > 500 {
-                println!("  {}...({} chars total){}", style::MUTED, output.len(), style::RESET);
-            }
+
+            print_tool_output_box(&output, inner);
+            let elapsed = start.elapsed();
+            print_tool_footer(style::GREEN, inner, &elapsed, false);
             return Ok(output);
         }
 
@@ -1363,23 +1544,94 @@ impl ToolExecutor for CliToolExecutor {
             .map_err(|error| ToolError::new(format!("invalid tool input JSON: {error}")))?;
         match execute_tool(tool_name, &value) {
             Ok(output) => {
-                // Compact output display — only show first few lines for large results
-                let lines: Vec<&str> = output.lines().collect();
-                if lines.len() <= 8 {
-                    for line in &lines {
-                        println!("  {}{line}{}", style::MUTED, style::RESET);
-                    }
-                } else {
-                    for line in lines.iter().take(6) {
-                        println!("  {}{line}{}", style::MUTED, style::RESET);
-                    }
-                    println!("  {}...({} lines total){}", style::MUTED, lines.len(), style::RESET);
-                }
+                print_tool_output_box(&output, inner);
+                let elapsed = start.elapsed();
+                let is_error = output.contains("\"error\"") && output.contains("true");
+                print_tool_footer(style::CYAN, inner, &elapsed, is_error);
                 Ok(output)
             }
-            Err(error) => Err(ToolError::new(error)),
+            Err(error) => {
+                let elapsed = start.elapsed();
+                let err_line = format!("{}{} {}{}", style::RED, style::CROSS, error, style::RESET);
+                let pad = " ".repeat(inner.saturating_sub(2).saturating_sub(style::strip_ansi_len(&err_line)));
+                println!("  {acc}{v}{res}  {err_line}{pad}{acc}{v}{res}",
+                    acc = style::ACCENT, v = style::BOX_V, res = style::RESET);
+                print_tool_footer(style::RED, inner, &elapsed, true);
+                Err(ToolError::new(error))
+            }
         }
     }
+}
+
+/// Extract a single meaningful preview line from tool input JSON.
+fn extract_tool_preview(tool_name: &str, input: &str) -> String {
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(input) else {
+        return String::new();
+    };
+    // Tool-specific field extraction
+    let raw = match tool_name {
+        "bash" => val.get("command").and_then(|v| v.as_str()).map(str::to_string),
+        "read_file" => val.get("path").and_then(|v| v.as_str()).map(|p| format!("{}{p}{}", style::MUTED, style::RESET)),
+        "write_file" | "edit_file" => val.get("path").and_then(|v| v.as_str()).map(|p| format!("{}{p}{}", style::MUTED, style::RESET)),
+        "glob_search" => val.get("pattern").and_then(|v| v.as_str()).map(|p| format!("{ACCENT}{p}{RESET}", ACCENT=style::ACCENT2, RESET=style::RESET)),
+        "grep_search" => val.get("pattern").and_then(|v| v.as_str()).map(|p| format!("{ACCENT}/{p}/{RESET}", ACCENT=style::ACCENT2, RESET=style::RESET)),
+        "web_fetch" => val.get("url").and_then(|v| v.as_str()).map(|u| format!("{}{u}{}", style::CYAN, style::RESET)),
+        "todo_write" => val.get("todos").and_then(|t| t.as_array()).map(|arr| format!("{}{} item(s){}", style::MUTED, arr.len(), style::RESET)),
+        "todo_read" => Some(format!("{}reading todo list{}", style::MUTED, style::RESET)),
+        _ => val.get("command").or_else(|| val.get("path")).or_else(|| val.get("pattern"))
+                 .and_then(|v| v.as_str()).map(str::to_string),
+    };
+    let Some(text) = raw else { return String::new(); };
+    // Truncate if too long
+    let clean: String = text.chars().filter(|&c| c != '\n' && c != '\r').collect();
+    let vis = style::strip_ansi_len(&clean);
+    if vis > 44 {
+        // Need to truncate the visible portion while preserving ANSI
+        format!("{}…", &clean.chars().take(43).collect::<String>())
+    } else {
+        clean
+    }
+}
+
+fn print_tool_output_box(output: &str, inner: usize) {
+    let lines: Vec<&str> = output.lines().collect();
+    let max_lines = 8usize;
+    let shown: Vec<&str> = lines.iter().copied().take(max_lines).collect();
+
+    for line in &shown {
+        // Strip trailing whitespace
+        let trimmed = line.trim_end();
+        let vis = trimmed.chars().count().min(inner.saturating_sub(4));
+        let display: String = trimmed.chars().take(vis).collect();
+        let pad = inner.saturating_sub(2).saturating_sub(display.chars().count());
+        println!("  {acc}{V}{res}  {MUTED}{display}{RESET}{}{acc}{V}{res}",
+            " ".repeat(pad),
+            acc = style::ACCENT, V = style::BOX_V, res = style::RESET,
+            MUTED = style::MUTED, RESET = style::RESET);
+    }
+    if lines.len() > max_lines {
+        let more = format!("{}… {} more lines{}", style::MUTED, lines.len() - max_lines, style::RESET);
+        let pad = inner.saturating_sub(2).saturating_sub(style::strip_ansi_len(&more));
+        println!("  {acc}{V}{res}  {more}{}{acc}{V}{res}",
+            " ".repeat(pad),
+            acc = style::ACCENT, V = style::BOX_V, res = style::RESET);
+    }
+}
+
+fn print_tool_footer(color: &str, inner: usize, elapsed: &std::time::Duration, _is_error: bool) {
+    let secs = elapsed.as_secs_f64();
+    let dur_str = if secs < 1.0 {
+        format!("{HOURGLASS} {:.0}ms", secs * 1000.0, HOURGLASS = style::HOURGLASS)
+    } else {
+        format!("{HOURGLASS} {:.1}s", secs, HOURGLASS = style::HOURGLASS)
+    };
+    let vis_dur = style::strip_ansi_len(&dur_str) + 2; // +2 for spaces around
+    let bar_before = inner.saturating_sub(vis_dur);
+    println!("  {acc}{BL}{bar} {dur_str} {BR}{res}",
+        acc = style::ACCENT, res = style::RESET,
+        BL = style::BOX_BL, BR = style::BOX_BR,
+        bar = style::BOX_H.repeat(bar_before));
+    let _ = color; // color reserved for future status-based coloring
 }
 
 // ── OpenAI-compatible runtime client ──────────────────────────────────────────
@@ -1530,34 +1782,32 @@ fn print_help() {
     println!();
     println!("Usage:");
     println!("  claw                                    Start interactive REPL");
+    println!("  claw -y / --yes                         Start with auto-accept (skip permission prompts)");
     println!("  claw setup                              Save API keys to ~/.claw-code/config.json");
     println!("  claw --model MODEL                      Start REPL with a specific model");
-    println!("  claw --model PLAN+EXEC                  Dual model: planner+executor");
     println!("  claw --model opusplan                   Opus plans, Sonnet executes");
-    println!("  claw --model 'opusplan kimi/moonshot-v1-32k'  Opus plans, Kimi executes");
     println!("  claw prompt TEXT                        Send one prompt and exit");
-    println!("  claw system-prompt [--cwd PATH]         Print system prompt for current dir");
-    println!("  claw --resume SESSION.json [/compact]   Resume a saved session");
+    println!("  claw --resume SESSION.json              Resume a saved session");
     println!();
-    println!("Slash commands (inside REPL):");
-    println!("  /help   /status   /cost   /compact   /clear   /model <name>   /mcp   /save   /exit");
+    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan");
+    println!();
+    println!("Slash commands:");
+    println!("  /help  /status  /cost  /budget  /compact  /clear  /model  /mcp  /accept-all");
+    println!("  /sessions  /doctor  /init  /save  /exit");
+    println!();
+    println!("Flags:");
+    println!("  --yes, -y, --dangerously-skip-permissions   Auto-accept all tool calls");
+    println!("  --model MODEL                               Use a specific model or alias");
     println!();
     println!("Environment (or save with 'claw setup'):");
-    println!("  BEDROCK_API_KEY                 Bedrock API key (create in AWS console)");
-    println!("  AWS_DEFAULT_REGION              Bedrock region (default: us-east-1)");
-    println!("  ANTHROPIC_API_KEY               Anthropic direct API");
-    println!("  KIMI_API_KEY                    Required for kimi/ models");
-    println!("  GLM_API_KEY                     Required for glm/ models");
-    println!("  MINIMAX_API_KEY                 Required for minimax/ models");
-    println!("  OPENAI_API_KEY                  Required for openai/ or custom models");
-    println!("  AWS_ACCESS_KEY_ID               Bedrock IAM auth (alternative to BEDROCK_API_KEY)");
-    println!("  AWS_SECRET_ACCESS_KEY           Bedrock IAM auth");
-    println!("  AWS_SESSION_TOKEN               Optional — temporary IAM credentials");
-    println!("  RUSTY_CLAUDE_PERMISSION_MODE    read-only | allow-all (default: prompt for writes)");
+    println!("  BEDROCK_API_KEY          Bedrock API key (recommended)");
+    println!("  AWS_DEFAULT_REGION       Bedrock region (default: us-east-1)");
+    println!("  ANTHROPIC_API_KEY        Anthropic direct API");
+    println!("  OPENAI_API_KEY           OpenAI or compatible provider");
+    println!("  AWS_ACCESS_KEY_ID        Bedrock IAM auth");
+    println!("  AWS_SECRET_ACCESS_KEY    Bedrock IAM auth");
     println!();
-    println!("MCP servers:");
-    println!("  Configure in ~/.claude/settings.json (same format as Claude Code / OpenCode):");
-    println!("  {{ \"mcpServers\": {{ \"name\": {{ \"command\": \"npx\", \"args\": [...] }} }} }}");
+    println!("MCP servers: configure in ~/.claude/settings.json (\"mcpServers\" key)");
 }
 
 #[cfg(test)]
@@ -1572,6 +1822,19 @@ mod tests {
             parse_args(&[]).expect("args should parse"),
             CliAction::Repl {
                 model: default_model(),
+                auto_accept: false,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_yes_flag() {
+        let args = vec!["--yes".to_string()];
+        assert_eq!(
+            parse_args(&args).expect("args should parse"),
+            CliAction::Repl {
+                model: default_model(),
+                auto_accept: true,
             }
         );
     }
