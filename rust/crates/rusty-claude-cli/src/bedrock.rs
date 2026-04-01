@@ -84,6 +84,23 @@ pub fn is_bedrock_model(model_spec: &str) -> bool {
     model_spec.starts_with("bedrock/")
 }
 
+/// Percent-encode a path segment. Colons in model IDs like `v1:0` must be
+/// encoded as `%3A` for the Bedrock REST URL to work.
+fn url_encode_path_segment(s: &str) -> String {
+    let mut encoded = String::with_capacity(s.len() * 2);
+    for byte in s.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char);
+            }
+            _ => {
+                encoded.push_str(&format!("%{byte:02X}"));
+            }
+        }
+    }
+    encoded
+}
+
 // ── AWS Signature V4 ──────────────────────────────────────────────────────────
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -603,8 +620,9 @@ impl ApiClient for BedrockRuntimeClient {
             "bedrock-runtime.{}.amazonaws.com",
             self.config.region
         );
-        // Use the streaming endpoint
-        let path = format!("/model/{}/invoke-with-response-stream", self.config.model_id);
+        // Use the streaming endpoint — URL-encode model ID for IDs with colons (e.g. v1:0)
+        let encoded_model = url_encode_path_segment(&self.config.model_id);
+        let path = format!("/model/{encoded_model}/invoke-with-response-stream");
         let url = format!("https://{host}{path}");
 
         let builder = self

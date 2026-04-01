@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand, ValueEnum};
     about = "Rust Claude CLI prototype"
 )]
 pub struct Cli {
-    #[arg(long, default_value = "bedrock/global.anthropic.claude-sonnet-4-6-v1")]
+    #[arg(long, default_value = "bedrock/us.anthropic.claude-sonnet-4-6")]
     pub model: String,
 
     #[arg(long, value_enum, default_value_t = PermissionMode::WorkspaceWrite)]

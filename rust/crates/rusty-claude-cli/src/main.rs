@@ -28,11 +28,11 @@ use runtime::{
 };
 use tools::{execute_tool, mvp_tool_specs, DynamicToolSpec};
 
-const DEFAULT_BEDROCK_MODEL: &str = "bedrock/global.anthropic.claude-sonnet-4-6-v1";
-const DEFAULT_MAX_TOKENS: u32 = 8192;
+const DEFAULT_BEDROCK_MODEL: &str = "bedrock/us.anthropic.claude-sonnet-4-6";
+const DEFAULT_MAX_TOKENS: u32 = 16384;
 
 /// Returns the default model.
-/// Always uses the Bedrock cross-region (global) Sonnet 4.6 endpoint.
+/// Always uses Bedrock cross-region Sonnet 4.6.
 fn default_model() -> String {
     DEFAULT_BEDROCK_MODEL.to_string()
 }
@@ -526,11 +526,17 @@ fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(name) = parts.get(1).copied() {
                         cli.set_model(name.trim())?;
                     } else {
-                        println!("\n  \x1b[2mcurrent\x1b[0m  {}", cli.model);
-                        println!("  \x1b[2musage\x1b[0m    /model <model>");
-                        println!("           /model <planner>+<executor>");
-                        println!("           /model opusplan");
-                        println!("           /model opusplan kimi/moonshot-v1-32k");
+                        use style::*;
+                        println!();
+                        print_kv("current", &format_model(&cli.model));
+                        println!();
+                        print_muted("Usage:  /model <name>");
+                        println!();
+                        print_muted("Aliases:");
+                        println!("    {CYAN}sonnet{RESET}     Sonnet 4.6       {CYAN}opus{RESET}       Opus 4.6");
+                        println!("    {CYAN}sonnet4.5{RESET}  Sonnet 4.5       {CYAN}opus4.5{RESET}    Opus 4.5");
+                        println!("    {CYAN}sonnet4{RESET}    Sonnet 4         {CYAN}opus4{RESET}      Opus 4");
+                        println!("    {CYAN}haiku{RESET}      Haiku 4.5        {CYAN}opusplan{RESET}   Opus plans + Sonnet runs");
                         println!();
                     }
                 }
@@ -971,15 +977,67 @@ fn build_system_prompt() -> Result<Vec<String>, Box<dyn std::error::Error>> {
 /// Expand shorthand model specs before routing.
 /// - `opusplan` → `claude-opus-4-5-20250514+<DEFAULT_MODEL>`
 /// - `opusplan kimi/moonshot-v1-32k` → `claude-opus-4-5-20250514+kimi/moonshot-v1-32k`
+/// Expand friendly model aliases to full Bedrock model IDs.
+///
+/// Users can type short names like `sonnet`, `opus`, `haiku` and they'll be
+/// expanded to the full `bedrock/us.anthropic.claude-*` identifier.
 fn expand_model_spec(spec: &str) -> String {
-    const OPUS: &str = "claude-opus-4-5-20250514";
-    if spec == "opusplan" {
-        format!("{OPUS}+{}", default_model())
-    } else if let Some(executor) = spec.strip_prefix("opusplan ") {
-        format!("{OPUS}+{executor}")
-    } else {
-        spec.to_string()
+    // Handle dual-model "plannerspec+executorspec" syntax
+    if let Some(plus) = spec.find('+') {
+        let planner = expand_single_alias(&spec[..plus]);
+        let executor = expand_single_alias(&spec[plus + 1..]);
+        return format!("{planner}+{executor}");
     }
+
+    // Handle "opusplan" shorthand: opus plans, sonnet executes
+    if spec == "opusplan" {
+        let planner = expand_single_alias("opus");
+        let executor = default_model();
+        return format!("{planner}+{executor}");
+    }
+    if let Some(executor_spec) = spec.strip_prefix("opusplan ") {
+        let planner = expand_single_alias("opus");
+        let executor = expand_single_alias(executor_spec.trim());
+        return format!("{planner}+{executor}");
+    }
+
+    expand_single_alias(spec)
+}
+
+/// Map a single model alias to its full Bedrock model ID.
+fn expand_single_alias(alias: &str) -> String {
+    let alias_lower = alias.to_lowercase();
+    let resolved = match alias_lower.as_str() {
+        // ── Sonnet family ─────────────────────────────────────────────
+        "sonnet" | "sonnet4.6" | "sonnet-4.6" | "claude-sonnet-4-6"
+            => "bedrock/us.anthropic.claude-sonnet-4-6",
+        "sonnet4.5" | "sonnet-4.5"
+            => "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "sonnet4" | "sonnet-4"
+            => "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
+
+        // ── Opus family ───────────────────────────────────────────────
+        "opus" | "opus4.6" | "opus-4.6" | "claude-opus-4-6"
+            => "bedrock/us.anthropic.claude-opus-4-6-v1",
+        "opus4.5" | "opus-4.5"
+            => "bedrock/us.anthropic.claude-opus-4-5-20251101-v1:0",
+        "opus4" | "opus-4"
+            => "bedrock/us.anthropic.claude-opus-4-20250514-v1:0",
+        "opus4.1" | "opus-4.1"
+            => "bedrock/us.anthropic.claude-opus-4-1-20250805-v1:0",
+
+        // ── Haiku family ──────────────────────────────────────────────
+        "haiku" | "haiku4.5" | "haiku-4.5"
+            => "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+
+        // ── Legacy / direct Anthropic ─────────────────────────────────
+        "claude-3.7-sonnet" | "sonnet3.7"
+            => "bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+
+        // ── Pass-through (already a full ID or provider-prefixed) ─────
+        _ => return alias.to_string(),
+    };
+    resolved.to_string()
 }
 
 /// Returns just the planner model name (the part before `+`, if any).
