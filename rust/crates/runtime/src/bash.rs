@@ -7,6 +7,9 @@ use tokio::process::Command as TokioCommand;
 use tokio::runtime::Builder;
 use tokio::time::timeout;
 
+/// Maximum combined stdout+stderr before truncation.
+const MAX_OUTPUT_BYTES: usize = 50 * 1024; // 50 KB
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BashCommandInput {
     pub command: String,
@@ -143,8 +146,45 @@ async fn execute_bash_async(input: BashCommandInput) -> io::Result<BashCommandOu
     };
 
     let (output, interrupted) = output_result;
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let mut stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let mut stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+    // Truncate output to prevent context blowup
+    let total_len = stdout.len() + stderr.len();
+    let mut persisted_output_path = None;
+    let mut persisted_output_size = None;
+    if total_len > MAX_OUTPUT_BYTES {
+        // Save full output to a temp file
+        let tmp = std::env::temp_dir().join(format!(
+            "claw-output-{}.txt",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        ));
+        let full = format!("=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}");
+        let _ = std::fs::write(&tmp, &full);
+        persisted_output_path = Some(tmp.to_string_lossy().into_owned());
+        persisted_output_size = Some(full.len() as u64);
+
+        // Truncate to cap
+        let half = MAX_OUTPUT_BYTES / 2;
+        if stdout.len() > half {
+            stdout.truncate(half);
+            stdout.push_str(&format!(
+                "\n... [stdout truncated at {half} bytes, full output saved to {}]",
+                tmp.display()
+            ));
+        }
+        if stderr.len() > half {
+            stderr.truncate(half);
+            stderr.push_str(&format!(
+                "\n... [stderr truncated at {half} bytes, full output saved to {}]",
+                tmp.display()
+            ));
+        }
+    }
+
     let no_output_expected = Some(stdout.trim().is_empty() && stderr.trim().is_empty());
     let return_code_interpretation = output.status.code().and_then(|code| {
         if code == 0 {
@@ -167,8 +207,8 @@ async fn execute_bash_async(input: BashCommandInput) -> io::Result<BashCommandOu
         return_code_interpretation,
         no_output_expected,
         structured_content: None,
-        persisted_output_path: None,
-        persisted_output_size: None,
+        persisted_output_path,
+        persisted_output_size,
     })
 }
 

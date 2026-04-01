@@ -135,12 +135,37 @@ pub fn read_file(
     limit: Option<usize>,
 ) -> io::Result<ReadFileOutput> {
     let absolute_path = normalize_path(path)?;
-    let content = fs::read_to_string(&absolute_path)?;
+
+    // Try reading as UTF-8 text first; on failure, detect binary
+    let content = match fs::read_to_string(&absolute_path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+            // Read raw bytes for binary detection / summary
+            let bytes = fs::read(&absolute_path)?;
+            let size_kb = bytes.len() / 1024;
+            let mime_hint = guess_binary_type(&bytes);
+            let msg = format!(
+                "Binary file ({size_kb} KB, detected as {mime_hint}). Cannot display as text."
+            );
+            return Ok(ReadFileOutput {
+                kind: String::from("binary"),
+                file: TextFilePayload {
+                    file_path: absolute_path.to_string_lossy().into_owned(),
+                    content: msg,
+                    num_lines: 0,
+                    start_line: 0,
+                    total_lines: 0,
+                },
+            });
+        }
+        Err(e) => return Err(e),
+    };
+
     let lines: Vec<&str> = content.lines().collect();
     let start_index = offset.unwrap_or(0).min(lines.len());
     let end_index = limit
         .map(|limit| start_index.saturating_add(limit).min(lines.len()))
-        .unwrap_or(lines.len());
+        .unwrap_or_else(|| lines.len().min(start_index + 2000)); // Default cap: 2000 lines
     let selected = lines[start_index..end_index].join("\n");
 
     Ok(ReadFileOutput {
@@ -153,6 +178,27 @@ pub fn read_file(
             total_lines: lines.len(),
         },
     })
+}
+
+/// Best-effort binary file type detection from magic bytes.
+fn guess_binary_type(bytes: &[u8]) -> &'static str {
+    if bytes.len() < 4 {
+        return "unknown binary";
+    }
+    match &bytes[..4] {
+        [0x89, b'P', b'N', b'G'] => "PNG image",
+        [0xFF, 0xD8, 0xFF, _] => "JPEG image",
+        [b'G', b'I', b'F', b'8'] => "GIF image",
+        [b'R', b'I', b'F', b'F'] => "WebP/RIFF",
+        [b'P', b'K', 0x03, 0x04] => "ZIP/DOCX/XLSX archive",
+        [0x25, b'P', b'D', b'F'] => "PDF document",
+        [0x7F, b'E', b'L', b'F'] => "ELF executable",
+        [b'M', b'Z', _, _] => "Windows PE executable",
+        [0x00, 0x00, 0x00, 0x1C] | [0x00, 0x00, 0x00, 0x20] => "MP4/MOV video",
+        _ if bytes.starts_with(b"\xCA\xFE\xBA\xBE") => "Java class / Mach-O fat binary",
+        _ if bytes.starts_with(b"SQLite format") => "SQLite database",
+        _ => "unknown binary",
+    }
 }
 
 pub fn write_file(path: &str, content: &str) -> io::Result<WriteFileOutput> {

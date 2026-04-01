@@ -460,7 +460,7 @@ fn resume_session(session_path: &Path, command: Option<String>) {
 
 fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
     let mut cli = LiveCli::new(model, true)?;
-    let editor = input::LineEditor::new("› ");
+    let mut editor = input::LineEditor::new("› ");
 
     // ── Startup banner ─────────────────────────────────────────────────────────
     println!();
@@ -494,6 +494,16 @@ fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
                 "/clear" => cli.clear_session()?,
                 "/save" => cli.save_session()?,
                 "/mcp" => cli.print_mcp_status(),
+                "/doctor" => run_doctor(),
+                "/init" => run_init()?,
+                "/sessions" => list_sessions(),
+                "/budget" => {
+                    if let Some(amount) = parts.get(1).and_then(|s| s.trim().parse::<f64>().ok()) {
+                        cli.set_budget(amount);
+                    } else {
+                        cli.print_budget();
+                    }
+                }
                 "/model" => {
                     if let Some(name) = parts.get(1).copied() {
                         cli.set_model(name.trim())?;
@@ -513,6 +523,13 @@ fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
+        // Check cost budget before running a turn
+        if cli.is_over_budget() {
+            println!("\n  \x1b[31m✘ Cost budget exceeded (${:.2}). Use /budget <amount> to increase.\x1b[0m\n",
+                cli.budget_limit.unwrap_or(0.0));
+            continue;
+        }
+
         cli.run_turn(trimmed)?;
     }
 
@@ -527,12 +544,17 @@ fn print_slash_help() {
     println!("  \x1b[36m/help\x1b[0m               show this help");
     println!("  \x1b[36m/status\x1b[0m             token usage & cost");
     println!("  \x1b[36m/cost\x1b[0m               detailed cost breakdown");
+    println!("  \x1b[36m/budget\x1b[0m \x1b[2m<usd>\x1b[0m       set/show spending limit");
     println!("  \x1b[36m/compact\x1b[0m            compact session history");
     println!("  \x1b[36m/clear\x1b[0m              clear session and start fresh");
     println!("  \x1b[36m/model\x1b[0m \x1b[2m<name>\x1b[0m       switch model");
     println!("  \x1b[36m/mcp\x1b[0m                list connected MCP servers and tools");
+    println!("  \x1b[36m/sessions\x1b[0m           list saved sessions");
+    println!("  \x1b[36m/doctor\x1b[0m             check config, credentials & connectivity");
+    println!("  \x1b[36m/init\x1b[0m               generate CLAUDE.md for this project");
     println!("  \x1b[36m/save\x1b[0m               save session to disk");
     println!("  \x1b[36m/exit\x1b[0m               quit");
+    println!("  \x1b[2m↑/↓ arrows to browse input history\x1b[0m");
     println!();
 }
 
@@ -545,6 +567,8 @@ struct LiveCli {
     auto_save_path: PathBuf,
     /// Shared MCP manager (kept alive for the duration of the REPL session).
     mcp: Arc<Mutex<McpManager>>,
+    /// Optional spending limit in USD. None = no limit.
+    budget_limit: Option<f64>,
 }
 
 impl LiveCli {
@@ -574,6 +598,7 @@ impl LiveCli {
             prompter: ReplPermissionPrompter::new(),
             auto_save_path,
             mcp,
+            budget_limit: None,
         })
     }
 
@@ -723,6 +748,187 @@ impl LiveCli {
         }
         println!();
     }
+
+    fn set_budget(&mut self, usd: f64) {
+        self.budget_limit = Some(usd);
+        println!("\n  \x1b[32m✔\x1b[0m Budget set to \x1b[1m${usd:.2}\x1b[0m\n");
+    }
+
+    fn print_budget(&self) {
+        let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
+        println!();
+        match self.budget_limit {
+            Some(limit) => {
+                let pct = if limit > 0.0 { cost / limit * 100.0 } else { 0.0 };
+                println!("  \x1b[36mbudget\x1b[0m   ${limit:.2}");
+                println!("  \x1b[36mspent\x1b[0m    ${cost:.4}  ({pct:.1}%)");
+            }
+            None => {
+                println!("  \x1b[36mspent\x1b[0m    ${cost:.4}");
+                println!("  \x1b[2mNo budget set. Use /budget <usd> to set one.\x1b[0m");
+            }
+        }
+        println!();
+    }
+
+    fn is_over_budget(&self) -> bool {
+        let Some(limit) = self.budget_limit else {
+            return false;
+        };
+        let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
+        cost >= limit
+    }
+}
+
+// ── /doctor — diagnostics ─────────────────────────────────────────────────────
+
+fn run_doctor() {
+    println!();
+    println!("  \x1b[1mDoctor\x1b[0m");
+    println!("  \x1b[2m────────────────────────────────────\x1b[0m");
+
+    // Check credentials
+    let checks: &[(&str, &str)] = &[
+        ("BEDROCK_API_KEY", "Bedrock API key"),
+        ("AWS_ACCESS_KEY_ID", "AWS IAM (access key)"),
+        ("ANTHROPIC_API_KEY", "Anthropic direct API"),
+        ("KIMI_API_KEY", "Kimi provider"),
+        ("GLM_API_KEY", "GLM provider"),
+        ("MINIMAX_API_KEY", "MiniMax provider"),
+        ("OPENAI_API_KEY", "OpenAI provider"),
+    ];
+
+    for (var, label) in checks {
+        let status = match env::var(var) {
+            Ok(val) if !val.is_empty() => format!("\x1b[32m✔\x1b[0m {label}  \x1b[2m({var} set)\x1b[0m"),
+            _ => format!("\x1b[2m·\x1b[0m {label}  \x1b[2m({var} not set)\x1b[0m"),
+        };
+        println!("  {status}");
+    }
+
+    // Check config files
+    println!();
+    let config_home = env::var("USERPROFILE")
+        .or_else(|_| env::var("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."));
+
+    let config_files: Vec<(PathBuf, &str)> = vec![
+        (claw_home().join("config.json"), "claw config"),
+        (config_home.join(".claude").join("settings.json"), "claude settings (user)"),
+        (PathBuf::from(".claude").join("settings.json"), "claude settings (project)"),
+        (PathBuf::from("CLAUDE.md"), "CLAUDE.md"),
+    ];
+
+    for (path, label) in &config_files {
+        let status = if path.exists() {
+            format!("\x1b[32m✔\x1b[0m {label}  \x1b[2m({})\x1b[0m", path.display())
+        } else {
+            format!("\x1b[2m·\x1b[0m {label}  \x1b[2m(not found)\x1b[0m")
+        };
+        println!("  {status}");
+    }
+
+    // Check disk space
+    println!();
+    let session_dir = sessions_dir();
+    let session_count = std::fs::read_dir(&session_dir)
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+    println!("  \x1b[36msessions\x1b[0m  {session_count} saved  \x1b[2m({})\x1b[0m", session_dir.display());
+    println!("  \x1b[36mplatform\x1b[0m  {}  \x1b[2m({})\x1b[0m", env::consts::OS, env::consts::ARCH);
+    println!();
+}
+
+// ── /init — project bootstrap ─────────────────────────────────────────────────
+
+fn run_init() -> Result<(), Box<dyn std::error::Error>> {
+    let path = PathBuf::from("CLAUDE.md");
+    if path.exists() {
+        println!("\n  \x1b[33m⚠\x1b[0m CLAUDE.md already exists. Delete it first if you want to regenerate.\n");
+        return Ok(());
+    }
+
+    // Detect project type
+    let mut hints = Vec::new();
+    if PathBuf::from("Cargo.toml").exists() { hints.push("Rust (Cargo)"); }
+    if PathBuf::from("package.json").exists() { hints.push("Node.js (npm)"); }
+    if PathBuf::from("pyproject.toml").exists() || PathBuf::from("setup.py").exists() { hints.push("Python"); }
+    if PathBuf::from("go.mod").exists() { hints.push("Go"); }
+    if PathBuf::from("pom.xml").exists() || PathBuf::from("build.gradle").exists() { hints.push("Java/Kotlin"); }
+    if PathBuf::from("Gemfile").exists() { hints.push("Ruby"); }
+    if PathBuf::from("composer.json").exists() { hints.push("PHP"); }
+    if PathBuf::from("Makefile").exists() { hints.push("Make"); }
+    if PathBuf::from("docker-compose.yml").exists() || PathBuf::from("Dockerfile").exists() { hints.push("Docker"); }
+
+    let stack = if hints.is_empty() { "Unknown".to_string() } else { hints.join(", ") };
+    let cwd = env::current_dir()?.display().to_string();
+    let dir_name = Path::new(&cwd).file_name().unwrap_or_default().to_string_lossy();
+
+    let content = format!(
+        "# {dir_name}\n\n\
+         ## Tech Stack\n\
+         {stack}\n\n\
+         ## Build & Test\n\
+         ```sh\n\
+         # TODO: Add build commands\n\
+         # TODO: Add test commands\n\
+         ```\n\n\
+         ## Conventions\n\
+         - Follow existing code style and patterns\n\
+         - Write tests for new features\n\
+         - Keep changes tightly scoped\n\n\
+         ## Project Structure\n\
+         <!-- TODO: Describe key directories and their purpose -->\n"
+    );
+
+    std::fs::write(&path, &content)?;
+    println!("\n  \x1b[32m✔\x1b[0m Created CLAUDE.md ({stack})");
+    println!("  \x1b[2mEdit it to add build commands, conventions, and project structure.\x1b[0m\n");
+    Ok(())
+}
+
+// ── /sessions — list saved sessions ───────────────────────────────────────────
+
+fn list_sessions() {
+    let dir = sessions_dir();
+    let mut entries: Vec<(String, u64, usize)> = Vec::new(); // (filename, timestamp, size_bytes)
+
+    if let Ok(reader) = std::fs::read_dir(&dir) {
+        for entry in reader.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !name.ends_with(".json") { continue; }
+            let meta = entry.metadata().ok();
+            let size = meta.as_ref().map_or(0, |m| m.len() as usize);
+            // Extract timestamp from filename: session-<ts>.json
+            let ts = name.strip_prefix("session-")
+                .and_then(|s| s.strip_suffix(".json"))
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            entries.push((name, ts, size));
+        }
+    }
+
+    entries.sort_by(|a, b| b.1.cmp(&a.1)); // newest first
+
+    println!();
+    println!("  \x1b[1mSaved Sessions\x1b[0m  \x1b[2m({})\x1b[0m", dir.display());
+    println!("  \x1b[2m────────────────────────────────────\x1b[0m");
+
+    if entries.is_empty() {
+        println!("  \x1b[2mNo saved sessions.\x1b[0m");
+    } else {
+        for (name, _ts, size) in entries.iter().take(20) {
+            let size_kb = size / 1024;
+            println!("  \x1b[36m{name}\x1b[0m  \x1b[2m({size_kb} KB)\x1b[0m");
+        }
+        if entries.len() > 20 {
+            println!("  \x1b[2m...and {} more\x1b[0m", entries.len() - 20);
+        }
+        println!();
+        println!("  \x1b[2mResume with: claw --resume {}\x1b[0m", dir.join(&entries[0].0).display());
+    }
+    println!();
 }
 
 fn build_system_prompt() -> Result<Vec<String>, Box<dyn std::error::Error>> {

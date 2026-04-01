@@ -1,10 +1,111 @@
 use std::io::{self, IsTerminal, Write};
+use std::path::PathBuf;
 
 use crossterm::cursor::MoveToColumn;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::queue;
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
+
+// ── Input History ─────────────────────────────────────────────────────────────
+
+/// Persistent input history stored in `~/.claw-code/history.txt`.
+pub struct InputHistory {
+    entries: Vec<String>,
+    /// Current browse position (entries.len() == "new input", < len = browsing).
+    cursor: usize,
+    /// Maximum entries to keep in memory/on disk.
+    max_entries: usize,
+}
+
+impl InputHistory {
+    #[must_use]
+    pub fn load() -> Self {
+        let path = Self::path();
+        let entries = std::fs::read_to_string(&path)
+            .ok()
+            .map(|text| {
+                text.lines()
+                    .filter(|l| !l.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let len = entries.len();
+        Self {
+            entries,
+            cursor: len,
+            max_entries: 1000,
+        }
+    }
+
+    pub fn push(&mut self, entry: impl Into<String>) {
+        let entry = entry.into();
+        if entry.trim().is_empty() {
+            return;
+        }
+        // Deduplicate consecutive entries
+        if self.entries.last().map_or(false, |last| *last == entry) {
+            self.cursor = self.entries.len();
+            return;
+        }
+        self.entries.push(entry);
+        // Trim oldest entries
+        if self.entries.len() > self.max_entries {
+            let drain = self.entries.len() - self.max_entries;
+            self.entries.drain(..drain);
+        }
+        self.cursor = self.entries.len();
+        self.save();
+    }
+
+    /// Navigate to the previous (older) entry. Returns the text to display.
+    pub fn prev(&mut self) -> Option<&str> {
+        if self.entries.is_empty() || self.cursor == 0 {
+            return None;
+        }
+        self.cursor -= 1;
+        Some(&self.entries[self.cursor])
+    }
+
+    /// Navigate to the next (newer) entry. Returns None when back at the
+    /// "new input" position.
+    pub fn next(&mut self) -> Option<&str> {
+        if self.cursor >= self.entries.len() {
+            return None;
+        }
+        self.cursor += 1;
+        if self.cursor >= self.entries.len() {
+            None // back to blank input
+        } else {
+            Some(&self.entries[self.cursor])
+        }
+    }
+
+    /// Reset cursor to the end (new input position).
+    pub fn reset_cursor(&mut self) {
+        self.cursor = self.entries.len();
+    }
+
+    fn save(&self) {
+        let path = Self::path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let text = self.entries.join("\n");
+        let _ = std::fs::write(path, text);
+    }
+
+    fn path() -> PathBuf {
+        let home = std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."));
+        home.join(".claw-code").join("history.txt")
+    }
+}
+
+// ── Input Buffer ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputBuffer {
@@ -85,10 +186,19 @@ impl InputBuffer {
         self.buffer.clear();
         self.cursor = 0;
     }
+
+    /// Replace the entire buffer content (used by history navigation).
+    pub fn set(&mut self, text: &str) {
+        self.buffer = text.to_string();
+        self.cursor = self.buffer.len();
+    }
 }
+
+// ── Line Editor ───────────────────────────────────────────────────────────────
 
 pub struct LineEditor {
     prompt: String,
+    history: InputHistory,
 }
 
 impl LineEditor {
@@ -96,10 +206,11 @@ impl LineEditor {
     pub fn new(prompt: impl Into<String>) -> Self {
         Self {
             prompt: prompt.into(),
+            history: InputHistory::load(),
         }
     }
 
-    pub fn read_line(&self) -> io::Result<Option<String>> {
+    pub fn read_line(&mut self) -> io::Result<Option<String>> {
         if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
             return self.read_line_fallback();
         }
@@ -108,18 +219,24 @@ impl LineEditor {
         // Always restore terminal, even if the inner read fails
         let result = self.read_line_raw();
         let _ = disable_raw_mode();
+
+        // Save to history on success
+        if let Ok(Some(ref text)) = result {
+            self.history.push(text.clone());
+        }
         result
     }
 
-    fn read_line_raw(&self) -> io::Result<Option<String>> {
+    fn read_line_raw(&mut self) -> io::Result<Option<String>> {
         let mut stdout = io::stdout();
         let mut input = InputBuffer::new();
+        self.history.reset_cursor();
         self.redraw(&mut stdout, &input)?;
 
         loop {
             let event = event::read()?;
             if let Event::Key(key) = event {
-                match Self::handle_key(key, &mut input) {
+                match self.handle_key(key, &mut input) {
                     EditorAction::Continue => self.redraw(&mut stdout, &input)?,
                     EditorAction::Submit => {
                         writeln!(stdout)?;
@@ -151,7 +268,7 @@ impl LineEditor {
         Ok(Some(buffer))
     }
 
-    fn handle_key(key: KeyEvent, input: &mut InputBuffer) -> EditorAction {
+    fn handle_key(&mut self, key: KeyEvent, input: &mut InputBuffer) -> EditorAction {
         // On Windows, crossterm fires Press + Release (and sometimes Repeat) for
         // every keystroke. Only act on Press to avoid doubling characters.
         if key.kind != KeyEventKind::Press {
@@ -202,6 +319,26 @@ impl LineEditor {
                 ..
             } => {
                 input.move_right();
+                EditorAction::Continue
+            }
+            KeyEvent {
+                code: KeyCode::Up, ..
+            } => {
+                // Navigate history backward
+                if let Some(text) = self.history.prev() {
+                    input.set(text);
+                }
+                EditorAction::Continue
+            }
+            KeyEvent {
+                code: KeyCode::Down,
+                ..
+            } => {
+                // Navigate history forward
+                match self.history.next() {
+                    Some(text) => input.set(text),
+                    None => input.clear(), // back to blank
+                }
                 EditorAction::Continue
             }
             KeyEvent {
@@ -278,5 +415,15 @@ mod tests {
         input.backspace();
         assert_eq!(input.as_str(), "hix");
         assert_eq!(input.cursor(), 2);
+    }
+
+    #[test]
+    fn set_replaces_buffer_contents() {
+        let mut input = InputBuffer::new();
+        input.insert('a');
+        input.insert('b');
+        input.set("new content");
+        assert_eq!(input.as_str(), "new content");
+        assert_eq!(input.cursor(), 11);
     }
 }

@@ -193,7 +193,27 @@ where
                 system_prompt: self.system_prompt.clone(),
                 messages: self.session.messages.clone(),
             };
-            let events = self.api_client.stream(request)?;
+
+            // Retry with exponential backoff on transient errors (429, 5xx, network)
+            let events = {
+                let max_retries = 3_u32;
+                let mut attempt = 0;
+                loop {
+                    attempt += 1;
+                    match self.api_client.stream(request.clone()) {
+                        Ok(events) => break events,
+                        Err(err) if attempt <= max_retries && is_retryable_error(&err) => {
+                            let backoff_ms = 1000 * 2_u64.pow(attempt - 1); // 1s, 2s, 4s
+                            eprintln!(
+                                "  \x1b[33m⚠ API error (attempt {attempt}/{max_retries}): {err}\x1b[0m"
+                            );
+                            eprintln!("  \x1b[33m  retrying in {backoff_ms}ms...\x1b[0m");
+                            std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                        }
+                        Err(err) => return Err(err),
+                    }
+                }
+            };
             let (assistant_message, usage) = build_assistant_message(events)?;
             if let Some(usage) = usage {
                 self.usage_tracker.record(usage);
@@ -329,6 +349,23 @@ fn flush_text_block(text: &mut String, blocks: &mut Vec<ContentBlock>) {
             text: std::mem::take(text),
         });
     }
+}
+
+/// Heuristic: an error is retryable if it looks like a transient HTTP or network issue.
+/// Checks for common patterns: "429", "500", "502", "503", "timeout", "connection".
+fn is_retryable_error(err: &RuntimeError) -> bool {
+    let msg = err.to_string().to_lowercase();
+    msg.contains("429")
+        || msg.contains("500")
+        || msg.contains("502")
+        || msg.contains("503")
+        || msg.contains("529")
+        || msg.contains("timeout")
+        || msg.contains("timed out")
+        || msg.contains("connection")
+        || msg.contains("temporarily unavailable")
+        || msg.contains("throttl")
+        || msg.contains("rate limit")
 }
 
 type ToolHandler = Box<dyn FnMut(&str) -> Result<String, ToolError>>;
