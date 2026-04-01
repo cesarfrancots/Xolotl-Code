@@ -1,9 +1,9 @@
 use std::io::{self, IsTerminal, Write};
 
 use crossterm::cursor::MoveToColumn;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::queue;
-use crossterm::style::Print;
+use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,6 +105,13 @@ impl LineEditor {
         }
 
         enable_raw_mode()?;
+        // Always restore terminal, even if the inner read fails
+        let result = self.read_line_raw();
+        let _ = disable_raw_mode();
+        result
+    }
+
+    fn read_line_raw(&self) -> io::Result<Option<String>> {
         let mut stdout = io::stdout();
         let mut input = InputBuffer::new();
         self.redraw(&mut stdout, &input)?;
@@ -115,12 +122,10 @@ impl LineEditor {
                 match Self::handle_key(key, &mut input) {
                     EditorAction::Continue => self.redraw(&mut stdout, &input)?,
                     EditorAction::Submit => {
-                        disable_raw_mode()?;
                         writeln!(stdout)?;
                         return Ok(Some(input.as_str().to_owned()));
                     }
                     EditorAction::Cancel => {
-                        disable_raw_mode()?;
                         writeln!(stdout)?;
                         return Ok(None);
                     }
@@ -147,6 +152,11 @@ impl LineEditor {
     }
 
     fn handle_key(key: KeyEvent, input: &mut InputBuffer) -> EditorAction {
+        // On Windows, crossterm fires Press + Release (and sometimes Repeat) for
+        // every keystroke. Only act on Press to avoid doubling characters.
+        if key.kind != KeyEventKind::Press {
+            return EditorAction::Continue;
+        }
         match key {
             KeyEvent {
                 code: KeyCode::Char('c'),
@@ -226,12 +236,15 @@ impl LineEditor {
     }
 
     fn redraw(&self, out: &mut impl Write, input: &InputBuffer) -> io::Result<()> {
-        let display = input.as_str().replace('\n', "\\n\n> ");
+        // Display embedded newlines as a visible symbol + indent
+        let display = input.as_str().replace('\n', "↵\n  ");
         queue!(
             out,
             MoveToColumn(0),
             Clear(ClearType::CurrentLine),
-            Print(&self.prompt),
+            SetForegroundColor(Color::Cyan),
+            Print("› "),
+            ResetColor,
             Print(display),
         )?;
         out.flush()

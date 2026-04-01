@@ -47,10 +47,43 @@ pub struct BashCommandOutput {
     pub persisted_output_size: Option<u64>,
 }
 
+/// Build a blocking `std::process::Command` pre-loaded with the platform shell.
+/// On Windows: `powershell.exe -NoProfile -Command`
+/// On Unix: `sh -lc`
+fn blocking_shell() -> Command {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("powershell.exe");
+        cmd.args(["-NoProfile", "-Command"]);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-lc");
+        cmd
+    }
+}
+
+/// Build an async `tokio::process::Command` pre-loaded with the platform shell.
+fn async_shell() -> TokioCommand {
+    #[cfg(windows)]
+    {
+        let mut cmd = TokioCommand::new("powershell.exe");
+        cmd.args(["-NoProfile", "-Command"]);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        let mut cmd = TokioCommand::new("sh");
+        cmd.arg("-lc");
+        cmd
+    }
+}
+
 pub fn execute_bash(input: BashCommandInput) -> io::Result<BashCommandOutput> {
     if input.run_in_background.unwrap_or(false) {
-        let child = Command::new("sh")
-            .arg("-lc")
+        let child = blocking_shell()
             .arg(&input.command)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -80,8 +113,8 @@ pub fn execute_bash(input: BashCommandInput) -> io::Result<BashCommandOutput> {
 }
 
 async fn execute_bash_async(input: BashCommandInput) -> io::Result<BashCommandOutput> {
-    let mut command = TokioCommand::new("sh");
-    command.arg("-lc").arg(&input.command);
+    let mut command = async_shell();
+    command.arg(&input.command);
 
     let output_result = if let Some(timeout_ms) = input.timeout {
         match timeout(Duration::from_millis(timeout_ms), command.output()).await {

@@ -65,6 +65,27 @@ impl UsageTracker {
     pub fn turns(&self) -> u32 {
         self.turns
     }
+
+    /// Estimate the dollar cost of all tokens recorded so far.
+    /// Rates are per-million tokens as of 2025 pricing.
+    #[must_use]
+    pub fn cost_usd(&self, model: &str) -> f64 {
+        let (input_rate, output_rate, cache_write_rate, cache_read_rate): (f64, f64, f64, f64) =
+            if model.contains("opus") {
+                (15.0, 75.0, 18.75, 1.50)
+            } else if model.contains("sonnet") {
+                (3.0, 15.0, 3.75, 0.30)
+            } else if model.contains("haiku") {
+                (0.80, 4.0, 1.0, 0.08)
+            } else {
+                (15.0, 75.0, 18.75, 1.50)
+            };
+        let m = 1_000_000.0_f64;
+        self.cumulative.input_tokens as f64 / m * input_rate
+            + self.cumulative.output_tokens as f64 / m * output_rate
+            + self.cumulative.cache_creation_input_tokens as f64 / m * cache_write_rate
+            + self.cumulative.cache_read_input_tokens as f64 / m * cache_read_rate
+    }
 }
 
 #[cfg(test)]

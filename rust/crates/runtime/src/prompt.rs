@@ -34,7 +34,7 @@ impl From<ConfigError> for PromptBuildError {
 }
 
 pub const SYSTEM_PROMPT_DYNAMIC_BOUNDARY: &str = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
-pub const FRONTIER_MODEL_NAME: &str = "Claude Opus 4.6";
+pub const FRONTIER_MODEL_NAME: &str = "Claude Sonnet 4.6";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextFile {

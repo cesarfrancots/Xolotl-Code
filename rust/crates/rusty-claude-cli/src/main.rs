@@ -1,29 +1,234 @@
+mod bedrock;
 mod input;
+mod openai;
 mod render;
 
+use std::collections::HashSet;
 use std::env;
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use api::{
     AnthropicClient, ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest,
-    MessageResponse, OutputContentBlock, StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition,
+    OutputContentBlock, StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition,
     ToolResultContentBlock,
 };
 
 use commands::handle_slash_command;
 use compat_harness::{extract_manifest, UpstreamPaths};
-use render::{Spinner, TerminalRenderer};
+use render::TerminalRenderer;
 use runtime::{
     load_system_prompt, ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ContentBlock,
     ConversationMessage, ConversationRuntime, MessageRole, PermissionMode, PermissionPolicy,
-    RuntimeError, Session, TokenUsage, ToolError, ToolExecutor,
+    PermissionPromptDecision, PermissionPrompter, PermissionRequest, RuntimeError, Session,
+    TokenUsage, ToolError, ToolExecutor,
 };
 use tools::{execute_tool, mvp_tool_specs};
 
-const DEFAULT_MODEL: &str = "claude-sonnet-4-20250514";
-const DEFAULT_MAX_TOKENS: u32 = 32;
-const DEFAULT_DATE: &str = "2026-03-31";
+const DEFAULT_BEDROCK_MODEL: &str = "bedrock/global.anthropic.claude-sonnet-4-6-v1";
+const DEFAULT_MAX_TOKENS: u32 = 8192;
+
+/// Returns the default model.
+/// Always uses the Bedrock cross-region (global) Sonnet 4.6 endpoint.
+fn default_model() -> String {
+    DEFAULT_BEDROCK_MODEL.to_string()
+}
+
+/// Returns the current UTC date as `YYYY-MM-DD` using only stdlib.
+fn today_iso() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let mut days = secs / 86400;
+    let mut year = 1970_u32;
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if days < days_in_year {
+            break;
+        }
+        days -= days_in_year;
+        year += 1;
+    }
+    let months: [u64; 12] = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    let mut month = 1_u32;
+    for &m in &months {
+        if days < m {
+            break;
+        }
+        days -= m;
+        month += 1;
+    }
+    format!("{year:04}-{month:02}-{:02}", days + 1)
+}
+
+fn is_leap_year(year: u32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+/// Returns `~/.claw-code/` as an absolute path.
+fn claw_home() -> PathBuf {
+    let home = env::var("USERPROFILE")
+        .or_else(|_| env::var("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."));
+    home.join(".claw-code")
+}
+
+/// Returns `~/.claw-code/sessions/` as an absolute path.
+fn sessions_dir() -> PathBuf {
+    claw_home().join("sessions")
+}
+
+/// Load API keys from `~/.claw-code/config.json` into env vars (only if not
+/// already set). Silently skips if the file doesn't exist.
+fn load_config_keys() {
+    let path = claw_home().join("config.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return;
+    };
+    let Some(obj) = val.as_object() else {
+        return;
+    };
+    for (key, value) in obj {
+        if let Some(s) = value.as_str() {
+            // Only set if not already present in environment
+            if env::var(key).is_err() {
+                env::set_var(key, s);
+            }
+        }
+    }
+}
+
+/// Interactive setup wizard: writes API keys to `~/.claw-code/config.json`.
+fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::BufRead;
+
+    println!("Claw Code setup — saves API keys to ~/.claw-code/config.json");
+    println!("Press Enter to keep the current value. Type 'clear' to unset.\n");
+
+    let config_path = claw_home().join("config.json");
+    let mut config: serde_json::Map<String, serde_json::Value> = config_path
+        .exists()
+        .then(|| {
+            std::fs::read_to_string(&config_path)
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+        })
+        .flatten()
+        .unwrap_or_default();
+
+    let keys = [
+        ("BEDROCK_API_KEY", "AWS Bedrock API key — paste from the Bedrock console (recommended)"),
+        ("AWS_DEFAULT_REGION", "AWS region for Bedrock (default: us-east-1)"),
+        ("ANTHROPIC_API_KEY", "Anthropic direct API key (alternative to Bedrock)"),
+        ("KIMI_API_KEY", "Kimi / Moonshot (for kimi/ models)"),
+        ("GLM_API_KEY", "Zhipu GLM (for glm/ models)"),
+        ("MINIMAX_API_KEY", "MiniMax (for minimax/ models)"),
+        ("OPENAI_API_KEY", "OpenAI or custom OpenAI-compat provider"),
+        ("AWS_ACCESS_KEY_ID", "AWS Access Key ID (IAM auth — alternative to BEDROCK_API_KEY)"),
+        ("AWS_SECRET_ACCESS_KEY", "AWS Secret Access Key (IAM auth)"),
+    ];
+
+    let stdin = io::stdin();
+    for (var, label) in &keys {
+        let current = config
+            .get(*var)
+            .and_then(|v| v.as_str())
+            .or_else(|| None)
+            .map(|v| {
+                if v.len() > 8 {
+                    format!("{}…{}", &v[..4], &v[v.len() - 4..])
+                } else {
+                    "set".to_string()
+                }
+            });
+
+        if let Some(ref hint) = current {
+            eprint!("  {var} [{label}] (current: {hint}): ");
+        } else {
+            eprint!("  {var} [{label}]: ");
+        }
+        let _ = io::stderr().flush();
+
+        let mut line = String::new();
+        stdin.lock().read_line(&mut line)?;
+        let trimmed = line.trim();
+
+        if trimmed.is_empty() {
+            // keep existing
+        } else if trimmed == "clear" {
+            config.remove(*var);
+        } else {
+            config.insert(var.to_string(), serde_json::Value::String(trimmed.to_string()));
+        }
+    }
+
+    std::fs::create_dir_all(claw_home())?;
+    let json = serde_json::to_string_pretty(&serde_json::Value::Object(config))?;
+    std::fs::write(&config_path, json)?;
+
+    // Set permissions restrictive on Unix (best-effort)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600));
+    }
+
+    println!("\nConfig saved to {}", config_path.display());
+    Ok(())
+}
+
+/// Interactive permission prompter for the REPL.
+/// Prints a one-line preview of each tool call and waits for y/n/a.
+struct ReplPermissionPrompter {
+    always_allow: HashSet<String>,
+}
+
+impl ReplPermissionPrompter {
+    fn new() -> Self {
+        Self {
+            always_allow: HashSet::new(),
+        }
+    }
+}
+
+impl PermissionPrompter for ReplPermissionPrompter {
+    fn decide(&mut self, request: &PermissionRequest) -> PermissionPromptDecision {
+        if self.always_allow.contains(&request.tool_name) {
+            return PermissionPromptDecision::Allow;
+        }
+        let preview: String = request.input.chars().take(120).collect();
+        eprintln!();
+        eprintln!("  Tool:  {}", request.tool_name);
+        eprintln!("  Input: {preview}");
+        eprint!("  Allow? [y]es / [n]o / [a]lways : ");
+        let _ = io::stderr().flush();
+        let mut line = String::new();
+        if io::stdin().lock().read_line(&mut line).is_err() {
+            return PermissionPromptDecision::Deny {
+                reason: "could not read permission response".to_string(),
+            };
+        }
+        match line.trim() {
+            "y" | "yes" | "" => PermissionPromptDecision::Allow,
+            "a" | "always" => {
+                self.always_allow.insert(request.tool_name.clone());
+                PermissionPromptDecision::Allow
+            }
+            _ => PermissionPromptDecision::Deny {
+                reason: "denied by user".to_string(),
+            },
+        }
+    }
+}
 
 fn main() {
     if let Err(error) = run() {
@@ -34,6 +239,15 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().skip(1).collect();
+
+    // Load persisted keys before anything that might need them
+    if !matches!(
+        args.first().map(String::as_str),
+        Some("setup") | Some("--help") | Some("-h") | Some("dump-manifests") | Some("bootstrap-plan") | Some("system-prompt")
+    ) {
+        load_config_keys();
+    }
+
     match parse_args(&args)? {
         CliAction::DumpManifests => dump_manifests(),
         CliAction::BootstrapPlan => print_bootstrap_plan(),
@@ -44,6 +258,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         } => resume_session(&session_path, command),
         CliAction::Prompt { prompt, model } => LiveCli::new(model, false)?.run_turn(&prompt)?,
         CliAction::Repl { model } => run_repl(model)?,
+        CliAction::Setup => run_setup()?,
         CliAction::Help => print_help(),
     }
     Ok(())
@@ -68,11 +283,12 @@ enum CliAction {
     Repl {
         model: String,
     },
+    Setup,
     Help,
 }
 
 fn parse_args(args: &[String]) -> Result<CliAction, String> {
-    let mut model = DEFAULT_MODEL.to_string();
+    let mut model = default_model();
     let mut rest = Vec::new();
     let mut index = 0;
 
@@ -109,6 +325,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     match rest[0].as_str() {
         "dump-manifests" => Ok(CliAction::DumpManifests),
         "bootstrap-plan" => Ok(CliAction::BootstrapPlan),
+        "setup" => Ok(CliAction::Setup),
         "system-prompt" => parse_system_prompt_args(&rest[1..]),
         "prompt" => {
             let prompt = rest[1..].join(" ");
@@ -123,7 +340,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
 
 fn parse_system_prompt_args(args: &[String]) -> Result<CliAction, String> {
     let mut cwd = env::current_dir().map_err(|error| error.to_string())?;
-    let mut date = DEFAULT_DATE.to_string();
+    let mut date = today_iso();
     let mut index = 0;
 
     while index < args.len() {
@@ -241,36 +458,76 @@ fn resume_session(session_path: &Path, command: Option<String>) {
 fn run_repl(model: String) -> Result<(), Box<dyn std::error::Error>> {
     let mut cli = LiveCli::new(model, true)?;
     let editor = input::LineEditor::new("› ");
-    println!("Rusty Claude CLI interactive mode");
-    println!("Type /help for commands. Shift+Enter or Ctrl+J inserts a newline.");
+
+    // ── Startup banner ─────────────────────────────────────────────────────────
+    println!();
+    println!("  \x1b[1;36m⚡ claw\x1b[0m  \x1b[2m{}\x1b[0m", cli.model);
+    println!("  \x1b[2m/help for commands · Shift+Enter for newlines\x1b[0m");
+    println!();
 
     while let Some(input) = editor.read_line()? {
         let trimmed = input.trim();
         if trimmed.is_empty() {
             continue;
         }
-        match trimmed {
-            "/exit" | "/quit" => break,
-            "/help" => {
-                println!("Available commands:");
-                println!("  /help    Show help");
-                println!("  /status  Show session status");
-                println!("  /compact Compact session history");
-                println!("  /exit    Quit the REPL");
+
+        // Dispatch slash commands
+        if trimmed.starts_with('/') {
+            let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
+            match parts[0] {
+                "/exit" | "/quit" => break,
+                "/help" => print_slash_help(),
+                "/status" => cli.print_status(),
+                "/cost" => cli.print_cost(),
+                "/compact" => cli.compact()?,
+                "/clear" => cli.clear_session()?,
+                "/save" => cli.save_session()?,
+                "/model" => {
+                    if let Some(name) = parts.get(1).copied() {
+                        cli.set_model(name.trim())?;
+                    } else {
+                        println!("\n  \x1b[2mcurrent\x1b[0m  {}", cli.model);
+                        println!("  \x1b[2musage\x1b[0m    /model <model>");
+                        println!("           /model <planner>+<executor>");
+                        println!("           /model opusplan");
+                        println!("           /model opusplan kimi/moonshot-v1-32k");
+                        println!();
+                    }
+                }
+                other => {
+                    println!("\n  \x1b[31m✘ Unknown command: {other}\x1b[0m  \x1b[2m(try /help)\x1b[0m\n");
+                }
             }
-            "/status" => cli.print_status(),
-            "/compact" => cli.compact()?,
-            _ => cli.run_turn(trimmed)?,
+            continue;
         }
+
+        cli.run_turn(trimmed)?;
     }
 
+    println!("\n  \x1b[2mBye.\x1b[0m\n");
     Ok(())
+}
+
+fn print_slash_help() {
+    println!();
+    println!("  \x1b[1mCommands\x1b[0m");
+    println!("  \x1b[2m────────────────────────────────────\x1b[0m");
+    println!("  \x1b[36m/help\x1b[0m               show this help");
+    println!("  \x1b[36m/status\x1b[0m             token usage & cost");
+    println!("  \x1b[36m/cost\x1b[0m               detailed cost breakdown");
+    println!("  \x1b[36m/compact\x1b[0m            compact session history");
+    println!("  \x1b[36m/clear\x1b[0m              clear session and start fresh");
+    println!("  \x1b[36m/model\x1b[0m \x1b[2m<name>\x1b[0m       switch model");
+    println!("  \x1b[36m/save\x1b[0m               save session to disk");
+    println!("  \x1b[36m/exit\x1b[0m               quit");
+    println!();
 }
 
 struct LiveCli {
     model: String,
     system_prompt: Vec<String>,
-    runtime: ConversationRuntime<AnthropicRuntimeClient, CliToolExecutor>,
+    runtime: ConversationRuntime<AnyApiClient, CliToolExecutor>,
+    prompter: ReplPermissionPrompter,
 }
 
 impl LiveCli {
@@ -286,34 +543,25 @@ impl LiveCli {
             model,
             system_prompt,
             runtime,
+            prompter: ReplPermissionPrompter::new(),
         })
     }
 
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let mut spinner = Spinner::new();
-        let mut stdout = io::stdout();
-        spinner.tick(
-            "Waiting for Claude",
-            TerminalRenderer::new().color_theme(),
-            &mut stdout,
-        )?;
-        let result = self.runtime.run_turn(input, None);
+        println!(); // breathing room before response
+        let result = self.runtime.run_turn(input, Some(&mut self.prompter));
         match result {
             Ok(_) => {
-                spinner.finish(
-                    "Claude response complete",
-                    TerminalRenderer::new().color_theme(),
-                    &mut stdout,
-                )?;
-                println!();
+                let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
+                let usage = self.runtime.usage().cumulative_usage();
+                println!(
+                    "\n  \x1b[2m↑{} ↓{}  ${cost:.4}\x1b[0m",
+                    usage.input_tokens, usage.output_tokens,
+                );
                 Ok(())
             }
             Err(error) => {
-                spinner.fail(
-                    "Claude request failed",
-                    TerminalRenderer::new().color_theme(),
-                    &mut stdout,
-                )?;
+                println!("\n  \x1b[31m✘ {error}\x1b[0m");
                 Err(Box::new(error))
             }
         }
@@ -321,13 +569,17 @@ impl LiveCli {
 
     fn print_status(&self) {
         let usage = self.runtime.usage().cumulative_usage();
-        println!(
-            "status: messages={} turns={} input_tokens={} output_tokens={}",
-            self.runtime.session().messages.len(),
-            self.runtime.usage().turns(),
-            usage.input_tokens,
-            usage.output_tokens
-        );
+        let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
+        println!();
+        println!("  \x1b[1mSession\x1b[0m");
+        println!("  \x1b[2m────────────────────────────────────\x1b[0m");
+        println!("  \x1b[36mmodel\x1b[0m       {}", self.model);
+        println!("  \x1b[36mmessages\x1b[0m    {}", self.runtime.session().messages.len());
+        println!("  \x1b[36mturns\x1b[0m       {}", self.runtime.usage().turns());
+        println!("  \x1b[36m↑ tokens\x1b[0m    {}", usage.input_tokens);
+        println!("  \x1b[36m↓ tokens\x1b[0m    {}", usage.output_tokens);
+        println!("  \x1b[36mcost\x1b[0m        \x1b[1m${cost:.4}\x1b[0m");
+        println!();
     }
 
     fn compact(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -339,18 +591,130 @@ impl LiveCli {
             self.system_prompt.clone(),
             true,
         )?;
-        println!("Compacted {removed} messages.");
+        println!("\n  \x1b[32m✔\x1b[0m Compacted \x1b[1m{removed}\x1b[0m messages.\n");
         Ok(())
+    }
+
+    fn clear_session(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.runtime = build_runtime(
+            Session::new(),
+            self.model.clone(),
+            self.system_prompt.clone(),
+            true,
+        )?;
+        println!("\n  \x1b[32m✔\x1b[0m Session cleared.\n");
+        Ok(())
+    }
+
+    fn set_model(&mut self, new_model: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let expanded = expand_model_spec(new_model);
+        self.runtime = build_runtime(
+            self.runtime.session().clone(),
+            expanded.clone(),
+            self.system_prompt.clone(),
+            true,
+        )?;
+        self.model = expanded.clone();
+        if let Some(i) = expanded.find('+') {
+            println!(
+                "\n  \x1b[32m✔\x1b[0m Dual model  \x1b[36mplanner\x1b[0m {} \x1b[2m+\x1b[0m \x1b[36mexecutor\x1b[0m {}\n",
+                &expanded[..i],
+                &expanded[i + 1..]
+            );
+        } else {
+            println!("\n  \x1b[32m✔\x1b[0m Model → \x1b[1m{expanded}\x1b[0m\n");
+        }
+        Ok(())
+    }
+
+    fn save_session(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let dir = sessions_dir();
+        std::fs::create_dir_all(&dir)?;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let path = dir.join(format!("session-{ts}.json"));
+        self.runtime.session().save_to_path(&path)?;
+        println!("\n  \x1b[32m✔\x1b[0m Saved → \x1b[2m{}\x1b[0m\n", path.display());
+        Ok(())
+    }
+
+    fn print_cost(&self) {
+        let usage = self.runtime.usage().cumulative_usage();
+        let primary = primary_model_name(&self.model);
+        let cost = self.runtime.usage().cost_usd(primary);
+        println!();
+        println!("  \x1b[1mCost\x1b[0m");
+        println!("  \x1b[2m────────────────────────────────────\x1b[0m");
+        if let Some(plus) = self.model.find('+') {
+            println!("  \x1b[36mplanner\x1b[0m     {}", &self.model[..plus]);
+            println!("  \x1b[36mexecutor\x1b[0m    {}", &self.model[plus + 1..]);
+        } else {
+            println!("  \x1b[36mmodel\x1b[0m       {}", self.model);
+        }
+        println!("  \x1b[36m↑ tokens\x1b[0m    {}", usage.input_tokens);
+        println!("  \x1b[36m↓ tokens\x1b[0m    {}", usage.output_tokens);
+        println!("  \x1b[36mcache wr\x1b[0m     {}", usage.cache_creation_input_tokens);
+        println!("  \x1b[36mcache rd\x1b[0m     {}", usage.cache_read_input_tokens);
+        println!("  \x1b[36mcost\x1b[0m        \x1b[1m${cost:.4}\x1b[0m  \x1b[2m(planner rate)\x1b[0m");
+        println!();
     }
 }
 
 fn build_system_prompt() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     Ok(load_system_prompt(
         env::current_dir()?,
-        DEFAULT_DATE,
+        today_iso(),
         env::consts::OS,
         "unknown",
     )?)
+}
+
+/// Expand shorthand model specs before routing.
+/// - `opusplan` → `claude-opus-4-5-20250514+<DEFAULT_MODEL>`
+/// - `opusplan kimi/moonshot-v1-32k` → `claude-opus-4-5-20250514+kimi/moonshot-v1-32k`
+fn expand_model_spec(spec: &str) -> String {
+    const OPUS: &str = "claude-opus-4-5-20250514";
+    if spec == "opusplan" {
+        format!("{OPUS}+{}", default_model())
+    } else if let Some(executor) = spec.strip_prefix("opusplan ") {
+        format!("{OPUS}+{executor}")
+    } else {
+        spec.to_string()
+    }
+}
+
+/// Returns just the planner model name (the part before `+`, if any).
+/// Used for cost estimation — the executor model may be a free/cheap provider.
+fn primary_model_name(model: &str) -> &str {
+    match model.find('+') {
+        Some(i) => &model[..i],
+        None => model,
+    }
+}
+
+/// Build a single (non-dual) API client for a model spec.
+fn build_single_client(
+    model: &str,
+    enable_tools: bool,
+) -> Result<AnyApiClient, Box<dyn std::error::Error>> {
+    if bedrock::is_bedrock_model(model) {
+        Ok(AnyApiClient::Bedrock(bedrock::BedrockRuntimeClient::new(
+            model,
+            enable_tools,
+        )?))
+    } else if openai::is_anthropic_model(model) {
+        Ok(AnyApiClient::Anthropic(AnthropicRuntimeClient::new(
+            model.to_string(),
+            enable_tools,
+        )?))
+    } else {
+        Ok(AnyApiClient::OpenAi(OpenAiRuntimeClient::new(
+            model.to_string(),
+            enable_tools,
+        )?))
+    }
 }
 
 fn build_runtime(
@@ -358,11 +722,23 @@ fn build_runtime(
     model: String,
     system_prompt: Vec<String>,
     enable_tools: bool,
-) -> Result<ConversationRuntime<AnthropicRuntimeClient, CliToolExecutor>, Box<dyn std::error::Error>>
-{
+) -> Result<ConversationRuntime<AnyApiClient, CliToolExecutor>, Box<dyn std::error::Error>> {
+    let model = expand_model_spec(&model);
+
+    let client = if let Some(plus) = model.find('+') {
+        let planner_spec = &model[..plus];
+        let executor_spec = &model[plus + 1..];
+        AnyApiClient::Dual {
+            planner: Box::new(build_single_client(planner_spec, enable_tools)?),
+            executor: Box::new(build_single_client(executor_spec, enable_tools)?),
+        }
+    } else {
+        build_single_client(&model, enable_tools)?
+    };
+
     Ok(ConversationRuntime::new(
         session,
-        AnthropicRuntimeClient::new(model, enable_tools)?,
+        client,
         CliToolExecutor::new(),
         permission_policy_from_env(),
         system_prompt,
@@ -418,86 +794,87 @@ impl ApiClient for AnthropicRuntimeClient {
             let mut events = Vec::new();
             let mut pending_tool: Option<(String, String, String)> = None;
             let mut saw_stop = false;
+            let mut interrupted = false;
 
-            while let Some(event) = stream
-                .next_event()
-                .await
-                .map_err(|error| RuntimeError::new(error.to_string()))?
-            {
-                match event {
-                    ApiStreamEvent::MessageStart(start) => {
-                        for block in start.message.content {
-                            push_output_block(block, &mut stdout, &mut events, &mut pending_tool)?;
-                        }
-                    }
-                    ApiStreamEvent::ContentBlockStart(start) => {
-                        push_output_block(
-                            start.content_block,
-                            &mut stdout,
-                            &mut events,
-                            &mut pending_tool,
-                        )?;
-                    }
-                    ApiStreamEvent::ContentBlockDelta(delta) => match delta.delta {
-                        ContentBlockDelta::TextDelta { text } => {
-                            if !text.is_empty() {
-                                write!(stdout, "{text}")
-                                    .and_then(|_| stdout.flush())
-                                    .map_err(|error| RuntimeError::new(error.to_string()))?;
-                                events.push(AssistantEvent::TextDelta(text));
+            loop {
+                tokio::select! {
+                    result = stream.next_event() => {
+                        let Some(event) = result
+                            .map_err(|error| RuntimeError::new(error.to_string()))?
+                        else {
+                            break;
+                        };
+                        match event {
+                            ApiStreamEvent::MessageStart(start) => {
+                                for block in start.message.content {
+                                    push_output_block(block, &mut stdout, &mut events, &mut pending_tool)?;
+                                }
+                            }
+                            ApiStreamEvent::ContentBlockStart(start) => {
+                                push_output_block(
+                                    start.content_block,
+                                    &mut stdout,
+                                    &mut events,
+                                    &mut pending_tool,
+                                )?;
+                            }
+                            ApiStreamEvent::ContentBlockDelta(delta) => match delta.delta {
+                                ContentBlockDelta::TextDelta { text } => {
+                                    if !text.is_empty() {
+                                        write!(stdout, "{text}")
+                                            .and_then(|_| stdout.flush())
+                                            .map_err(|error| RuntimeError::new(error.to_string()))?;
+                                        events.push(AssistantEvent::TextDelta(text));
+                                    }
+                                }
+                                ContentBlockDelta::InputJsonDelta { partial_json } => {
+                                    if let Some((_, _, input)) = &mut pending_tool {
+                                        input.push_str(&partial_json);
+                                    }
+                                }
+                            },
+                            ApiStreamEvent::ContentBlockStop(_) => {
+                                if let Some((id, name, input)) = pending_tool.take() {
+                                    events.push(AssistantEvent::ToolUse { id, name, input });
+                                }
+                            }
+                            ApiStreamEvent::MessageDelta(delta) => {
+                                events.push(AssistantEvent::Usage(TokenUsage {
+                                    input_tokens: delta.usage.input_tokens,
+                                    output_tokens: delta.usage.output_tokens,
+                                    cache_creation_input_tokens: 0,
+                                    cache_read_input_tokens: 0,
+                                }));
+                            }
+                            ApiStreamEvent::MessageStop(_) => {
+                                saw_stop = true;
+                                events.push(AssistantEvent::MessageStop);
+                                break;
                             }
                         }
-                        ContentBlockDelta::InputJsonDelta { partial_json } => {
-                            if let Some((_, _, input)) = &mut pending_tool {
-                                input.push_str(&partial_json);
-                            }
-                        }
-                    },
-                    ApiStreamEvent::ContentBlockStop(_) => {
-                        if let Some((id, name, input)) = pending_tool.take() {
-                            events.push(AssistantEvent::ToolUse { id, name, input });
-                        }
                     }
-                    ApiStreamEvent::MessageDelta(delta) => {
-                        events.push(AssistantEvent::Usage(TokenUsage {
-                            input_tokens: delta.usage.input_tokens,
-                            output_tokens: delta.usage.output_tokens,
-                            cache_creation_input_tokens: 0,
-                            cache_read_input_tokens: 0,
-                        }));
-                    }
-                    ApiStreamEvent::MessageStop(_) => {
-                        saw_stop = true;
-                        events.push(AssistantEvent::MessageStop);
+                    _ = tokio::signal::ctrl_c() => {
+                        eprintln!("\nInterrupted.");
+                        interrupted = true;
+                        break;
                     }
                 }
             }
 
-            if !saw_stop
-                && events.iter().any(|event| {
-                    matches!(event, AssistantEvent::TextDelta(text) if !text.is_empty())
-                        || matches!(event, AssistantEvent::ToolUse { .. })
-                })
-            {
+            // Ensure the session stays valid after an interruption
+            if !saw_stop {
+                if interrupted
+                    && !events.iter().any(|e| matches!(e, AssistantEvent::TextDelta(_)))
+                {
+                    events.push(AssistantEvent::TextDelta("[Interrupted]".to_string()));
+                }
+                if let Some((id, name, input)) = pending_tool.take() {
+                    events.push(AssistantEvent::ToolUse { id, name, input });
+                }
                 events.push(AssistantEvent::MessageStop);
             }
 
-            if events
-                .iter()
-                .any(|event| matches!(event, AssistantEvent::MessageStop))
-            {
-                return Ok(events);
-            }
-
-            let response = self
-                .client
-                .send_message(&MessageRequest {
-                    stream: false,
-                    ..message_request.clone()
-                })
-                .await
-                .map_err(|error| RuntimeError::new(error.to_string()))?;
-            response_to_events(response, &mut stdout)
+            Ok(events)
         })
     }
 }
@@ -524,29 +901,6 @@ fn push_output_block(
     Ok(())
 }
 
-fn response_to_events(
-    response: MessageResponse,
-    out: &mut impl Write,
-) -> Result<Vec<AssistantEvent>, RuntimeError> {
-    let mut events = Vec::new();
-    let mut pending_tool = None;
-
-    for block in response.content {
-        push_output_block(block, out, &mut events, &mut pending_tool)?;
-        if let Some((id, name, input)) = pending_tool.take() {
-            events.push(AssistantEvent::ToolUse { id, name, input });
-        }
-    }
-
-    events.push(AssistantEvent::Usage(TokenUsage {
-        input_tokens: response.usage.input_tokens,
-        output_tokens: response.usage.output_tokens,
-        cache_creation_input_tokens: response.usage.cache_creation_input_tokens,
-        cache_read_input_tokens: response.usage.cache_read_input_tokens,
-    }));
-    events.push(AssistantEvent::MessageStop);
-    Ok(events)
-}
 
 struct CliToolExecutor {
     renderer: TerminalRenderer,
@@ -577,6 +931,86 @@ impl ToolExecutor for CliToolExecutor {
     }
 }
 
+// ── OpenAI-compatible runtime client ──────────────────────────────────────────
+
+struct OpenAiRuntimeClient {
+    runtime: tokio::runtime::Runtime,
+    http: reqwest::Client,
+    config: openai::ProviderConfig,
+    max_tokens: u32,
+    enable_tools: bool,
+}
+
+impl OpenAiRuntimeClient {
+    fn new(model_spec: String, enable_tools: bool) -> Result<Self, Box<dyn std::error::Error>> {
+        let config = openai::resolve_provider(&model_spec)
+            .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+        Ok(Self {
+            runtime: tokio::runtime::Runtime::new()?,
+            http: reqwest::Client::new(),
+            config,
+            max_tokens: DEFAULT_MAX_TOKENS,
+            enable_tools,
+        })
+    }
+}
+
+impl ApiClient for OpenAiRuntimeClient {
+    fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+        let messages =
+            openai::to_openai_messages(&request.system_prompt, &request.messages);
+        let tools = self.enable_tools.then(openai::to_openai_tools);
+        let body = openai::OaiRequest {
+            model: self.config.model.clone(),
+            messages,
+            tools,
+            tool_choice: self.enable_tools.then_some("auto"),
+            stream: true,
+            stream_options: Some(openai::OaiStreamOptions { include_usage: true }),
+            max_tokens: self.max_tokens,
+        };
+        self.runtime
+            .block_on(openai::stream_completion(&self.http, &self.config, &body))
+    }
+}
+
+// ── Unified client enum ────────────────────────────────────────────────────────
+
+enum AnyApiClient {
+    Anthropic(AnthropicRuntimeClient),
+    OpenAi(OpenAiRuntimeClient),
+    Bedrock(bedrock::BedrockRuntimeClient),
+    /// Planner/executor split: planner responds to user messages; executor handles
+    /// tool-result turns (the agentic loop). Box<> breaks the recursive size.
+    Dual {
+        planner: Box<AnyApiClient>,
+        executor: Box<AnyApiClient>,
+    },
+}
+
+impl ApiClient for AnyApiClient {
+    fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+        match self {
+            Self::Anthropic(c) => c.stream(request),
+            Self::OpenAi(c) => c.stream(request),
+            Self::Bedrock(c) => c.stream(request),
+            Self::Dual { planner, executor, .. } => {
+                // Route by last message role: tool results → executor, user → planner
+                let last_is_tool = request
+                    .messages
+                    .last()
+                    .map(|m| m.role == MessageRole::Tool)
+                    .unwrap_or(false);
+                if last_is_tool {
+                    executor.stream(request)
+                } else {
+                    planner.stream(request)
+                }
+            }
+        }
+    }
+}
+
 fn permission_policy_from_env() -> PermissionPolicy {
     let mode =
         env::var("RUSTY_CLAUDE_PERMISSION_MODE").unwrap_or_else(|_| "workspace-write".to_string());
@@ -585,11 +1019,16 @@ fn permission_policy_from_env() -> PermissionPolicy {
             .with_tool_mode("read_file", PermissionMode::Allow)
             .with_tool_mode("glob_search", PermissionMode::Allow)
             .with_tool_mode("grep_search", PermissionMode::Allow),
-        _ => PermissionPolicy::new(PermissionMode::Allow),
+        "allow-all" => PermissionPolicy::new(PermissionMode::Allow),
+        // Default: read-only tools auto-approved, write/exec tools need confirmation
+        _ => PermissionPolicy::new(PermissionMode::Allow)
+            .with_tool_mode("bash", PermissionMode::Prompt)
+            .with_tool_mode("write_file", PermissionMode::Prompt)
+            .with_tool_mode("edit_file", PermissionMode::Prompt),
     }
 }
 
-fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
+pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
     messages
         .iter()
         .filter_map(|message| {
@@ -631,22 +1070,39 @@ fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
 }
 
 fn print_help() {
-    println!("rusty-claude-cli");
+    println!("claw — personal AI coding agent");
     println!();
     println!("Usage:");
-    println!("  rusty-claude-cli [--model MODEL]             Start interactive REPL");
-    println!(
-        "  rusty-claude-cli [--model MODEL] prompt TEXT Send one prompt and stream the response"
-    );
-    println!("  rusty-claude-cli dump-manifests");
-    println!("  rusty-claude-cli bootstrap-plan");
-    println!("  rusty-claude-cli system-prompt [--cwd PATH] [--date YYYY-MM-DD]");
-    println!("  rusty-claude-cli --resume SESSION.json [/compact]");
+    println!("  claw                                    Start interactive REPL");
+    println!("  claw setup                              Save API keys to ~/.claw-code/config.json");
+    println!("  claw --model MODEL                      Start REPL with a specific model");
+    println!("  claw --model PLAN+EXEC                  Dual model: planner+executor");
+    println!("  claw --model opusplan                   Opus plans, Sonnet executes");
+    println!("  claw --model 'opusplan kimi/moonshot-v1-32k'  Opus plans, Kimi executes");
+    println!("  claw prompt TEXT                        Send one prompt and exit");
+    println!("  claw system-prompt [--cwd PATH]         Print system prompt for current dir");
+    println!("  claw --resume SESSION.json [/compact]   Resume a saved session");
+    println!();
+    println!("Slash commands (inside REPL):");
+    println!("  /help   /status   /cost   /compact   /clear   /model <name>   /save   /exit");
+    println!();
+    println!("Environment (or save with 'claw setup'):");
+    println!("  BEDROCK_API_KEY                 Bedrock API key — default when set (create in AWS console)");
+    println!("  AWS_DEFAULT_REGION              Bedrock region (default: us-east-1)");
+    println!("  ANTHROPIC_API_KEY               Anthropic direct API — default when BEDROCK_API_KEY not set");
+    println!("  KIMI_API_KEY                    Required for kimi/ models");
+    println!("  GLM_API_KEY                     Required for glm/ models");
+    println!("  MINIMAX_API_KEY                 Required for minimax/ models");
+    println!("  OPENAI_API_KEY                  Required for openai/ or custom models");
+    println!("  AWS_ACCESS_KEY_ID               Bedrock IAM auth (alternative to BEDROCK_API_KEY)");
+    println!("  AWS_SECRET_ACCESS_KEY           Bedrock IAM auth");
+    println!("  AWS_SESSION_TOKEN               Optional — temporary IAM credentials");
+    println!("  RUSTY_CLAUDE_PERMISSION_MODE    read-only | allow-all (default: prompt for writes)");
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_args, CliAction, DEFAULT_MODEL};
+    use super::{default_model, parse_args, CliAction};
     use runtime::{ContentBlock, ConversationMessage, MessageRole};
     use std::path::PathBuf;
 
@@ -655,7 +1111,7 @@ mod tests {
         assert_eq!(
             parse_args(&[]).expect("args should parse"),
             CliAction::Repl {
-                model: DEFAULT_MODEL.to_string(),
+                model: default_model(),
             }
         );
     }
@@ -671,7 +1127,7 @@ mod tests {
             parse_args(&args).expect("args should parse"),
             CliAction::Prompt {
                 prompt: "hello world".to_string(),
-                model: DEFAULT_MODEL.to_string(),
+                model: default_model(),
             }
         );
     }

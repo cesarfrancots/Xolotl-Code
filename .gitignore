@@ -1,2 +1,12 @@
 __pycache__/
 archive/
+
+# Rust
+rust/target/
+rust/.cargo/
+rust/Cargo.lock
+
+# Claude Code settings and sessions
+.claude/
+.planning/
+.port_sessions/
