@@ -178,16 +178,22 @@ mod tests {
 
     #[test]
     fn executes_simple_command() {
+        // Use a command that works on both PowerShell (Windows) and sh (Unix)
+        #[cfg(target_os = "windows")]
+        let cmd = "Write-Output 'hello'";
+        #[cfg(not(target_os = "windows"))]
+        let cmd = "printf 'hello'";
+
         let output = execute_bash(BashCommandInput {
-            command: String::from("printf 'hello'"),
-            timeout: Some(1_000),
+            command: String::from(cmd),
+            timeout: Some(5_000),
             description: None,
             run_in_background: Some(false),
             dangerously_disable_sandbox: Some(false),
         })
         .expect("bash command should execute");
 
-        assert_eq!(output.stdout, "hello");
+        assert_eq!(output.stdout.trim(), "hello");
         assert!(!output.interrupted);
     }
 }
