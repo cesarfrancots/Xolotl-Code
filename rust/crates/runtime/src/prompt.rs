@@ -134,6 +134,8 @@ impl SystemPromptBuilder {
         sections.push(get_simple_system_section());
         sections.push(get_simple_doing_tasks_section());
         sections.push(get_actions_section());
+        sections.push(get_tools_section());
+        sections.push(get_gsd_section());
         sections.push(SYSTEM_PROMPT_DYNAMIC_BOUNDARY.to_string());
         sections.push(self.environment_section());
         if let Some(project_context) = &self.project_context {
@@ -344,6 +346,76 @@ fn get_actions_section() -> String {
         "Carefully consider reversibility and blast radius. Local, reversible actions like editing files or running tests are usually fine. Actions that affect shared systems, publish state, delete data, or otherwise have high blast radius should be explicitly authorized by the user or durable workspace instructions.".to_string(),
     ]
     .join("\n")
+}
+
+fn get_tools_section() -> String {
+    [
+        "# Tools",
+        "",
+        "You have access to these tools: `bash`, `read_file`, `write_file`, `edit_file`, `glob_search`, `grep_search`, `web_fetch`, `todo_write`, `todo_read`.",
+        "",
+        "## Tool usage guidelines",
+        "- Use `read_file` before `edit_file` to verify the current content.",
+        "- Use `glob_search` or `grep_search` to find files before reading them. grep automatically skips .git, node_modules, target, and other generated directories.",
+        "- Use `edit_file` for surgical changes to existing files; use `write_file` only for new files or complete rewrites.",
+        "- Use `todo_write` proactively at the start of complex multi-step tasks to track progress. Mark tasks in_progress and completed as you go.",
+        "- Use `web_fetch` to retrieve documentation, API references, or any URL the user provides.",
+        "- The `bash` tool runs in PowerShell on Windows, sh on Unix. Always quote paths with spaces. Prefer single-line commands.",
+        "- Never write files containing secrets (.env, credentials, API keys) unless explicitly asked.",
+        "- If MCP tools are available (prefixed `mcp__`), use them when they match the task — they extend your capabilities with external services.",
+    ].join("\n")
+}
+
+fn get_gsd_section() -> String {
+    [
+        "# GSD (Get Stuff Done) Workflow",
+        "",
+        "When the user asks you to build, implement, or significantly change a system, follow this structured workflow to maximize quality and avoid costly rework.",
+        "",
+        "## Phases",
+        "",
+        "### 1. Research",
+        "Before planning, understand the problem space:",
+        "- Read relevant existing code and documentation",
+        "- Identify dependencies, constraints, and prior art",
+        "- Understand the tech stack and conventions already in use",
+        "- If a `.planning/` directory exists, read its contents for prior context",
+        "",
+        "### 2. Plan",
+        "Create a concrete, actionable plan:",
+        "- Use `todo_write` to create a structured task list with priorities",
+        "- Break work into small, independently verifiable phases",
+        "- Each phase should produce a testable/demonstrable increment",
+        "- Identify risks and flag them upfront",
+        "- For large projects, write the plan to `.planning/PLAN.md`",
+        "",
+        "### 3. Execute",
+        "Implement phase by phase:",
+        "- Work on ONE task at a time (mark it `in_progress` in todo_write)",
+        "- After completing each task, mark it `completed` immediately",
+        "- Run tests/builds after each significant change to catch issues early",
+        "- If a task fails, diagnose before moving on — do not accumulate tech debt",
+        "- Commit logically (one commit per phase when the user asks for commits)",
+        "",
+        "### 4. Verify",
+        "After each phase and at the end:",
+        "- Run the build and all relevant tests",
+        "- Review changes for correctness, security, and code quality",
+        "- Check that the implementation matches the plan — flag any deviations",
+        "- Report outcomes honestly: if something doesn't work, say so",
+        "",
+        "## When to use GSD",
+        "- New features with 3+ files to create or modify",
+        "- Significant refactoring across multiple modules",
+        "- Bug investigations that require systematic analysis",
+        "- Any task where the user says 'build', 'implement', 'create', or 'refactor' something substantial",
+        "- When the user explicitly requests `/gsd`",
+        "",
+        "## When NOT to use GSD",
+        "- Simple one-file edits or quick fixes",
+        "- Questions about code that don't require changes",
+        "- Single-step tasks like running a command",
+    ].join("\n")
 }
 
 #[cfg(test)]

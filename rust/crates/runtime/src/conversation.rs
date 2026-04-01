@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
 use crate::compact::{
-    compact_session, estimate_session_tokens, CompactionConfig, CompactionResult,
+    compact_session, estimate_session_tokens, should_compact, CompactionConfig, CompactionResult,
 };
 use crate::permissions::{PermissionOutcome, PermissionPolicy, PermissionPrompter};
 use crate::session::{ContentBlock, ConversationMessage, Session};
@@ -94,6 +94,9 @@ pub struct ConversationRuntime<C, T> {
     system_prompt: Vec<String>,
     max_iterations: usize,
     usage_tracker: UsageTracker,
+    /// Maximum estimated tokens before auto-compaction triggers.
+    /// Default: 120_000 (fits in 128K context with room for response).
+    max_context_tokens: usize,
 }
 
 impl<C, T> ConversationRuntime<C, T>
@@ -118,6 +121,7 @@ where
             system_prompt,
             max_iterations: 16,
             usage_tracker,
+            max_context_tokens: 120_000,
         }
     }
 
@@ -125,6 +129,40 @@ where
     pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
         self.max_iterations = max_iterations;
         self
+    }
+
+    #[must_use]
+    pub fn with_max_context_tokens(mut self, max_context_tokens: usize) -> Self {
+        self.max_context_tokens = max_context_tokens;
+        self
+    }
+
+    /// If the session exceeds the context threshold, auto-compact in place.
+    /// Returns `true` if compaction occurred.
+    fn maybe_auto_compact(&mut self) -> bool {
+        let estimated = estimate_session_tokens(&self.session);
+        if estimated < self.max_context_tokens {
+            return false;
+        }
+        let config = CompactionConfig {
+            preserve_recent_messages: 6,
+            max_estimated_tokens: self.max_context_tokens / 2,
+        };
+        if !should_compact(&self.session, config) {
+            return false;
+        }
+        let result = compact_session(&self.session, config);
+        if result.removed_message_count > 0 {
+            eprintln!(
+                "\n  \x1b[33m⚠ auto-compacted {} messages (context was ~{}K tokens)\x1b[0m",
+                result.removed_message_count,
+                estimated / 1000
+            );
+            self.session = result.compacted_session;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn run_turn(
@@ -147,6 +185,9 @@ where
                     "conversation loop exceeded the maximum number of iterations",
                 ));
             }
+
+            // Auto-compact if context is getting too large
+            self.maybe_auto_compact();
 
             let request = ApiRequest {
                 system_prompt: self.system_prompt.clone(),

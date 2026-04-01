@@ -1,13 +1,55 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// A block within the `system` array of a MessageRequest.
+/// Supports `cache_control` for Anthropic prompt caching.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SystemContentBlock {
+    #[serde(rename = "type")]
+    pub block_type: String,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<CacheControl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CacheControl {
+    #[serde(rename = "type")]
+    pub cache_type: String,
+}
+
+impl SystemContentBlock {
+    /// Create a plain text block.
+    #[must_use]
+    pub fn text(content: impl Into<String>) -> Self {
+        Self {
+            block_type: "text".to_string(),
+            text: content.into(),
+            cache_control: None,
+        }
+    }
+
+    /// Create a cached text block (ephemeral cache_control).
+    #[must_use]
+    pub fn cached_text(content: impl Into<String>) -> Self {
+        Self {
+            block_type: "text".to_string(),
+            text: content.into(),
+            cache_control: Some(CacheControl {
+                cache_type: "ephemeral".to_string(),
+            }),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessageRequest {
     pub model: String,
     pub max_tokens: u32,
     pub messages: Vec<InputMessage>,
+    /// System prompt. Sent as an array of content blocks to support cache_control.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system: Option<String>,
+    pub system: Option<Vec<SystemContentBlock>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]

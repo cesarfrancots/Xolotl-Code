@@ -427,7 +427,7 @@ fn sample_request(stream: bool) -> MessageRequest {
                 },
             ],
         }],
-        system: Some("Use tools when needed".to_string()),
+        system: Some(vec![api::SystemContentBlock::text("Use tools when needed")]),
         tools: Some(vec![ToolDefinition {
             name: "get_weather".to_string(),
             description: Some("Fetches the weather".to_string()),

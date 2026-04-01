@@ -65,14 +65,22 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
             name: "bash",
-            description: "Execute a shell command in the current workspace.",
+            description: "Execute a shell command in the current workspace.\n\n\
+                - The command runs in PowerShell on Windows or sh on Unix.\n\
+                - Working directory is the project root.\n\
+                - Use `timeout` (milliseconds) for long-running commands; if it fires the output will be empty and `interrupted` will be true.\n\
+                - Set `run_in_background: true` to launch a detached process (e.g. dev servers); returns immediately with a background task id.\n\
+                - Output (combined stdout+stderr) is capped at 50 KB; larger output is truncated.\n\
+                - Prefer single-line commands. For multi-step work use `;` to chain (avoid `&&` on PowerShell).\n\
+                - Always quote file paths that contain spaces.\n\
+                - NEVER run destructive or irreversible commands without explicit user approval.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string" },
-                    "timeout": { "type": "integer", "minimum": 1 },
-                    "description": { "type": "string" },
-                    "run_in_background": { "type": "boolean" },
+                    "command": { "type": "string", "description": "The shell command to execute" },
+                    "timeout": { "type": "integer", "minimum": 1, "description": "Timeout in milliseconds (default: 120000)" },
+                    "description": { "type": "string", "description": "Brief description of what this command does (5-10 words)" },
+                    "run_in_background": { "type": "boolean", "description": "If true, launch the command in the background and return immediately" },
                     "dangerouslyDisableSandbox": { "type": "boolean" }
                 },
                 "required": ["command"],
@@ -81,13 +89,18 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "read_file",
-            description: "Read a text file from the workspace.",
+            description: "Read a text file from the workspace.\n\n\
+                - Returns the file content with each line prefixed by its 1-indexed line number.\n\
+                - Use `offset` (1-indexed line number) and `limit` (number of lines) to paginate large files.\n\
+                - Default: first 2000 lines. Call again with a larger offset to read later sections.\n\
+                - If the file is binary or not valid UTF-8, an error is returned.\n\
+                - Use glob_search to find file paths before reading.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string" },
-                    "offset": { "type": "integer", "minimum": 0 },
-                    "limit": { "type": "integer", "minimum": 1 }
+                    "path": { "type": "string", "description": "Absolute or relative file path" },
+                    "offset": { "type": "integer", "minimum": 0, "description": "Line number to start from (0-indexed, default: 0)" },
+                    "limit": { "type": "integer", "minimum": 1, "description": "Maximum lines to return (default: 2000)" }
                 },
                 "required": ["path"],
                 "additionalProperties": false
@@ -95,12 +108,17 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "write_file",
-            description: "Write a text file in the workspace.",
+            description: "Write (create or overwrite) a text file in the workspace.\n\n\
+                - Creates parent directories automatically.\n\
+                - The entire `content` string becomes the new file content.\n\
+                - ALWAYS read a file before overwriting it to avoid data loss.\n\
+                - Prefer edit_file for small changes to existing files.\n\
+                - Never write files that likely contain secrets (.env, credentials).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string" },
-                    "content": { "type": "string" }
+                    "path": { "type": "string", "description": "Absolute or relative file path" },
+                    "content": { "type": "string", "description": "The full text content to write" }
                 },
                 "required": ["path", "content"],
                 "additionalProperties": false
@@ -108,14 +126,20 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "edit_file",
-            description: "Replace text in a workspace file.",
+            description: "Replace exact text in an existing workspace file.\n\n\
+                - `old_string` must match EXACTLY (including whitespace and indentation) in the file.\n\
+                - If `old_string` is not found, the edit fails — verify the content with read_file first.\n\
+                - If `old_string` appears multiple times and `replace_all` is false, only the first match is replaced.\n\
+                - Use `replace_all: true` when renaming variables or updating repeated patterns.\n\
+                - `new_string` must be different from `old_string`.\n\
+                - Prefer this over write_file for targeted changes.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string" },
-                    "old_string": { "type": "string" },
-                    "new_string": { "type": "string" },
-                    "replace_all": { "type": "boolean" }
+                    "path": { "type": "string", "description": "Absolute or relative file path" },
+                    "old_string": { "type": "string", "description": "Exact text to find and replace" },
+                    "new_string": { "type": "string", "description": "Replacement text" },
+                    "replace_all": { "type": "boolean", "description": "Replace all occurrences (default: false, replace first only)" }
                 },
                 "required": ["path", "old_string", "new_string"],
                 "additionalProperties": false
@@ -123,12 +147,16 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "glob_search",
-            description: "Find files by glob pattern.",
+            description: "Find files by glob pattern.\n\n\
+                - Supports glob patterns like '**/*.rs', 'src/**/*.ts', '*.json'.\n\
+                - Results are sorted by modification time (most recent first), capped at 100 files.\n\
+                - Use this to discover file paths before reading them.\n\
+                - Automatically skips .git, node_modules, target, and other generated directories.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "pattern": { "type": "string" },
-                    "path": { "type": "string" }
+                    "pattern": { "type": "string", "description": "Glob pattern to match files" },
+                    "path": { "type": "string", "description": "Base directory to search (default: current workspace)" }
                 },
                 "required": ["pattern"],
                 "additionalProperties": false
@@ -136,24 +164,30 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "grep_search",
-            description: "Search file contents with a regex pattern.",
+            description: "Search file contents with a regex pattern.\n\n\
+                - Returns matching file paths sorted by modification time (most recent first).\n\
+                - Use `output_mode: 'content'` to include matching lines with context.\n\
+                - Use `-i: true` for case-insensitive search, `multiline: true` for multi-line patterns.\n\
+                - Use `glob` to filter by file pattern (e.g. '*.rs'), and `path` to limit the search directory.\n\
+                - Automatically skips .git, node_modules, target, __pycache__, and other generated directories.\n\
+                - Results are capped at 250 files.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "pattern": { "type": "string" },
-                    "path": { "type": "string" },
-                    "glob": { "type": "string" },
-                    "output_mode": { "type": "string" },
-                    "-B": { "type": "integer", "minimum": 0 },
-                    "-A": { "type": "integer", "minimum": 0 },
-                    "-C": { "type": "integer", "minimum": 0 },
+                    "pattern": { "type": "string", "description": "Regex pattern to search for" },
+                    "path": { "type": "string", "description": "Directory to search (default: current workspace)" },
+                    "glob": { "type": "string", "description": "File glob filter (e.g. '*.rs', '*.{ts,tsx}')" },
+                    "output_mode": { "type": "string", "description": "'files_with_matches' (default), 'content', or 'count'" },
+                    "-B": { "type": "integer", "minimum": 0, "description": "Lines of context before match" },
+                    "-A": { "type": "integer", "minimum": 0, "description": "Lines of context after match" },
+                    "-C": { "type": "integer", "minimum": 0, "description": "Lines of context before and after" },
                     "context": { "type": "integer", "minimum": 0 },
                     "-n": { "type": "boolean" },
-                    "-i": { "type": "boolean" },
+                    "-i": { "type": "boolean", "description": "Case-insensitive search" },
                     "type": { "type": "string" },
                     "head_limit": { "type": "integer", "minimum": 1 },
                     "offset": { "type": "integer", "minimum": 0 },
-                    "multiline": { "type": "boolean" }
+                    "multiline": { "type": "boolean", "description": "Enable multi-line regex matching" }
                 },
                 "required": ["pattern"],
                 "additionalProperties": false
@@ -161,28 +195,20 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "web_fetch",
-            description: "Fetch the content of a URL. Returns the page text (HTML is converted to readable text). Use start_index and max_length to paginate large pages.",
+            description: "Fetch the content of a URL and return it as readable text.\n\n\
+                - Only http:// and https:// URLs are supported.\n\
+                - HTML is automatically converted to readable text (scripts/styles removed, entities decoded).\n\
+                - JSON responses are pretty-printed.\n\
+                - Response is capped at 512 KB. Use `start_index` and `max_length` to paginate large pages.\n\
+                - Set `raw: true` to return raw HTML without conversion.\n\
+                - Timeout: 30 seconds. Follows up to 5 redirects.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The URL to fetch (http:// or https:// only)"
-                    },
-                    "max_length": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "description": "Maximum characters to return (default: 20000)"
-                    },
-                    "start_index": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "description": "Character offset to start from (default: 0)"
-                    },
-                    "raw": {
-                        "type": "boolean",
-                        "description": "If true, return raw HTML/text without conversion"
-                    }
+                    "url": { "type": "string", "description": "The URL to fetch (http:// or https:// only)" },
+                    "max_length": { "type": "integer", "minimum": 1, "description": "Maximum characters to return (default: 20000)" },
+                    "start_index": { "type": "integer", "minimum": 0, "description": "Character offset to start from (default: 0)" },
+                    "raw": { "type": "boolean", "description": "If true, return raw HTML/text without conversion" }
                 },
                 "required": ["url"],
                 "additionalProperties": false
@@ -190,7 +216,12 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "todo_write",
-            description: "Create and manage a structured task list. Call this tool proactively when starting complex tasks, when a user provides multiple tasks, or after completing tasks to track progress. The todo list persists across sessions. Pass the COMPLETE updated list every time — it replaces the previous list entirely.",
+            description: "Create and manage a structured task list for tracking progress.\n\n\
+                - Call this proactively when starting complex multi-step tasks.\n\
+                - Pass the COMPLETE updated list every time — it replaces the previous list entirely.\n\
+                - Update task status in real-time: set 'in_progress' when starting, 'completed' when done.\n\
+                - Keep at most ONE task 'in_progress' at a time.\n\
+                - The todo list persists across sessions in ~/.claw-code/todos.json.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -202,16 +233,8 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
                             "properties": {
                                 "id": { "type": "string", "description": "Unique identifier" },
                                 "content": { "type": "string", "description": "Task description" },
-                                "status": {
-                                    "type": "string",
-                                    "enum": ["pending", "in_progress", "completed", "cancelled"],
-                                    "description": "Current status"
-                                },
-                                "priority": {
-                                    "type": "string",
-                                    "enum": ["high", "medium", "low"],
-                                    "description": "Priority level"
-                                }
+                                "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "cancelled"] },
+                                "priority": { "type": "string", "enum": ["high", "medium", "low"] }
                             },
                             "required": ["id", "content", "status", "priority"],
                             "additionalProperties": false

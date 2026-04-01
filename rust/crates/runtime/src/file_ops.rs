@@ -369,13 +369,46 @@ pub fn grep_search(input: &GrepSearchInput) -> io::Result<GrepSearchOutput> {
     })
 }
 
+/// Directories that are always skipped during search/grep operations.
+/// These contain generated, vendored, or version-control content that is
+/// almost never what the user wants to search through.
+const SKIP_DIRS: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".next",
+    ".nuxt",
+    "vendor",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "coverage",
+    ".turbo",
+    ".svn",
+    ".hg",
+];
+
 fn collect_search_files(base_path: &Path) -> io::Result<Vec<PathBuf>> {
     if base_path.is_file() {
         return Ok(vec![base_path.to_path_buf()]);
     }
 
     let mut files = Vec::new();
-    for entry in WalkDir::new(base_path) {
+    for entry in WalkDir::new(base_path).into_iter().filter_entry(|e| {
+        // Skip hidden/generated directories
+        if e.file_type().is_dir() {
+            if let Some(name) = e.file_name().to_str() {
+                return !SKIP_DIRS.contains(&name);
+            }
+        }
+        true
+    }) {
         let entry =
             entry.map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
         if entry.file_type().is_file() {

@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 
 use api::{
     AnthropicClient, ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest,
-    OutputContentBlock, StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition,
-    ToolResultContentBlock,
+    OutputContentBlock, StreamEvent as ApiStreamEvent, SystemContentBlock, ToolChoice,
+    ToolDefinition, ToolResultContentBlock,
 };
 
 use commands::handle_slash_command;
@@ -757,6 +757,38 @@ fn primary_model_name(model: &str) -> &str {
     }
 }
 
+/// Split system prompt sections into cached (static) and non-cached (dynamic) blocks.
+///
+/// Everything before `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` is static and gets
+/// `cache_control: {"type": "ephemeral"}` so the API provider can cache it.
+/// Everything after the boundary changes per turn (git status, date, etc.)
+/// and is sent without cache_control.
+fn build_cached_system_blocks(sections: &[String]) -> Vec<SystemContentBlock> {
+    use runtime::SYSTEM_PROMPT_DYNAMIC_BOUNDARY;
+
+    if sections.is_empty() {
+        return Vec::new();
+    }
+
+    let full = sections.join("\n\n");
+    if let Some(split_pos) = full.find(SYSTEM_PROMPT_DYNAMIC_BOUNDARY) {
+        let static_part = full[..split_pos].trim();
+        let dynamic_part = full[split_pos + SYSTEM_PROMPT_DYNAMIC_BOUNDARY.len()..].trim();
+
+        let mut blocks = Vec::new();
+        if !static_part.is_empty() {
+            blocks.push(SystemContentBlock::cached_text(static_part));
+        }
+        if !dynamic_part.is_empty() {
+            blocks.push(SystemContentBlock::text(dynamic_part));
+        }
+        blocks
+    } else {
+        // No boundary marker — cache the whole thing
+        vec![SystemContentBlock::cached_text(full)]
+    }
+}
+
 /// Build a single (non-dual) API client for a model spec.
 fn build_single_client(
     model: &str,
@@ -843,11 +875,12 @@ impl AnthropicRuntimeClient {
 
 impl ApiClient for AnthropicRuntimeClient {
     fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+        let system_blocks = build_cached_system_blocks(&request.system_prompt);
         let message_request = MessageRequest {
             model: self.model.clone(),
             max_tokens: DEFAULT_MAX_TOKENS,
             messages: convert_messages(&request.messages),
-            system: (!request.system_prompt.is_empty()).then(|| request.system_prompt.join("\n\n")),
+            system: if system_blocks.is_empty() { None } else { Some(system_blocks) },
             tools: self.enable_tools.then(|| {
                 self.tool_specs
                     .iter()

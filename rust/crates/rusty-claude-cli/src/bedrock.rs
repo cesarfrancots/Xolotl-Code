@@ -494,9 +494,26 @@ impl BedrockRuntimeClient {
         body.insert("messages".to_string(), messages_val);
 
         if !request.system_prompt.is_empty() {
+            let blocks = crate::build_cached_system_blocks(&request.system_prompt);
+            let system_val: Vec<serde_json::Value> = blocks
+                .iter()
+                .map(|b| {
+                    let mut obj = serde_json::json!({
+                        "type": "text",
+                        "text": b.text,
+                    });
+                    if let Some(ref cc) = b.cache_control {
+                        obj.as_object_mut().unwrap().insert(
+                            "cache_control".to_string(),
+                            serde_json::json!({"type": cc.cache_type}),
+                        );
+                    }
+                    obj
+                })
+                .collect();
             body.insert(
                 "system".to_string(),
-                serde_json::json!(request.system_prompt.join("\n\n")),
+                serde_json::json!(system_val),
             );
         }
 
@@ -597,7 +614,7 @@ impl ApiClient for BedrockRuntimeClient {
         let builder = self.add_auth(builder, &body_bytes, &host, &path);
 
         self.runtime.block_on(async {
-            let resp = tokio::select! {
+            let mut resp = tokio::select! {
                 result = builder.send() => {
                     result.map_err(|e| RuntimeError::new(format!("Bedrock request failed: {e}")))?
                 }
@@ -618,69 +635,63 @@ impl ApiClient for BedrockRuntimeClient {
                 )));
             }
 
-            // Collect the full response body then decode frames.
-            // reqwest's bytes_stream() would allow incremental processing but
-            // for simplicity (and because we want Ctrl-C support) we read all
-            // bytes and then process the event-stream frames synchronously.
-            let body_bytes = tokio::select! {
-                result = resp.bytes() => {
-                    result.map_err(|e| RuntimeError::new(format!("Bedrock read error: {e}")))?
-                }
-                _ = tokio::signal::ctrl_c() => {
-                    eprintln!("\nInterrupted.");
-                    return Ok(vec![
-                        AssistantEvent::TextDelta("[Interrupted]".to_string()),
-                        AssistantEvent::MessageStop,
-                    ]);
-                }
-            };
-
+            // True incremental streaming: read chunks as they arrive from the
+            // network and decode AWS event-stream frames on the fly, printing
+            // tokens to stdout the moment they're available.
             let mut events: Vec<AssistantEvent> = Vec::new();
             let mut stdout = io::stdout();
             let mut pending_tool: Option<(String, String, String)> = None;
             let mut usage_acc: Option<TokenUsage> = None;
             let mut saw_stop = false;
+            let mut frame_buf: Vec<u8> = Vec::with_capacity(16384);
 
-            let buf = body_bytes.as_ref();
-            let mut offset = 0;
+            loop {
+                let maybe_chunk = tokio::select! {
+                    chunk = resp.chunk() => chunk,
+                    _ = tokio::signal::ctrl_c() => {
+                        eprintln!("\nInterrupted.");
+                        if !events.iter().any(|e| matches!(e, AssistantEvent::TextDelta(_))) {
+                            events.push(AssistantEvent::TextDelta("[Interrupted]".to_string()));
+                        }
+                        break;
+                    }
+                };
 
-            while offset < buf.len() {
-                match decode_frame(buf, offset) {
-                    Some((event_type, payload, next_offset)) => {
-                        offset = next_offset;
-                        // We only care about "chunk" events — everything else
-                        // (e.g. "initial-response", "end") is ignored.
-                        if event_type == "chunk" {
-                            if let Ok(chunk_json) = serde_json::from_slice::<serde_json::Value>(&payload) {
-                                // Bedrock wraps the Anthropic payload in {"bytes": "<base64>"}
-                                let inner = if let Some(b64) = chunk_json
-                                    .get("bytes")
-                                    .and_then(|v| v.as_str())
-                                {
-                                    use_base64_decode(b64)
-                                        .and_then(|decoded| serde_json::from_slice(&decoded).ok())
-                                        .unwrap_or(chunk_json)
-                                } else {
-                                    chunk_json
-                                };
-
-                                let stopped = process_bedrock_chunk(
-                                    &inner,
-                                    &mut stdout,
-                                    &mut events,
-                                    &mut pending_tool,
-                                    &mut usage_acc,
-                                )
-                                .map_err(|e| RuntimeError::new(e.to_string()))?;
-                                if stopped {
-                                    saw_stop = true;
+                match maybe_chunk {
+                    Ok(Some(chunk)) => {
+                        frame_buf.extend_from_slice(&chunk);
+                        // Drain all complete frames from the buffer
+                        let mut offset = 0;
+                        while offset < frame_buf.len() {
+                            match decode_frame(&frame_buf, offset) {
+                                Some((event_type, payload, next_offset)) => {
+                                    offset = next_offset;
+                                    if event_type == "chunk" {
+                                        if let Ok(chunk_json) = serde_json::from_slice::<serde_json::Value>(&payload) {
+                                            let inner = if let Some(b64) = chunk_json.get("bytes").and_then(|v| v.as_str()) {
+                                                use_base64_decode(b64)
+                                                    .and_then(|decoded| serde_json::from_slice(&decoded).ok())
+                                                    .unwrap_or(chunk_json)
+                                            } else {
+                                                chunk_json
+                                            };
+                                            if let Ok(true) = process_bedrock_chunk(&inner, &mut stdout, &mut events, &mut pending_tool, &mut usage_acc) {
+                                                saw_stop = true;
+                                            }
+                                        }
+                                    }
                                 }
+                                None => break, // incomplete frame — wait for more data
                             }
                         }
+                        // Remove consumed bytes from the front of the buffer
+                        if offset > 0 {
+                            frame_buf.drain(..offset);
+                        }
                     }
-                    None => {
-                        // Incomplete frame or end of buffer
-                        break;
+                    Ok(None) => break, // stream ended
+                    Err(e) => {
+                        return Err(RuntimeError::new(format!("Bedrock stream read error: {e}")));
                     }
                 }
             }
@@ -695,7 +706,6 @@ impl ApiClient for BedrockRuntimeClient {
             }
 
             if !saw_stop {
-                // Ensure conversation runtime doesn't error on missing stop
                 events.push(AssistantEvent::MessageStop);
             } else {
                 events.push(AssistantEvent::MessageStop);
