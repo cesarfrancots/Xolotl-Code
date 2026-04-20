@@ -169,6 +169,15 @@ impl ConversationMessage {
     }
 
     #[must_use]
+    pub fn user_with_content(blocks: Vec<ContentBlock>) -> Self {
+        Self {
+            role: MessageRole::User,
+            blocks,
+            usage: None,
+        }
+    }
+
+    #[must_use]
     pub fn assistant(blocks: Vec<ContentBlock>) -> Self {
         Self {
             role: MessageRole::Assistant,

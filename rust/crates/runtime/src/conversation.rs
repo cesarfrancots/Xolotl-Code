@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
+use std::fs;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -15,6 +16,7 @@ pub struct ApiRequest {
     pub system_prompt: Vec<String>,
     pub messages: Vec<ConversationMessage>,
     pub thinking: Option<api::types::ThinkingConfig>,
+    pub images: Vec<ContentBlock>,
 }
 
 impl ApiRequest {
@@ -108,6 +110,7 @@ pub struct ConversationRuntime<C, T> {
     usage_tracker: UsageTracker,
     max_context_tokens: usize,
     max_parallel: usize,
+    pending_images: Vec<ContentBlock>,
 }
 
 impl<C, T> ConversationRuntime<C, T>
@@ -138,6 +141,7 @@ where
             usage_tracker,
             max_context_tokens: 120_000,
             max_parallel,
+            pending_images: Vec::new(),
         }
     }
 
@@ -157,6 +161,79 @@ where
     pub fn with_max_context_tokens(mut self, max_context_tokens: usize) -> Self {
         self.max_context_tokens = max_context_tokens;
         self
+    }
+
+    pub fn add_image(&mut self, image: ContentBlock) {
+        self.pending_images.push(image);
+    }
+
+    pub fn has_pending_images(&self) -> bool {
+        !self.pending_images.is_empty()
+    }
+
+    /// Parse input for @image references and add them to pending images.
+    /// Returns the text portion without @ references.
+    pub fn parse_input_images(&mut self, input: &str) -> String {
+        let mut result = String::new();
+        let mut current_path = String::new();
+        let mut in_at_path = false;
+
+        for ch in input.chars() {
+            if ch == '@' && !in_at_path {
+                in_at_path = true;
+                current_path.clear();
+            } else if in_at_path {
+                if ch.is_whitespace() || ch == '"' || ch == '\'' || ch == ')' || ch == ']' {
+                    // End of path - try to load image
+                    if !current_path.is_empty() {
+                        if let Ok(blocks) = self.load_image_from_path(&current_path) {
+                            for block in blocks {
+                                self.pending_images.push(block);
+                            }
+                        }
+                    }
+                    in_at_path = false;
+                    result.push(ch);
+                    current_path.clear();
+                } else {
+                    current_path.push(ch);
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        // Handle trailing @path
+        if in_at_path && !current_path.is_empty() {
+            if let Ok(blocks) = self.load_image_from_path(&current_path) {
+                for block in blocks {
+                    self.pending_images.push(block);
+                }
+            }
+        }
+
+        result
+    }
+
+    fn load_image_from_path(&self, path: &str) -> Result<Vec<ContentBlock>, std::io::Error> {
+        use std::fs;
+        use crate::session::ImageSource;
+
+        let path = path.trim();
+        if path.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let data = fs::read(path)?;
+        let encoded = base64_encode(&data);
+        let media_type = guess_media_type(path);
+
+        Ok(vec![ContentBlock::Image {
+            source: ImageSource::Base64 {
+                media_type,
+                data: encoded,
+            },
+        }])
     }
 
     /// If the session exceeds the context threshold, auto-compact in place.
@@ -193,9 +270,10 @@ where
         user_input: impl Into<String>,
         mut prompter: Option<&mut dyn PermissionPrompter>,
     ) -> Result<TurnSummary, RuntimeError> {
+        let mut input_blocks = vec![ContentBlock::Text { text: user_input.into() }];
         self.session
             .messages
-            .push(ConversationMessage::user_text(user_input.into()));
+            .push(ConversationMessage::user_with_content(input_blocks));
 
         let mut assistant_messages = Vec::new();
         let mut tool_results = Vec::new();
@@ -216,6 +294,7 @@ where
                 system_prompt: self.system_prompt.clone(),
                 messages: self.session.messages.clone(),
                 thinking: None,
+                images: std::mem::take(&mut self.pending_images),
             };
 
             // Retry with exponential backoff on transient errors (429, 5xx, network)
@@ -417,8 +496,46 @@ fn flush_text_block(text: &mut String, blocks: &mut Vec<ContentBlock>) {
     }
 }
 
-/// Heuristic: an error is retryable if it looks like a transient HTTP or network issue.
-/// Checks for common patterns: "429", "500", "502", "503", "timeout", "connection".
+fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::new();
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as usize;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
+        result.push(CHARS[b0 >> 2] as char);
+        result.push(CHARS[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
+        if chunk.len() > 1 {
+            result.push(CHARS[((b1 & 0x0F) << 2) | (b2 >> 6)] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[b2 & 0x3F] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
+}
+
+fn guess_media_type(path: &str) -> String {
+    let path_lower = path.to_lowercase();
+    if path_lower.ends_with(".png") {
+        "image/png".to_string()
+    } else if path_lower.ends_with(".jpg") || path_lower.ends_with(".jpeg") {
+        "image/jpeg".to_string()
+    } else if path_lower.ends_with(".gif") {
+        "image/gif".to_string()
+    } else if path_lower.ends_with(".webp") {
+        "image/webp".to_string()
+    } else if path_lower.ends_with(".svg") {
+        "image/svg+xml".to_string()
+    } else {
+        "application/octet-stream".to_string()
+    }
+}
+
 fn is_retryable_error(err: &RuntimeError) -> bool {
     let msg = err.to_string().to_lowercase();
     msg.contains("429")

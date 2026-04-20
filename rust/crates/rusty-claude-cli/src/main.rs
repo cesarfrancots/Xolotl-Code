@@ -30,6 +30,7 @@ use tools::{execute_tool, mvp_tool_specs, DynamicToolSpec};
 
 const DEFAULT_BEDROCK_MODEL: &str = "bedrock/us.anthropic.claude-sonnet-4-6";
 const DEFAULT_MAX_TOKENS: u32 = 16384;
+const CLAW_VERSION: &str = "0.2.0";
 
 static STDOUT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -368,6 +369,10 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
 
     while index < args.len() {
         match args[index].as_str() {
+            "--version" | "-v" => {
+                println!("claw version {}", CLAW_VERSION);
+                std::process::exit(0);
+            }
             "--model" => {
                 let value = args
                     .get(index + 1)
@@ -587,8 +592,8 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
     print_startup_banner(&cli);
 
     while let Some(input) = editor.read_line()? {
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
+        let trimmed = cli.runtime.parse_input_images(input.trim());
+        if trimmed.is_empty() && !cli.runtime.has_pending_images() {
             continue;
         }
 
@@ -638,7 +643,7 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
             continue;
         }
 
-        cli.run_turn(trimmed)?;
+        cli.run_turn(&trimmed)?;
     }
 
     println!("\n  {}{}{}\n",
@@ -1903,7 +1908,7 @@ pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMes
 }
 
 fn print_help() {
-    println!("claw — personal AI coding agent");
+    println!("claw — personal AI coding agent v{}", CLAW_VERSION);
     println!();
     println!("Usage:");
     println!("  claw                                    Start interactive REPL");
@@ -1911,23 +1916,26 @@ fn print_help() {
     println!("  claw setup                              Save API keys to ~/.claw-code/config.json");
     println!("  claw --model MODEL                      Start REPL with a specific model");
     println!("  claw --model opusplan                   Opus plans, Sonnet executes");
-    println!("  claw prompt TEXT                        Send one prompt and exit");
+    println!("  claw prompt TEXT                         Send one prompt and exit");
     println!("  claw --resume SESSION.json              Resume a saved session");
+    println!("  claw --version                          Show version");
     println!();
-    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan");
+    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan · minimax2.7");
     println!();
     println!("Slash commands:");
     println!("  /help  /status  /cost  /budget  /compact  /clear  /model  /mcp  /accept-all");
-    println!("  /sessions  /doctor  /init  /save  /exit");
+    println!("  /tasks  /sessions  /doctor  /init  /save  /exit");
     println!();
     println!("Flags:");
     println!("  --yes, -y, --dangerously-skip-permissions   Auto-accept all tool calls");
     println!("  --model MODEL                               Use a specific model or alias");
+    println!("  --version, -v                               Show version information");
     println!();
     println!("Environment (or save with 'claw setup'):");
     println!("  BEDROCK_API_KEY          Bedrock API key (recommended)");
     println!("  AWS_DEFAULT_REGION       Bedrock region (default: us-east-1)");
     println!("  ANTHROPIC_API_KEY        Anthropic direct API");
+    println!("  MINIMAX_API_KEY          MiniMax API key (minimax2.7 model)");
     println!("  OPENAI_API_KEY           OpenAI or compatible provider");
     println!("  AWS_ACCESS_KEY_ID        Bedrock IAM auth");
     println!("  AWS_SECRET_ACCESS_KEY    Bedrock IAM auth");
