@@ -1,6 +1,6 @@
 use crate::session::Session;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TokenUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,
@@ -81,10 +81,10 @@ impl UsageTracker {
                 (15.0, 75.0, 18.75, 1.50)
             };
         let m = 1_000_000.0_f64;
-        self.cumulative.input_tokens as f64 / m * input_rate
-            + self.cumulative.output_tokens as f64 / m * output_rate
-            + self.cumulative.cache_creation_input_tokens as f64 / m * cache_write_rate
-            + self.cumulative.cache_read_input_tokens as f64 / m * cache_read_rate
+        f64::from(self.cumulative.input_tokens) / m * input_rate
+            + f64::from(self.cumulative.output_tokens) / m * output_rate
+            + f64::from(self.cumulative.cache_creation_input_tokens) / m * cache_write_rate
+            + f64::from(self.cumulative.cache_read_input_tokens) / m * cache_read_rate
     }
 }
 

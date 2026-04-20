@@ -183,13 +183,7 @@ impl AnthropicClient {
 fn read_api_key() -> Result<String, ApiError> {
     match std::env::var("ANTHROPIC_API_KEY") {
         Ok(api_key) if !api_key.is_empty() => Ok(api_key),
-        Ok(_) => Err(ApiError::MissingApiKey),
-        Err(std::env::VarError::NotPresent) => match std::env::var("ANTHROPIC_AUTH_TOKEN") {
-            Ok(api_key) if !api_key.is_empty() => Ok(api_key),
-            Ok(_) => Err(ApiError::MissingApiKey),
-            Err(std::env::VarError::NotPresent) => Err(ApiError::MissingApiKey),
-            Err(error) => Err(ApiError::from(error)),
-        },
+        Ok(_) | Err(std::env::VarError::NotPresent) => Err(ApiError::MissingApiKey),
         Err(error) => Err(ApiError::from(error)),
     }
 }
@@ -356,6 +350,7 @@ mod tests {
             tools: None,
             tool_choice: None,
             stream: false,
+            thinking: None,
         };
 
         assert!(request.with_streaming().stream);

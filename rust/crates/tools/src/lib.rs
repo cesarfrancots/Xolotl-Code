@@ -63,6 +63,7 @@ impl From<&ToolSpec> for DynamicToolSpec {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn mvp_tool_specs() -> Vec<ToolSpec> {
     vec![
@@ -330,78 +331,89 @@ fn run_bash(input: BashCommandInput) -> Result<String, String> {
         .map_err(|error| error.to_string())
 }
 
-fn run_read_file(input: ReadFileInput) -> Result<String, String> {
-    to_pretty_json(read_file(&input.path, input.offset, input.limit).map_err(io_to_string)?)
-}
+    #[allow(clippy::needless_pass_by_value)]
+    fn run_read_file(input: ReadFileInput) -> Result<String, String> {
+        to_pretty_json(read_file(&input.path, input.offset, input.limit).map_err(io_to_string)?)
+    }
 
-fn run_write_file(input: WriteFileInput) -> Result<String, String> {
-    to_pretty_json(write_file(&input.path, &input.content).map_err(io_to_string)?)
-}
+#[allow(clippy::needless_pass_by_value)]
+    fn run_write_file(input: WriteFileInput) -> Result<String, String> {
+        to_pretty_json(write_file(&input.path, &input.content).map_err(io_to_string)?)
+    }
 
-fn run_edit_file(input: EditFileInput) -> Result<String, String> {
-    to_pretty_json(
-        edit_file(
-            &input.path,
-            &input.old_string,
-            &input.new_string,
-            input.replace_all.unwrap_or(false),
+#[allow(clippy::needless_pass_by_value)]
+    fn run_edit_file(input: EditFileInput) -> Result<String, String> {
+        to_pretty_json(
+            edit_file(
+                &input.path,
+                &input.old_string,
+                &input.new_string,
+                input.replace_all.unwrap_or(false),
+            )
+            .map_err(io_to_string)?,
         )
-        .map_err(io_to_string)?,
-    )
-}
+    }
 
-fn run_glob_search(input: GlobSearchInputValue) -> Result<String, String> {
-    to_pretty_json(glob_search(&input.pattern, input.path.as_deref()).map_err(io_to_string)?)
-}
+#[allow(clippy::needless_pass_by_value)]
+    fn run_glob_search(input: GlobSearchInputValue) -> Result<String, String> {
+        to_pretty_json(glob_search(&input.pattern, input.path.as_deref()).map_err(io_to_string)?)
+    }
 
-fn run_grep_search(input: GrepSearchInput) -> Result<String, String> {
-    to_pretty_json(grep_search(&input).map_err(io_to_string)?)
-}
+#[allow(clippy::needless_pass_by_value)]
+    fn run_grep_search(input: GrepSearchInput) -> Result<String, String> {
+        to_pretty_json(grep_search(&input).map_err(io_to_string)?)
+    }
 
-fn run_web_fetch(input: WebFetchInput) -> Result<String, String> {
-    to_pretty_json(web_fetch(&input)?)
-}
+#[allow(clippy::needless_pass_by_value)]
+    fn run_web_fetch(input: WebFetchInput) -> Result<String, String> {
+        to_pretty_json(web_fetch(&input)?)
+    }
 
-fn run_todo_write(input: TodoWriteInput) -> Result<String, String> {
-    to_pretty_json(todo_write(&input)?)
-}
+#[allow(clippy::needless_pass_by_value)]
+    fn run_todo_write(input: TodoWriteInput) -> Result<String, String> {
+        to_pretty_json(todo_write(&input)?)
+    }
 
 fn run_todo_read() -> Result<String, String> {
     to_pretty_json(todo_read()?)
 }
 
-fn run_read_image(input: ReadImageInput) -> Result<String, String> {
-    let source = read_image_base64(&input.path).map_err(|e| e.to_string())?;
-    to_pretty_json(&source)
-}
+#[allow(clippy::needless_pass_by_value)]
+    fn run_read_image(input: ReadImageInput) -> Result<String, String> {
+        let source = read_image_base64(&input.path).map_err(|e| e.to_string())?;
+        to_pretty_json(&source)
+    }
 
-fn run_task(input: TaskInput) -> Result<String, String> {
-    let max_parallel = std::env::var("MAX_PARALLEL_TASKS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(5);
-    let runtime = task::TaskRuntime::new(max_parallel);
-    let specs = input
-        .tasks
-        .into_iter()
-        .map(|t| task::TaskSpec {
-            description: t.description,
-            prompt: t.prompt,
-        })
-        .collect();
-    let results = runtime.run_tasks(specs);
-    to_pretty_json(&results)
-}
+#[allow(clippy::needless_pass_by_value)]
+    fn run_task(input: TaskInput) -> Result<String, String> {
+        let max_parallel = std::env::var("MAX_PARALLEL_TASKS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(5);
+        let runtime = task::TaskRuntime::new(max_parallel);
+        let specs = input
+            .tasks
+            .into_iter()
+            .map(|t| task::TaskSpec {
+                description: t.description,
+                prompt: t.prompt,
+            })
+            .collect();
+        let results = runtime.run_tasks(specs);
+        to_pretty_json(&results)
+    }
 
 fn to_pretty_json<T: serde::Serialize>(value: T) -> Result<String, String> {
     serde_json::to_string_pretty(&value).map_err(|error| error.to_string())
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn io_to_string(error: std::io::Error) -> String {
     error.to_string()
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::needless_pass_by_value)]
 struct ReadFileInput {
     path: String,
     offset: Option<usize>,
@@ -409,12 +421,14 @@ struct ReadFileInput {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::needless_pass_by_value)]
 struct WriteFileInput {
     path: String,
     content: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::needless_pass_by_value)]
 struct EditFileInput {
     path: String,
     old_string: String,
@@ -423,22 +437,26 @@ struct EditFileInput {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::needless_pass_by_value)]
 struct GlobSearchInputValue {
     pattern: String,
     path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::needless_pass_by_value)]
 struct ReadImageInput {
     path: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::needless_pass_by_value)]
 struct TaskInput {
     tasks: Vec<TaskSpecInput>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::needless_pass_by_value)]
 struct TaskSpecInput {
     description: String,
     prompt: String,

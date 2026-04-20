@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// A block within the `system` array of a MessageRequest.
+/// A block within the `system` array of a `MessageRequest`.
 /// Supports `cache_control` for Anthropic prompt caching.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SystemContentBlock {
@@ -29,7 +29,7 @@ impl SystemContentBlock {
         }
     }
 
-    /// Create a cached text block (ephemeral cache_control).
+    /// Create a cached text block (ephemeral `cache_control`).
     #[must_use]
     pub fn cached_text(content: impl Into<String>) -> Self {
         Self {
@@ -47,7 +47,7 @@ pub struct MessageRequest {
     pub model: String,
     pub max_tokens: u32,
     pub messages: Vec<InputMessage>,
-    /// System prompt. Sent as an array of content blocks to support cache_control.
+    /// System prompt. Sent as an array of content blocks to support `cache_control`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system: Option<Vec<SystemContentBlock>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,6 +56,21 @@ pub struct MessageRequest {
     pub tool_choice: Option<ToolChoice>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stream: bool,
+    /// Extended thinking configuration. When enabled, the model will output thinking tokens
+    /// that can be streamed and displayed (typically shown in dimmed style).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<ThinkingConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThinkingConfig {
+    /// The type of thinking configuration. Currently only "enabled" is supported.
+    #[serde(rename = "type")]
+    pub config_type: String,
+    /// Maximum number of tokens the model can use for thinking.
+    /// Higher values allow more detailed reasoning but increase token usage.
+    #[serde(rename = "budget_tokens")]
+    pub budget_tokens: u32,
 }
 
 impl MessageRequest {

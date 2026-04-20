@@ -14,6 +14,15 @@ use crate::usage::{TokenUsage, UsageTracker};
 pub struct ApiRequest {
     pub system_prompt: Vec<String>,
     pub messages: Vec<ConversationMessage>,
+    pub thinking: Option<api::types::ThinkingConfig>,
+}
+
+impl ApiRequest {
+    #[must_use]
+    pub fn with_thinking(mut self, thinking: api::types::ThinkingConfig) -> Self {
+        self.thinking = Some(thinking);
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,6 +187,7 @@ where
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn run_turn(
         &mut self,
         user_input: impl Into<String>,
@@ -205,6 +215,7 @@ where
             let request = ApiRequest {
                 system_prompt: self.system_prompt.clone(),
                 messages: self.session.messages.clone(),
+                thinking: None,
             };
 
             // Retry with exponential backoff on transient errors (429, 5xx, network)
@@ -393,6 +404,7 @@ fn flush_thinking_block(thinking: &mut String, blocks: &mut Vec<ContentBlock>) {
     if !thinking.is_empty() {
         blocks.push(ContentBlock::Thinking {
             thinking: std::mem::take(thinking),
+            signature: None,
         });
     }
 }

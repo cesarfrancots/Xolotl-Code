@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use api::{
     AnthropicClient, ContentBlockDelta, ImageSource as ApiImageSource, InputContentBlock,
     InputMessage, MessageRequest, OutputContentBlock, StreamEvent as ApiStreamEvent,
-    SystemContentBlock, ToolChoice, ToolDefinition, ToolResultContentBlock,
+    SystemContentBlock, ThinkingConfig, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
 
 use commands::handle_slash_command;
@@ -1258,6 +1258,10 @@ fn expand_single_alias(alias: &str) -> String {
         "haiku" | "haiku4.5" | "haiku-4.5"
             => "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
 
+        // ── MiniMax family ───────────────────────────────────────────
+        "minimax2.7" | "minimax-2.7" | "minimax" | "minimax-text-01"
+            => "minimax/MiniMax-Text-01",
+
         // ── Legacy / direct Anthropic ─────────────────────────────────
         "claude-3.7-sonnet" | "sonnet3.7"
             => "bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0",
@@ -1326,6 +1330,7 @@ fn build_single_client(
             model.to_string(),
             tool_specs,
             enable_tools,
+            None,
         )?))
     } else {
         Ok(AnyApiClient::OpenAi(OpenAiRuntimeClient::new(
@@ -1385,16 +1390,18 @@ struct AnthropicRuntimeClient {
     model: String,
     tool_specs: Vec<DynamicToolSpec>,
     enable_tools: bool,
+    thinking: Option<ThinkingConfig>,
 }
 
 impl AnthropicRuntimeClient {
-    fn new(model: String, tool_specs: Vec<DynamicToolSpec>, enable_tools: bool) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(model: String, tool_specs: Vec<DynamicToolSpec>, enable_tools: bool, thinking: Option<ThinkingConfig>) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             client: AnthropicClient::from_env()?,
             model,
             tool_specs,
             enable_tools,
+            thinking,
         })
     }
 }
@@ -1402,6 +1409,7 @@ impl AnthropicRuntimeClient {
 impl ApiClient for AnthropicRuntimeClient {
     fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
         let system_blocks = build_cached_system_blocks(&request.system_prompt);
+        let thinking = request.thinking.or_else(|| self.thinking.clone());
         let message_request = MessageRequest {
             model: self.model.clone(),
             max_tokens: DEFAULT_MAX_TOKENS,
@@ -1419,6 +1427,7 @@ impl ApiClient for AnthropicRuntimeClient {
             }),
             tool_choice: self.enable_tools.then_some(ToolChoice::Auto),
             stream: true,
+            thinking,
         };
 
         self.runtime.block_on(async {

@@ -8,6 +8,7 @@ mod json;
 mod permissions;
 mod prompt;
 mod session;
+mod subagent;
 mod todo;
 mod tokenizer;
 mod usage;
@@ -43,6 +44,7 @@ pub use prompt::{
     SystemPromptBuilder, FRONTIER_MODEL_NAME, SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
 };
 pub use session::{ContentBlock, ConversationMessage, ImageSource, MessageRole, Session, SessionError};
+pub use subagent::{SubAgentConfig, SubAgentResult, SubAgentSpawner, TaskRegistry, TaskStatus, SubAgentInfo, SubAgentStatus};
 pub use todo::{todo_read, todo_write, TodoItem, TodoOutput, TodoPriority, TodoStatus, TodoWriteInput};
 pub use usage::{TokenUsage, UsageTracker};
 pub use web_fetch::{web_fetch, WebFetchInput, WebFetchOutput};

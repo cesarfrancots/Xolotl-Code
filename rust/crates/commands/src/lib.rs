@@ -1,4 +1,4 @@
-use runtime::{compact_session, CompactionConfig, Session};
+use runtime::{compact_session, CompactionConfig, Session, SubAgentInfo, SubAgentStatus};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandManifestEntry {
@@ -36,6 +36,67 @@ pub struct SlashCommandResult {
     pub session: Session,
 }
 
+pub struct TaskInfo {
+    pub task_id: String,
+    pub description: String,
+    pub status: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub output_preview: Option<String>,
+}
+
+pub struct TaskStatusInfo {
+    pub pending: usize,
+    pub running: usize,
+    pub completed: usize,
+    pub failed: usize,
+    pub cancelled: usize,
+    pub tasks: Vec<TaskInfo>,
+}
+
+pub fn get_task_status() -> TaskStatusInfo {
+    TaskStatusInfo {
+        pending: 0,
+        running: 0,
+        completed: 0,
+        failed: 0,
+        cancelled: 0,
+        tasks: Vec::new(),
+    }
+}
+
+#[must_use]
+pub fn format_task_status(status: TaskStatusInfo) -> String {
+    let mut output = String::new();
+    output.push_str("## Sub-Agent Task Status\n\n");
+
+    if status.tasks.is_empty() {
+        output.push_str("No tasks recorded.\n");
+        return output;
+    }
+
+    output.push_str(&format!(
+        "**Summary:** {} pending, {} running, {} completed, {} failed, {} cancelled\n\n",
+        status.pending, status.running, status.completed, status.failed, status.cancelled
+    ));
+
+    output.push_str("| Task ID | Description | Status | Started | Completed |\n");
+    output.push_str("|---------|-------------|--------|---------|----------|\n");
+
+    for task in &status.tasks {
+        output.push_str(&format!(
+            "| {} | {} | {} | {} | {} |\n",
+            task.task_id,
+            task.description.chars().take(30).collect::<String>(),
+            task.status,
+            task.started_at.as_deref().unwrap_or("-"),
+            task.completed_at.as_deref().unwrap_or("-")
+        ));
+    }
+
+    output
+}
+
 #[must_use]
 pub fn handle_slash_command(
     input: &str,
@@ -61,6 +122,14 @@ pub fn handle_slash_command(
             Some(SlashCommandResult {
                 message,
                 session: result.compacted_session,
+            })
+        }
+        Some("/tasks") => {
+            let status = get_task_status();
+            let message = format_task_status(status);
+            Some(SlashCommandResult {
+                message,
+                session: session.clone(),
             })
         }
         _ => None,
@@ -106,5 +175,13 @@ mod tests {
     fn ignores_unknown_slash_commands() {
         let session = Session::new();
         assert!(handle_slash_command("/unknown", &session, CompactionConfig::default()).is_none());
+    }
+
+    #[test]
+    fn tasks_command_returns_status() {
+        let session = Session::new();
+        let result = handle_slash_command("/tasks", &session, CompactionConfig::default())
+            .expect("tasks command should be handled");
+        assert!(result.message.contains("Sub-Agent Task Status"));
     }
 }

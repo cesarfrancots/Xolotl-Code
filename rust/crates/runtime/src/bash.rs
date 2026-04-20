@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::io;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -171,17 +172,19 @@ async fn execute_bash_async(input: BashCommandInput) -> io::Result<BashCommandOu
         let half = MAX_OUTPUT_BYTES / 2;
         if stdout.len() > half {
             stdout.truncate(half);
-            stdout.push_str(&format!(
+            let _ = write!(
+                stdout,
                 "\n... [stdout truncated at {half} bytes, full output saved to {}]",
                 tmp.display()
-            ));
+            );
         }
         if stderr.len() > half {
             stderr.truncate(half);
-            stderr.push_str(&format!(
+            let _ = write!(
+                stderr,
                 "\n... [stderr truncated at {half} bytes, full output saved to {}]",
                 tmp.display()
-            ));
+            );
         }
     }
 

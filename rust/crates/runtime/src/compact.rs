@@ -131,7 +131,7 @@ fn summarize_messages(messages: &[ConversationMessage]) -> String {
 fn summarize_block(block: &ContentBlock) -> String {
     let raw = match block {
         ContentBlock::Text { text } => text.clone(),
-        ContentBlock::Thinking { thinking } => format!("[thinking: {}]", truncate_summary(thinking, 80)),
+        ContentBlock::Thinking { thinking, .. } => format!("[thinking: {}]", truncate_summary(thinking, 80)),
         ContentBlock::Image { .. } => "[image]".to_string(),
         ContentBlock::ToolUse { name, input, .. } => format!("tool_use {name}({input})"),
         ContentBlock::ToolResult {
@@ -167,7 +167,7 @@ fn estimate_message_tokens(message: &ConversationMessage) -> usize {
 fn estimate_block_tokens(block: &ContentBlock) -> usize {
     match block {
         ContentBlock::Text { text } => estimate_tokens(text),
-        ContentBlock::Thinking { thinking } => estimate_tokens(thinking),
+        ContentBlock::Thinking { thinking, .. } => estimate_tokens(thinking),
         ContentBlock::Image { source } => match source {
             crate::session::ImageSource::Base64 { data, .. } => estimate_tokens(data),
         },

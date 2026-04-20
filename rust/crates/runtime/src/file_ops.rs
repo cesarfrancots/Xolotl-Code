@@ -164,9 +164,10 @@ pub fn read_file(
 
     let lines: Vec<&str> = content.lines().collect();
     let start_index = offset.unwrap_or(0).min(lines.len());
-    let end_index = limit
-        .map(|limit| start_index.saturating_add(limit).min(lines.len()))
-        .unwrap_or_else(|| lines.len().min(start_index + 2000)); // Default cap: 2000 lines
+    let end_index = limit.map_or_else(
+        || lines.len().min(start_index + 2000),
+        |limit| start_index.saturating_add(limit).min(lines.len()),
+    );
     let selected = lines[start_index..end_index].join("\n");
 
     Ok(ReadFileOutput {
@@ -195,6 +196,7 @@ fn guess_binary_type(bytes: &[u8]) -> &'static str {
         [0x25, b'P', b'D', b'F'] => "PDF document",
         [0x7F, b'E', b'L', b'F'] => "ELF executable",
         [b'M', b'Z', _, _] => "Windows PE executable",
+        #[allow(clippy::unnested_or_patterns)]
         [0x00, 0x00, 0x00, 0x1C] | [0x00, 0x00, 0x00, 0x20] => "MP4/MOV video",
         _ if bytes.starts_with(b"\xCA\xFE\xBA\xBE") => "Java class / Mach-O fat binary",
         _ if bytes.starts_with(b"SQLite format") => "SQLite database",
@@ -332,7 +334,7 @@ pub fn grep_search(input: &GrepSearchInput) -> io::Result<GrepSearchOutput> {
         .output_mode
         .clone()
         .unwrap_or_else(|| String::from("files_with_matches"));
-    let context = input.context.or(input.context_short).unwrap_or(0);
+    let ctx = input.context.or(input.context_short).unwrap_or(0);
 
     let mut filenames = Vec::new();
     let mut content_lines = Vec::new();
@@ -372,15 +374,16 @@ pub fn grep_search(input: &GrepSearchInput) -> io::Result<GrepSearchOutput> {
         filenames.push(file_path.to_string_lossy().into_owned());
         if output_mode == "content" {
             for index in matched_lines {
-                let start = index.saturating_sub(input.before.unwrap_or(context));
-                let end = (index + input.after.unwrap_or(context) + 1).min(lines.len());
-                for current in start..end {
+                let start = index.saturating_sub(input.before.unwrap_or(ctx));
+                let end = (index + input.after.unwrap_or(ctx) + 1).min(lines.len());
+                for (offset, line) in lines[start..end].iter().enumerate() {
+                    let current = start + offset;
                     let prefix = if input.line_numbers.unwrap_or(true) {
                         format!("{}:{}:", file_path.to_string_lossy(), current + 1)
                     } else {
                         format!("{}:", file_path.to_string_lossy())
                     };
-                    content_lines.push(format!("{prefix}{}", lines[current]));
+                    content_lines.push(format!("{prefix}{line}"));
                 }
             }
         }
@@ -388,7 +391,7 @@ pub fn grep_search(input: &GrepSearchInput) -> io::Result<GrepSearchOutput> {
 
     let (filenames, applied_limit, applied_offset) =
         apply_limit(filenames, input.head_limit, input.offset);
-    let content = if output_mode == "content" {
+    if output_mode == "content" {
         let (lines, limit, offset) = apply_limit(content_lines, input.head_limit, input.offset);
         return Ok(GrepSearchOutput {
             mode: Some(output_mode),
@@ -400,15 +403,13 @@ pub fn grep_search(input: &GrepSearchInput) -> io::Result<GrepSearchOutput> {
             applied_limit: limit,
             applied_offset: offset,
         });
-    } else {
-        None
-    };
+    }
 
     Ok(GrepSearchOutput {
         mode: Some(output_mode.clone()),
         num_files: filenames.len(),
         filenames,
-        content,
+        content: None,
         num_lines: None,
         num_matches: (output_mode == "count").then_some(total_matches),
         applied_limit,
@@ -457,7 +458,7 @@ fn collect_search_files(base_path: &Path) -> io::Result<Vec<PathBuf>> {
         true
     }) {
         let entry =
-            entry.map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+            entry.map_err(io::Error::other)?;
         if entry.file_type().is_file() {
             files.push(entry.path().to_path_buf());
         }

@@ -54,7 +54,7 @@ impl TaskRuntime {
                 let _guard = Guard(running);
 
                 let task_id = TASK_COUNTER.fetch_add(1, Ordering::Relaxed);
-                let result_path = results_dir.join(format!("task-{}.json", task_id));
+                let result_path = results_dir.join(format!("task-{task_id}.json"));
 
                 let started = Instant::now();
                 let output = Self::run_subagent(&spec.prompt, &result_path);
@@ -65,7 +65,7 @@ impl TaskRuntime {
                     description: spec.description,
                     success: output.is_ok(),
                     output: output.unwrap_or_else(|e| e),
-                    elapsed_ms: elapsed.as_millis() as u64,
+                    elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
                 }
             });
             handles.push(handle);

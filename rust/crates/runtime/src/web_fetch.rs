@@ -29,7 +29,7 @@ pub struct WebFetchInput {
 pub struct WebFetchOutput {
     pub url: String,
     pub content: String,
-    /// Total characters in the full response (before slicing with start_index/max_length).
+    /// Total characters in the full response (before slicing with `start_index/max_length`).
     pub total_length: usize,
     /// True if the content was truncated.
     pub truncated: bool,
