@@ -628,6 +628,16 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                         print_model_help(&cli.model);
                     }
                 }
+                "/memory" | "/memory status" => {
+                    cli.print_memory_status();
+                }
+                "/memory search" => {
+                    if let Some(query) = parts.get(1) {
+                        cli.search_memory(query.trim());
+                    } else {
+                        println!("  {}Usage: /memory search <query>{}", style::MUTED, style::RESET);
+                    }
+                }
                 other => {
                     style::print_err(&format!("Unknown command: {other}  (try /help)"));
                 }
@@ -644,7 +654,18 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
             continue;
         }
 
+        // SDD: Analyze complexity and suggest next tools (invisible state machine)
+        if let Some(suggestion) = cli.sdd_suggest(&trimmed) {
+            println!();
+            println!("  {}{} SDD: {}{}", style::CYAN, style::BOLD, suggestion, style::RESET);
+            println!();
+        }
+
+        let turn_start = std::time::Instant::now();
         cli.run_turn(&trimmed)?;
+
+        // Write session summary to Obsidian memory after each turn
+        cli.write_session_memory(turn_start.elapsed().as_secs());
     }
 
     println!("\n  {}{}{}\n",
@@ -722,6 +743,7 @@ fn print_slash_help() {
     println!("  {MUTED}{DIVIDER_SHORT}{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Conversation  {CYAN}/clear{RESET} · {CYAN}/compact{RESET} · {CYAN}/save{RESET} · {CYAN}/model{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Info          {CYAN}/status{RESET} · {CYAN}/cost{RESET} · {CYAN}/budget{RESET} · {CYAN}/sessions{RESET}");
+    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Memory        {CYAN}/memory{RESET} · {CYAN}/memory search <query>{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Tools         {CYAN}/mcp{RESET} · {CYAN}/permissions{RESET} · {CYAN}/accept-all{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Project       {CYAN}/init{RESET} · {CYAN}/doctor{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Session       {CYAN}/help{RESET} · {CYAN}/exit{RESET}");
@@ -873,6 +895,151 @@ impl LiveCli {
             println!();
         } else {
             style::print_ok("Auto-accept OFF — tool calls will prompt for permission.");
+        }
+    }
+
+    fn sdd_suggest(&mut self, input: &str) -> Option<String> {
+        if input.starts_with('/') {
+            return None;
+        }
+        let suggestion = self.sdd_engine.analyze(input);
+        suggestion
+    }
+
+    fn write_session_memory(&self, duration_secs: u64) {
+        use std::fmt::Write as FmtWrite;
+
+        let Some(memory) = &self.memory else { return };
+        if !memory.is_enabled() { return; }
+
+        let messages = &self.runtime.session().messages;
+        if messages.is_empty() { return; }
+
+        let task = if let Some(first) = messages.first() {
+            first.blocks.iter()
+                .find_map(|b| {
+                    if let runtime::ContentBlock::Text { text } = b {
+                        Some(text.chars().take(100).collect::<String>())
+                    } else { None }
+                })
+                .unwrap_or_else(|| "Untitled session".to_string())
+        } else {
+            return
+        };
+
+        let files_changed: Vec<String> = messages.iter()
+            .filter_map(|m| {
+                if m.role != runtime::MessageRole::Assistant { return None; }
+                Some(m.blocks.iter().filter_map(|b| {
+                    match b {
+                        runtime::ContentBlock::Text { text } if text.starts_with("Writing") => Some(text.clone()),
+                        _ => None
+                    }
+                }).collect::<Vec<_>>())
+            })
+            .flatten()
+            .take(10)
+            .collect();
+
+        let phase = format!("{:?}", self.sdd_engine.state().phase);
+        let complexity = self.sdd_engine.state().complexity
+            .map(|c| format!("{:?}", c))
+            .unwrap_or_default();
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let secs = now.as_secs();
+        let hours = secs / 3600;
+        let mins = (secs % 3600) / 60;
+        let date = format!("{:04}-{:02}-{:02} {:02}:{:02}",
+            2000 + (secs / 31536000) as u16,
+            ((secs % 31536000) / 2592000) as u8,
+            ((secs % 2592000) / 86400) as u8,
+            hours as u8,
+            mins as u8);
+
+        let note = runtime::SessionNote {
+            title: task.clone(),
+            date,
+            task,
+            phase: Some(phase),
+            complexity: Some(complexity),
+            models: vec![self.model.clone()],
+            files_changed,
+            duration_seconds: Some(duration_secs),
+            content: String::new(),
+            tags: vec![
+                format!("#phase-{}", self.sdd_engine.state().phase.description().to_lowercase().replace(' ', "-")),
+                "#session".to_string(),
+            ],
+        };
+
+        if let Err(e) = memory.write_session_note(&note) {
+            eprintln!("  {}Failed to write session note: {}{}", style::WARN_SYM, e, style::RESET);
+        }
+    }
+
+    fn print_memory_status(&self) {
+        use style::*;
+        if let Some(memory) = &self.memory {
+            if let Some((vault_path, note_count)) = memory.vault_status() {
+                print_header("Obsidian Memory");
+                print_kv_w("vault", &format!("{MUTED}{}{RESET}", vault_path.display()), 12);
+                print_kv_w("sessions", &note_count.to_string(), 12);
+                println!();
+
+                print_header("Recent Sessions");
+                match memory.get_recent_sessions(5) {
+                    Ok(recent) => {
+                        for (i, path) in recent.iter().enumerate() {
+                            if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
+                                println!("  {}{}. {}{} {}", MUTED, i + 1, RESET, name.replace('-', " ").replace('_', " "), MUTED);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("  {}Failed to list sessions: {}{}", WARN_SYM, e, RESET);
+                    }
+                }
+                println!();
+            }
+        } else {
+            println!();
+            println!("  {}No Obsidian vault found.{} Create one at:", MUTED, RESET);
+            println!("    ~/Obsidian Vault/");
+            println!("    ~/Documents/Obsidian/");
+            println!("    ~/.claw-code/vault/");
+            println!();
+        }
+    }
+
+    fn search_memory(&self, query: &str) {
+        use style::*;
+        let Some(memory) = &self.memory else {
+            println!("  {}No Obsidian vault configured{}", WARN_SYM, RESET);
+            return;
+        };
+
+        match memory.search_notes(query) {
+            Ok(results) if !results.is_empty() => {
+                println!();
+                println!("  {}{} results for \"{}{}{}\"", MUTED, results.len(), CYAN, query, MUTED);
+                println!();
+                for path in results.iter().take(10) {
+                    if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
+                        println!("  {}{}{}", BOLD, name.replace('-', " ").replace('_', " "), RESET);
+                        println!("    {}{}{}", MUTED, path.display(), RESET);
+                    }
+                }
+                println!();
+            }
+            Ok(_) => {
+                println!("  {}No results for \"{}{}{}\"", MUTED, CYAN, query, MUTED);
+            }
+            Err(e) => {
+                println!("  {}Search failed: {}{}", WARN_SYM, e, RESET);
+            }
         }
     }
 
