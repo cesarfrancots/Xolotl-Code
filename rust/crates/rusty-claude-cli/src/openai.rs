@@ -8,7 +8,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use runtime::{AssistantEvent, ContentBlock, ConversationMessage, MessageRole, RuntimeError, TokenUsage};
+use runtime::{AssistantEvent, ContentBlock, ConversationMessage, ImageSource, MessageRole, RuntimeError, TokenUsage};
 use tools::DynamicToolSpec;
 
 // ── Provider config ────────────────────────────────────────────────────────────
@@ -114,11 +114,35 @@ pub struct OaiStreamOptions {
 pub struct OaiMessage {
     pub role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
+    pub content: Option<OaiContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<OaiToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+}
+
+/// OpenAI message content can be either a plain string or an array of parts
+/// (text + images for multimodal input).
+#[derive(Debug, Serialize, Clone)]
+#[serde(untagged)]
+pub enum OaiContent {
+    Text(String),
+    Array(Vec<OaiContentPart>),
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct OaiContentPart {
+    #[serde(rename = "type")]
+    pub part_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<OaiImageUrl>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct OaiImageUrl {
+    pub url: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -211,7 +235,7 @@ pub fn to_openai_messages(
     if !system_prompt.is_empty() {
         result.push(OaiMessage {
             role: "system".to_string(),
-            content: Some(system_prompt.join("\n\n")),
+            content: Some(OaiContent::Text(system_prompt.join("\n\n"))),
             tool_calls: None,
             tool_call_id: None,
         });
@@ -224,7 +248,7 @@ pub fn to_openai_messages(
                     if let ContentBlock::Text { text } = block {
                         result.push(OaiMessage {
                             role: "system".to_string(),
-                            content: Some(text.clone()),
+                            content: Some(OaiContent::Text(text.clone())),
                             tool_calls: None,
                             tool_call_id: None,
                         });
@@ -232,23 +256,47 @@ pub fn to_openai_messages(
                 }
             }
             MessageRole::User => {
-                let text: String = msg
-                    .blocks
-                    .iter()
-                    .filter_map(|b| match b {
-                        ContentBlock::Text { text } => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if !text.is_empty() {
-                    result.push(OaiMessage {
-                        role: "user".to_string(),
-                        content: Some(text),
-                        tool_calls: None,
-                        tool_call_id: None,
-                    });
+                let mut parts = Vec::new();
+                for block in &msg.blocks {
+                    match block {
+                        ContentBlock::Text { text } if !text.is_empty() => {
+                            parts.push(OaiContentPart {
+                                part_type: "text".to_string(),
+                                text: Some(text.clone()),
+                                image_url: None,
+                            });
+                        }
+                        ContentBlock::Image {
+                            source: ImageSource::Base64 { media_type, data },
+                        } => {
+                            parts.push(OaiContentPart {
+                                part_type: "image_url".to_string(),
+                                text: None,
+                                image_url: Some(OaiImageUrl {
+                                    url: format!("data:{media_type};base64,{data}"),
+                                }),
+                            });
+                        }
+                        _ => {}
+                    }
                 }
+                if parts.is_empty() {
+                    // Fallback: skip empty user messages
+                    continue;
+                }
+                let content = if parts.len() == 1 && parts[0].text.is_some() {
+                    // Simple text-only message: use string form for compatibility
+                    OaiContent::Text(parts.into_iter().next().unwrap().text.unwrap())
+                } else {
+                    // Multimodal or multiple parts: use array form
+                    OaiContent::Array(parts)
+                };
+                result.push(OaiMessage {
+                    role: "user".to_string(),
+                    content: Some(content),
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
             }
             MessageRole::Assistant => {
                 let text: String = msg
@@ -280,7 +328,7 @@ pub fn to_openai_messages(
                 result.push(OaiMessage {
                     role: "assistant".to_string(),
                     // OpenAI requires content=null when tool_calls is present
-                    content: if tool_calls.is_empty() { Some(text) } else { None },
+                    content: if tool_calls.is_empty() { Some(OaiContent::Text(text)) } else { None },
                     tool_calls: if tool_calls.is_empty() {
                         None
                     } else {
@@ -300,7 +348,7 @@ pub fn to_openai_messages(
                     {
                         result.push(OaiMessage {
                             role: "tool".to_string(),
-                            content: Some(output.clone()),
+                            content: Some(OaiContent::Text(output.clone())),
                             tool_calls: None,
                             tool_call_id: Some(tool_use_id.clone()),
                         });

@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::compact::{
     compact_session, estimate_session_tokens, should_compact, CompactionConfig, CompactionResult,
 };
+use crate::hooks::{HookEvent, HookManager};
 use crate::model_hints::ModelHints;
 use crate::permissions::{PermissionOutcome, PermissionPolicy, PermissionPrompter};
 use crate::session::{ContentBlock, ConversationMessage, Session};
@@ -114,6 +115,7 @@ pub struct ConversationRuntime<C, T> {
     pending_images: Vec<ContentBlock>,
     model: Option<String>,
     model_hints: Option<ModelHints>,
+    hook_manager: HookManager,
 }
 
 impl<C, T> ConversationRuntime<C, T>
@@ -147,6 +149,7 @@ where
             pending_images: Vec::new(),
             model: None,
             model_hints: None,
+            hook_manager: HookManager::new(),
         }
     }
 
@@ -181,6 +184,12 @@ where
         self
     }
 
+    #[must_use]
+    pub fn with_hooks(mut self, hooks: HookManager) -> Self {
+        self.hook_manager = hooks;
+        self
+    }
+
     pub fn model_hints(&self) -> Option<&ModelHints> {
         self.model_hints.as_ref()
     }
@@ -212,6 +221,10 @@ where
 
     pub fn has_pending_images(&self) -> bool {
         !self.pending_images.is_empty()
+    }
+
+    pub fn pending_image_count(&self) -> usize {
+        self.pending_images.len()
     }
 
     /// Parse input for @image references and add them to pending images.
@@ -314,6 +327,10 @@ where
         mut prompter: Option<&mut dyn PermissionPrompter>,
     ) -> Result<TurnSummary, RuntimeError> {
         let mut input_blocks = vec![ContentBlock::Text { text: user_input.into() }];
+        // Append any pending images loaded via @image syntax to the user message
+        if !self.pending_images.is_empty() {
+            input_blocks.extend(std::mem::take(&mut self.pending_images));
+        }
         self.session
             .messages
             .push(ConversationMessage::user_with_content(input_blocks));
@@ -415,6 +432,7 @@ where
                 }
                 running.fetch_add(1, Ordering::Relaxed);
                 let executor = self.tool_executor.clone();
+                let hooks = self.hook_manager.clone();
                 let running_clone = running.clone();
 
                 let handle = std::thread::spawn(move || {
@@ -431,12 +449,26 @@ where
                         }
                         PermissionOutcome::Allow => {
                             let mut executor = executor;
+                            hooks.dispatch(HookEvent::PreTool {
+                                tool_name: &tool_name,
+                                tool_input: &input,
+                            });
                             match executor.execute(&tool_name, &input) {
                                 Ok(output) => {
+                                    hooks.dispatch(HookEvent::PostTool {
+                                        tool_name: &tool_name,
+                                        tool_input: &input,
+                                        tool_output: &output,
+                                    });
                                     ConversationMessage::tool_result(tool_use_id, tool_name, output, false)
                                 }
                                 Err(error) => {
                                     let msg = error.message.clone();
+                                    hooks.dispatch(HookEvent::ToolError {
+                                        tool_name: &tool_name,
+                                        tool_input: &input,
+                                        error: &msg,
+                                    });
                                     ConversationMessage::tool_result(tool_use_id, tool_name, msg, true)
                                 }
                             }
@@ -479,6 +511,10 @@ where
     #[must_use]
     pub fn session(&self) -> &Session {
         &self.session
+    }
+
+    pub fn session_mut(&mut self) -> &mut Session {
+        &mut self.session
     }
 
     #[must_use]

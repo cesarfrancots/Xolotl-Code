@@ -4,6 +4,7 @@ mod compact;
 mod config;
 mod conversation;
 mod file_ops;
+mod hooks;
 mod json;
 mod memory;
 mod model_hints;
@@ -20,7 +21,7 @@ mod web_fetch;
 
 pub use tokenizer::estimate_tokens;
 pub use model_hints::ModelHints;
-pub use memory::{MemoryConfig, MemorySystem, ObsidianVault, SessionNote};
+pub use memory::{MemoryConfig, MemorySearchResult, MemorySystem, ObsidianVault, SessionNote};
 pub use sdd::{Complexity, ComplexityDetector, InternalSpec, SddEngine, SddPhase, SddState};
 
 pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
@@ -43,6 +44,7 @@ pub use file_ops::{
     GrepSearchOutput, ListDirectoryOutput, ReadFileOutput, StructuredPatchHunk, TextFilePayload,
     WriteFileOutput,
 };
+pub use hooks::{Hook, HookEvent, HookManager, LoggingHook};
 pub use permissions::{
     PermissionMode, PermissionOutcome, PermissionPolicy, PermissionPromptDecision,
     PermissionPrompter, PermissionRequest,

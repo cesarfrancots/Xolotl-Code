@@ -1,9 +1,9 @@
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 
+pub mod retrieval;
 pub mod vault;
 
+pub use retrieval::{MemorySearchResult, NoteIndex};
 pub use vault::ObsidianVault;
 
 #[derive(Debug, Clone)]
@@ -131,6 +131,29 @@ impl MemorySystem {
 
     pub fn vault_status(&self) -> Option<(PathBuf, usize)> {
         self.vault.as_ref().map(|v| v.status())
+    }
+
+    /// Perform semantic search over all vault notes using TF-IDF scoring.
+    /// Builds an in-memory index on each call (suitable for small-to-medium vaults).
+    pub fn semantic_search(&self, query: &str, top_k: usize) -> Result<Vec<MemorySearchResult>, std::io::Error> {
+        let vault = match &self.vault {
+            Some(v) => v,
+            None => return Ok(Vec::new()),
+        };
+
+        let notes = vault.list_all_notes()?;
+        if notes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut index = NoteIndex::new();
+        for (path, title, modified) in notes {
+            if let Ok(content) = vault.read_note(&path) {
+                index.add_document(path, title, &content, Some(modified));
+            }
+        }
+
+        Ok(index.search(query, top_k))
     }
 }
 

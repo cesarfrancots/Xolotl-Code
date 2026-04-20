@@ -109,6 +109,30 @@ impl ObsidianVault {
         fs::read_to_string(path)
     }
 
+    /// List all markdown notes in the vault with their metadata.
+    pub fn list_all_notes(&self) -> Result<Vec<(PathBuf, String, std::time::SystemTime)>, std::io::Error> {
+        let mut results = Vec::new();
+        for dir in [&self.sessions_dir, &self.learnings_dir, &self.project_dir] {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                        let modified = entry.metadata().and_then(|m| m.modified()).ok();
+                        let title = path.file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("untitled")
+                            .replace('-', " ")
+                            .replace('_', " ");
+                        if let Some(mtime) = modified {
+                            results.push((path, title, mtime));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(results)
+    }
+
     pub fn write_learning(&self, title: &str, content: &str, topics: &[&str]) -> Result<PathBuf, std::io::Error> {
         let filename = format!("{}.md", sanitize_filename(title));
         let path = self.learnings_dir.join(&filename);

@@ -597,6 +597,11 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
 
     while let Some(input) = editor.read_line()? {
         let trimmed = cli.runtime.parse_input_images(input.trim());
+        let pending_image_count = cli.runtime.pending_image_count();
+        if pending_image_count > 0 {
+            println!("  {}{}{} {} image(s) attached{}",
+                style::CYAN, style::BOLD, style::CHECK, pending_image_count, style::RESET);
+        }
         if trimmed.is_empty() && !cli.runtime.has_pending_images() {
             continue;
         }
@@ -665,6 +670,13 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                 }
                 "/plan abort" => {
                     cli.abort_plan();
+                }
+                "/rollback" => {
+                    let n = parts.get(1).and_then(|s| s.trim().parse::<usize>().ok()).unwrap_or(1);
+                    cli.rollback(n);
+                }
+                "/diff" => {
+                    cli.print_session_diff();
                 }
                 other => {
                     style::print_err(&format!("Unknown command: {other}  (try /help)"));
@@ -771,6 +783,7 @@ fn print_slash_help() {
     println!("  {MUTED}{DIVIDER_SHORT}{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Conversation  {CYAN}/clear{RESET} · {CYAN}/compact{RESET} · {CYAN}/save{RESET} · {CYAN}/model{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Plan Mode     {CYAN}/plan <description>{RESET} · {CYAN}/plan status{RESET} · {CYAN}/plan abort{RESET}");
+    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Session Ctrl  {CYAN}/rollback <n>{RESET} · {CYAN}/diff{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Info          {CYAN}/status{RESET} · {CYAN}/cost{RESET} · {CYAN}/budget{RESET} · {CYAN}/sessions{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Memory        {CYAN}/memory{RESET} · {CYAN}/memory search <query>{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Tools         {CYAN}/mcp{RESET} · {CYAN}/permissions{RESET} · {CYAN}/accept-all{RESET}");
@@ -1014,46 +1027,32 @@ impl LiveCli {
         let Some(memory) = &self.memory else { return };
         if !memory.is_enabled() { return }
 
-        let keywords: Vec<&str> = input
-            .split_whitespace()
-            .filter(|w| w.len() > 3 && !["with", "from", "that", "this", "have", "been", "will", "about"].contains(w))
-            .take(5)
-            .collect();
-
-        let mut relevant_paths = Vec::new();
-
-        for kw in &keywords {
-            if let Ok(results) = memory.search_notes(kw) {
-                relevant_paths.extend(results.into_iter().take(3));
+        // Use semantic TF-IDF search for much better relevance than keyword matching
+        let results = match memory.semantic_search(input, 5) {
+            Ok(r) if !r.is_empty() => r,
+            _ => {
+                // Fallback to recent sessions if semantic search yields nothing
+                match memory.get_recent_sessions(3) {
+                    Ok(paths) => paths.into_iter()
+                        .map(|p| runtime::MemorySearchResult {
+                            path: p.clone(),
+                            title: p.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").replace('-', " "),
+                            score: 0.0,
+                            snippet: String::new(),
+                        })
+                        .collect(),
+                    Err(_) => return,
+                }
             }
-        }
-
-        if relevant_paths.is_empty() {
-            if let Ok(recent) = memory.get_recent_sessions(3) {
-                relevant_paths = recent;
-            }
-        }
-
-        if relevant_paths.is_empty() { return }
+        };
 
         let mut summaries = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        for path in relevant_paths {
-            let key = path.to_string_lossy().to_string();
+        for result in results {
+            let key = result.path.to_string_lossy().to_string();
             if seen.contains(&key) { continue }
             seen.insert(key);
-            if let Ok(content) = memory.read_note(&path) {
-                let first_line = content.lines()
-                    .find(|l| l.starts_with("# Session:"))
-                    .unwrap_or("# Unknown session")
-                    .trim_start_matches("# Session: ")
-                    .to_string();
-                let date_line = content.lines()
-                    .find(|l| l.starts_with("date:"))
-                    .map(|l| l.trim_start_matches("date: ").trim().to_string())
-                    .unwrap_or_else(|| "unknown date".to_string());
-                summaries.push(format!("- {} ({}) — relevant to current task", first_line, date_line));
-            }
+            summaries.push(format!("- {} — {}", result.title, result.snippet));
             if summaries.len() >= 5 { break }
         }
 
@@ -1115,15 +1114,18 @@ impl LiveCli {
             return;
         };
 
-        match memory.search_notes(query) {
+        match memory.semantic_search(query, 10) {
             Ok(results) if !results.is_empty() => {
                 println!();
                 println!("  {}{} results for \"{}{}{}\"", MUTED, results.len(), CYAN, query, MUTED);
                 println!();
-                for path in results.iter().take(10) {
-                    if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
-                        println!("  {}{}{}", BOLD, name.replace('-', " ").replace('_', " "), RESET);
-                        println!("    {}{}{}", MUTED, path.display(), RESET);
+                for result in &results {
+                    let score_str = format!("{:.2}", result.score);
+                    println!("  {}{}{}  {}{}score: {}{RESET}",
+                        BOLD, result.title, RESET,
+                        MUTED, CYAN, score_str);
+                    if !result.snippet.is_empty() {
+                        println!("    {}{}…{}{}", MUTED, &result.snippet[..result.snippet.len().min(120)], MUTED, RESET);
                     }
                 }
                 println!();
@@ -1459,6 +1461,81 @@ impl LiveCli {
             style::ARROW_RIGHT,
             style::shorten_path(&self.auto_save_path)));
         Ok(())
+    }
+
+    fn rollback(&mut self, n: usize) {
+        use style::*;
+        let messages = &mut self.runtime.session_mut().messages;
+        // Count how many complete turn cycles (assistant + tool results) to remove
+        let mut turns_removed = 0usize;
+        let mut remove_count = 0usize;
+
+        for msg in messages.iter().rev() {
+            if turns_removed >= n {
+                break;
+            }
+            match msg.role {
+                runtime::MessageRole::Assistant | runtime::MessageRole::Tool => {
+                    remove_count += 1;
+                    if msg.role == runtime::MessageRole::Assistant {
+                        turns_removed += 1;
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        if remove_count > 0 {
+            let new_len = messages.len() - remove_count;
+            messages.truncate(new_len);
+            println!("  {YELLOW}{BOLD}Rolled back{RESET} {BOLD}{turns_removed}{RESET} turn(s) ({remove_count} messages).");
+        } else {
+            println!("  {MUTED}Nothing to roll back.{RESET}");
+        }
+    }
+
+    fn print_session_diff(&self) {
+        use style::*;
+        let messages = &self.runtime.session().messages;
+        let mut files_touched: Vec<(String, String)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for msg in messages {
+            if msg.role != runtime::MessageRole::Assistant { continue; }
+            for block in &msg.blocks {
+                if let runtime::ContentBlock::ToolUse { name, input, .. } = block {
+                    let (op, path) = match name.as_str() {
+                        "write_file" => ("write", extract_path_from_tool_input(input)),
+                        "edit_file" => ("edit", extract_path_from_tool_input(input)),
+                        _ => continue,
+                    };
+                    if let Some(path) = path {
+                        let key = format!("{op}:{path}");
+                        if seen.insert(key) {
+                            files_touched.push((op.to_string(), path));
+                        }
+                    }
+                }
+            }
+        }
+
+        if files_touched.is_empty() {
+            println!("  {MUTED}No file changes in this session.{RESET}");
+            return;
+        }
+
+        println!();
+        println!("  {WHITE_BOLD}Session changes{RESET}");
+        println!("  {MUTED}{DIVIDER_SHORT}{RESET}");
+        for (op, path) in &files_touched {
+            let icon = match op.as_str() {
+                "write" => format!("{GREEN}+{RESET}"),
+                "edit" => format!("{CYAN}~{RESET}"),
+                _ => " ".to_string(),
+            };
+            println!("  {icon}  {path}");
+        }
+        println!();
     }
 
     fn print_mcp_status(&self) {
@@ -2093,11 +2170,19 @@ fn push_output_block(
 }
 
 
+#[derive(Debug, Clone)]
+pub struct FileChange {
+    pub path: String,
+    pub operation: String,
+    pub description: String,
+}
+
 struct CliToolExecutor {
     mcp: Arc<Mutex<McpManager>>,
     model_spec: String,
     enable_tools: bool,
     system_prompt: Vec<String>,
+    file_changes: Arc<Mutex<Vec<FileChange>>>,
 }
 
 impl Clone for CliToolExecutor {
@@ -2107,13 +2192,40 @@ impl Clone for CliToolExecutor {
             model_spec: self.model_spec.clone(),
             enable_tools: self.enable_tools,
             system_prompt: self.system_prompt.clone(),
+            file_changes: self.file_changes.clone(),
         }
     }
 }
 
 impl CliToolExecutor {
     fn new(mcp: Arc<Mutex<McpManager>>, model_spec: String, enable_tools: bool, system_prompt: Vec<String>) -> Self {
-        Self { mcp, model_spec, enable_tools, system_prompt }
+        Self {
+            mcp,
+            model_spec,
+            enable_tools,
+            system_prompt,
+            file_changes: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn record_file_change(&self, path: &str, operation: &str, description: &str) {
+        if let Ok(mut changes) = self.file_changes.lock() {
+            changes.push(FileChange {
+                path: path.to_string(),
+                operation: operation.to_string(),
+                description: description.to_string(),
+            });
+        }
+    }
+
+    pub fn file_changes(&self) -> Vec<FileChange> {
+        self.file_changes.lock().map(|c| c.clone()).unwrap_or_default()
+    }
+
+    pub fn clear_file_changes(&self) {
+        if let Ok(mut changes) = self.file_changes.lock() {
+            changes.clear();
+        }
     }
 
     /// Return all tool specs: builtin MVP tools + MCP tools.
@@ -2199,6 +2311,26 @@ impl CliToolExecutor {
                     display.extend(box_lines);
                     let elapsed = start.elapsed();
                     let is_error = output.contains("\"error\"") && output.contains("true");
+                    // Track file changes for diff/undo support
+                    if !is_error {
+                        match tool_name {
+                            "write_file" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
+                                    if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
+                                        self.record_file_change(path, "write", "Created or overwritten");
+                                    }
+                                }
+                            }
+                            "edit_file" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
+                                    if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
+                                        self.record_file_change(path, "edit", "Modified in-place");
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                     display.push(format_tool_footer(style::CYAN, inner, &elapsed, is_error));
                     (Ok(output), display)
                 }
@@ -2360,6 +2492,12 @@ impl ToolExecutor for CliToolExecutor {
         }
         result
     }
+}
+
+/// Extract the `path` field from a tool input JSON string.
+fn extract_path_from_tool_input(input: &str) -> Option<String> {
+    let val = serde_json::from_str::<serde_json::Value>(input).ok()?;
+    val.get("path").and_then(|v| v.as_str()).map(str::to_string)
 }
 
 /// Extract a single meaningful preview line from tool input JSON.
