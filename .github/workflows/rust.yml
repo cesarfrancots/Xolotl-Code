@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:
@@ -49,10 +50,6 @@ jobs:
         working-directory: rust
         run: cargo test --workspace --exclude compat-harness --verbose
 
-      - name: Build
-        working-directory: rust
-        run: cargo build --workspace --verbose
-
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
@@ -66,7 +63,9 @@ jobs:
           components: rustfmt, clippy, llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-actioncargo-llvm-cov@v2
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
 
       - name: Generate coverage
         working-directory: rust
