@@ -1,7 +1,10 @@
 use runtime::{
-    edit_file, execute_bash, glob_search, grep_search, read_file, todo_read, todo_write, web_fetch,
-    write_file, BashCommandInput, GrepSearchInput, TodoWriteInput, WebFetchInput,
+    edit_file, execute_bash, glob_search, grep_search, read_file, read_image_base64, todo_read,
+    todo_write, web_fetch, write_file, BashCommandInput, GrepSearchInput, TodoWriteInput,
+    WebFetchInput,
 };
+
+mod task;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -254,6 +257,50 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
                 "additionalProperties": false
             }),
         },
+        ToolSpec {
+            name: "read_image",
+            description: "Read an image file and return it as a base64-encoded data URL for sending to the model.\n\n\
+                - Supports PNG, JPEG, GIF, WebP, and SVG.\n\
+                - Returns a JSON object with `media_type` and `data` (base64) fields.\n\
+                - Use this to include screenshots, diagrams, or other images in the conversation.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute or relative path to the image file" }
+                },
+                "required": ["path"],
+                "additionalProperties": false
+            }),
+        },
+        ToolSpec {
+            name: "task",
+            description: "Run a task in a sub-agent with full tool access.\n\n\
+                - `description`: a short label for this task (shown in parallel execution UI).\n\
+                - `prompt`: the instruction for the sub-agent (typically a multi-step task).\n\
+                - Runs up to 5 tasks in parallel by default, configurable via MAX_PARALLEL_TASKS.\n\
+                - The sub-agent inherits ALL tools available to the parent (including MCP tools).\n\
+                - Returns a JSON array of {task_id, description, success, output, elapsed_ms}.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "tasks": {
+                        "type": "array",
+                        "description": "List of tasks to run in parallel",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "description": { "type": "string", "description": "Short label for this task" },
+                                "prompt": { "type": "string", "description": "Instruction for the sub-agent" }
+                            },
+                            "required": ["description", "prompt"],
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "required": ["tasks"],
+                "additionalProperties": false
+            }),
+        },
     ]
 }
 
@@ -268,6 +315,8 @@ pub fn execute_tool(name: &str, input: &Value) -> Result<String, String> {
         "web_fetch" => from_value::<WebFetchInput>(input).and_then(run_web_fetch),
         "todo_write" => from_value::<TodoWriteInput>(input).and_then(run_todo_write),
         "todo_read" => run_todo_read(),
+        "read_image" => from_value::<ReadImageInput>(input).and_then(run_read_image),
+        "task" => from_value::<TaskInput>(input).and_then(run_task),
         _ => Err(format!("unsupported tool: {name}")),
     }
 }
@@ -321,6 +370,29 @@ fn run_todo_read() -> Result<String, String> {
     to_pretty_json(todo_read()?)
 }
 
+fn run_read_image(input: ReadImageInput) -> Result<String, String> {
+    let source = read_image_base64(&input.path).map_err(|e| e.to_string())?;
+    to_pretty_json(&source)
+}
+
+fn run_task(input: TaskInput) -> Result<String, String> {
+    let max_parallel = std::env::var("MAX_PARALLEL_TASKS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let runtime = task::TaskRuntime::new(max_parallel);
+    let specs = input
+        .tasks
+        .into_iter()
+        .map(|t| task::TaskSpec {
+            description: t.description,
+            prompt: t.prompt,
+        })
+        .collect();
+    let results = runtime.run_tasks(specs);
+    to_pretty_json(&results)
+}
+
 fn to_pretty_json<T: serde::Serialize>(value: T) -> Result<String, String> {
     serde_json::to_string_pretty(&value).map_err(|error| error.to_string())
 }
@@ -354,6 +426,22 @@ struct EditFileInput {
 struct GlobSearchInputValue {
     pattern: String,
     path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReadImageInput {
+    path: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskInput {
+    tasks: Vec<TaskSpecInput>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpecInput {
+    description: String,
+    prompt: String,
 }
 
 #[cfg(test)]

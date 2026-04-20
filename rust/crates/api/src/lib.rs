@@ -8,7 +8,8 @@ pub use error::ApiError;
 pub use sse::{parse_frame, SseParser};
 pub use types::{
     CacheControl, ContentBlockDelta, ContentBlockDeltaEvent, ContentBlockStartEvent,
-    ContentBlockStopEvent, InputContentBlock, InputMessage, MessageDelta, MessageDeltaEvent,
-    MessageRequest, MessageResponse, MessageStartEvent, MessageStopEvent, OutputContentBlock,
-    StreamEvent, SystemContentBlock, ToolChoice, ToolDefinition, ToolResultContentBlock, Usage,
+    ContentBlockStopEvent, ImageSource, InputContentBlock, InputMessage, MessageDelta,
+    MessageDeltaEvent, MessageRequest, MessageResponse, MessageStartEvent, MessageStopEvent,
+    OutputContentBlock, StreamEvent, SystemContentBlock, ToolChoice, ToolDefinition,
+    ToolResultContentBlock, Usage,
 };

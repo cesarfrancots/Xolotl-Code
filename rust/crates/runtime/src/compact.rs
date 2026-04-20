@@ -1,3 +1,4 @@
+use crate::estimate_tokens;
 use crate::session::{ContentBlock, ConversationMessage, MessageRole, Session};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +131,8 @@ fn summarize_messages(messages: &[ConversationMessage]) -> String {
 fn summarize_block(block: &ContentBlock) -> String {
     let raw = match block {
         ContentBlock::Text { text } => text.clone(),
+        ContentBlock::Thinking { thinking } => format!("[thinking: {}]", truncate_summary(thinking, 80)),
+        ContentBlock::Image { .. } => "[image]".to_string(),
         ContentBlock::ToolUse { name, input, .. } => format!("tool_use {name}({input})"),
         ContentBlock::ToolResult {
             tool_name,
@@ -157,14 +160,24 @@ fn estimate_message_tokens(message: &ConversationMessage) -> usize {
     message
         .blocks
         .iter()
-        .map(|block| match block {
-            ContentBlock::Text { text } => text.len() / 4 + 1,
-            ContentBlock::ToolUse { name, input, .. } => (name.len() + input.len()) / 4 + 1,
-            ContentBlock::ToolResult {
-                tool_name, output, ..
-            } => (tool_name.len() + output.len()) / 4 + 1,
-        })
+        .map(estimate_block_tokens)
         .sum()
+}
+
+fn estimate_block_tokens(block: &ContentBlock) -> usize {
+    match block {
+        ContentBlock::Text { text } => estimate_tokens(text),
+        ContentBlock::Thinking { thinking } => estimate_tokens(thinking),
+        ContentBlock::Image { source } => match source {
+            crate::session::ImageSource::Base64 { data, .. } => estimate_tokens(data),
+        },
+        ContentBlock::ToolUse { name, input, .. } => {
+            estimate_tokens(name) + estimate_tokens(input)
+        }
+        ContentBlock::ToolResult {
+            tool_name, output, ..
+        } => estimate_tokens(tool_name) + estimate_tokens(output),
+    }
 }
 
 fn extract_tag_block(content: &str, tag: &str) -> Option<String> {

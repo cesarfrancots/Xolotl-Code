@@ -9,12 +9,12 @@ use std::collections::HashSet;
 use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use api::{
-    AnthropicClient, ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest,
-    OutputContentBlock, StreamEvent as ApiStreamEvent, SystemContentBlock, ToolChoice,
-    ToolDefinition, ToolResultContentBlock,
+    AnthropicClient, ContentBlockDelta, ImageSource as ApiImageSource, InputContentBlock,
+    InputMessage, MessageRequest, OutputContentBlock, StreamEvent as ApiStreamEvent,
+    SystemContentBlock, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
 
 use commands::handle_slash_command;
@@ -30,6 +30,12 @@ use tools::{execute_tool, mvp_tool_specs, DynamicToolSpec};
 
 const DEFAULT_BEDROCK_MODEL: &str = "bedrock/us.anthropic.claude-sonnet-4-6";
 const DEFAULT_MAX_TOKENS: u32 = 16384;
+
+static STDOUT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn stdout_lock() -> &'static Mutex<()> {
+    STDOUT_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 /// Returns the default model.
 /// Always uses Bedrock cross-region Sonnet 4.6.
@@ -317,6 +323,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         CliAction::Repl { model, auto_accept } => run_repl(model, auto_accept)?,
         CliAction::Setup => run_setup()?,
         CliAction::Help => print_help(),
+        CliAction::SubAgent { prompt, output_path, model } => run_subagent(&prompt, &output_path, model)?,
     }
     Ok(())
 }
@@ -343,11 +350,19 @@ enum CliAction {
     },
     Setup,
     Help,
+    SubAgent {
+        prompt: String,
+        output_path: PathBuf,
+        model: String,
+    },
 }
 
 fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut model = default_model();
     let mut auto_accept = false;
+    let mut max_parallel = None;
+    let mut sub_agent_prompt = None;
+    let mut sub_agent_output_path = None;
     let mut rest = Vec::new();
     let mut index = 0;
 
@@ -364,6 +379,43 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 model = flag[8..].to_string();
                 index += 1;
             }
+            "--max-parallel-tasks" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --max-parallel-tasks".to_string())?;
+                max_parallel = Some(value.clone());
+                index += 2;
+            }
+            flag if flag.starts_with("--max-parallel-tasks=") => {
+                max_parallel = Some(flag[22..].to_string());
+                index += 1;
+            }
+            "--task-prompt" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --task-prompt".to_string())?;
+                sub_agent_prompt = Some(value.clone());
+                index += 2;
+            }
+            flag if flag.starts_with("--task-prompt=") => {
+                sub_agent_prompt = Some(flag[14..].to_string());
+                index += 1;
+            }
+            "--task-output" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --task-output".to_string())?;
+                sub_agent_output_path = Some(PathBuf::from(value));
+                index += 2;
+            }
+            flag if flag.starts_with("--task-output=") => {
+                sub_agent_output_path = Some(PathBuf::from(&flag[14..]));
+                index += 1;
+            }
+            "--print-output" => {
+                // Flag only, no value — signals sub-agent mode
+                index += 1;
+            }
             // Auto-accept flags (all equivalent)
             "--yes" | "-y" | "--dangerously-skip-permissions" | "-Y" => {
                 auto_accept = true;
@@ -374,6 +426,15 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 index += 1;
             }
         }
+    }
+
+    if let Some(val) = max_parallel {
+        env::set_var("MAX_PARALLEL_TASKS", val);
+    }
+
+    // Sub-agent mode: --print-output --task-prompt <prompt> --task-output <path>
+    if let (Some(prompt), Some(output_path)) = (sub_agent_prompt.take(), sub_agent_output_path.take()) {
+        return Ok(CliAction::SubAgent { prompt, output_path, model });
     }
 
     if rest.is_empty() {
@@ -1309,6 +1370,12 @@ fn build_runtime(
         tool_executor,
         permission_policy_from_env(),
         system_prompt,
+    )
+    .with_max_parallel(
+        std::env::var("MAX_PARALLEL_TASKS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(5),
     ))
 }
 
@@ -1397,6 +1464,10 @@ impl ApiClient for AnthropicRuntimeClient {
                                         events.push(AssistantEvent::TextDelta(text));
                                     }
                                 }
+                                ContentBlockDelta::ThinkingDelta { thinking } => {
+                                    style::print_thinking_fragment(&thinking);
+                                    events.push(AssistantEvent::ThinkingDelta(thinking));
+                                }
                                 ContentBlockDelta::InputJsonDelta { partial_json } => {
                                     if let Some((_, _, input)) = &mut pending_tool {
                                         input.push_str(&partial_json);
@@ -1464,6 +1535,9 @@ fn push_output_block(
                 events.push(AssistantEvent::TextDelta(text));
             }
         }
+        OutputContentBlock::Thinking { thinking } => {
+            events.push(AssistantEvent::ThinkingDelta(thinking));
+        }
         OutputContentBlock::ToolUse { id, name, input } => {
             *pending_tool = Some((id, name, input.to_string()));
         }
@@ -1474,6 +1548,12 @@ fn push_output_block(
 
 struct CliToolExecutor {
     mcp: Arc<Mutex<McpManager>>,
+}
+
+impl Clone for CliToolExecutor {
+    fn clone(&self) -> Self {
+        Self { mcp: self.mcp.clone() }
+    }
 }
 
 impl CliToolExecutor {
@@ -1498,68 +1578,93 @@ impl CliToolExecutor {
         }
         specs
     }
-}
 
-impl ToolExecutor for CliToolExecutor {
-    fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
+    /// Execute a tool and return both the result and display output lines.
+    fn execute_with_display(&mut self, tool_name: &str, input: &str) -> (Result<String, ToolError>, Vec<String>) {
         let start = std::time::Instant::now();
         let display_name = tool_name.strip_prefix("mcp__").unwrap_or(tool_name);
-
-        // Parse input to extract a meaningful preview line
         let input_preview = extract_tool_preview(tool_name, input);
-
-        // ── Tool header box ───────────────────────────────────────────────────
         let inner = 52usize;
+        let mut display = Vec::new();
+
         let title = format!("{ACCENT_C}{BOLD_C}{display_name}{RESET_C}",
             ACCENT_C = style::ACCENT, BOLD_C = style::BOLD, RESET_C = style::RESET);
-        let title_vis = display_name.len(); // no ANSI in visible part
+        let title_vis = display_name.len();
         let bar_right = style::BOX_H.repeat(inner.saturating_sub(title_vis + 4));
-        println!("\n  {}{TL}{H} {title} {bar_right}{TR}{}",
+        display.push(format!("\n  {}{TL}{H} {title} {bar_right}{TR}{}",
             style::ACCENT, style::RESET,
             TL = style::BOX_TL, H = style::BOX_H,
-            TR = style::BOX_TR);
+            TR = style::BOX_TR));
         if !input_preview.is_empty() {
             let preview_vis = style::strip_ansi_len(&input_preview);
             let pad = " ".repeat(inner.saturating_sub(2).saturating_sub(preview_vis));
-            println!("  {acc}{v}{res}  {input_preview}{pad}{acc}{v}{res}",
-                acc = style::ACCENT, v = style::BOX_V, res = style::RESET);
+            display.push(format!("  {acc}{v}{res}  {input_preview}{pad}{acc}{v}{res}",
+                acc = style::ACCENT, v = style::BOX_V, res = style::RESET));
         }
 
-        // Route MCP tools
         if tool_name.starts_with("mcp__") {
             let output = self
                 .mcp
                 .lock()
-                .map_err(|e| ToolError::new(format!("MCP lock poisoned: {e}")))?
-                .execute(tool_name, input)
-                .map_err(ToolError::new)?;
-
-            print_tool_output_box(&output, inner);
-            let elapsed = start.elapsed();
-            print_tool_footer(style::GREEN, inner, &elapsed, false);
-            return Ok(output);
-        }
-
-        let value = serde_json::from_str(input)
-            .map_err(|error| ToolError::new(format!("invalid tool input JSON: {error}")))?;
-        match execute_tool(tool_name, &value) {
-            Ok(output) => {
-                print_tool_output_box(&output, inner);
-                let elapsed = start.elapsed();
-                let is_error = output.contains("\"error\"") && output.contains("true");
-                print_tool_footer(style::CYAN, inner, &elapsed, is_error);
-                Ok(output)
+                .map_err(|e| ToolError::new(format!("MCP lock poisoned: {e}")))
+                .and_then(|mut manager| manager.execute(tool_name, input).map_err(ToolError::new));
+            match output {
+                Ok(output) => {
+                    let box_lines = format_tool_output_box(&output, inner);
+                    display.extend(box_lines);
+                    let elapsed = start.elapsed();
+                    display.push(format_tool_footer(style::GREEN, inner, &elapsed, false));
+                    (Ok(output), display)
+                }
+                Err(e) => {
+                    let elapsed = start.elapsed();
+                    display.push(format!("  {}{} {}{}", style::RED, style::CROSS, &e, style::RESET));
+                    display.push(format_tool_footer(style::RED, inner, &elapsed, true));
+                    (Err(e), display)
+                }
             }
-            Err(error) => {
-                let elapsed = start.elapsed();
-                let err_line = format!("{}{} {}{}", style::RED, style::CROSS, error, style::RESET);
-                let pad = " ".repeat(inner.saturating_sub(2).saturating_sub(style::strip_ansi_len(&err_line)));
-                println!("  {acc}{v}{res}  {err_line}{pad}{acc}{v}{res}",
-                    acc = style::ACCENT, v = style::BOX_V, res = style::RESET);
-                print_tool_footer(style::RED, inner, &elapsed, true);
-                Err(ToolError::new(error))
+        } else {
+            let value = match serde_json::from_str(input) {
+                Ok(v) => v,
+                Err(error) => {
+                    let err = ToolError::new(format!("invalid tool input JSON: {error}"));
+                    let elapsed = start.elapsed();
+                    display.push(format!("  {}{} {}{}", style::RED, style::CROSS, &err, style::RESET));
+                    display.push(format_tool_footer(style::RED, inner, &elapsed, true));
+                    return (Err(err), display);
+                }
+            };
+            match execute_tool(tool_name, &value) {
+                Ok(output) => {
+                    let box_lines = format_tool_output_box(&output, inner);
+                    display.extend(box_lines);
+                    let elapsed = start.elapsed();
+                    let is_error = output.contains("\"error\"") && output.contains("true");
+                    display.push(format_tool_footer(style::CYAN, inner, &elapsed, is_error));
+                    (Ok(output), display)
+                }
+                Err(error) => {
+                    let elapsed = start.elapsed();
+                    let err_line = format!("{}{} {}{}", style::RED, style::CROSS, error, style::RESET);
+                    let pad = " ".repeat(inner.saturating_sub(2).saturating_sub(style::strip_ansi_len(&err_line)));
+                    display.push(format!("  {acc}{v}{res}  {err_line}{pad}{acc}{v}{res}",
+                        acc = style::ACCENT, v = style::BOX_V, res = style::RESET));
+                    display.push(format_tool_footer(style::RED, inner, &elapsed, true));
+                    (Err(ToolError::new(error)), display)
+                }
             }
         }
+    }
+}
+
+impl ToolExecutor for CliToolExecutor {
+    fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
+        let (result, display) = self.execute_with_display(tool_name, input);
+        let _guard = stdout_lock().lock().unwrap();
+        for line in display {
+            println!("{line}");
+        }
+        result
     }
 }
 
@@ -1593,45 +1698,45 @@ fn extract_tool_preview(tool_name: &str, input: &str) -> String {
     }
 }
 
-fn print_tool_output_box(output: &str, inner: usize) {
+fn format_tool_output_box(output: &str, inner: usize) -> Vec<String> {
     let lines: Vec<&str> = output.lines().collect();
     let max_lines = 8usize;
     let shown: Vec<&str> = lines.iter().copied().take(max_lines).collect();
+    let mut result = Vec::new();
 
     for line in &shown {
-        // Strip trailing whitespace
         let trimmed = line.trim_end();
         let vis = trimmed.chars().count().min(inner.saturating_sub(4));
         let display: String = trimmed.chars().take(vis).collect();
         let pad = inner.saturating_sub(2).saturating_sub(display.chars().count());
-        println!("  {acc}{V}{res}  {MUTED}{display}{RESET}{}{acc}{V}{res}",
+        result.push(format!("  {acc}{V}{res}  {MUTED}{display}{RESET}{}{acc}{V}{res}",
             " ".repeat(pad),
             acc = style::ACCENT, V = style::BOX_V, res = style::RESET,
-            MUTED = style::MUTED, RESET = style::RESET);
+            MUTED = style::MUTED, RESET = style::RESET));
     }
     if lines.len() > max_lines {
         let more = format!("{}… {} more lines{}", style::MUTED, lines.len() - max_lines, style::RESET);
         let pad = inner.saturating_sub(2).saturating_sub(style::strip_ansi_len(&more));
-        println!("  {acc}{V}{res}  {more}{}{acc}{V}{res}",
+        result.push(format!("  {acc}{V}{res}  {more}{}{acc}{V}{res}",
             " ".repeat(pad),
-            acc = style::ACCENT, V = style::BOX_V, res = style::RESET);
+            acc = style::ACCENT, V = style::BOX_V, res = style::RESET));
     }
+    result
 }
 
-fn print_tool_footer(color: &str, inner: usize, elapsed: &std::time::Duration, _is_error: bool) {
+fn format_tool_footer(_color: &str, inner: usize, elapsed: &std::time::Duration, _is_error: bool) -> String {
     let secs = elapsed.as_secs_f64();
     let dur_str = if secs < 1.0 {
         format!("{HOURGLASS} {:.0}ms", secs * 1000.0, HOURGLASS = style::HOURGLASS)
     } else {
         format!("{HOURGLASS} {:.1}s", secs, HOURGLASS = style::HOURGLASS)
     };
-    let vis_dur = style::strip_ansi_len(&dur_str) + 2; // +2 for spaces around
+    let vis_dur = style::strip_ansi_len(&dur_str) + 2;
     let bar_before = inner.saturating_sub(vis_dur);
-    println!("  {acc}{BL}{bar} {dur_str} {BR}{res}",
+    format!("  {acc}{BL}{bar} {dur_str} {BR}{res}",
         acc = style::ACCENT, res = style::RESET,
         BL = style::BOX_BL, BR = style::BOX_BR,
-        bar = style::BOX_H.repeat(bar_before));
-    let _ = color; // color reserved for future status-based coloring
+        bar = style::BOX_H.repeat(bar_before))
 }
 
 // ── OpenAI-compatible runtime client ──────────────────────────────────────────
@@ -1749,6 +1854,17 @@ pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMes
                 .iter()
                 .map(|block| match block {
                     ContentBlock::Text { text } => InputContentBlock::Text { text: text.clone() },
+                    ContentBlock::Thinking { .. } => InputContentBlock::Text { text: String::new() },
+                    ContentBlock::Image { source } => InputContentBlock::Image {
+                        source: match source {
+                            runtime::ImageSource::Base64 { media_type, data } =>
+                                ApiImageSource {
+                                    source_type: "base64".to_string(),
+                                    media_type: media_type.clone(),
+                                    data: data.clone(),
+                                },
+                        },
+                    },
                     ContentBlock::ToolUse { id, name, input } => InputContentBlock::ToolUse {
                         id: id.clone(),
                         name: name.clone(),
@@ -1808,6 +1924,30 @@ fn print_help() {
     println!("  AWS_SECRET_ACCESS_KEY    Bedrock IAM auth");
     println!();
     println!("MCP servers: configure in ~/.claude/settings.json (\"mcpServers\" key)");
+}
+
+fn run_subagent(prompt: &str, output_path: &PathBuf, model: String) -> Result<(), Box<dyn std::error::Error>> {
+    let mut cli = LiveCli::new(model, true, true)?;
+    let result = cli.runtime.run_turn(prompt, Some(&mut cli.prompter));
+    let output = match result {
+        Ok(_) => {
+            let session = cli.runtime.session();
+            let mut text_parts = Vec::new();
+            for msg in &session.messages {
+                for block in &msg.blocks {
+                    if let ContentBlock::Text { text } = block {
+                        if !text.trim().is_empty() {
+                            text_parts.push(text.clone());
+                        }
+                    }
+                }
+            }
+            text_parts.join("\n\n")
+        }
+        Err(e) => format!("error: {e}"),
+    };
+    std::fs::write(output_path, &output)?;
+    Ok(())
 }
 
 #[cfg(test)]

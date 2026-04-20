@@ -3,10 +3,12 @@ use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use crate::json::{JsonError, JsonValue};
 use crate::usage::TokenUsage;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageRole {
     System,
     User,
@@ -19,6 +21,12 @@ pub enum ContentBlock {
     Text {
         text: String,
     },
+    Thinking {
+        thinking: String,
+    },
+    Image {
+        source: ImageSource,
+    },
     ToolUse {
         id: String,
         name: String,
@@ -29,6 +37,14 @@ pub enum ContentBlock {
         tool_name: String,
         output: String,
         is_error: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ImageSource {
+    Base64 {
+        media_type: String,
+        data: String,
     },
 }
 
@@ -257,6 +273,22 @@ impl ContentBlock {
                 object.insert("type".to_string(), JsonValue::String("text".to_string()));
                 object.insert("text".to_string(), JsonValue::String(text.clone()));
             }
+            Self::Thinking { thinking } => {
+                object.insert("type".to_string(), JsonValue::String("thinking".to_string()));
+                object.insert("thinking".to_string(), JsonValue::String(thinking.clone()));
+            }
+            Self::Image { source } => {
+                object.insert("type".to_string(), JsonValue::String("image".to_string()));
+                object.insert("source".to_string(), match source {
+                    ImageSource::Base64 { media_type, data } => {
+                        let mut inner = BTreeMap::new();
+                        inner.insert("type".to_string(), JsonValue::String("base64".to_string()));
+                        inner.insert("media_type".to_string(), JsonValue::String(media_type.clone()));
+                        inner.insert("data".to_string(), JsonValue::String(data.clone()));
+                        JsonValue::Object(inner)
+                    }
+                });
+            }
             Self::ToolUse { id, name, input } => {
                 object.insert(
                     "type".to_string(),
@@ -303,6 +335,27 @@ impl ContentBlock {
             "text" => Ok(Self::Text {
                 text: required_string(object, "text")?,
             }),
+            "thinking" => Ok(Self::Thinking {
+                thinking: required_string(object, "thinking")?,
+            }),
+            "image" => {
+                let source_obj = object
+                    .get("source")
+                    .and_then(JsonValue::as_object)
+                    .ok_or_else(|| SessionError::Format("missing image source".to_string()))?;
+                let source_type = required_string(source_obj, "type")?;
+                match source_type.as_str() {
+                    "base64" => Ok(Self::Image {
+                        source: ImageSource::Base64 {
+                            media_type: required_string(source_obj, "media_type")?,
+                            data: required_string(source_obj, "data")?,
+                        },
+                    }),
+                    _ => Err(SessionError::Format(format!(
+                        "unsupported image source type: {source_type}"
+                    ))),
+                }
+            }
             "tool_use" => Ok(Self::ToolUse {
                 id: required_string(object, "id")?,
                 name: required_string(object, "name")?,

@@ -4,7 +4,7 @@
 /// semantic color coding (green=ok, yellow=warn, red=error, cyan=labels),
 /// breathable layout with consistent 2-space left padding.
 
-// ── ANSI reset ────────────────────────────────────────────────────────────────
+use std::io::Write;
 
 pub const RESET: &str = "\x1b[0m";
 
@@ -276,6 +276,12 @@ pub fn print_err(msg: &str) {
 /// Print a muted secondary line.
 pub fn print_muted(msg: &str) {
     println!("  {MUTED}{msg}{RESET}");
+}
+
+/// Print an inline thinking fragment (muted, streaming-compatible).
+pub fn print_thinking_fragment(text: &str) {
+    print!("{MUTED}{text}{RESET}");
+    let _ = std::io::stdout().flush();
 }
 
 // ── CWD shortening ────────────────────────────────────────────────────────────

@@ -9,8 +9,11 @@ mod permissions;
 mod prompt;
 mod session;
 mod todo;
+mod tokenizer;
 mod usage;
 mod web_fetch;
+
+pub use tokenizer::estimate_tokens;
 
 pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
 pub use bootstrap::{BootstrapPhase, BootstrapPlan};
@@ -27,9 +30,9 @@ pub use conversation::{
     ToolError, ToolExecutor, TurnSummary,
 };
 pub use file_ops::{
-    edit_file, glob_search, grep_search, read_file, write_file, EditFileOutput, GlobSearchOutput,
-    GrepSearchInput, GrepSearchOutput, ReadFileOutput, StructuredPatchHunk, TextFilePayload,
-    WriteFileOutput,
+    edit_file, glob_search, grep_search, read_file, read_image_base64, write_file, EditFileOutput,
+    GlobSearchOutput, GrepSearchInput, GrepSearchOutput, ReadFileOutput, StructuredPatchHunk,
+    TextFilePayload, WriteFileOutput,
 };
 pub use permissions::{
     PermissionMode, PermissionOutcome, PermissionPolicy, PermissionPromptDecision,
@@ -39,7 +42,7 @@ pub use prompt::{
     load_system_prompt, prepend_bullets, ContextFile, ProjectContext, PromptBuildError,
     SystemPromptBuilder, FRONTIER_MODEL_NAME, SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
 };
-pub use session::{ContentBlock, ConversationMessage, MessageRole, Session, SessionError};
+pub use session::{ContentBlock, ConversationMessage, ImageSource, MessageRole, Session, SessionError};
 pub use todo::{todo_read, todo_write, TodoItem, TodoOutput, TodoPriority, TodoStatus, TodoWriteInput};
 pub use usage::{TokenUsage, UsageTracker};
 pub use web_fetch::{web_fetch, WebFetchInput, WebFetchOutput};

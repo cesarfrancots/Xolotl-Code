@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::compact::{
     compact_session, estimate_session_tokens, should_compact, CompactionConfig, CompactionResult,
@@ -22,6 +24,7 @@ pub enum AssistantEvent {
         name: String,
         input: String,
     },
+    ThinkingDelta(String),
     Usage(TokenUsage),
     MessageStop,
 }
@@ -94,15 +97,14 @@ pub struct ConversationRuntime<C, T> {
     system_prompt: Vec<String>,
     max_iterations: usize,
     usage_tracker: UsageTracker,
-    /// Maximum estimated tokens before auto-compaction triggers.
-    /// Default: 120_000 (fits in 128K context with room for response).
     max_context_tokens: usize,
+    max_parallel: usize,
 }
 
 impl<C, T> ConversationRuntime<C, T>
 where
     C: ApiClient,
-    T: ToolExecutor,
+    T: ToolExecutor + Send + Clone + 'static,
 {
     #[must_use]
     pub fn new(
@@ -113,6 +115,10 @@ where
         system_prompt: Vec<String>,
     ) -> Self {
         let usage_tracker = UsageTracker::from_session(&session);
+        let max_parallel = std::env::var("MAX_PARALLEL_TASKS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(5);
         Self {
             session,
             api_client,
@@ -122,7 +128,14 @@ where
             max_iterations: 16,
             usage_tracker,
             max_context_tokens: 120_000,
+            max_parallel,
         }
+    }
+
+    #[must_use]
+    pub fn with_max_parallel(mut self, max_parallel: usize) -> Self {
+        self.max_parallel = max_parallel;
+        self
     }
 
     #[must_use]
@@ -236,35 +249,61 @@ where
                 break;
             }
 
-            for (tool_use_id, tool_name, input) in pending_tool_uses {
-                let permission_outcome = if let Some(prompt) = prompter.as_mut() {
-                    self.permission_policy
-                        .authorize(&tool_name, &input, Some(*prompt))
-                } else {
-                    self.permission_policy.authorize(&tool_name, &input, None)
-                };
+            let authorized: Vec<_> = pending_tool_uses
+                .iter()
+                .map(|(id, name, input)| {
+                    let permission_outcome = if let Some(prompt) = prompter.as_mut() {
+                        self.permission_policy
+                            .authorize(name, input, Some(*prompt))
+                    } else {
+                        self.permission_policy.authorize(name, input, None)
+                    };
+                    (id.clone(), name.clone(), input.clone(), permission_outcome)
+                })
+                .collect();
 
-                let result_message = match permission_outcome {
-                    PermissionOutcome::Allow => {
-                        match self.tool_executor.execute(&tool_name, &input) {
-                            Ok(output) => ConversationMessage::tool_result(
-                                tool_use_id,
-                                tool_name,
-                                output,
-                                false,
-                            ),
-                            Err(error) => ConversationMessage::tool_result(
-                                tool_use_id,
-                                tool_name,
-                                error.to_string(),
-                                true,
-                            ),
+            let running = Arc::new(AtomicUsize::new(0));
+            let mut handles = Vec::new();
+
+            for (tool_use_id, tool_name, input, permission_outcome) in authorized {
+                while running.load(Ordering::Relaxed) >= self.max_parallel {
+                    std::thread::sleep(std::time::Duration::from_micros(50));
+                }
+                running.fetch_add(1, Ordering::Relaxed);
+                let executor = self.tool_executor.clone();
+                let running_clone = running.clone();
+
+                let handle = std::thread::spawn(move || {
+                    struct Guard(Arc<AtomicUsize>);
+                    impl Drop for Guard {
+                        fn drop(&mut self) {
+                            self.0.fetch_sub(1, Ordering::Relaxed);
                         }
                     }
-                    PermissionOutcome::Deny { reason } => {
-                        ConversationMessage::tool_result(tool_use_id, tool_name, reason, true)
+                    let _guard = Guard(running_clone);
+                    match permission_outcome {
+                        PermissionOutcome::Deny { reason } => {
+                            ConversationMessage::tool_result(tool_use_id, tool_name, reason, true)
+                        }
+                        PermissionOutcome::Allow => {
+                            let mut executor = executor;
+                            match executor.execute(&tool_name, &input) {
+                                Ok(output) => {
+                                    ConversationMessage::tool_result(tool_use_id, tool_name, output, false)
+                                }
+                                Err(error) => {
+                                    let msg = error.message.clone();
+                                    ConversationMessage::tool_result(tool_use_id, tool_name, msg, true)
+                                }
+                            }
+                        }
                     }
-                };
+                });
+                handles.push(handle);
+            }
+
+            for handle in handles {
+                let result_message = handle.join().unwrap();
                 self.session.messages.push(result_message.clone());
                 tool_results.push(result_message);
             }
@@ -308,14 +347,20 @@ fn build_assistant_message(
     events: Vec<AssistantEvent>,
 ) -> Result<(ConversationMessage, Option<TokenUsage>), RuntimeError> {
     let mut text = String::new();
+    let mut thinking = String::new();
     let mut blocks = Vec::new();
     let mut finished = false;
     let mut usage = None;
 
     for event in events {
         match event {
-            AssistantEvent::TextDelta(delta) => text.push_str(&delta),
+            AssistantEvent::TextDelta(delta) => {
+                flush_thinking_block(&mut thinking, &mut blocks);
+                text.push_str(&delta);
+            }
+            AssistantEvent::ThinkingDelta(delta) => thinking.push_str(&delta),
             AssistantEvent::ToolUse { id, name, input } => {
+                flush_thinking_block(&mut thinking, &mut blocks);
                 flush_text_block(&mut text, &mut blocks);
                 blocks.push(ContentBlock::ToolUse { id, name, input });
             }
@@ -326,6 +371,7 @@ fn build_assistant_message(
         }
     }
 
+    flush_thinking_block(&mut thinking, &mut blocks);
     flush_text_block(&mut text, &mut blocks);
 
     if !finished {
@@ -341,6 +387,14 @@ fn build_assistant_message(
         ConversationMessage::assistant_with_usage(blocks, usage),
         usage,
     ))
+}
+
+fn flush_thinking_block(thinking: &mut String, blocks: &mut Vec<ContentBlock>) {
+    if !thinking.is_empty() {
+        blocks.push(ContentBlock::Thinking {
+            thinking: std::mem::take(thinking),
+        });
+    }
 }
 
 fn flush_text_block(text: &mut String, blocks: &mut Vec<ContentBlock>) {
@@ -368,9 +422,9 @@ fn is_retryable_error(err: &RuntimeError) -> bool {
         || msg.contains("rate limit")
 }
 
-type ToolHandler = Box<dyn FnMut(&str) -> Result<String, ToolError>>;
+type ToolHandler = Arc<Mutex<Option<Box<dyn FnMut(&str) -> Result<String, ToolError> + Send + 'static>>>>;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct StaticToolExecutor {
     handlers: BTreeMap<String, ToolHandler>,
 }
@@ -385,18 +439,24 @@ impl StaticToolExecutor {
     pub fn register(
         mut self,
         tool_name: impl Into<String>,
-        handler: impl FnMut(&str) -> Result<String, ToolError> + 'static,
+        handler: impl FnMut(&str) -> Result<String, ToolError> + Send + 'static,
     ) -> Self {
-        self.handlers.insert(tool_name.into(), Box::new(handler));
+        self.handlers
+            .insert(tool_name.into(), Arc::new(Mutex::new(Some(Box::new(handler)))));
         self
     }
 }
 
 impl ToolExecutor for StaticToolExecutor {
     fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
-        self.handlers
-            .get_mut(tool_name)
-            .ok_or_else(|| ToolError::new(format!("unknown tool: {tool_name}")))?(input)
+        let handler = self
+            .handlers
+            .get(tool_name)
+            .ok_or_else(|| ToolError::new(format!("unknown tool: {tool_name}")))?;
+        let mut guard = handler.lock().unwrap();
+        guard
+            .take()
+            .ok_or_else(|| ToolError::new(format!("handler already consumed: {tool_name}")))?(input)
     }
 }
 

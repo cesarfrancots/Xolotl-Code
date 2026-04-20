@@ -106,6 +106,9 @@ pub enum InputContentBlock {
     Text {
         text: String,
     },
+    Image {
+        source: ImageSource,
+    },
     ToolUse {
         id: String,
         name: String,
@@ -117,6 +120,14 @@ pub enum InputContentBlock {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         is_error: bool,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageSource {
+    #[serde(rename = "type")]
+    pub source_type: String,
+    pub media_type: String,
+    pub data: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -171,6 +182,9 @@ impl MessageResponse {
 pub enum OutputContentBlock {
     Text {
         text: String,
+    },
+    Thinking {
+        thinking: String,
     },
     ToolUse {
         id: String,
@@ -231,6 +245,7 @@ pub struct ContentBlockDeltaEvent {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlockDelta {
     TextDelta { text: String },
+    ThinkingDelta { thinking: String },
     InputJsonDelta { partial_json: String },
 }
 

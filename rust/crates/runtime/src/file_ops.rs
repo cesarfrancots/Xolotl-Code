@@ -4,6 +4,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use crate::session::ImageSource;
 use glob::Pattern;
 use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
@@ -523,6 +524,51 @@ fn make_patch(original: &str, updated: &str) -> Vec<StructuredPatchHunk> {
         new_lines: updated.lines().count(),
         lines,
     }]
+}
+
+pub fn read_image_base64(path: &str) -> io::Result<ImageSource> {
+    let absolute_path = if Path::new(path).is_absolute() {
+        PathBuf::from(path)
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let data = base64_encode(&fs::read(&absolute_path)?);
+    let mime = mime_guess(&absolute_path);
+    Ok(ImageSource::Base64 { media_type: mime, data })
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::new();
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as usize;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
+        result.push(ALPHABET[b0 >> 2] as char);
+        result.push(ALPHABET[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
+        match chunk.len() {
+            1 => result.push_str("=="),
+            2 => result.push(ALPHABET[((b1 & 0x0F) << 2) | (b2 >> 6)] as char),
+            _ => result.push(ALPHABET[b2 & 0x3F] as char),
+        }
+    }
+    result
+}
+
+fn mime_guess(path: &Path) -> String {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    match ext.as_str() {
+        "png" => "image/png".to_string(),
+        "jpg" | "jpeg" => "image/jpeg".to_string(),
+        "gif" => "image/gif".to_string(),
+        "webp" => "image/webp".to_string(),
+        "svg" => "image/svg+xml".to_string(),
+        _ => "application/octet-stream".to_string(),
+    }
 }
 
 fn normalize_path(path: &str) -> io::Result<PathBuf> {
