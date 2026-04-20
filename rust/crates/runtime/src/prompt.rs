@@ -178,7 +178,9 @@ impl SystemPromptBuilder {
             || "unknown".to_string(),
             |context| context.current_date.clone(),
         );
-        let model_display = self.model_hints.as_ref()
+        let model_display = self
+            .model_hints
+            .as_ref()
             .map(|h| format!("{:?}", h.family))
             .unwrap_or_else(|| FRONTIER_MODEL_NAME.to_string());
         let mut lines = vec!["# Environment context".to_string()];

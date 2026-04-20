@@ -10,14 +10,13 @@
 ///
 /// Uses the streaming `/invoke-with-response-stream` endpoint so tokens appear in
 /// real time, exactly like the Anthropic and OpenAI clients.
-
 use std::io::{self, Write};
 
 use reqwest::Client;
 use ring::{digest, hmac};
 
 use runtime::{ApiClient, ApiRequest, AssistantEvent, RuntimeError, TokenUsage};
-use tools::{DynamicToolSpec, mvp_tool_specs};
+use tools::{mvp_tool_specs, DynamicToolSpec};
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -160,9 +159,8 @@ fn sign_request(
         .collect::<Vec<_>>()
         .join(";");
 
-    let canonical_request = format!(
-        "{method}\n{path}\n\n{canonical_headers}\n{signed_headers}\n{body_hash}"
-    );
+    let canonical_request =
+        format!("{method}\n{path}\n\n{canonical_headers}\n{signed_headers}\n{body_hash}");
 
     let credential_scope = format!("{date}/{region}/{service}/aws4_request");
     let string_to_sign = format!(
@@ -309,15 +307,21 @@ fn decode_frame(buf: &[u8], offset: usize) -> Option<(String, Vec<u8>, usize)> {
     if buf.len() < offset + 12 {
         return None; // need at least prelude + trailing crc
     }
-    let total_len =
-        u32::from_be_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]])
-            as usize;
+    let total_len = u32::from_be_bytes([
+        buf[offset],
+        buf[offset + 1],
+        buf[offset + 2],
+        buf[offset + 3],
+    ]) as usize;
     if buf.len() < offset + total_len {
         return None; // incomplete frame
     }
-    let headers_len =
-        u32::from_be_bytes([buf[offset + 4], buf[offset + 5], buf[offset + 6], buf[offset + 7]])
-            as usize;
+    let headers_len = u32::from_be_bytes([
+        buf[offset + 4],
+        buf[offset + 5],
+        buf[offset + 6],
+        buf[offset + 7],
+    ]) as usize;
 
     // Verify prelude CRC (first 8 bytes)
     let prelude_crc_expected = u32::from_be_bytes([
@@ -431,9 +435,7 @@ fn process_bedrock_chunk(
                         }
                     }
                     "input_json_delta" => {
-                        if let Some(partial) =
-                            delta.get("partial_json").and_then(|v| v.as_str())
-                        {
+                        if let Some(partial) = delta.get("partial_json").and_then(|v| v.as_str()) {
                             if let Some((_, _, ref mut input)) = pending_tool.as_mut() {
                                 input.push_str(partial);
                             }
@@ -462,12 +464,8 @@ fn process_bedrock_chunk(
 }
 
 fn parse_token_usage(usage: &serde_json::Value) -> Option<TokenUsage> {
-    let get_u32 = |key: &str| -> u32 {
-        usage
-            .get(key)
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32
-    };
+    let get_u32 =
+        |key: &str| -> u32 { usage.get(key).and_then(|v| v.as_u64()).unwrap_or(0) as u32 };
     Some(TokenUsage {
         input_tokens: get_u32("input_tokens"),
         output_tokens: get_u32("output_tokens"),
@@ -494,8 +492,8 @@ impl BedrockRuntimeClient {
         enable_tools: bool,
         max_tokens: u32,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let config = resolve_bedrock(model_spec)
-            .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+        let config =
+            resolve_bedrock(model_spec).map_err(|e| Box::<dyn std::error::Error>::from(e))?;
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             http: Client::new(),
@@ -507,10 +505,7 @@ impl BedrockRuntimeClient {
     }
 
     /// Build the request body shared between streaming and non-streaming calls.
-    fn build_body(
-        &self,
-        request: &ApiRequest,
-    ) -> Result<Vec<u8>, RuntimeError> {
+    fn build_body(&self, request: &ApiRequest) -> Result<Vec<u8>, RuntimeError> {
         let messages = crate::convert_messages(&request.messages);
         let messages_val = serde_json::to_value(&messages)
             .map_err(|e| RuntimeError::new(format!("message serialize error: {e}")))?;
@@ -520,10 +515,7 @@ impl BedrockRuntimeClient {
             "anthropic_version".to_string(),
             serde_json::json!("bedrock-2023-05-31"),
         );
-        body.insert(
-            "max_tokens".to_string(),
-            serde_json::json!(self.max_tokens),
-        );
+        body.insert("max_tokens".to_string(), serde_json::json!(self.max_tokens));
         body.insert("messages".to_string(), messages_val);
 
         if !request.system_prompt.is_empty() {
@@ -544,10 +536,7 @@ impl BedrockRuntimeClient {
                     obj
                 })
                 .collect();
-            body.insert(
-                "system".to_string(),
-                serde_json::json!(system_val),
-            );
+            body.insert("system".to_string(), serde_json::json!(system_val));
         }
 
         if self.enable_tools {
@@ -642,19 +631,13 @@ impl ApiClient for BedrockRuntimeClient {
     fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
         let body_bytes = self.build_body(&request)?;
 
-        let host = format!(
-            "bedrock-runtime.{}.amazonaws.com",
-            self.config.region
-        );
+        let host = format!("bedrock-runtime.{}.amazonaws.com", self.config.region);
         // Use the streaming endpoint — URL-encode model ID for IDs with colons (e.g. v1:0)
         let encoded_model = url_encode_path_segment(&self.config.model_id);
         let path = format!("/model/{encoded_model}/invoke-with-response-stream");
         let url = format!("https://{host}{path}");
 
-        let builder = self
-            .http
-            .post(&url)
-            .body(body_bytes.clone());
+        let builder = self.http.post(&url).body(body_bytes.clone());
         let builder = self.add_auth(builder, &body_bytes, &host, &path);
 
         self.runtime.block_on(async {
@@ -711,15 +694,27 @@ impl ApiClient for BedrockRuntimeClient {
                                 Some((event_type, payload, next_offset)) => {
                                     offset = next_offset;
                                     if event_type == "chunk" {
-                                        if let Ok(chunk_json) = serde_json::from_slice::<serde_json::Value>(&payload) {
-                                            let inner = if let Some(b64) = chunk_json.get("bytes").and_then(|v| v.as_str()) {
+                                        if let Ok(chunk_json) =
+                                            serde_json::from_slice::<serde_json::Value>(&payload)
+                                        {
+                                            let inner = if let Some(b64) =
+                                                chunk_json.get("bytes").and_then(|v| v.as_str())
+                                            {
                                                 use_base64_decode(b64)
-                                                    .and_then(|decoded| serde_json::from_slice(&decoded).ok())
+                                                    .and_then(|decoded| {
+                                                        serde_json::from_slice(&decoded).ok()
+                                                    })
                                                     .unwrap_or(chunk_json)
                                             } else {
                                                 chunk_json
                                             };
-                                            if let Ok(true) = process_bedrock_chunk(&inner, &mut stdout, &mut events, &mut pending_tool, &mut usage_acc) {
+                                            if let Ok(true) = process_bedrock_chunk(
+                                                &inner,
+                                                &mut stdout,
+                                                &mut events,
+                                                &mut pending_tool,
+                                                &mut usage_acc,
+                                            ) {
                                                 saw_stop = true;
                                             }
                                         }
@@ -768,20 +763,26 @@ fn use_base64_decode(input: &str) -> Option<Vec<u8>> {
         let mut i = 0_u8;
         loop {
             let c = b'A' + i;
-            if c > b'Z' { break; }
+            if c > b'Z' {
+                break;
+            }
             t[c as usize] = i;
             i += 1;
         }
         let mut i = 0_u8;
         loop {
             let c = b'a' + i;
-            if c > b'z' { break; }
+            if c > b'z' {
+                break;
+            }
             t[c as usize] = 26 + i;
             i += 1;
         }
         let mut i = 0_u8;
         loop {
-            if i > 9 { break; }
+            if i > 9 {
+                break;
+            }
             t[(b'0' + i) as usize] = 52 + i;
             i += 1;
         }
@@ -809,10 +810,8 @@ fn use_base64_decode(input: &str) -> Option<Vec<u8>> {
         if v0 == 0xff || v1 == 0xff || v2 == 0xff || v3 == 0xff {
             return None;
         }
-        let combined = (u32::from(v0) << 18)
-            | (u32::from(v1) << 12)
-            | (u32::from(v2) << 6)
-            | u32::from(v3);
+        let combined =
+            (u32::from(v0) << 18) | (u32::from(v1) << 12) | (u32::from(v2) << 6) | u32::from(v3);
         out.push((combined >> 16) as u8);
         out.push((combined >> 8) as u8);
         out.push(combined as u8);
@@ -821,18 +820,26 @@ fn use_base64_decode(input: &str) -> Option<Vec<u8>> {
     // remaining 2 or 3 chars
     match bytes.len() - i {
         2 => {
-            if bytes[i] > 127 || bytes[i + 1] > 127 { return None; }
+            if bytes[i] > 127 || bytes[i + 1] > 127 {
+                return None;
+            }
             let v0 = TABLE[bytes[i] as usize];
             let v1 = TABLE[bytes[i + 1] as usize];
-            if v0 == 0xff || v1 == 0xff { return None; }
+            if v0 == 0xff || v1 == 0xff {
+                return None;
+            }
             out.push(((u32::from(v0) << 2) | (u32::from(v1) >> 4)) as u8);
         }
         3 => {
-            if bytes[i] > 127 || bytes[i + 1] > 127 || bytes[i + 2] > 127 { return None; }
+            if bytes[i] > 127 || bytes[i + 1] > 127 || bytes[i + 2] > 127 {
+                return None;
+            }
             let v0 = TABLE[bytes[i] as usize];
             let v1 = TABLE[bytes[i + 1] as usize];
             let v2 = TABLE[bytes[i + 2] as usize];
-            if v0 == 0xff || v1 == 0xff || v2 == 0xff { return None; }
+            if v0 == 0xff || v1 == 0xff || v2 == 0xff {
+                return None;
+            }
             let combined = (u32::from(v0) << 10) | (u32::from(v1) << 4) | (u32::from(v2) >> 2);
             out.push((combined >> 8) as u8);
             out.push(combined as u8);

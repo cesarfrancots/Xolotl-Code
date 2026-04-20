@@ -92,7 +92,10 @@ impl SddState {
         self.phase = SddPhase::Speculate;
         let task = spec.task.clone();
         self.spec = Some(spec);
-        self.tool_suggestion = Some(format!("Spec created: {}. Transitioning to planning...", task));
+        self.tool_suggestion = Some(format!(
+            "Spec created: {}. Transitioning to planning...",
+            task
+        ));
     }
 
     pub fn enter_planify(&mut self, approach: String) {

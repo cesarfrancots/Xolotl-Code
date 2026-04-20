@@ -3,7 +3,6 @@
 /// Design language: purple/indigo primary accent, clean box-drawing containers,
 /// semantic color coding (green=ok, yellow=warn, red=error, cyan=labels),
 /// breathable layout with consistent 2-space left padding.
-
 use std::io::Write;
 
 pub const RESET: &str = "\x1b[0m";

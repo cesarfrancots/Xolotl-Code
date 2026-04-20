@@ -73,7 +73,9 @@ impl Hook for LoggingHook {
             HookEvent::PostTool { tool_name, .. } => {
                 eprintln!("[hook] post-tool: {tool_name}");
             }
-            HookEvent::ToolError { tool_name, error, .. } => {
+            HookEvent::ToolError {
+                tool_name, error, ..
+            } => {
                 eprintln!("[hook] tool-error: {tool_name} — {error}");
             }
             _ => {}

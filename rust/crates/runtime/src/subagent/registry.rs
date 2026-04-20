@@ -2,8 +2,8 @@
 
 use super::{SubAgentInfo, SubAgentResult, SubAgentStatus};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicUsize;
+use std::sync::{Arc, Mutex};
 
 static TASK_REGISTRY_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static GLOBAL_REGISTRY: std::sync::LazyLock<Arc<Mutex<TaskRegistry>>> =
@@ -92,7 +92,10 @@ impl TaskRegistry {
     pub fn cancel(&self, task_id: &str) -> bool {
         let mut tasks = self.tasks.lock().unwrap();
         if let Some(info) = tasks.get_mut(task_id) {
-            if matches!(info.status, SubAgentStatus::Pending | SubAgentStatus::Running) {
+            if matches!(
+                info.status,
+                SubAgentStatus::Pending | SubAgentStatus::Running
+            ) {
                 info.status = SubAgentStatus::Cancelled;
                 info.completed_at = Some(chrono::Utc::now().to_rfc3339());
                 return true;

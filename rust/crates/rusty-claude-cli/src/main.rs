@@ -21,11 +21,12 @@ use commands::handle_slash_command;
 use compat_harness::{extract_manifest, UpstreamPaths};
 use mcp::McpManager;
 use runtime::{
-    load_system_prompt_with_hints, ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ContentBlock,
-    ConversationMessage, ConversationRuntime, MemorySystem, MessageRole, ModelHints,
+    build_plan_prompt, extract_json_from_response, format_plan_summary,
+    load_system_prompt_with_hints, ApiClient, ApiRequest, AssistantEvent, CompactionConfig,
+    ContentBlock, ConversationMessage, ConversationRuntime, MemorySystem, MessageRole, ModelHints,
     PermissionMode, PermissionPolicy, PermissionPromptDecision, PermissionPrompter,
-    PermissionRequest, RuntimeError, Session, SddEngine, TokenUsage, ToolError, ToolExecutor,
-    PlanArtifact, build_plan_prompt, extract_json_from_response, format_plan_summary,
+    PermissionRequest, PlanArtifact, RuntimeError, SddEngine, Session, TokenUsage, ToolError,
+    ToolExecutor,
 };
 use tools::{execute_tool, mvp_tool_specs, DynamicToolSpec};
 
@@ -137,15 +138,27 @@ fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_default();
 
     let keys = [
-        ("BEDROCK_API_KEY", "AWS Bedrock API key — paste from the Bedrock console (recommended)"),
-        ("AWS_DEFAULT_REGION", "AWS region for Bedrock (default: us-east-1)"),
-        ("ANTHROPIC_API_KEY", "Anthropic direct API key (alternative to Bedrock)"),
+        (
+            "BEDROCK_API_KEY",
+            "AWS Bedrock API key — paste from the Bedrock console (recommended)",
+        ),
+        (
+            "AWS_DEFAULT_REGION",
+            "AWS region for Bedrock (default: us-east-1)",
+        ),
+        (
+            "ANTHROPIC_API_KEY",
+            "Anthropic direct API key (alternative to Bedrock)",
+        ),
         ("KIMI_API_KEY", "Kimi / Moonshot k2.6 (for kimi/ models)"),
         ("GLM_API_KEY", "Zhipu GLM (for glm/ models)"),
         ("MINIMAX_API_KEY", "MiniMax (for minimax/ models)"),
         ("DASHSCOPE_API_KEY", "Alibaba Qwen (for qwen/ models)"),
         ("OPENAI_API_KEY", "OpenAI or custom OpenAI-compat provider"),
-        ("AWS_ACCESS_KEY_ID", "AWS Access Key ID (IAM auth — alternative to BEDROCK_API_KEY)"),
+        (
+            "AWS_ACCESS_KEY_ID",
+            "AWS Access Key ID (IAM auth — alternative to BEDROCK_API_KEY)",
+        ),
         ("AWS_SECRET_ACCESS_KEY", "AWS Secret Access Key (IAM auth)"),
     ];
 
@@ -179,7 +192,10 @@ fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
         } else if trimmed == "clear" {
             config.remove(*var);
         } else {
-            config.insert(var.to_string(), serde_json::Value::String(trimmed.to_string()));
+            config.insert(
+                var.to_string(),
+                serde_json::Value::String(trimmed.to_string()),
+            );
         }
     }
 
@@ -231,43 +247,91 @@ impl PermissionPrompter for ReplPermissionPrompter {
 
         // ── Styled permission prompt ──────────────────────────────────────────
         let preview: String = request.input.chars().take(200).collect();
-        let display_name = request.tool_name.strip_prefix("mcp__").unwrap_or(&request.tool_name);
+        let display_name = request
+            .tool_name
+            .strip_prefix("mcp__")
+            .unwrap_or(&request.tool_name);
         let width = 52usize;
         let bar = style::BOX_H.repeat(width);
 
         eprintln!();
-        eprintln!("  {}{}{}{}{}",
-            style::YELLOW, style::BOX_TL, bar, style::BOX_TR, style::RESET);
-        eprintln!("  {}{}{}  {}Permission required{}  {}{}{}",
-            style::YELLOW, style::BOX_V, style::RESET,
-            style::WHITE_BOLD, style::RESET,
-            style::YELLOW, style::BOX_V, style::RESET);
-        eprintln!("  {}{}{}",
-            style::YELLOW, style::BOX_V, style::RESET);
-        eprintln!("  {}{}{}  {}tool{}   {}{}",
-            style::YELLOW, style::BOX_V, style::RESET,
-            style::CYAN, style::RESET, display_name, "");
+        eprintln!(
+            "  {}{}{}{}{}",
+            style::YELLOW,
+            style::BOX_TL,
+            bar,
+            style::BOX_TR,
+            style::RESET
+        );
+        eprintln!(
+            "  {}{}{}  {}Permission required{}  {}{}{}",
+            style::YELLOW,
+            style::BOX_V,
+            style::RESET,
+            style::WHITE_BOLD,
+            style::RESET,
+            style::YELLOW,
+            style::BOX_V,
+            style::RESET
+        );
+        eprintln!("  {}{}{}", style::YELLOW, style::BOX_V, style::RESET);
+        eprintln!(
+            "  {}{}{}  {}tool{}   {}{}",
+            style::YELLOW,
+            style::BOX_V,
+            style::RESET,
+            style::CYAN,
+            style::RESET,
+            display_name,
+            ""
+        );
         // Print input preview (wrapping at width-4)
         let wrap_width = width.saturating_sub(9);
         let input_clean: String = preview.replace('\n', " ").replace('\t', " ");
         let input_line = if input_clean.chars().count() > wrap_width {
-            format!("{}…", input_clean.chars().take(wrap_width.saturating_sub(1)).collect::<String>())
+            format!(
+                "{}…",
+                input_clean
+                    .chars()
+                    .take(wrap_width.saturating_sub(1))
+                    .collect::<String>()
+            )
         } else {
             input_clean
         };
-        eprintln!("  {}{}{}  {}input{}  {}{}",
-            style::YELLOW, style::BOX_V, style::RESET,
-            style::CYAN, style::RESET, input_line, "");
-        eprintln!("  {}{}{}",
-            style::YELLOW, style::BOX_V, style::RESET);
-        eprintln!("  {}{}{}  {}[y]{} Allow  {}[n]{} Deny  {}[a]{} Always  {}[!]{} Accept all",
-            style::YELLOW, style::BOX_V, style::RESET,
-            style::GREEN, style::RESET,
-            style::RED, style::RESET,
-            style::CYAN, style::RESET,
-            style::ACCENT, style::RESET);
-        eprintln!("  {}{}{}{}{}",
-            style::YELLOW, style::BOX_BL, bar, style::BOX_BR, style::RESET);
+        eprintln!(
+            "  {}{}{}  {}input{}  {}{}",
+            style::YELLOW,
+            style::BOX_V,
+            style::RESET,
+            style::CYAN,
+            style::RESET,
+            input_line,
+            ""
+        );
+        eprintln!("  {}{}{}", style::YELLOW, style::BOX_V, style::RESET);
+        eprintln!(
+            "  {}{}{}  {}[y]{} Allow  {}[n]{} Deny  {}[a]{} Always  {}[!]{} Accept all",
+            style::YELLOW,
+            style::BOX_V,
+            style::RESET,
+            style::GREEN,
+            style::RESET,
+            style::RED,
+            style::RESET,
+            style::CYAN,
+            style::RESET,
+            style::ACCENT,
+            style::RESET
+        );
+        eprintln!(
+            "  {}{}{}{}{}",
+            style::YELLOW,
+            style::BOX_BL,
+            bar,
+            style::BOX_BR,
+            style::RESET
+        );
         eprint!("  {} ", style::PROMPT_ARROW);
         let _ = io::stderr().flush();
 
@@ -285,8 +349,12 @@ impl PermissionPrompter for ReplPermissionPrompter {
             }
             "!" | "accept-all" => {
                 self.auto_accept = true;
-                eprintln!("  {}{}  Auto-accept mode enabled for this session.{}",
-                    style::ACCENT, style::WARN_SYM, style::RESET);
+                eprintln!(
+                    "  {}{}  Auto-accept mode enabled for this session.{}",
+                    style::ACCENT,
+                    style::WARN_SYM,
+                    style::RESET
+                );
                 PermissionPromptDecision::Allow
             }
             _ => PermissionPromptDecision::Deny {
@@ -309,7 +377,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Load persisted keys before anything that might need them
     if !matches!(
         args.first().map(String::as_str),
-        Some("setup") | Some("--help") | Some("-h") | Some("dump-manifests") | Some("bootstrap-plan") | Some("system-prompt")
+        Some("setup")
+            | Some("--help")
+            | Some("-h")
+            | Some("dump-manifests")
+            | Some("bootstrap-plan")
+            | Some("system-prompt")
     ) {
         load_config_keys();
     }
@@ -322,11 +395,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             session_path,
             command,
         } => resume_session(&session_path, command),
-        CliAction::Prompt { prompt, model } => LiveCli::new(model, false, false)?.run_turn(&prompt)?,
+        CliAction::Prompt { prompt, model } => {
+            LiveCli::new(model, false, false)?.run_turn(&prompt)?
+        }
         CliAction::Repl { model, auto_accept } => run_repl(model, auto_accept)?,
         CliAction::Setup => run_setup()?,
         CliAction::Help => print_help(),
-        CliAction::SubAgent { prompt, output_path, model } => run_subagent(&prompt, &output_path, model)?,
+        CliAction::SubAgent {
+            prompt,
+            output_path,
+            model,
+        } => run_subagent(&prompt, &output_path, model)?,
     }
     Ok(())
 }
@@ -441,8 +520,14 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     // Sub-agent mode: --print-output --task-prompt <prompt> --task-output <path>
-    if let (Some(prompt), Some(output_path)) = (sub_agent_prompt.take(), sub_agent_output_path.take()) {
-        return Ok(CliAction::SubAgent { prompt, output_path, model });
+    if let (Some(prompt), Some(output_path)) =
+        (sub_agent_prompt.take(), sub_agent_output_path.take())
+    {
+        return Ok(CliAction::SubAgent {
+            prompt,
+            output_path,
+            model,
+        });
     }
 
     if rest.is_empty() {
@@ -599,8 +684,14 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
         let trimmed = cli.runtime.parse_input_images(input.trim());
         let pending_image_count = cli.runtime.pending_image_count();
         if pending_image_count > 0 {
-            println!("  {}{}{} {} image(s) attached{}",
-                style::CYAN, style::BOLD, style::CHECK, pending_image_count, style::RESET);
+            println!(
+                "  {}{}{} {} image(s) attached{}",
+                style::CYAN,
+                style::BOLD,
+                style::CHECK,
+                pending_image_count,
+                style::RESET
+            );
         }
         if trimmed.is_empty() && !cli.runtime.has_pending_images() {
             continue;
@@ -614,7 +705,11 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                 if !query.is_empty() {
                     cli.search_memory(query);
                 } else {
-                    println!("  {}Usage: /memory search <query>{}", style::MUTED, style::RESET);
+                    println!(
+                        "  {}Usage: /memory search <query>{}",
+                        style::MUTED,
+                        style::RESET
+                    );
                 }
                 continue;
             }
@@ -659,7 +754,11 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                                 style::print_err(&e.to_string());
                             }
                         } else {
-                            println!("  {}Usage: /plan <description>{}", style::MUTED, style::RESET);
+                            println!(
+                                "  {}Usage: /plan <description>{}",
+                                style::MUTED,
+                                style::RESET
+                            );
                         }
                     } else {
                         cli.print_plan_status();
@@ -672,7 +771,10 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                     cli.abort_plan();
                 }
                 "/rollback" => {
-                    let n = parts.get(1).and_then(|s| s.trim().parse::<usize>().ok()).unwrap_or(1);
+                    let n = parts
+                        .get(1)
+                        .and_then(|s| s.trim().parse::<usize>().ok())
+                        .unwrap_or(1);
                     cli.rollback(n);
                 }
                 "/diff" => {
@@ -697,7 +799,13 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
         // SDD: Analyze complexity and suggest next tools (invisible state machine)
         if let Some(suggestion) = cli.sdd_suggest(&trimmed) {
             println!();
-            println!("  {}{} SDD: {}{}", style::CYAN, style::BOLD, suggestion, style::RESET);
+            println!(
+                "  {}{} SDD: {}{}",
+                style::CYAN,
+                style::BOLD,
+                suggestion,
+                style::RESET
+            );
             println!();
         }
 
@@ -708,8 +816,7 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
         cli.write_session_memory(turn_start.elapsed().as_secs());
     }
 
-    println!("\n  {}{}{}\n",
-        style::MUTED, "Bye.", style::RESET);
+    println!("\n  {}{}{}\n", style::MUTED, "Bye.", style::RESET);
     Ok(())
 }
 
@@ -736,11 +843,14 @@ fn print_startup_banner(cli: &LiveCli) {
 
     // Inner width of the box (between the vertical bars)
     let inner = 52usize;
-    let bar   = BOX_H.repeat(inner);
-    let pad   = |s: &str| {
+    let bar = BOX_H.repeat(inner);
+    let pad = |s: &str| {
         let vis = strip_ansi_len(s);
-        let p   = inner.saturating_sub(2).saturating_sub(vis);
-        format!("  {ACCENT}{BOX_V}{RESET}  {s}{}{ACCENT}{BOX_V}{RESET}", " ".repeat(p))
+        let p = inner.saturating_sub(2).saturating_sub(vis);
+        format!(
+            "  {ACCENT}{BOX_V}{RESET}  {s}{}{ACCENT}{BOX_V}{RESET}",
+            " ".repeat(p)
+        )
     };
 
     println!();
@@ -787,8 +897,12 @@ fn print_slash_help() {
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Info          {CYAN}/status{RESET} · {CYAN}/cost{RESET} · {CYAN}/budget{RESET} · {CYAN}/sessions{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Memory        {CYAN}/memory{RESET} · {CYAN}/memory search <query>{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Tools         {CYAN}/mcp{RESET} · {CYAN}/permissions{RESET} · {CYAN}/accept-all{RESET}");
-    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Project       {CYAN}/init{RESET} · {CYAN}/doctor{RESET}");
-    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Session       {CYAN}/help{RESET} · {CYAN}/exit{RESET}");
+    println!(
+        "  {ACCENT}{PROMPT_ARROW}{RESET} Project       {CYAN}/init{RESET} · {CYAN}/doctor{RESET}"
+    );
+    println!(
+        "  {ACCENT}{PROMPT_ARROW}{RESET} Session       {CYAN}/help{RESET} · {CYAN}/exit{RESET}"
+    );
     println!();
     println!("  {GRAY}Keyboard{RESET}");
     println!("  {MUTED}  {ARROW_UP}/{ARROW_DOWN}   Browse input history{RESET}");
@@ -800,7 +914,10 @@ fn print_slash_help() {
 fn print_model_help(current: &str) {
     use style::*;
     println!();
-    println!("  {GRAY}current{RESET}  {WHITE_BOLD}{}{RESET}", format_model(current));
+    println!(
+        "  {GRAY}current{RESET}  {WHITE_BOLD}{}{RESET}",
+        format_model(current)
+    );
     println!();
     println!("  {MUTED}Usage: /model <alias or full-id>{RESET}");
     println!();
@@ -833,7 +950,11 @@ struct LiveCli {
 }
 
 impl LiveCli {
-    fn new(model: String, enable_tools: bool, auto_accept: bool) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(
+        model: String,
+        enable_tools: bool,
+        auto_accept: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         // Connect to MCP servers (errors are warnings, not fatal)
         let mcp = Arc::new(Mutex::new(McpManager::connect()));
         let system_prompt = build_system_prompt(&model)?;
@@ -854,8 +975,7 @@ impl LiveCli {
         let auto_save_path = dir.join(format!("session-{ts}.json"));
 
         let model_hints = ModelHints::for_model(&model);
-        let sdd_engine = SddEngine::new()
-            .with_aggressive_read(model_hints.aggressive_read);
+        let sdd_engine = SddEngine::new().with_aggressive_read(model_hints.aggressive_read);
 
         let memory = if let Some(vault_path) = MemorySystem::discover_vault() {
             Some(MemorySystem::new(runtime::MemoryConfig {
@@ -891,10 +1011,17 @@ impl LiveCli {
         self.inject_memory_context(input);
         self.turn_start = Some(std::time::Instant::now());
         let result = self.runtime.run_turn(input, Some(&mut self.prompter));
-        let elapsed = self.turn_start.take().map(|s| s.elapsed()).unwrap_or_default();
+        let elapsed = self
+            .turn_start
+            .take()
+            .map(|s| s.elapsed())
+            .unwrap_or_default();
         match result {
             Ok(_) => {
-                let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
+                let cost = self
+                    .runtime
+                    .usage()
+                    .cost_usd(primary_model_name(&self.model));
                 let usage = self.runtime.usage().cumulative_usage();
                 let secs = elapsed.as_secs_f64();
                 let dur_str = if secs < 60.0 {
@@ -934,11 +1061,19 @@ impl LiveCli {
         self.prompter.set_auto_accept(self.auto_accept);
         if self.auto_accept {
             println!();
-            println!("  {}{}{}  {}Auto-accept ON{} — all tool calls approved automatically",
-                style::YELLOW, style::WARN_SYM, style::RESET,
-                style::YELLOW, style::RESET);
-            println!("  {}  Run /accept-all again to turn off{}",
-                style::MUTED, style::RESET);
+            println!(
+                "  {}{}{}  {}Auto-accept ON{} — all tool calls approved automatically",
+                style::YELLOW,
+                style::WARN_SYM,
+                style::RESET,
+                style::YELLOW,
+                style::RESET
+            );
+            println!(
+                "  {}  Run /accept-all again to turn off{}",
+                style::MUTED,
+                style::RESET
+            );
             println!();
         } else {
             style::print_ok("Auto-accept OFF — tool calls will prompt for permission.");
@@ -957,39 +1092,58 @@ impl LiveCli {
         use std::fmt::Write as FmtWrite;
 
         let Some(memory) = &self.memory else { return };
-        if !memory.is_enabled() { return; }
+        if !memory.is_enabled() {
+            return;
+        }
 
         let messages = &self.runtime.session().messages;
-        if messages.is_empty() { return; }
+        if messages.is_empty() {
+            return;
+        }
 
         let task = if let Some(first) = messages.first() {
-            first.blocks.iter()
+            first
+                .blocks
+                .iter()
                 .find_map(|b| {
                     if let runtime::ContentBlock::Text { text } = b {
                         Some(text.chars().take(100).collect::<String>())
-                    } else { None }
+                    } else {
+                        None
+                    }
                 })
                 .unwrap_or_else(|| "Untitled session".to_string())
         } else {
-            return
+            return;
         };
 
-        let files_changed: Vec<String> = messages.iter()
+        let files_changed: Vec<String> = messages
+            .iter()
             .filter_map(|m| {
-                if m.role != runtime::MessageRole::Assistant { return None; }
-                Some(m.blocks.iter().filter_map(|b| {
-                    match b {
-                        runtime::ContentBlock::Text { text } if text.starts_with("Writing") => Some(text.clone()),
-                        _ => None
-                    }
-                }).collect::<Vec<_>>())
+                if m.role != runtime::MessageRole::Assistant {
+                    return None;
+                }
+                Some(
+                    m.blocks
+                        .iter()
+                        .filter_map(|b| match b {
+                            runtime::ContentBlock::Text { text } if text.starts_with("Writing") => {
+                                Some(text.clone())
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>(),
+                )
             })
             .flatten()
             .take(10)
             .collect();
 
         let phase = format!("{:?}", self.sdd_engine.state().phase);
-        let complexity = self.sdd_engine.state().complexity
+        let complexity = self
+            .sdd_engine
+            .state()
+            .complexity
             .map(|c| format!("{:?}", c))
             .unwrap_or_default();
 
@@ -997,10 +1151,12 @@ impl LiveCli {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
         let secs = now.as_secs();
-        let date = format!("{} {:02}:{:02}",
+        let date = format!(
+            "{} {:02}:{:02}",
             today_iso(),
             (secs % 86400) / 3600,
-            (secs % 3600) / 60);
+            (secs % 3600) / 60
+        );
 
         let note = runtime::SessionNote {
             title: task.clone(),
@@ -1013,19 +1169,34 @@ impl LiveCli {
             duration_seconds: Some(duration_secs),
             content: String::new(),
             tags: vec![
-                format!("#phase-{}", self.sdd_engine.state().phase.description().to_lowercase().replace(' ', "-")),
+                format!(
+                    "#phase-{}",
+                    self.sdd_engine
+                        .state()
+                        .phase
+                        .description()
+                        .to_lowercase()
+                        .replace(' ', "-")
+                ),
                 "#session".to_string(),
             ],
         };
 
         if let Err(e) = memory.write_session_note(&note) {
-            eprintln!("  {}Failed to write session note: {}{}", style::WARN_SYM, e, style::RESET);
+            eprintln!(
+                "  {}Failed to write session note: {}{}",
+                style::WARN_SYM,
+                e,
+                style::RESET
+            );
         }
     }
 
     fn inject_memory_context(&mut self, input: &str) {
         let Some(memory) = &self.memory else { return };
-        if !memory.is_enabled() { return }
+        if !memory.is_enabled() {
+            return;
+        }
 
         // Use semantic TF-IDF search for much better relevance than keyword matching
         let results = match memory.semantic_search(input, 5) {
@@ -1033,10 +1204,15 @@ impl LiveCli {
             _ => {
                 // Fallback to recent sessions if semantic search yields nothing
                 match memory.get_recent_sessions(3) {
-                    Ok(paths) => paths.into_iter()
+                    Ok(paths) => paths
+                        .into_iter()
                         .map(|p| runtime::MemorySearchResult {
                             path: p.clone(),
-                            title: p.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").replace('-', " "),
+                            title: p
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("unknown")
+                                .replace('-', " "),
                             score: 0.0,
                             snippet: String::new(),
                         })
@@ -1050,13 +1226,19 @@ impl LiveCli {
         let mut seen = std::collections::HashSet::new();
         for result in results {
             let key = result.path.to_string_lossy().to_string();
-            if seen.contains(&key) { continue }
+            if seen.contains(&key) {
+                continue;
+            }
             seen.insert(key);
             summaries.push(format!("- {} — {}", result.title, result.snippet));
-            if summaries.len() >= 5 { break }
+            if summaries.len() >= 5 {
+                break;
+            }
         }
 
-        if summaries.is_empty() { return }
+        if summaries.is_empty() {
+            return;
+        }
 
         let memory_section = format!(
             "# Relevant past sessions\nThe following past sessions may be relevant to the current task:\n{}",
@@ -1064,7 +1246,9 @@ impl LiveCli {
         );
 
         let mut prompt = self.system_prompt.clone();
-        let boundary_pos = prompt.iter().position(|s| s.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
+        let boundary_pos = prompt
+            .iter()
+            .position(|s| s.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
         if let Some(pos) = boundary_pos {
             prompt.insert(pos + 1, memory_section);
         } else {
@@ -1078,7 +1262,11 @@ impl LiveCli {
         if let Some(memory) = &self.memory {
             if let Some((vault_path, note_count)) = memory.vault_status() {
                 print_header("Obsidian Memory");
-                print_kv_w("vault", &format!("{MUTED}{}{RESET}", vault_path.display()), 12);
+                print_kv_w(
+                    "vault",
+                    &format!("{MUTED}{}{RESET}", vault_path.display()),
+                    12,
+                );
                 print_kv_w("sessions", &note_count.to_string(), 12);
                 println!();
 
@@ -1087,7 +1275,14 @@ impl LiveCli {
                     Ok(recent) => {
                         for (i, path) in recent.iter().enumerate() {
                             if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
-                                println!("  {}{}. {}{} {}", MUTED, i + 1, RESET, name.replace('-', " ").replace('_', " "), MUTED);
+                                println!(
+                                    "  {}{}. {}{} {}",
+                                    MUTED,
+                                    i + 1,
+                                    RESET,
+                                    name.replace('-', " ").replace('_', " "),
+                                    MUTED
+                                );
                             }
                         }
                     }
@@ -1099,7 +1294,10 @@ impl LiveCli {
             }
         } else {
             println!();
-            println!("  {}No Obsidian vault found.{} Create one at:", MUTED, RESET);
+            println!(
+                "  {}No Obsidian vault found.{} Create one at:",
+                MUTED, RESET
+            );
             println!("    ~/Obsidian Vault/");
             println!("    ~/Documents/Obsidian/");
             println!("    ~/.claw-code/vault/");
@@ -1117,15 +1315,29 @@ impl LiveCli {
         match memory.semantic_search(query, 10) {
             Ok(results) if !results.is_empty() => {
                 println!();
-                println!("  {}{} results for \"{}{}{}\"", MUTED, results.len(), CYAN, query, MUTED);
+                println!(
+                    "  {}{} results for \"{}{}{}\"",
+                    MUTED,
+                    results.len(),
+                    CYAN,
+                    query,
+                    MUTED
+                );
                 println!();
                 for result in &results {
                     let score_str = format!("{:.2}", result.score);
-                    println!("  {}{}{}  {}{}score: {}{RESET}",
-                        BOLD, result.title, RESET,
-                        MUTED, CYAN, score_str);
+                    println!(
+                        "  {}{}{}  {}{}score: {}{RESET}",
+                        BOLD, result.title, RESET, MUTED, CYAN, score_str
+                    );
                     if !result.snippet.is_empty() {
-                        println!("    {}{}…{}{}", MUTED, &result.snippet[..result.snippet.len().min(120)], MUTED, RESET);
+                        println!(
+                            "    {}{}…{}{}",
+                            MUTED,
+                            &result.snippet[..result.snippet.len().min(120)],
+                            MUTED,
+                            RESET
+                        );
                     }
                 }
                 println!();
@@ -1146,7 +1358,9 @@ impl LiveCli {
         println!();
 
         let prompt = build_plan_prompt(description);
-        let response = self.runtime.run_planning_turn(&prompt)
+        let response = self
+            .runtime
+            .run_planning_turn(&prompt)
             .map_err(|e| format!("Planning failed: {e}"))?;
 
         let json_str = extract_json_from_response(&response)
@@ -1175,7 +1389,10 @@ impl LiveCli {
         // Display plan
         println!("{}", format_plan_summary(&plan));
         println!();
-        println!("  {GREEN}{BOLD}Plan saved{RESET}  {MUTED}{}{RESET}", style::shorten_path(&self.plan_path.as_ref().unwrap()));
+        println!(
+            "  {GREEN}{BOLD}Plan saved{RESET}  {MUTED}{}{RESET}",
+            style::shorten_path(&self.plan_path.as_ref().unwrap())
+        );
         println!("  {MUTED}Use /plan status to check progress. The plan has been added to your todos.{RESET}");
         println!();
 
@@ -1188,7 +1405,9 @@ impl LiveCli {
             plan.phases.len()
         );
         let mut prompt = self.system_prompt.clone();
-        let boundary_pos = prompt.iter().position(|s| s.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
+        let boundary_pos = prompt
+            .iter()
+            .position(|s| s.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
         if let Some(pos) = boundary_pos {
             prompt.insert(pos + 1, plan_context);
         } else {
@@ -1212,20 +1431,43 @@ impl LiveCli {
                 let completed = plan.completed_tasks(&todo_output.todos);
                 let total = plan.total_tasks();
                 println!();
-                println!("  {CYAN}{BOLD}Plan: {}{RESET}  {MUTED}({}/{} tasks){RESET}",
-                    plan.title, completed, total);
+                println!(
+                    "  {CYAN}{BOLD}Plan: {}{RESET}  {MUTED}({}/{} tasks){RESET}",
+                    plan.title, completed, total
+                );
                 println!();
                 for (i, phase) in plan.phases.iter().enumerate() {
-                    let phase_completed = todo_output.todos.iter()
-                        .filter(|t| t.id.starts_with(&format!("plan-{i}-")) && t.status != runtime::TodoStatus::Pending && t.status != runtime::TodoStatus::InProgress)
+                    let phase_completed = todo_output
+                        .todos
+                        .iter()
+                        .filter(|t| {
+                            t.id.starts_with(&format!("plan-{i}-"))
+                                && t.status != runtime::TodoStatus::Pending
+                                && t.status != runtime::TodoStatus::InProgress
+                        })
                         .count();
                     let phase_total = phase.tasks.len();
-                    let (icon, icon_color) = if phase_completed == phase_total { (CHECK, GREEN) } else { (" ", MUTED) };
-                    println!("  {}{}{}{}  {}{} ({}/{} tasks){RESET}",
-                        icon_color, icon, RESET, BOLD, phase.name, MUTED, phase_completed, phase_total);
+                    let (icon, icon_color) = if phase_completed == phase_total {
+                        (CHECK, GREEN)
+                    } else {
+                        (" ", MUTED)
+                    };
+                    println!(
+                        "  {}{}{}{}  {}{} ({}/{} tasks){RESET}",
+                        icon_color,
+                        icon,
+                        RESET,
+                        BOLD,
+                        phase.name,
+                        MUTED,
+                        phase_completed,
+                        phase_total
+                    );
                     for (j, task) in phase.tasks.iter().enumerate() {
                         let todo_id = format!("plan-{i}-{j}");
-                        let status = todo_output.todos.iter()
+                        let status = todo_output
+                            .todos
+                            .iter()
                             .find(|t| t.id == todo_id)
                             .map(|t| &t.status)
                             .unwrap_or(&runtime::TodoStatus::Pending);
@@ -1235,9 +1477,16 @@ impl LiveCli {
                             runtime::TodoStatus::Cancelled => ("✗", RED),
                             runtime::TodoStatus::Pending => ("○", MUTED),
                         };
-                        println!("    {}{} {}{MUTED}{}{RESET}",
-                            status_color, status_icon, task.description,
-                            task.tool.as_ref().map(|t| format!(" ({t})")).unwrap_or_default());
+                        println!(
+                            "    {}{} {}{MUTED}{}{RESET}",
+                            status_color,
+                            status_icon,
+                            task.description,
+                            task.tool
+                                .as_ref()
+                                .map(|t| format!(" ({t})"))
+                                .unwrap_or_default()
+                        );
                     }
                 }
                 println!();
@@ -1288,7 +1537,10 @@ impl LiveCli {
     fn print_status(&self) {
         use style::*;
         let usage = self.runtime.usage().cumulative_usage();
-        let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
+        let cost = self
+            .runtime
+            .usage()
+            .cost_usd(primary_model_name(&self.model));
         let mode_str = if self.auto_accept {
             format!("{YELLOW}{WARN_SYM} auto-accept{RESET}")
         } else {
@@ -1299,16 +1551,28 @@ impl LiveCli {
             .unwrap_or_else(|_| ".".to_string());
 
         print_header("Session");
-        print_kv_w("model",    &format_model(&self.model), 12);
-        print_kv_w("cwd",      &format!("{MUTED}{cwd}{RESET}"), 12);
-        print_kv_w("mode",     &mode_str, 12);
-        print_kv_w("turns",    &self.runtime.usage().turns().to_string(), 12);
-        print_kv_w("messages", &fmt_num(self.runtime.session().messages.len() as u32), 12);
+        print_kv_w("model", &format_model(&self.model), 12);
+        print_kv_w("cwd", &format!("{MUTED}{cwd}{RESET}"), 12);
+        print_kv_w("mode", &mode_str, 12);
+        print_kv_w("turns", &self.runtime.usage().turns().to_string(), 12);
+        print_kv_w(
+            "messages",
+            &fmt_num(self.runtime.session().messages.len() as u32),
+            12,
+        );
         println!("  {MUTED}──────────────────────────────────{RESET}");
-        print_kv_w(&format!("{ARROW_UP} in"),   &fmt_num(usage.input_tokens), 12);
-        print_kv_w(&format!("{ARROW_DOWN} out"),  &fmt_num(usage.output_tokens), 12);
+        print_kv_w(&format!("{ARROW_UP} in"), &fmt_num(usage.input_tokens), 12);
+        print_kv_w(
+            &format!("{ARROW_DOWN} out"),
+            &fmt_num(usage.output_tokens),
+            12,
+        );
         if usage.cache_read_input_tokens > 0 {
-            print_kv_w(&format!("{SPARKLE} cached"), &fmt_num(usage.cache_read_input_tokens), 12);
+            print_kv_w(
+                &format!("{SPARKLE} cached"),
+                &fmt_num(usage.cache_read_input_tokens),
+                12,
+            );
         }
         println!("  {MUTED}──────────────────────────────────{RESET}");
         println!("  {CYAN}{:<12}{RESET}{WHITE_BOLD}${cost:.4}{RESET}", "cost");
@@ -1340,7 +1604,11 @@ impl LiveCli {
             println!();
             if let Some((vault_path, note_count)) = memory.vault_status() {
                 print_header("Memory");
-                print_kv_w("vault", &format!("{MUTED}{}{RESET}", vault_path.display()), 12);
+                print_kv_w(
+                    "vault",
+                    &format!("{MUTED}{}{RESET}", vault_path.display()),
+                    12,
+                );
                 print_kv_w("sessions", &note_count.to_string(), 12);
             }
         }
@@ -1359,26 +1627,47 @@ impl LiveCli {
             let full_cost = (usage.cache_read_input_tokens as f64 / 1_000_000.0) * 3.0; // $3/MTok full rate
             let cache_cost = (usage.cache_read_input_tokens as f64 / 1_000_000.0) * 0.3; // ~$0.30/MTok cached
             full_cost - cache_cost
-        } else { 0.0 };
+        } else {
+            0.0
+        };
 
         print_header("Cost breakdown");
         if let Some(plus) = self.model.find('+') {
-            print_kv_w("planner",  &friendly_model_name(&self.model[..plus]), 14);
-            print_kv_w("executor", &friendly_model_name(&self.model[plus + 1..]), 14);
+            print_kv_w("planner", &friendly_model_name(&self.model[..plus]), 14);
+            print_kv_w(
+                "executor",
+                &friendly_model_name(&self.model[plus + 1..]),
+                14,
+            );
         } else {
             print_kv_w("model", &format_model(&self.model), 14);
         }
         println!("  {MUTED}──────────────────────────────────{RESET}");
-        print_kv_w(&format!("{ARROW_UP} input"),    &fmt_num(usage.input_tokens), 14);
-        print_kv_w(&format!("{ARROW_DOWN} output"),   &fmt_num(usage.output_tokens), 14);
+        print_kv_w(
+            &format!("{ARROW_UP} input"),
+            &fmt_num(usage.input_tokens),
+            14,
+        );
+        print_kv_w(
+            &format!("{ARROW_DOWN} output"),
+            &fmt_num(usage.output_tokens),
+            14,
+        );
         if usage.cache_creation_input_tokens > 0 {
-            print_kv_w("cache write", &fmt_num(usage.cache_creation_input_tokens), 14);
+            print_kv_w(
+                "cache write",
+                &fmt_num(usage.cache_creation_input_tokens),
+                14,
+            );
         }
         if usage.cache_read_input_tokens > 0 {
-            print_kv_w("cache read",  &fmt_num(usage.cache_read_input_tokens), 14);
+            print_kv_w("cache read", &fmt_num(usage.cache_read_input_tokens), 14);
         }
         println!("  {MUTED}──────────────────────────────────{RESET}");
-        println!("  {CYAN}{:<14}{RESET}{WHITE_BOLD}${cost:.4}{RESET}", "total cost");
+        println!(
+            "  {CYAN}{:<14}{RESET}{WHITE_BOLD}${cost:.4}{RESET}",
+            "total cost"
+        );
         if saved > 0.0001 {
             println!("  {CYAN}{:<14}{RESET}{GREEN}${saved:.4} saved{RESET}  {MUTED}(via prompt cache){RESET}", "cache saved");
         }
@@ -1402,9 +1691,14 @@ impl LiveCli {
             Arc::clone(&self.mcp),
             true,
         )?;
-        self.runtime.usage_tracker_mut().set_cumulative(old_usage, old_turns);
-        style::print_ok(&format!("Compacted {BOLD}{removed}{RESET} messages.",
-            BOLD = style::BOLD, RESET = style::RESET));
+        self.runtime
+            .usage_tracker_mut()
+            .set_cumulative(old_usage, old_turns);
+        style::print_ok(&format!(
+            "Compacted {BOLD}{removed}{RESET} messages.",
+            BOLD = style::BOLD,
+            RESET = style::RESET
+        ));
         Ok(())
     }
 
@@ -1444,22 +1738,27 @@ impl LiveCli {
             style::print_ok(&format!(
                 "Dual model  {}{}+{}{}",
                 style::friendly_model_name(&expanded[..i]),
-                style::MUTED, style::RESET,
+                style::MUTED,
+                style::RESET,
                 style::friendly_model_name(&expanded[i + 1..]),
             ));
         } else {
-            style::print_ok(&format!("Model {} {}",
+            style::print_ok(&format!(
+                "Model {} {}",
                 style::ARROW_RIGHT,
-                style::friendly_model_name(&expanded)));
+                style::friendly_model_name(&expanded)
+            ));
         }
         Ok(())
     }
 
     fn save_session(&self) -> Result<(), Box<dyn std::error::Error>> {
         self.runtime.session().save_to_path(&self.auto_save_path)?;
-        style::print_ok(&format!("Saved {} {}",
+        style::print_ok(&format!(
+            "Saved {} {}",
             style::ARROW_RIGHT,
-            style::shorten_path(&self.auto_save_path)));
+            style::shorten_path(&self.auto_save_path)
+        ));
         Ok(())
     }
 
@@ -1501,7 +1800,9 @@ impl LiveCli {
         let mut seen = std::collections::HashSet::new();
 
         for msg in messages {
-            if msg.role != runtime::MessageRole::Assistant { continue; }
+            if msg.role != runtime::MessageRole::Assistant {
+                continue;
+            }
             for block in &msg.blocks {
                 if let runtime::ContentBlock::ToolUse { name, input, .. } = block {
                     let (op, path) = match name.as_str() {
@@ -1551,7 +1852,13 @@ impl LiveCli {
                         current_server = tool.server_name.clone();
                         println!("  {}{current_server}{}", style::CYAN, style::RESET);
                     }
-                    println!("    {}{}{}  {}", style::MUTED, tool.qualified_name, style::RESET, tool.description);
+                    println!(
+                        "    {}{}{}  {}",
+                        style::MUTED,
+                        tool.qualified_name,
+                        style::RESET,
+                        tool.description
+                    );
                 }
             }
         }
@@ -1560,15 +1867,26 @@ impl LiveCli {
 
     fn set_budget(&mut self, usd: f64) {
         self.budget_limit = Some(usd);
-        style::print_ok(&format!("Budget set to {}${usd:.2}{}", style::WHITE_BOLD, style::RESET));
+        style::print_ok(&format!(
+            "Budget set to {}${usd:.2}{}",
+            style::WHITE_BOLD,
+            style::RESET
+        ));
     }
 
     fn print_budget(&self) {
-        let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
+        let cost = self
+            .runtime
+            .usage()
+            .cost_usd(primary_model_name(&self.model));
         style::print_header("Budget");
         match self.budget_limit {
             Some(limit) => {
-                let pct = if limit > 0.0 { cost / limit * 100.0 } else { 0.0 };
+                let pct = if limit > 0.0 {
+                    cost / limit * 100.0
+                } else {
+                    0.0
+                };
                 style::print_kv("budget", &format!("${limit:.2}"));
                 style::print_kv("spent", &format!("${cost:.4}  ({pct:.1}%)"));
             }
@@ -1584,7 +1902,10 @@ impl LiveCli {
         let Some(limit) = self.budget_limit else {
             return false;
         };
-        let cost = self.runtime.usage().cost_usd(primary_model_name(&self.model));
+        let cost = self
+            .runtime
+            .usage()
+            .cost_usd(primary_model_name(&self.model));
         cost >= limit
     }
 }
@@ -1626,14 +1947,23 @@ fn run_doctor() {
 
     let config_files: Vec<(PathBuf, &str)> = vec![
         (claw_home().join("config.json"), "claw config"),
-        (config_home.join(".claude").join("settings.json"), "claude settings (user)"),
-        (PathBuf::from(".claude").join("settings.json"), "claude settings (project)"),
+        (
+            config_home.join(".claude").join("settings.json"),
+            "claude settings (user)",
+        ),
+        (
+            PathBuf::from(".claude").join("settings.json"),
+            "claude settings (project)",
+        ),
         (PathBuf::from("CLAUDE.md"), "CLAUDE.md"),
     ];
 
     for (path, label) in &config_files {
         if path.exists() {
-            println!("  {GREEN}{CHECK}{RESET} {label}  {MUTED}({}){RESET}", path.display());
+            println!(
+                "  {GREEN}{CHECK}{RESET} {label}  {MUTED}({}){RESET}",
+                path.display()
+            );
         } else {
             println!("  {MUTED}{DOT}{RESET} {label}  {MUTED}(not found){RESET}");
         }
@@ -1646,7 +1976,10 @@ fn run_doctor() {
         .map(|entries| entries.count())
         .unwrap_or(0);
     print_kv("sessions", &format!("{session_count} saved"));
-    print_kv("platform", &format!("{} ({})", env::consts::OS, env::consts::ARCH));
+    print_kv(
+        "platform",
+        &format!("{} ({})", env::consts::OS, env::consts::ARCH),
+    );
     println!();
 }
 
@@ -1662,19 +1995,44 @@ fn run_init() -> Result<(), Box<dyn std::error::Error>> {
 
     // Detect project type
     let mut hints = Vec::new();
-    if PathBuf::from("Cargo.toml").exists() { hints.push("Rust (Cargo)"); }
-    if PathBuf::from("package.json").exists() { hints.push("Node.js (npm)"); }
-    if PathBuf::from("pyproject.toml").exists() || PathBuf::from("setup.py").exists() { hints.push("Python"); }
-    if PathBuf::from("go.mod").exists() { hints.push("Go"); }
-    if PathBuf::from("pom.xml").exists() || PathBuf::from("build.gradle").exists() { hints.push("Java/Kotlin"); }
-    if PathBuf::from("Gemfile").exists() { hints.push("Ruby"); }
-    if PathBuf::from("composer.json").exists() { hints.push("PHP"); }
-    if PathBuf::from("Makefile").exists() { hints.push("Make"); }
-    if PathBuf::from("docker-compose.yml").exists() || PathBuf::from("Dockerfile").exists() { hints.push("Docker"); }
+    if PathBuf::from("Cargo.toml").exists() {
+        hints.push("Rust (Cargo)");
+    }
+    if PathBuf::from("package.json").exists() {
+        hints.push("Node.js (npm)");
+    }
+    if PathBuf::from("pyproject.toml").exists() || PathBuf::from("setup.py").exists() {
+        hints.push("Python");
+    }
+    if PathBuf::from("go.mod").exists() {
+        hints.push("Go");
+    }
+    if PathBuf::from("pom.xml").exists() || PathBuf::from("build.gradle").exists() {
+        hints.push("Java/Kotlin");
+    }
+    if PathBuf::from("Gemfile").exists() {
+        hints.push("Ruby");
+    }
+    if PathBuf::from("composer.json").exists() {
+        hints.push("PHP");
+    }
+    if PathBuf::from("Makefile").exists() {
+        hints.push("Make");
+    }
+    if PathBuf::from("docker-compose.yml").exists() || PathBuf::from("Dockerfile").exists() {
+        hints.push("Docker");
+    }
 
-    let stack = if hints.is_empty() { "Unknown".to_string() } else { hints.join(", ") };
+    let stack = if hints.is_empty() {
+        "Unknown".to_string()
+    } else {
+        hints.join(", ")
+    };
     let cwd = env::current_dir()?.display().to_string();
-    let dir_name = Path::new(&cwd).file_name().unwrap_or_default().to_string_lossy();
+    let dir_name = Path::new(&cwd)
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
 
     let content = format!(
         "# {dir_name}\n\n\
@@ -1710,10 +2068,13 @@ fn list_sessions() {
     if let Ok(reader) = std::fs::read_dir(&dir) {
         for entry in reader.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if !name.ends_with(".json") { continue; }
+            if !name.ends_with(".json") {
+                continue;
+            }
             let meta = entry.metadata().ok();
             let size = meta.as_ref().map_or(0, |m| m.len() as usize);
-            let ts = name.strip_prefix("session-")
+            let ts = name
+                .strip_prefix("session-")
                 .and_then(|s| s.strip_suffix(".json"))
                 .and_then(|s| s.parse::<u64>().ok())
                 .unwrap_or(0);
@@ -1738,7 +2099,10 @@ fn list_sessions() {
             print_muted(&format!("...and {} more", entries.len() - 20));
         }
         println!();
-        print_muted(&format!("Resume with: claw --resume {}", dir.join(&entries[0].0).display()));
+        print_muted(&format!(
+            "Resume with: claw --resume {}",
+            dir.join(&entries[0].0).display()
+        ));
     }
     println!();
 }
@@ -1789,42 +2153,34 @@ fn expand_single_alias(alias: &str) -> String {
     let alias_lower = alias.to_lowercase();
     let resolved = match alias_lower.as_str() {
         // ── Sonnet family ─────────────────────────────────────────────
-        "sonnet" | "sonnet4.6" | "sonnet-4.6" | "claude-sonnet-4-6"
-            => "bedrock/us.anthropic.claude-sonnet-4-6",
-        "sonnet4.5" | "sonnet-4.5"
-            => "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        "sonnet4" | "sonnet-4"
-            => "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "sonnet" | "sonnet4.6" | "sonnet-4.6" | "claude-sonnet-4-6" => {
+            "bedrock/us.anthropic.claude-sonnet-4-6"
+        }
+        "sonnet4.5" | "sonnet-4.5" => "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "sonnet4" | "sonnet-4" => "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
 
         // ── Opus family ───────────────────────────────────────────────
-        "opus" | "opus4.6" | "opus-4.6" | "claude-opus-4-6"
-            => "bedrock/us.anthropic.claude-opus-4-6-v1",
-        "opus4.5" | "opus-4.5"
-            => "bedrock/us.anthropic.claude-opus-4-5-20251101-v1:0",
-        "opus4" | "opus-4"
-            => "bedrock/us.anthropic.claude-opus-4-20250514-v1:0",
-        "opus4.1" | "opus-4.1"
-            => "bedrock/us.anthropic.claude-opus-4-1-20250805-v1:0",
+        "opus" | "opus4.6" | "opus-4.6" | "claude-opus-4-6" => {
+            "bedrock/us.anthropic.claude-opus-4-6-v1"
+        }
+        "opus4.5" | "opus-4.5" => "bedrock/us.anthropic.claude-opus-4-5-20251101-v1:0",
+        "opus4" | "opus-4" => "bedrock/us.anthropic.claude-opus-4-20250514-v1:0",
+        "opus4.1" | "opus-4.1" => "bedrock/us.anthropic.claude-opus-4-1-20250805-v1:0",
 
         // ── Haiku family ──────────────────────────────────────────────
-        "haiku" | "haiku4.5" | "haiku-4.5"
-            => "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "haiku" | "haiku4.5" | "haiku-4.5" => "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
 
         // ── MiniMax family ───────────────────────────────────────────
-        "minimax2.7" | "minimax-2.7" | "minimax" | "minimax-text-01"
-            => "minimax/MiniMax-Text-01",
+        "minimax2.7" | "minimax-2.7" | "minimax" | "minimax-text-01" => "minimax/MiniMax-Text-01",
 
         // ── Qwen family ───────────────────────────────────────────────
-        "qwen3.6" | "qwen3.6-plus" | "qwen-3.6-plus" | "qwen" | "qwen-plus"
-            => "qwen/qwen-3.6-plus",
+        "qwen3.6" | "qwen3.6-plus" | "qwen-3.6-plus" | "qwen" | "qwen-plus" => "qwen/qwen-3.6-plus",
 
         // ── Kimi family ────────────────────────────────────────────────
-        "kimi2.6" | "kimi-2.6" | "k2.6" | "kimi-k2-6"
-            => "kimi/moonshot-v1-32k",
+        "kimi2.6" | "kimi-2.6" | "k2.6" | "kimi-k2-6" => "kimi/moonshot-v1-32k",
 
         // ── Legacy / direct Anthropic ─────────────────────────────────
-        "claude-3.7-sonnet" | "sonnet3.7"
-            => "bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        "claude-3.7-sonnet" | "sonnet3.7" => "bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0",
 
         // ── Pass-through (already a full ID or provider-prefixed) ─────
         _ => return alias.to_string(),
@@ -1922,7 +2278,12 @@ fn build_runtime(
     let model = expand_model_spec(&model);
 
     // Build the combined tool spec list (builtin + MCP) to send to the model
-    let tool_executor = CliToolExecutor::new(Arc::clone(&mcp), model.clone(), enable_tools, system_prompt.clone());
+    let tool_executor = CliToolExecutor::new(
+        Arc::clone(&mcp),
+        model.clone(),
+        enable_tools,
+        system_prompt.clone(),
+    );
     let tool_specs = if enable_tools {
         tool_executor.all_tool_specs()
     } else {
@@ -1936,8 +2297,18 @@ fn build_runtime(
         let planner_hints = runtime::ModelHints::for_model(planner_spec);
         let executor_hints = runtime::ModelHints::for_model(executor_spec);
         AnyApiClient::Dual {
-            planner: Box::new(build_single_client(planner_spec, tool_specs.clone(), enable_tools, &planner_hints)?),
-            executor: Box::new(build_single_client(executor_spec, tool_specs, enable_tools, &executor_hints)?),
+            planner: Box::new(build_single_client(
+                planner_spec,
+                tool_specs.clone(),
+                enable_tools,
+                &planner_hints,
+            )?),
+            executor: Box::new(build_single_client(
+                executor_spec,
+                tool_specs,
+                enable_tools,
+                &executor_hints,
+            )?),
         }
     } else {
         build_single_client(&model, tool_specs, enable_tools, &hints)?
@@ -1967,7 +2338,8 @@ fn build_subagent_runtime(
     system_prompt: Vec<String>,
     mcp: Arc<Mutex<McpManager>>,
 ) -> Result<ConversationRuntime<AnyApiClient, CliToolExecutor>, Box<dyn std::error::Error>> {
-    let tool_executor = CliToolExecutor::new(Arc::clone(&mcp), model.clone(), true, system_prompt.clone());
+    let tool_executor =
+        CliToolExecutor::new(Arc::clone(&mcp), model.clone(), true, system_prompt.clone());
     let mut tool_specs = tool_executor.all_tool_specs();
     tool_specs.retain(|s| s.name != "task");
 
@@ -1978,8 +2350,18 @@ fn build_subagent_runtime(
         let planner_hints = runtime::ModelHints::for_model(planner_spec);
         let executor_hints = runtime::ModelHints::for_model(executor_spec);
         AnyApiClient::Dual {
-            planner: Box::new(build_single_client(planner_spec, tool_specs.clone(), true, &planner_hints)?),
-            executor: Box::new(build_single_client(executor_spec, tool_specs, true, &executor_hints)?),
+            planner: Box::new(build_single_client(
+                planner_spec,
+                tool_specs.clone(),
+                true,
+                &planner_hints,
+            )?),
+            executor: Box::new(build_single_client(
+                executor_spec,
+                tool_specs,
+                true,
+                &executor_hints,
+            )?),
         }
     } else {
         build_single_client(&model, tool_specs, true, &hints)?
@@ -2008,7 +2390,13 @@ struct AnthropicRuntimeClient {
 }
 
 impl AnthropicRuntimeClient {
-    fn new(model: String, tool_specs: Vec<DynamicToolSpec>, enable_tools: bool, thinking: Option<ThinkingConfig>, max_tokens: u32) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(
+        model: String,
+        tool_specs: Vec<DynamicToolSpec>,
+        enable_tools: bool,
+        thinking: Option<ThinkingConfig>,
+        max_tokens: u32,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             client: AnthropicClient::from_env()?,
@@ -2029,7 +2417,11 @@ impl ApiClient for AnthropicRuntimeClient {
             model: self.model.clone(),
             max_tokens: self.max_tokens,
             messages: convert_messages(&request.messages),
-            system: if system_blocks.is_empty() { None } else { Some(system_blocks) },
+            system: if system_blocks.is_empty() {
+                None
+            } else {
+                Some(system_blocks)
+            },
             tools: self.enable_tools.then(|| {
                 self.tool_specs
                     .iter()
@@ -2169,7 +2561,6 @@ fn push_output_block(
     Ok(())
 }
 
-
 #[derive(Debug, Clone)]
 pub struct FileChange {
     pub path: String,
@@ -2198,7 +2589,12 @@ impl Clone for CliToolExecutor {
 }
 
 impl CliToolExecutor {
-    fn new(mcp: Arc<Mutex<McpManager>>, model_spec: String, enable_tools: bool, system_prompt: Vec<String>) -> Self {
+    fn new(
+        mcp: Arc<Mutex<McpManager>>,
+        model_spec: String,
+        enable_tools: bool,
+        system_prompt: Vec<String>,
+    ) -> Self {
         Self {
             mcp,
             model_spec,
@@ -2219,7 +2615,10 @@ impl CliToolExecutor {
     }
 
     pub fn file_changes(&self) -> Vec<FileChange> {
-        self.file_changes.lock().map(|c| c.clone()).unwrap_or_default()
+        self.file_changes
+            .lock()
+            .map(|c| c.clone())
+            .unwrap_or_default()
     }
 
     pub fn clear_file_changes(&self) {
@@ -2230,10 +2629,8 @@ impl CliToolExecutor {
 
     /// Return all tool specs: builtin MVP tools + MCP tools.
     fn all_tool_specs(&self) -> Vec<DynamicToolSpec> {
-        let mut specs: Vec<DynamicToolSpec> = mvp_tool_specs()
-            .iter()
-            .map(DynamicToolSpec::from)
-            .collect();
+        let mut specs: Vec<DynamicToolSpec> =
+            mvp_tool_specs().iter().map(DynamicToolSpec::from).collect();
         if let Ok(manager) = self.mcp.lock() {
             for mcp_tool in &manager.tools {
                 specs.push(DynamicToolSpec {
@@ -2247,26 +2644,42 @@ impl CliToolExecutor {
     }
 
     /// Execute a tool and return both the result and display output lines.
-    fn execute_with_display(&mut self, tool_name: &str, input: &str) -> (Result<String, ToolError>, Vec<String>) {
+    fn execute_with_display(
+        &mut self,
+        tool_name: &str,
+        input: &str,
+    ) -> (Result<String, ToolError>, Vec<String>) {
         let start = std::time::Instant::now();
         let display_name = tool_name.strip_prefix("mcp__").unwrap_or(tool_name);
         let input_preview = extract_tool_preview(tool_name, input);
         let inner = 52usize;
         let mut display = Vec::new();
 
-        let title = format!("{ACCENT_C}{BOLD_C}{display_name}{RESET_C}",
-            ACCENT_C = style::ACCENT, BOLD_C = style::BOLD, RESET_C = style::RESET);
+        let title = format!(
+            "{ACCENT_C}{BOLD_C}{display_name}{RESET_C}",
+            ACCENT_C = style::ACCENT,
+            BOLD_C = style::BOLD,
+            RESET_C = style::RESET
+        );
         let title_vis = display_name.len();
         let bar_right = style::BOX_H.repeat(inner.saturating_sub(title_vis + 4));
-        display.push(format!("\n  {}{TL}{H} {title} {bar_right}{TR}{}",
-            style::ACCENT, style::RESET,
-            TL = style::BOX_TL, H = style::BOX_H,
-            TR = style::BOX_TR));
+        display.push(format!(
+            "\n  {}{TL}{H} {title} {bar_right}{TR}{}",
+            style::ACCENT,
+            style::RESET,
+            TL = style::BOX_TL,
+            H = style::BOX_H,
+            TR = style::BOX_TR
+        ));
         if !input_preview.is_empty() {
             let preview_vis = style::strip_ansi_len(&input_preview);
             let pad = " ".repeat(inner.saturating_sub(2).saturating_sub(preview_vis));
-            display.push(format!("  {acc}{v}{res}  {input_preview}{pad}{acc}{v}{res}",
-                acc = style::ACCENT, v = style::BOX_V, res = style::RESET));
+            display.push(format!(
+                "  {acc}{v}{res}  {input_preview}{pad}{acc}{v}{res}",
+                acc = style::ACCENT,
+                v = style::BOX_V,
+                res = style::RESET
+            ));
         }
 
         if tool_name == "task" {
@@ -2289,7 +2702,13 @@ impl CliToolExecutor {
                 }
                 Err(e) => {
                     let elapsed = start.elapsed();
-                    display.push(format!("  {}{} {}{}", style::RED, style::CROSS, &e, style::RESET));
+                    display.push(format!(
+                        "  {}{} {}{}",
+                        style::RED,
+                        style::CROSS,
+                        &e,
+                        style::RESET
+                    ));
                     display.push(format_tool_footer(style::RED, inner, &elapsed, true));
                     (Err(e), display)
                 }
@@ -2300,7 +2719,13 @@ impl CliToolExecutor {
                 Err(error) => {
                     let err = ToolError::new(format!("invalid tool input JSON: {error}"));
                     let elapsed = start.elapsed();
-                    display.push(format!("  {}{} {}{}", style::RED, style::CROSS, &err, style::RESET));
+                    display.push(format!(
+                        "  {}{} {}{}",
+                        style::RED,
+                        style::CROSS,
+                        &err,
+                        style::RESET
+                    ));
                     display.push(format_tool_footer(style::RED, inner, &elapsed, true));
                     return (Err(err), display);
                 }
@@ -2317,7 +2742,11 @@ impl CliToolExecutor {
                             "write_file" => {
                                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
                                     if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
-                                        self.record_file_change(path, "write", "Created or overwritten");
+                                        self.record_file_change(
+                                            path,
+                                            "write",
+                                            "Created or overwritten",
+                                        );
                                     }
                                 }
                             }
@@ -2336,10 +2765,19 @@ impl CliToolExecutor {
                 }
                 Err(error) => {
                     let elapsed = start.elapsed();
-                    let err_line = format!("{}{} {}{}", style::RED, style::CROSS, error, style::RESET);
-                    let pad = " ".repeat(inner.saturating_sub(2).saturating_sub(style::strip_ansi_len(&err_line)));
-                    display.push(format!("  {acc}{v}{res}  {err_line}{pad}{acc}{v}{res}",
-                        acc = style::ACCENT, v = style::BOX_V, res = style::RESET));
+                    let err_line =
+                        format!("{}{} {}{}", style::RED, style::CROSS, error, style::RESET);
+                    let pad = " ".repeat(
+                        inner
+                            .saturating_sub(2)
+                            .saturating_sub(style::strip_ansi_len(&err_line)),
+                    );
+                    display.push(format!(
+                        "  {acc}{v}{res}  {err_line}{pad}{acc}{v}{res}",
+                        acc = style::ACCENT,
+                        v = style::BOX_V,
+                        res = style::RESET
+                    ));
                     display.push(format_tool_footer(style::RED, inner, &elapsed, true));
                     (Err(ToolError::new(error)), display)
                 }
@@ -2347,7 +2785,12 @@ impl CliToolExecutor {
         }
     }
 
-    fn execute_task_in_process(&self, input: &str, inner: usize, start: std::time::Instant) -> (Result<String, ToolError>, Vec<String>) {
+    fn execute_task_in_process(
+        &self,
+        input: &str,
+        inner: usize,
+        start: std::time::Instant,
+    ) -> (Result<String, ToolError>, Vec<String>) {
         use serde::Deserialize;
         use std::thread;
 
@@ -2375,7 +2818,13 @@ impl CliToolExecutor {
             Err(e) => {
                 let err = ToolError::new(format!("invalid task input: {e}"));
                 let elapsed = start.elapsed();
-                display.push(format!("  {}{} {}{}", style::RED, style::CROSS, &err, style::RESET));
+                display.push(format!(
+                    "  {}{} {}{}",
+                    style::RED,
+                    style::CROSS,
+                    &err,
+                    style::RESET
+                ));
                 display.push(format_tool_footer(style::RED, inner, &elapsed, true));
                 return (Err(err), display);
             }
@@ -2386,8 +2835,14 @@ impl CliToolExecutor {
             .and_then(|v| v.parse().ok())
             .unwrap_or(5);
 
-        display.push(format!("  {}{} Spawning {} sub-agent task(s) in-process (max_parallel={}){}",
-            style::CYAN, style::BOLD, task_input.tasks.len(), max_parallel, style::RESET));
+        display.push(format!(
+            "  {}{} Spawning {} sub-agent task(s) in-process (max_parallel={}){}",
+            style::CYAN,
+            style::BOLD,
+            task_input.tasks.len(),
+            max_parallel,
+            style::RESET
+        ));
 
         let mut handles = Vec::new();
         let running = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -2416,15 +2871,13 @@ impl CliToolExecutor {
                 let task_start = std::time::Instant::now();
 
                 let result = (|| -> Result<String, String> {
-                    let child_runtime = build_subagent_runtime(
-                        model_spec,
-                        system_prompt,
-                        mcp,
-                    ).map_err(|e| e.to_string())?;
-                    let mut runtime = child_runtime;
-                    let summary = runtime.run_turn(&prompt, None)
+                    let child_runtime = build_subagent_runtime(model_spec, system_prompt, mcp)
                         .map_err(|e| e.to_string())?;
-                    let output = summary.assistant_messages.iter()
+                    let mut runtime = child_runtime;
+                    let summary = runtime.run_turn(&prompt, None).map_err(|e| e.to_string())?;
+                    let output = summary
+                        .assistant_messages
+                        .iter()
                         .flat_map(|m| m.blocks.iter())
                         .filter_map(|b| match b {
                             runtime::ContentBlock::Text { text } => Some(text.as_str()),
@@ -2446,31 +2899,50 @@ impl CliToolExecutor {
             handles.push(handle);
         }
 
-        let results: Vec<TaskResult> = handles.into_iter()
-            .map(|h| h.join().unwrap_or_else(|e| TaskResult {
-                task_id: 0,
-                description: "thread panicked".to_string(),
-                success: false,
-                output: format!("{e:?}"),
-                elapsed_ms: 0,
-            }))
+        let results: Vec<TaskResult> = handles
+            .into_iter()
+            .map(|h| {
+                h.join().unwrap_or_else(|e| TaskResult {
+                    task_id: 0,
+                    description: "thread panicked".to_string(),
+                    success: false,
+                    output: format!("{e:?}"),
+                    elapsed_ms: 0,
+                })
+            })
             .collect();
 
         for result in &results {
-            let status_icon = if result.success { style::GREEN } else { style::RED };
-            let status_sym = if result.success { style::CHECK } else { style::CROSS };
-            display.push(format!("    {}{}{} {}  {}{:.1}s{}",
-                status_icon, status_sym, style::RESET,
+            let status_icon = if result.success {
+                style::GREEN
+            } else {
+                style::RED
+            };
+            let status_sym = if result.success {
+                style::CHECK
+            } else {
+                style::CROSS
+            };
+            display.push(format!(
+                "    {}{}{} {}  {}{:.1}s{}",
+                status_icon,
+                status_sym,
+                style::RESET,
                 result.description,
                 style::MUTED,
                 result.elapsed_ms as f64 / 1000.0,
-                style::RESET));
+                style::RESET
+            ));
         }
 
         let elapsed = start.elapsed();
         let all_success = results.iter().all(|r| r.success);
         display.push(format_tool_footer(
-            if all_success { style::GREEN } else { style::CYAN },
+            if all_success {
+                style::GREEN
+            } else {
+                style::CYAN
+            },
             inner,
             &elapsed,
             !all_success,
@@ -2507,18 +2979,51 @@ fn extract_tool_preview(tool_name: &str, input: &str) -> String {
     };
     // Tool-specific field extraction
     let raw = match tool_name {
-        "bash" => val.get("command").and_then(|v| v.as_str()).map(str::to_string),
-        "read_file" => val.get("path").and_then(|v| v.as_str()).map(|p| format!("{}{p}{}", style::MUTED, style::RESET)),
-        "write_file" | "edit_file" => val.get("path").and_then(|v| v.as_str()).map(|p| format!("{}{p}{}", style::MUTED, style::RESET)),
-        "glob_search" => val.get("pattern").and_then(|v| v.as_str()).map(|p| format!("{ACCENT}{p}{RESET}", ACCENT=style::ACCENT2, RESET=style::RESET)),
-        "grep_search" => val.get("pattern").and_then(|v| v.as_str()).map(|p| format!("{ACCENT}/{p}/{RESET}", ACCENT=style::ACCENT2, RESET=style::RESET)),
-        "web_fetch" => val.get("url").and_then(|v| v.as_str()).map(|u| format!("{}{u}{}", style::CYAN, style::RESET)),
-        "todo_write" => val.get("todos").and_then(|t| t.as_array()).map(|arr| format!("{}{} item(s){}", style::MUTED, arr.len(), style::RESET)),
+        "bash" => val
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        "read_file" => val
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(|p| format!("{}{p}{}", style::MUTED, style::RESET)),
+        "write_file" | "edit_file" => val
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(|p| format!("{}{p}{}", style::MUTED, style::RESET)),
+        "glob_search" => val.get("pattern").and_then(|v| v.as_str()).map(|p| {
+            format!(
+                "{ACCENT}{p}{RESET}",
+                ACCENT = style::ACCENT2,
+                RESET = style::RESET
+            )
+        }),
+        "grep_search" => val.get("pattern").and_then(|v| v.as_str()).map(|p| {
+            format!(
+                "{ACCENT}/{p}/{RESET}",
+                ACCENT = style::ACCENT2,
+                RESET = style::RESET
+            )
+        }),
+        "web_fetch" => val
+            .get("url")
+            .and_then(|v| v.as_str())
+            .map(|u| format!("{}{u}{}", style::CYAN, style::RESET)),
+        "todo_write" => val
+            .get("todos")
+            .and_then(|t| t.as_array())
+            .map(|arr| format!("{}{} item(s){}", style::MUTED, arr.len(), style::RESET)),
         "todo_read" => Some(format!("{}reading todo list{}", style::MUTED, style::RESET)),
-        _ => val.get("command").or_else(|| val.get("path")).or_else(|| val.get("pattern"))
-                 .and_then(|v| v.as_str()).map(str::to_string),
+        _ => val
+            .get("command")
+            .or_else(|| val.get("path"))
+            .or_else(|| val.get("pattern"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
     };
-    let Some(text) = raw else { return String::new(); };
+    let Some(text) = raw else {
+        return String::new();
+    };
     // Truncate if too long
     let clean: String = text.chars().filter(|&c| c != '\n' && c != '\r').collect();
     let vis = style::strip_ansi_len(&clean);
@@ -2540,35 +3045,66 @@ fn format_tool_output_box(output: &str, inner: usize) -> Vec<String> {
         let trimmed = line.trim_end();
         let vis = trimmed.chars().count().min(inner.saturating_sub(4));
         let display: String = trimmed.chars().take(vis).collect();
-        let pad = inner.saturating_sub(2).saturating_sub(display.chars().count());
-        result.push(format!("  {acc}{V}{res}  {MUTED}{display}{RESET}{}{acc}{V}{res}",
+        let pad = inner
+            .saturating_sub(2)
+            .saturating_sub(display.chars().count());
+        result.push(format!(
+            "  {acc}{V}{res}  {MUTED}{display}{RESET}{}{acc}{V}{res}",
             " ".repeat(pad),
-            acc = style::ACCENT, V = style::BOX_V, res = style::RESET,
-            MUTED = style::MUTED, RESET = style::RESET));
+            acc = style::ACCENT,
+            V = style::BOX_V,
+            res = style::RESET,
+            MUTED = style::MUTED,
+            RESET = style::RESET
+        ));
     }
     if lines.len() > max_lines {
-        let more = format!("{}… {} more lines{}", style::MUTED, lines.len() - max_lines, style::RESET);
-        let pad = inner.saturating_sub(2).saturating_sub(style::strip_ansi_len(&more));
-        result.push(format!("  {acc}{V}{res}  {more}{}{acc}{V}{res}",
+        let more = format!(
+            "{}… {} more lines{}",
+            style::MUTED,
+            lines.len() - max_lines,
+            style::RESET
+        );
+        let pad = inner
+            .saturating_sub(2)
+            .saturating_sub(style::strip_ansi_len(&more));
+        result.push(format!(
+            "  {acc}{V}{res}  {more}{}{acc}{V}{res}",
             " ".repeat(pad),
-            acc = style::ACCENT, V = style::BOX_V, res = style::RESET));
+            acc = style::ACCENT,
+            V = style::BOX_V,
+            res = style::RESET
+        ));
     }
     result
 }
 
-fn format_tool_footer(_color: &str, inner: usize, elapsed: &std::time::Duration, _is_error: bool) -> String {
+fn format_tool_footer(
+    _color: &str,
+    inner: usize,
+    elapsed: &std::time::Duration,
+    _is_error: bool,
+) -> String {
     let secs = elapsed.as_secs_f64();
     let dur_str = if secs < 1.0 {
-        format!("{HOURGLASS} {:.0}ms", secs * 1000.0, HOURGLASS = style::HOURGLASS)
+        format!(
+            "{HOURGLASS} {:.0}ms",
+            secs * 1000.0,
+            HOURGLASS = style::HOURGLASS
+        )
     } else {
         format!("{HOURGLASS} {:.1}s", secs, HOURGLASS = style::HOURGLASS)
     };
     let vis_dur = style::strip_ansi_len(&dur_str) + 2;
     let bar_before = inner.saturating_sub(vis_dur);
-    format!("  {acc}{BL}{bar} {dur_str} {BR}{res}",
-        acc = style::ACCENT, res = style::RESET,
-        BL = style::BOX_BL, BR = style::BOX_BR,
-        bar = style::BOX_H.repeat(bar_before))
+    format!(
+        "  {acc}{BL}{bar} {dur_str} {BR}{res}",
+        acc = style::ACCENT,
+        res = style::RESET,
+        BL = style::BOX_BL,
+        BR = style::BOX_BR,
+        bar = style::BOX_H.repeat(bar_before)
+    )
 }
 
 // ── OpenAI-compatible runtime client ──────────────────────────────────────────
@@ -2585,10 +3121,17 @@ struct OpenAiRuntimeClient {
 }
 
 impl OpenAiRuntimeClient {
-    fn new(model_spec: String, tool_specs: Vec<DynamicToolSpec>, enable_tools: bool, max_tokens: u32, cache_key: Option<String>) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(
+        model_spec: String,
+        tool_specs: Vec<DynamicToolSpec>,
+        enable_tools: bool,
+        max_tokens: u32,
+        cache_key: Option<String>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let config = openai::resolve_provider(&model_spec)
             .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
-        let is_kimi = model_spec.to_lowercase().contains("kimi") || model_spec.to_lowercase().contains("moonshot");
+        let is_kimi = model_spec.to_lowercase().contains("kimi")
+            || model_spec.to_lowercase().contains("moonshot");
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             http: reqwest::Client::new(),
@@ -2604,9 +3147,10 @@ impl OpenAiRuntimeClient {
 
 impl ApiClient for OpenAiRuntimeClient {
     fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
-        let messages =
-            openai::to_openai_messages(&request.system_prompt, &request.messages);
-        let tools = self.enable_tools.then(|| openai::to_openai_tools(&self.tool_specs));
+        let messages = openai::to_openai_messages(&request.system_prompt, &request.messages);
+        let tools = self
+            .enable_tools
+            .then(|| openai::to_openai_tools(&self.tool_specs));
 
         let thinking = if self.is_kimi {
             request.thinking.map(|_| {
@@ -2625,7 +3169,9 @@ impl ApiClient for OpenAiRuntimeClient {
             tools,
             tool_choice: self.enable_tools.then_some("auto"),
             stream: true,
-            stream_options: Some(openai::OaiStreamOptions { include_usage: true }),
+            stream_options: Some(openai::OaiStreamOptions {
+                include_usage: true,
+            }),
             max_completion_tokens: self.max_tokens,
             thinking,
             prompt_cache_key: self.cache_key.clone(),
@@ -2656,7 +3202,9 @@ impl ApiClient for AnyApiClient {
             Self::Anthropic(c) => c.stream(request),
             Self::OpenAi(c) => c.stream(request),
             Self::Bedrock(c) => c.stream(request),
-            Self::Dual { planner, executor, .. } => {
+            Self::Dual {
+                planner, executor, ..
+            } => {
                 // Route by last message role: tool results → executor, user → planner
                 let last_is_tool = request
                     .messages
@@ -2706,15 +3254,16 @@ pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMes
                 .iter()
                 .map(|block| match block {
                     ContentBlock::Text { text } => InputContentBlock::Text { text: text.clone() },
-                    ContentBlock::Thinking { .. } => InputContentBlock::Text { text: String::new() },
+                    ContentBlock::Thinking { .. } => InputContentBlock::Text {
+                        text: String::new(),
+                    },
                     ContentBlock::Image { source } => InputContentBlock::Image {
                         source: match source {
-                            runtime::ImageSource::Base64 { media_type, data } =>
-                                ApiImageSource {
-                                    source_type: "base64".to_string(),
-                                    media_type: media_type.clone(),
-                                    data: data.clone(),
-                                },
+                            runtime::ImageSource::Base64 { media_type, data } => ApiImageSource {
+                                source_type: "base64".to_string(),
+                                media_type: media_type.clone(),
+                                data: data.clone(),
+                            },
                         },
                     },
                     ContentBlock::ToolUse { id, name, input } => InputContentBlock::ToolUse {
@@ -2782,7 +3331,11 @@ fn print_help() {
     println!("MCP servers: configure in ~/.claude/settings.json (\"mcpServers\" key)");
 }
 
-fn run_subagent(prompt: &str, output_path: &PathBuf, model: String) -> Result<(), Box<dyn std::error::Error>> {
+fn run_subagent(
+    prompt: &str,
+    output_path: &PathBuf,
+    model: String,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut cli = LiveCli::new(model, true, true)?;
     let result = cli.runtime.run_turn(prompt, Some(&mut cli.prompter));
     let output = match result {

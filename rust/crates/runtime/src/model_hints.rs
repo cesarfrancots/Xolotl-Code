@@ -40,7 +40,8 @@ impl ModelHints {
                 system_prompt_addition: Some(
                     "You are running on MiniMax with extended 1M token context. \
                     Read thoroughly before implementing - context is not a constraint. \
-                    Prefer comprehensive initial research over incremental approaches.".into(),
+                    Prefer comprehensive initial research over incremental approaches."
+                        .into(),
                 ),
                 supports_prompt_cache: false,
             }
@@ -55,7 +56,8 @@ impl ModelHints {
                 compaction_ratio: 0.6,
                 system_prompt_addition: Some(
                     "You are running on GLM. Follow standard SDD practices - \
-                    read relevant files before implementing.".into(),
+                    read relevant files before implementing."
+                        .into(),
                 ),
                 supports_prompt_cache: false,
             }
@@ -70,7 +72,8 @@ impl ModelHints {
                 compaction_ratio: 0.6,
                 system_prompt_addition: Some(
                     "You are running on Qwen. Read what's necessary for the task at hand. \
-                    Qwen performs well with focused context.".into(),
+                    Qwen performs well with focused context."
+                        .into(),
                 ),
                 supports_prompt_cache: false,
             }
@@ -85,7 +88,8 @@ impl ModelHints {
                 compaction_ratio: 0.5,
                 system_prompt_addition: Some(
                     "You are running on Claude Opus. Excellent for complex reasoning. \
-                    Use thinking blocks for complex logic.".into(),
+                    Use thinking blocks for complex logic."
+                        .into(),
                 ),
                 supports_prompt_cache: false,
             }
@@ -100,7 +104,8 @@ impl ModelHints {
                 compaction_ratio: 0.5,
                 system_prompt_addition: Some(
                     "You are running on Claude Sonnet. Good balance of speed and capability. \
-                    Use thinking blocks for complex reasoning.".into(),
+                    Use thinking blocks for complex reasoning."
+                        .into(),
                 ),
                 supports_prompt_cache: false,
             }
@@ -115,7 +120,8 @@ impl ModelHints {
                 compaction_ratio: 0.5,
                 system_prompt_addition: Some(
                     "You are running on Claude Haiku. Fast iteration. \
-                    Stay focused on the immediate task.".into(),
+                    Stay focused on the immediate task."
+                        .into(),
                 ),
                 supports_prompt_cache: false,
             }
@@ -154,7 +160,8 @@ impl ModelHints {
                 compaction_ratio: 0.6,
                 system_prompt_addition: Some(
                     "You are running on Kimi k2.6. Excellent reasoning with preserved thinking. \
-                    Use thinking blocks for complex planning and architecture decisions.".into(),
+                    Use thinking blocks for complex planning and architecture decisions."
+                        .into(),
                 ),
                 supports_prompt_cache: true,
             }

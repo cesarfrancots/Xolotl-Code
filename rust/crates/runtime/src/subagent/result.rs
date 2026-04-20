@@ -63,12 +63,7 @@ impl SubAgentResult {
     }
 
     #[must_use]
-    pub fn failure(
-        task_id: String,
-        description: String,
-        error: String,
-        elapsed: Duration,
-    ) -> Self {
+    pub fn failure(task_id: String, description: String, error: String, elapsed: Duration) -> Self {
         Self {
             task_id,
             description,

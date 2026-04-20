@@ -457,8 +457,7 @@ fn collect_search_files(base_path: &Path) -> io::Result<Vec<PathBuf>> {
         }
         true
     }) {
-        let entry =
-            entry.map_err(io::Error::other)?;
+        let entry = entry.map_err(io::Error::other)?;
         if entry.file_type().is_file() {
             files.push(entry.path().to_path_buf());
         }
@@ -535,7 +534,10 @@ pub fn read_image_base64(path: &str) -> io::Result<ImageSource> {
     };
     let data = base64_encode(&fs::read(&absolute_path)?);
     let mime = mime_guess(&absolute_path);
-    Ok(ImageSource::Base64 { media_type: mime, data })
+    Ok(ImageSource::Base64 {
+        media_type: mime,
+        data,
+    })
 }
 
 fn base64_encode(bytes: &[u8]) -> String {
@@ -695,7 +697,8 @@ pub fn file_info(path: &str) -> io::Result<FileInfoOutput> {
         Some("other".to_string())
     };
 
-    let modified = metadata.modified()
+    let modified = metadata
+        .modified()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| format!("{}s since epoch", d.as_secs()));

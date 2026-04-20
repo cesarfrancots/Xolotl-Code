@@ -19,10 +19,10 @@ mod tokenizer;
 mod usage;
 mod web_fetch;
 
-pub use tokenizer::estimate_tokens;
-pub use model_hints::ModelHints;
 pub use memory::{MemoryConfig, MemorySearchResult, MemorySystem, ObsidianVault, SessionNote};
+pub use model_hints::ModelHints;
 pub use sdd::{Complexity, ComplexityDetector, InternalSpec, SddEngine, SddPhase, SddState};
+pub use tokenizer::estimate_tokens;
 
 pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
 pub use bootstrap::{BootstrapPhase, BootstrapPlan};
@@ -49,13 +49,24 @@ pub use permissions::{
     PermissionMode, PermissionOutcome, PermissionPolicy, PermissionPromptDecision,
     PermissionPrompter, PermissionRequest,
 };
-pub use prompt::{
-    load_system_prompt, load_system_prompt_with_hints, prepend_bullets, ContextFile, ProjectContext, PromptBuildError,
-    SystemPromptBuilder, FRONTIER_MODEL_NAME, SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+pub use plan::{
+    build_plan_prompt, extract_json_from_response, format_plan_summary, PlanArtifact, PlanPhase,
+    PlanTask,
 };
-pub use session::{ContentBlock, ConversationMessage, ImageSource, MessageRole, Session, SessionError};
-pub use subagent::{SubAgentConfig, SubAgentResult, SubAgentSpawner, TaskRegistry, TaskStatus, SubAgentInfo, SubAgentStatus};
-pub use todo::{todo_read, todo_write, TodoItem, TodoOutput, TodoPriority, TodoStatus, TodoWriteInput};
+pub use prompt::{
+    load_system_prompt, load_system_prompt_with_hints, prepend_bullets, ContextFile,
+    ProjectContext, PromptBuildError, SystemPromptBuilder, FRONTIER_MODEL_NAME,
+    SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+};
+pub use session::{
+    ContentBlock, ConversationMessage, ImageSource, MessageRole, Session, SessionError,
+};
+pub use subagent::{
+    SubAgentConfig, SubAgentInfo, SubAgentResult, SubAgentSpawner, SubAgentStatus, TaskRegistry,
+    TaskStatus,
+};
+pub use todo::{
+    todo_read, todo_write, TodoItem, TodoOutput, TodoPriority, TodoStatus, TodoWriteInput,
+};
 pub use usage::{TokenUsage, UsageTracker};
 pub use web_fetch::{web_fetch, web_search, SearchResult, WebFetchInput, WebFetchOutput};
-pub use plan::{PlanArtifact, PlanPhase, PlanTask, build_plan_prompt, extract_json_from_response, format_plan_summary};

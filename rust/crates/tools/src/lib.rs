@@ -1,7 +1,7 @@
 use runtime::{
     edit_file, execute_bash, file_info, glob_search, grep_search, list_directory, read_file,
-    read_image_base64, todo_read, todo_write, web_fetch, web_search, write_file,
-    BashCommandInput, GrepSearchInput, TodoWriteInput, WebFetchInput,
+    read_image_base64, todo_read, todo_write, web_fetch, web_search, write_file, BashCommandInput,
+    GrepSearchInput, TodoWriteInput, WebFetchInput,
 };
 
 mod task;
@@ -475,217 +475,221 @@ fn run_bash(input: BashCommandInput) -> Result<String, String> {
         .map_err(|error| error.to_string())
 }
 
-    #[allow(clippy::needless_pass_by_value)]
-    fn run_read_file(input: ReadFileInput) -> Result<String, String> {
-        to_pretty_json(read_file(&input.path, input.offset, input.limit).map_err(io_to_string)?)
-    }
+#[allow(clippy::needless_pass_by_value)]
+fn run_read_file(input: ReadFileInput) -> Result<String, String> {
+    to_pretty_json(read_file(&input.path, input.offset, input.limit).map_err(io_to_string)?)
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_write_file(input: WriteFileInput) -> Result<String, String> {
-        to_pretty_json(write_file(&input.path, &input.content).map_err(io_to_string)?)
-    }
+fn run_write_file(input: WriteFileInput) -> Result<String, String> {
+    to_pretty_json(write_file(&input.path, &input.content).map_err(io_to_string)?)
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_edit_file(input: EditFileInput) -> Result<String, String> {
-        to_pretty_json(
-            edit_file(
-                &input.path,
-                &input.old_string,
-                &input.new_string,
-                input.replace_all.unwrap_or(false),
-            )
-            .map_err(io_to_string)?,
+fn run_edit_file(input: EditFileInput) -> Result<String, String> {
+    to_pretty_json(
+        edit_file(
+            &input.path,
+            &input.old_string,
+            &input.new_string,
+            input.replace_all.unwrap_or(false),
         )
-    }
+        .map_err(io_to_string)?,
+    )
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_glob_search(input: GlobSearchInputValue) -> Result<String, String> {
-        to_pretty_json(glob_search(&input.pattern, input.path.as_deref()).map_err(io_to_string)?)
-    }
+fn run_glob_search(input: GlobSearchInputValue) -> Result<String, String> {
+    to_pretty_json(glob_search(&input.pattern, input.path.as_deref()).map_err(io_to_string)?)
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_grep_search(input: GrepSearchInput) -> Result<String, String> {
-        to_pretty_json(grep_search(&input).map_err(io_to_string)?)
-    }
+fn run_grep_search(input: GrepSearchInput) -> Result<String, String> {
+    to_pretty_json(grep_search(&input).map_err(io_to_string)?)
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_web_fetch(input: WebFetchInput) -> Result<String, String> {
-        to_pretty_json(web_fetch(&input)?)
-    }
+fn run_web_fetch(input: WebFetchInput) -> Result<String, String> {
+    to_pretty_json(web_fetch(&input)?)
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_todo_write(input: TodoWriteInput) -> Result<String, String> {
-        to_pretty_json(todo_write(&input)?)
-    }
+fn run_todo_write(input: TodoWriteInput) -> Result<String, String> {
+    to_pretty_json(todo_write(&input)?)
+}
 
 fn run_todo_read() -> Result<String, String> {
     to_pretty_json(todo_read()?)
 }
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_read_image(input: ReadImageInput) -> Result<String, String> {
-        let source = read_image_base64(&input.path).map_err(|e| e.to_string())?;
-        to_pretty_json(&source)
-    }
+fn run_read_image(input: ReadImageInput) -> Result<String, String> {
+    let source = read_image_base64(&input.path).map_err(|e| e.to_string())?;
+    to_pretty_json(&source)
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_task(input: TaskInput) -> Result<String, String> {
-        let max_parallel = std::env::var("MAX_PARALLEL_TASKS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(5);
-        let runtime = task::TaskRuntime::new(max_parallel);
-        let specs = input
-            .tasks
-            .into_iter()
-            .map(|t| task::TaskSpec {
-                description: t.description,
-                prompt: t.prompt,
-            })
-            .collect();
-        let results = runtime.run_tasks(specs);
-        to_pretty_json(&results)
-    }
+fn run_task(input: TaskInput) -> Result<String, String> {
+    let max_parallel = std::env::var("MAX_PARALLEL_TASKS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let runtime = task::TaskRuntime::new(max_parallel);
+    let specs = input
+        .tasks
+        .into_iter()
+        .map(|t| task::TaskSpec {
+            description: t.description,
+            prompt: t.prompt,
+        })
+        .collect();
+    let results = runtime.run_tasks(specs);
+    to_pretty_json(&results)
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_list_directory(input: ListDirectoryInput) -> Result<String, String> {
-        to_pretty_json(list_directory(&input.path, input.max_depth).map_err(io_to_string)?)
-    }
+fn run_list_directory(input: ListDirectoryInput) -> Result<String, String> {
+    to_pretty_json(list_directory(&input.path, input.max_depth).map_err(io_to_string)?)
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_file_info(input: FileInfoInput) -> Result<String, String> {
-        to_pretty_json(file_info(&input.path).map_err(io_to_string)?)
-    }
+fn run_file_info(input: FileInfoInput) -> Result<String, String> {
+    to_pretty_json(file_info(&input.path).map_err(io_to_string)?)
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_ask_user(input: AskUserInput) -> Result<String, String> {
-        use std::io::{self, Write};
-        println!("\n  [claw asks] {}", input.question);
-        print!("  Your response: ");
-        io::stdout().flush().map_err(|e| e.to_string())?;
-        let mut response = String::new();
-        io::stdin().read_line(&mut response).map_err(|e| e.to_string())?;
-        to_pretty_json(&serde_json::json!({ "response": response.trim() }))
-    }
+fn run_ask_user(input: AskUserInput) -> Result<String, String> {
+    use std::io::{self, Write};
+    println!("\n  [claw asks] {}", input.question);
+    print!("  Your response: ");
+    io::stdout().flush().map_err(|e| e.to_string())?;
+    let mut response = String::new();
+    io::stdin()
+        .read_line(&mut response)
+        .map_err(|e| e.to_string())?;
+    to_pretty_json(&serde_json::json!({ "response": response.trim() }))
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_web_search(input: WebSearchInput) -> Result<String, String> {
-        let results = web_search(&input.query, input.num_results.unwrap_or(5))
-            .map_err(|e| e.to_string())?;
-        to_pretty_json(&results)
-    }
+fn run_web_search(input: WebSearchInput) -> Result<String, String> {
+    let results =
+        web_search(&input.query, input.num_results.unwrap_or(5)).map_err(|e| e.to_string())?;
+    to_pretty_json(&results)
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_git_status(input: GitStatusInput) -> Result<String, String> {
-        let path = input.path.as_deref().unwrap_or(".");
-        let output = std::process::Command::new("git")
-            .args(["-C", path, "status", "--short"])
+fn run_git_status(input: GitStatusInput) -> Result<String, String> {
+    let path = input.path.as_deref().unwrap_or(".");
+    let output = std::process::Command::new("git")
+        .args(["-C", path, "status", "--short"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() && stdout.is_empty() {
+        return Err(format!("git status failed: {stderr}"));
+    }
+    to_pretty_json(&serde_json::json!({ "status": stdout, "stderr": stderr }))
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn run_git_diff(input: GitDiffInput) -> Result<String, String> {
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("diff");
+    if input.staged.unwrap_or(false) {
+        cmd.arg("--staged");
+    }
+    if let Some(path) = input.path {
+        cmd.arg("--").arg(path);
+    }
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() && stdout.is_empty() {
+        return Err(format!("git diff failed: {stderr}"));
+    }
+    to_pretty_json(&serde_json::json!({ "diff": stdout, "stderr": stderr }))
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn run_git_log(input: GitLogInput) -> Result<String, String> {
+    let limit = input.limit.unwrap_or(10).to_string();
+    let mut args = vec!["log", "--oneline", "-n", &limit];
+    if let Some(ref path) = input.path {
+        args.push("--");
+        args.push(path);
+    }
+    let output = std::process::Command::new("git")
+        .args(&args)
+        .output()
+        .map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() && stdout.is_empty() {
+        return Err(format!("git log failed: {stderr}"));
+    }
+    to_pretty_json(&serde_json::json!({ "log": stdout, "stderr": stderr }))
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn run_git_branch(input: GitBranchInput) -> Result<String, String> {
+    let action = input.action.as_deref().unwrap_or("list");
+    let output = match action {
+        "create" => {
+            let name = input.branch_name.ok_or("branch_name required for create")?;
+            std::process::Command::new("git")
+                .args(["branch", &name])
+                .output()
+                .map_err(|e| e.to_string())?
+        }
+        "switch" => {
+            let name = input.branch_name.ok_or("branch_name required for switch")?;
+            std::process::Command::new("git")
+                .args(["switch", &name])
+                .output()
+                .map_err(|e| e.to_string())?
+        }
+        _ => std::process::Command::new("git")
+            .args(["branch", "-a"])
             .output()
-            .map_err(|e| e.to_string())?;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        if !output.status.success() && stdout.is_empty() {
-            return Err(format!("git status failed: {stderr}"));
-        }
-        to_pretty_json(&serde_json::json!({ "status": stdout, "stderr": stderr }))
+            .map_err(|e| e.to_string())?,
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() && stdout.is_empty() {
+        return Err(format!("git branch failed: {stderr}"));
     }
+    to_pretty_json(&serde_json::json!({ "output": stdout, "stderr": stderr }))
+}
 
 #[allow(clippy::needless_pass_by_value)]
-    fn run_git_diff(input: GitDiffInput) -> Result<String, String> {
-        let mut cmd = std::process::Command::new("git");
-        cmd.arg("diff");
-        if input.staged.unwrap_or(false) {
-            cmd.arg("--staged");
-        }
-        if let Some(path) = input.path {
-            cmd.arg("--").arg(path);
-        }
-        let output = cmd.output().map_err(|e| e.to_string())?;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        if !output.status.success() && stdout.is_empty() {
-            return Err(format!("git diff failed: {stderr}"));
-        }
-        to_pretty_json(&serde_json::json!({ "diff": stdout, "stderr": stderr }))
-    }
-
-#[allow(clippy::needless_pass_by_value)]
-    fn run_git_log(input: GitLogInput) -> Result<String, String> {
-        let limit = input.limit.unwrap_or(10).to_string();
-        let mut args = vec!["log", "--oneline", "-n", &limit];
-        if let Some(ref path) = input.path {
-            args.push("--");
-            args.push(path);
-        }
-        let output = std::process::Command::new("git")
-            .args(&args)
-            .output()
-            .map_err(|e| e.to_string())?;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        if !output.status.success() && stdout.is_empty() {
-            return Err(format!("git log failed: {stderr}"));
-        }
-        to_pretty_json(&serde_json::json!({ "log": stdout, "stderr": stderr }))
-    }
-
-#[allow(clippy::needless_pass_by_value)]
-    fn run_git_branch(input: GitBranchInput) -> Result<String, String> {
-        let action = input.action.as_deref().unwrap_or("list");
-        let output = match action {
-            "create" => {
-                let name = input.branch_name.ok_or("branch_name required for create")?;
-                std::process::Command::new("git")
-                    .args(["branch", &name])
-                    .output()
-                    .map_err(|e| e.to_string())?
-            }
-            "switch" => {
-                let name = input.branch_name.ok_or("branch_name required for switch")?;
-                std::process::Command::new("git")
-                    .args(["switch", &name])
-                    .output()
-                    .map_err(|e| e.to_string())?
-            }
-            _ => {
-                std::process::Command::new("git")
-                    .args(["branch", "-a"])
-                    .output()
-                    .map_err(|e| e.to_string())?
-            }
-        };
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        if !output.status.success() && stdout.is_empty() {
-            return Err(format!("git branch failed: {stderr}"));
-        }
-        to_pretty_json(&serde_json::json!({ "output": stdout, "stderr": stderr }))
-    }
-
-#[allow(clippy::needless_pass_by_value)]
-    fn run_git_commit(input: GitCommitInput) -> Result<String, String> {
-        if let Some(files) = input.files {
-            for file in files {
-                let out = std::process::Command::new("git")
-                    .args(["add", &file])
-                    .output()
-                    .map_err(|e| e.to_string())?;
-                if !out.status.success() {
-                    return Err(format!("git add {} failed: {}", file, String::from_utf8_lossy(&out.stderr)));
-                }
+fn run_git_commit(input: GitCommitInput) -> Result<String, String> {
+    if let Some(files) = input.files {
+        for file in files {
+            let out = std::process::Command::new("git")
+                .args(["add", &file])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !out.status.success() {
+                return Err(format!(
+                    "git add {} failed: {}",
+                    file,
+                    String::from_utf8_lossy(&out.stderr)
+                ));
             }
         }
-        let output = std::process::Command::new("git")
-            .args(["commit", "-m", &input.message])
-            .output()
-            .map_err(|e| e.to_string())?;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        if !output.status.success() {
-            return Err(format!("git commit failed: {stderr}"));
-        }
-        to_pretty_json(&serde_json::json!({ "output": stdout, "stderr": stderr }))
     }
+    let output = std::process::Command::new("git")
+        .args(["commit", "-m", &input.message])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() {
+        return Err(format!("git commit failed: {stderr}"));
+    }
+    to_pretty_json(&serde_json::json!({ "output": stdout, "stderr": stderr }))
+}
 
 fn to_pretty_json<T: serde::Serialize>(value: T) -> Result<String, String> {
     serde_json::to_string_pretty(&value).map_err(|error| error.to_string())

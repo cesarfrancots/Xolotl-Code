@@ -1,6 +1,5 @@
 /// OpenAI-compatible API client for Kimi, MiniMax, GLM, OpenAI, and any
 /// provider that implements the `/v1/chat/completions` + SSE streaming interface.
-
 use std::collections::HashMap;
 use std::io;
 
@@ -8,7 +7,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use runtime::{AssistantEvent, ContentBlock, ConversationMessage, ImageSource, MessageRole, RuntimeError, TokenUsage};
+use runtime::{
+    AssistantEvent, ContentBlock, ConversationMessage, ImageSource, MessageRole, RuntimeError,
+    TokenUsage,
+};
 use tools::DynamicToolSpec;
 
 // ── Provider config ────────────────────────────────────────────────────────────
@@ -29,25 +31,16 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
     };
 
     let (base_url, key_var): (String, &str) = match prefix {
-        "kimi" | "moonshot" => (
-            "https://api.moonshot.cn/v1".into(),
-            "KIMI_API_KEY",
-        ),
-        "glm" | "zhipu" => (
-            "https://open.bigmodel.cn/api/paas/v4".into(),
-            "GLM_API_KEY",
-        ),
-        "minimax" => (
-            "https://api.minimax.chat/v1".into(),
-            "MINIMAX_API_KEY",
-        ),
+        "kimi-coding" => ("https://api.kimi.com/coding/v1".into(), "KIMI_CODING_API_KEY"),
+        "kimi" | "moonshot" => ("https://api.moonshot.cn/v1".into(), "KIMI_API_KEY"),
+        "glm" | "zhipu" => ("https://open.bigmodel.cn/api/paas/v4".into(), "GLM_API_KEY"),
+        "minimax" => ("https://api.minimax.chat/v1".into(), "MINIMAX_API_KEY"),
         "qwen" => (
             "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
             "DASHSCOPE_API_KEY",
         ),
         "openai" | "" => (
-            std::env::var("OPENAI_BASE_URL")
-                .unwrap_or_else(|_| "https://api.openai.com".into()),
+            std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com".into()),
             "OPENAI_API_KEY",
         ),
         other => (
@@ -60,9 +53,7 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
     let api_key = std::env::var(key_var)
         .or_else(|_| std::env::var("OPENAI_API_KEY"))
         .map_err(|_| {
-            format!(
-                "Missing API key for model '{model_spec}'. Set {key_var} (or OPENAI_API_KEY)."
-            )
+            format!("Missing API key for model '{model_spec}'. Set {key_var} (or OPENAI_API_KEY).")
         })?;
 
     Ok(ProviderConfig {
@@ -75,8 +66,7 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
 /// Returns true if the model spec targets the Anthropic API (no prefix, starts
 /// with "claude").
 pub fn is_anthropic_model(model_spec: &str) -> bool {
-    !model_spec.contains('/')
-        && (model_spec.starts_with("claude") || model_spec.is_empty())
+    !model_spec.contains('/') && (model_spec.starts_with("claude") || model_spec.is_empty())
 }
 
 // ── Wire types (request) ───────────────────────────────────────────────────────
@@ -328,7 +318,11 @@ pub fn to_openai_messages(
                 result.push(OaiMessage {
                     role: "assistant".to_string(),
                     // OpenAI requires content=null when tool_calls is present
-                    content: if tool_calls.is_empty() { Some(OaiContent::Text(text)) } else { None },
+                    content: if tool_calls.is_empty() {
+                        Some(OaiContent::Text(text))
+                    } else {
+                        None
+                    },
                     tool_calls: if tool_calls.is_empty() {
                         None
                     } else {
@@ -386,10 +380,7 @@ pub async fn stream_completion(
     config: &ProviderConfig,
     request: &OaiRequest,
 ) -> Result<Vec<AssistantEvent>, RuntimeError> {
-    let url = format!(
-        "{}/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
 
     let resp = http
         .post(&url)
@@ -560,7 +551,10 @@ fn finalize_events(
     output_tokens: u32,
     interrupted: bool,
 ) {
-    if !events.iter().any(|e| matches!(e, AssistantEvent::MessageStop)) {
+    if !events
+        .iter()
+        .any(|e| matches!(e, AssistantEvent::MessageStop))
+    {
         // Interrupted before a finish_reason arrived — ensure session stays valid
         if interrupted
             && !events

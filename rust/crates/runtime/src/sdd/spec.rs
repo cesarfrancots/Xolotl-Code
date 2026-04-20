@@ -136,10 +136,7 @@ impl InternalSpec {
     pub fn phase_context(&self) -> String {
         match self.complexity {
             Complexity::Low => {
-                format!(
-                    "Simple task: {}. Direct implementation.",
-                    self.task
-                )
+                format!("Simple task: {}. Direct implementation.", self.task)
             }
             Complexity::Medium => {
                 format!(
@@ -157,10 +154,16 @@ impl InternalSpec {
                     self.files_to_read.len()
                 );
                 if !self.inferred_requirements.is_empty() {
-                    ctx.push_str(&format!("Requirements: {}. ", self.inferred_requirements.join(", ")));
+                    ctx.push_str(&format!(
+                        "Requirements: {}. ",
+                        self.inferred_requirements.join(", ")
+                    ));
                 }
                 if !self.files_to_create.is_empty() {
-                    ctx.push_str(&format!("Will create: {}. ", self.files_to_create.join(", ")));
+                    ctx.push_str(&format!(
+                        "Will create: {}. ",
+                        self.files_to_create.join(", ")
+                    ));
                 }
                 ctx
             }

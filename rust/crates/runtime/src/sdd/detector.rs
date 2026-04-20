@@ -5,17 +5,45 @@ use regex::Regex;
 
 static COMPLEXITY_KEYWORDS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     vec![
-        "implement", "build", "create", "refactor", "add feature", "restructure",
-        "rewrite", "migrate", "design", "architect", "develop", "setup",
-        "configure", "optimize", "improve", "enhance", "extend", "modify",
-        "integrate", "extract", "abstract", "consolidate", "decouple",
+        "implement",
+        "build",
+        "create",
+        "refactor",
+        "add feature",
+        "restructure",
+        "rewrite",
+        "migrate",
+        "design",
+        "architect",
+        "develop",
+        "setup",
+        "configure",
+        "optimize",
+        "improve",
+        "enhance",
+        "extend",
+        "modify",
+        "integrate",
+        "extract",
+        "abstract",
+        "consolidate",
+        "decouple",
     ]
 });
 
 static SCOPE_KEYWORDS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     vec![
-        "module", "system", "subsystem", "component", "service", "api",
-        "library", "framework", "architecture", "pattern", "infrastructure",
+        "module",
+        "system",
+        "subsystem",
+        "component",
+        "service",
+        "api",
+        "library",
+        "framework",
+        "architecture",
+        "pattern",
+        "infrastructure",
     ]
 });
 
@@ -29,9 +57,8 @@ static EXISTING_CODE_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     ]
 });
 
-static FILE_PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:[\w\-\.]+/)*[\w\-\.]+\.\w{1,10}").unwrap()
-});
+static FILE_PATH_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:[\w\-\.]+/)*[\w\-\.]+\.\w{1,10}").unwrap());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Complexity {
@@ -133,11 +160,29 @@ impl ComplexityDetector {
 
             let is_code_file = matches!(
                 pathBuf.extension().and_then(|e| e.to_str()),
-                Some("rs") | Some("ts") | Some("tsx") | Some("js") | Some("jsx")
-                    | Some("py") | Some("go") | Some("java") | Some("cpp") | Some("c")
-                    | Some("h") | Some("hpp") | Some("cs") | Some("rb") | Some("swift")
-                    | Some("kt") | Some("scala") | Some("md") | Some("json") | Some("yaml")
-                    | Some("yml") | Some("toml") | Some("txt")
+                Some("rs")
+                    | Some("ts")
+                    | Some("tsx")
+                    | Some("js")
+                    | Some("jsx")
+                    | Some("py")
+                    | Some("go")
+                    | Some("java")
+                    | Some("cpp")
+                    | Some("c")
+                    | Some("h")
+                    | Some("hpp")
+                    | Some("cs")
+                    | Some("rb")
+                    | Some("swift")
+                    | Some("kt")
+                    | Some("scala")
+                    | Some("md")
+                    | Some("json")
+                    | Some("yaml")
+                    | Some("yml")
+                    | Some("toml")
+                    | Some("txt")
             );
 
             if is_code_file || path.contains('/') || path.contains('\\') {
@@ -201,9 +246,8 @@ mod tests {
     #[test]
     fn test_extract_file_references() {
         let detector = ComplexityDetector::new();
-        let files = detector.extract_file_references(
-            "read src/main.rs and lib.rs, then update Cargo.toml"
-        );
+        let files =
+            detector.extract_file_references("read src/main.rs and lib.rs, then update Cargo.toml");
         assert!(files.len() >= 2);
     }
 

@@ -1,8 +1,9 @@
 use std::sync::LazyLock;
 use tiktoken::CoreBpe;
 
-static ENCODER: LazyLock<&'static CoreBpe> =
-    LazyLock::new(|| tiktoken::get_encoding("cl100k_base").expect("tiktoken cl100k_base must initialize"));
+static ENCODER: LazyLock<&'static CoreBpe> = LazyLock::new(|| {
+    tiktoken::get_encoding("cl100k_base").expect("tiktoken cl100k_base must initialize")
+});
 
 pub fn estimate_tokens(text: &str) -> usize {
     ENCODER.encode(text).len()

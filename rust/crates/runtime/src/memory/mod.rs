@@ -83,7 +83,10 @@ pub struct MemorySystem {
 
 impl MemorySystem {
     pub fn new(config: MemoryConfig) -> Self {
-        let vault = config.vault_path.as_ref().map(|p| ObsidianVault::new(p.clone()));
+        let vault = config
+            .vault_path
+            .as_ref()
+            .map(|p| ObsidianVault::new(p.clone()));
         Self { vault, config }
     }
 
@@ -135,7 +138,11 @@ impl MemorySystem {
 
     /// Perform semantic search over all vault notes using TF-IDF scoring.
     /// Builds an in-memory index on each call (suitable for small-to-medium vaults).
-    pub fn semantic_search(&self, query: &str, top_k: usize) -> Result<Vec<MemorySearchResult>, std::io::Error> {
+    pub fn semantic_search(
+        &self,
+        query: &str,
+        top_k: usize,
+    ) -> Result<Vec<MemorySearchResult>, std::io::Error> {
         let vault = match &self.vault {
             Some(v) => v,
             None => return Ok(Vec::new()),

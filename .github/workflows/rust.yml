@@ -69,7 +69,7 @@ jobs:
 
       - name: Generate coverage
         working-directory: rust
-        run: cargo llvm-cov --workspace --exclude-file rust/crates/compat-harness/Cargo.toml --lcov --output-path lcov.info
+        run: cargo llvm-cov --workspace --exclude compat-harness --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

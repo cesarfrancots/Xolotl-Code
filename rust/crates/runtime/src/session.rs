@@ -43,10 +43,7 @@ pub enum ContentBlock {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ImageSource {
-    Base64 {
-        media_type: String,
-        data: String,
-    },
+    Base64 { media_type: String, data: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,8 +280,14 @@ impl ContentBlock {
                 object.insert("type".to_string(), JsonValue::String("text".to_string()));
                 object.insert("text".to_string(), JsonValue::String(text.clone()));
             }
-            Self::Thinking { thinking, signature } => {
-                object.insert("type".to_string(), JsonValue::String("thinking".to_string()));
+            Self::Thinking {
+                thinking,
+                signature,
+            } => {
+                object.insert(
+                    "type".to_string(),
+                    JsonValue::String("thinking".to_string()),
+                );
                 object.insert("thinking".to_string(), JsonValue::String(thinking.clone()));
                 if let Some(sig) = signature {
                     object.insert("signature".to_string(), JsonValue::String(sig.clone()));
@@ -292,15 +295,24 @@ impl ContentBlock {
             }
             Self::Image { source } => {
                 object.insert("type".to_string(), JsonValue::String("image".to_string()));
-                object.insert("source".to_string(), match source {
-                    ImageSource::Base64 { media_type, data } => {
-                        let mut inner = BTreeMap::new();
-                        inner.insert("type".to_string(), JsonValue::String("base64".to_string()));
-                        inner.insert("media_type".to_string(), JsonValue::String(media_type.clone()));
-                        inner.insert("data".to_string(), JsonValue::String(data.clone()));
-                        JsonValue::Object(inner)
-                    }
-                });
+                object.insert(
+                    "source".to_string(),
+                    match source {
+                        ImageSource::Base64 { media_type, data } => {
+                            let mut inner = BTreeMap::new();
+                            inner.insert(
+                                "type".to_string(),
+                                JsonValue::String("base64".to_string()),
+                            );
+                            inner.insert(
+                                "media_type".to_string(),
+                                JsonValue::String(media_type.clone()),
+                            );
+                            inner.insert("data".to_string(), JsonValue::String(data.clone()));
+                            JsonValue::Object(inner)
+                        }
+                    },
+                );
             }
             Self::ToolUse { id, name, input } => {
                 object.insert(
@@ -350,7 +362,10 @@ impl ContentBlock {
             }),
             "thinking" => Ok(Self::Thinking {
                 thinking: required_string(object, "thinking")?,
-                signature: object.get("signature").and_then(JsonValue::as_str).map(ToOwned::to_owned),
+                signature: object
+                    .get("signature")
+                    .and_then(JsonValue::as_str)
+                    .map(ToOwned::to_owned),
             }),
             "image" => {
                 let source_obj = object

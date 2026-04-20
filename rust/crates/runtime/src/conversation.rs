@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use std::fs;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use crate::compact::{
     compact_session, estimate_session_tokens, should_compact, CompactionConfig, CompactionResult,
@@ -272,8 +272,8 @@ where
     }
 
     fn load_image_from_path(&self, path: &str) -> Result<Vec<ContentBlock>, std::io::Error> {
-        use std::fs;
         use crate::session::ImageSource;
+        use std::fs;
 
         let path = path.trim();
         if path.is_empty() {
@@ -326,7 +326,9 @@ where
         user_input: impl Into<String>,
         mut prompter: Option<&mut dyn PermissionPrompter>,
     ) -> Result<TurnSummary, RuntimeError> {
-        let mut input_blocks = vec![ContentBlock::Text { text: user_input.into() }];
+        let mut input_blocks = vec![ContentBlock::Text {
+            text: user_input.into(),
+        }];
         // Append any pending images loaded via @image syntax to the user message
         if !self.pending_images.is_empty() {
             input_blocks.extend(std::mem::take(&mut self.pending_images));
@@ -414,8 +416,7 @@ where
                 .iter()
                 .map(|(id, name, input)| {
                     let permission_outcome = if let Some(prompt) = prompter.as_mut() {
-                        self.permission_policy
-                            .authorize(name, input, Some(*prompt))
+                        self.permission_policy.authorize(name, input, Some(*prompt))
                     } else {
                         self.permission_policy.authorize(name, input, None)
                     };
@@ -460,7 +461,12 @@ where
                                         tool_input: &input,
                                         tool_output: &output,
                                     });
-                                    ConversationMessage::tool_result(tool_use_id, tool_name, output, false)
+                                    ConversationMessage::tool_result(
+                                        tool_use_id,
+                                        tool_name,
+                                        output,
+                                        false,
+                                    )
                                 }
                                 Err(error) => {
                                     let msg = error.message.clone();
@@ -469,7 +475,12 @@ where
                                         tool_input: &input,
                                         error: &msg,
                                     });
-                                    ConversationMessage::tool_result(tool_use_id, tool_name, msg, true)
+                                    ConversationMessage::tool_result(
+                                        tool_use_id,
+                                        tool_name,
+                                        msg,
+                                        true,
+                                    )
                                 }
                             }
                         }
@@ -703,7 +714,8 @@ fn is_retryable_error(err: &RuntimeError) -> bool {
         || msg.contains("rate limit")
 }
 
-type ToolHandler = Arc<Mutex<Option<Box<dyn FnMut(&str) -> Result<String, ToolError> + Send + 'static>>>>;
+type ToolHandler =
+    Arc<Mutex<Option<Box<dyn FnMut(&str) -> Result<String, ToolError> + Send + 'static>>>>;
 
 #[derive(Default, Clone)]
 pub struct StaticToolExecutor {
@@ -722,8 +734,10 @@ impl StaticToolExecutor {
         tool_name: impl Into<String>,
         handler: impl FnMut(&str) -> Result<String, ToolError> + Send + 'static,
     ) -> Self {
-        self.handlers
-            .insert(tool_name.into(), Arc::new(Mutex::new(Some(Box::new(handler)))));
+        self.handlers.insert(
+            tool_name.into(),
+            Arc::new(Mutex::new(Some(Box::new(handler)))),
+        );
         self
     }
 }
@@ -737,7 +751,9 @@ impl ToolExecutor for StaticToolExecutor {
         let mut guard = handler.lock().unwrap();
         guard
             .take()
-            .ok_or_else(|| ToolError::new(format!("handler already consumed: {tool_name}")))?(input)
+            .ok_or_else(|| ToolError::new(format!("handler already consumed: {tool_name}")))?(
+            input
+        )
     }
 }
 

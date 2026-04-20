@@ -57,7 +57,10 @@ impl PlanArtifact {
     /// Count completed tasks (those not pending) based on todo status.
     #[must_use]
     pub fn completed_tasks(&self, todos: &[TodoItem]) -> usize {
-        todos.iter().filter(|t| t.status != TodoStatus::Pending && t.status != TodoStatus::InProgress).count()
+        todos
+            .iter()
+            .filter(|t| t.status != TodoStatus::Pending && t.status != TodoStatus::InProgress)
+            .count()
     }
 
     /// Save the plan to a JSON file.
@@ -144,9 +147,7 @@ Guidelines:
 /// Build a concise plan summary for display.
 #[must_use]
 pub fn format_plan_summary(plan: &PlanArtifact) -> String {
-    let mut lines = vec![
-        format!("## Plan: {}\n", plan.title),
-    ];
+    let mut lines = vec![format!("## Plan: {}\n", plan.title)];
     if let Some(ref desc) = plan.description {
         lines.push(format!("{}\n", desc));
     }
@@ -156,11 +157,19 @@ pub fn format_plan_summary(plan: &PlanArtifact) -> String {
             lines.push(format!("  {}", desc));
         }
         for (j, task) in phase.tasks.iter().enumerate() {
-            let tool_hint = task.tool.as_ref().map(|t| format!(" (`{t}`)")).unwrap_or_default();
+            let tool_hint = task
+                .tool
+                .as_ref()
+                .map(|t| format!(" (`{t}`)"))
+                .unwrap_or_default();
             lines.push(format!("  {}. {}{}", j + 1, task.description, tool_hint));
         }
     }
-    lines.push(format!("\n*Total: {} tasks in {} phases*", plan.total_tasks(), plan.phases.len()));
+    lines.push(format!(
+        "\n*Total: {} tasks in {} phases*",
+        plan.total_tasks(),
+        plan.phases.len()
+    ));
     lines.join("\n")
 }
 
@@ -206,24 +215,20 @@ Hope this helps!"#;
                 PlanPhase {
                     name: "Research".to_string(),
                     description: None,
-                    tasks: vec![
-                        PlanTask {
-                            description: "Read source file".to_string(),
-                            tool: Some("read_file".to_string()),
-                            tool_input: None,
-                        },
-                    ],
+                    tasks: vec![PlanTask {
+                        description: "Read source file".to_string(),
+                        tool: Some("read_file".to_string()),
+                        tool_input: None,
+                    }],
                 },
                 PlanPhase {
                     name: "Fix".to_string(),
                     description: None,
-                    tasks: vec![
-                        PlanTask {
-                            description: "Edit file".to_string(),
-                            tool: Some("edit_file".to_string()),
-                            tool_input: None,
-                        },
-                    ],
+                    tasks: vec![PlanTask {
+                        description: "Edit file".to_string(),
+                        tool: Some("edit_file".to_string()),
+                        tool_input: None,
+                    }],
                 },
             ],
         };

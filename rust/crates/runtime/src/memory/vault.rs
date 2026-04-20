@@ -82,7 +82,8 @@ impl ObsidianVault {
             }
         }
 
-        results.sort_by_key(|p| std::cmp::Reverse(p.metadata().ok().and_then(|m| m.modified().ok())));
+        results
+            .sort_by_key(|p| std::cmp::Reverse(p.metadata().ok().and_then(|m| m.modified().ok())));
         Ok(results)
     }
 
@@ -110,7 +111,9 @@ impl ObsidianVault {
     }
 
     /// List all markdown notes in the vault with their metadata.
-    pub fn list_all_notes(&self) -> Result<Vec<(PathBuf, String, std::time::SystemTime)>, std::io::Error> {
+    pub fn list_all_notes(
+        &self,
+    ) -> Result<Vec<(PathBuf, String, std::time::SystemTime)>, std::io::Error> {
         let mut results = Vec::new();
         for dir in [&self.sessions_dir, &self.learnings_dir, &self.project_dir] {
             if let Ok(entries) = fs::read_dir(dir) {
@@ -118,7 +121,8 @@ impl ObsidianVault {
                     let path = entry.path();
                     if path.extension().and_then(|s| s.to_str()) == Some("md") {
                         let modified = entry.metadata().and_then(|m| m.modified()).ok();
-                        let title = path.file_stem()
+                        let title = path
+                            .file_stem()
                             .and_then(|s| s.to_str())
                             .unwrap_or("untitled")
                             .replace('-', " ")
@@ -133,13 +137,21 @@ impl ObsidianVault {
         Ok(results)
     }
 
-    pub fn write_learning(&self, title: &str, content: &str, topics: &[&str]) -> Result<PathBuf, std::io::Error> {
+    pub fn write_learning(
+        &self,
+        title: &str,
+        content: &str,
+        topics: &[&str],
+    ) -> Result<PathBuf, std::io::Error> {
         let filename = format!("{}.md", sanitize_filename(title));
         let path = self.learnings_dir.join(&filename);
 
         let mut md = String::new();
         md.push_str("---\n");
-        md.push_str(&format!("date: {}\n", chrono::Utc::now().format("%Y-%m-%d")));
+        md.push_str(&format!(
+            "date: {}\n",
+            chrono::Utc::now().format("%Y-%m-%d")
+        ));
         md.push_str(&format!("topics: [{}]\n", topics.join(", ")));
         md.push_str("---\n\n");
         md.push_str(&format!("# {}\n\n", title));
@@ -215,7 +227,10 @@ mod tests {
 
     #[test]
     fn test_sanitize_filename() {
-        assert_eq!(sanitize_filename("OAuth implementation"), "OAuth-implementation");
+        assert_eq!(
+            sanitize_filename("OAuth implementation"),
+            "OAuth-implementation"
+        );
         assert_eq!(sanitize_filename("Fix bug #123"), "Fix-bug-#123");
     }
 }

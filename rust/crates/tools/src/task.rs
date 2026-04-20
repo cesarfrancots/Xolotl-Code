@@ -71,10 +71,7 @@ impl TaskRuntime {
             handles.push(handle);
         }
 
-        handles
-            .into_iter()
-            .map(|h| h.join().unwrap())
-            .collect()
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
     }
 
     fn run_subagent(prompt: &str, result_path: &PathBuf) -> Result<String, String> {
