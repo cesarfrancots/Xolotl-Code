@@ -5,8 +5,11 @@ mod config;
 mod conversation;
 mod file_ops;
 mod json;
+mod memory;
+mod model_hints;
 mod permissions;
 mod prompt;
+mod sdd;
 mod session;
 mod subagent;
 mod todo;
@@ -15,6 +18,9 @@ mod usage;
 mod web_fetch;
 
 pub use tokenizer::estimate_tokens;
+pub use model_hints::ModelHints;
+pub use memory::{MemoryConfig, MemorySystem, ObsidianVault, SessionNote};
+pub use sdd::{Complexity, ComplexityDetector, InternalSpec, SddEngine, SddPhase, SddState};
 
 pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
 pub use bootstrap::{BootstrapPhase, BootstrapPlan};

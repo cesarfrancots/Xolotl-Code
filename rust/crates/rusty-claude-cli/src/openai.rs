@@ -41,6 +41,10 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
             "https://api.minimax.chat/v1".into(),
             "MINIMAX_API_KEY",
         ),
+        "qwen" => (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+            "DASHSCOPE_API_KEY",
+        ),
         "openai" | "" => (
             std::env::var("OPENAI_BASE_URL")
                 .unwrap_or_else(|_| "https://api.openai.com".into()),

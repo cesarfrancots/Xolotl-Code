@@ -22,9 +22,9 @@ use compat_harness::{extract_manifest, UpstreamPaths};
 use mcp::McpManager;
 use runtime::{
     load_system_prompt, ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ContentBlock,
-    ConversationMessage, ConversationRuntime, MessageRole, PermissionMode, PermissionPolicy,
-    PermissionPromptDecision, PermissionPrompter, PermissionRequest, RuntimeError, Session,
-    TokenUsage, ToolError, ToolExecutor,
+    ConversationMessage, ConversationRuntime, MemorySystem, MessageRole, ModelHints,
+    PermissionMode, PermissionPolicy, PermissionPromptDecision, PermissionPrompter,
+    PermissionRequest, RuntimeError, Session, SddEngine, TokenUsage, ToolError, ToolExecutor,
 };
 use tools::{execute_tool, mvp_tool_specs, DynamicToolSpec};
 
@@ -142,6 +142,7 @@ fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
         ("KIMI_API_KEY", "Kimi / Moonshot (for kimi/ models)"),
         ("GLM_API_KEY", "Zhipu GLM (for glm/ models)"),
         ("MINIMAX_API_KEY", "MiniMax (for minimax/ models)"),
+        ("DASHSCOPE_API_KEY", "Alibaba Qwen (for qwen/ models)"),
         ("OPENAI_API_KEY", "OpenAI or custom OpenAI-compat provider"),
         ("AWS_ACCESS_KEY_ID", "AWS Access Key ID (IAM auth — alternative to BEDROCK_API_KEY)"),
         ("AWS_SECRET_ACCESS_KEY", "AWS Secret Access Key (IAM auth)"),
@@ -755,16 +756,14 @@ struct LiveCli {
     system_prompt: Vec<String>,
     runtime: ConversationRuntime<AnyApiClient, CliToolExecutor>,
     prompter: ReplPermissionPrompter,
-    /// Path where this session is auto-saved after every turn.
     auto_save_path: PathBuf,
-    /// Shared MCP manager (kept alive for the duration of the REPL session).
     mcp: Arc<Mutex<McpManager>>,
-    /// Optional spending limit in USD. None = no limit.
     budget_limit: Option<f64>,
-    /// When true, all tool calls are auto-approved without prompting.
     auto_accept: bool,
-    /// Timestamp when last turn started (for duration display).
     turn_start: Option<std::time::Instant>,
+    sdd_engine: SddEngine,
+    memory: Option<MemorySystem>,
+    session_start: std::time::Instant,
 }
 
 impl LiveCli {
@@ -787,6 +786,21 @@ impl LiveCli {
             .unwrap_or_default()
             .as_secs();
         let auto_save_path = dir.join(format!("session-{ts}.json"));
+
+        let model_hints = ModelHints::for_model(&model);
+        let sdd_engine = SddEngine::new()
+            .with_aggressive_read(model_hints.aggressive_read);
+
+        let memory = if let Some(vault_path) = MemorySystem::discover_vault() {
+            Some(MemorySystem::new(runtime::MemoryConfig {
+                enabled: true,
+                vault_path: Some(vault_path),
+                ..Default::default()
+            }))
+        } else {
+            None
+        };
+
         Ok(Self {
             model,
             system_prompt,
@@ -797,6 +811,9 @@ impl LiveCli {
             budget_limit: None,
             auto_accept,
             turn_start: None,
+            sdd_engine,
+            memory,
+            session_start: std::time::Instant::now(),
         })
     }
 
@@ -886,6 +903,39 @@ impl LiveCli {
         }
         println!("  {MUTED}──────────────────────────────────{RESET}");
         println!("  {CYAN}{:<12}{RESET}{WHITE_BOLD}${cost:.4}{RESET}", "cost");
+
+        if self.sdd_engine.state().is_active() {
+            println!();
+            print_header("SDD State");
+            let state = self.sdd_engine.state();
+            print_kv_w("phase", &format!("{:?}", state.phase), 12);
+            if let Some(ref complexity) = state.complexity {
+                print_kv_w("complexity", &format!("{:?}", complexity), 12);
+            }
+            if !state.files_to_read.is_empty() {
+                println!("  {MUTED}──────────────────────────────────{RESET}");
+                println!("  {CYAN}{:<12}{RESET}Files to read:", "read");
+                for file in &state.files_to_read {
+                    println!("    {MUTED}{}{RESET} {}", "-", file.display());
+                }
+            }
+            if let Some(ref spec) = state.spec {
+                println!();
+                println!("  {MUTED}──────────────────────────────────{RESET}");
+                println!("  {CYAN}{:<12}{RESET}Internal Spec:", "spec");
+                println!("  {WHITE}{}{RESET}", spec.summary());
+            }
+        }
+
+        if let Some(ref memory) = self.memory {
+            println!();
+            if let Some((vault_path, note_count)) = memory.vault_status() {
+                print_header("Memory");
+                print_kv_w("vault", &format!("{MUTED}{}{RESET}", vault_path.display()), 12);
+                print_kv_w("sessions", &note_count.to_string(), 12);
+            }
+        }
+
         println!();
     }
 
@@ -1267,6 +1317,10 @@ fn expand_single_alias(alias: &str) -> String {
         "minimax2.7" | "minimax-2.7" | "minimax" | "minimax-text-01"
             => "minimax/MiniMax-Text-01",
 
+        // ── Qwen family ───────────────────────────────────────────────
+        "qwen3.6" | "qwen3.6-plus" | "qwen-3.6-plus" | "qwen" | "qwen-plus"
+            => "qwen/qwen-3.6-plus",
+
         // ── Legacy / direct Anthropic ─────────────────────────────────
         "claude-3.7-sonnet" | "sonnet3.7"
             => "bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0",
@@ -1386,7 +1440,8 @@ fn build_runtime(
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(5),
-    ))
+    )
+    .with_model(model.clone()))
 }
 
 struct AnthropicRuntimeClient {
@@ -1920,7 +1975,7 @@ fn print_help() {
     println!("  claw --resume SESSION.json              Resume a saved session");
     println!("  claw --version                          Show version");
     println!();
-    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan · minimax2.7");
+    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan · minimax2.7 · qwen3.6");
     println!();
     println!("Slash commands:");
     println!("  /help  /status  /cost  /budget  /compact  /clear  /model  /mcp  /accept-all");
@@ -1936,6 +1991,7 @@ fn print_help() {
     println!("  AWS_DEFAULT_REGION       Bedrock region (default: us-east-1)");
     println!("  ANTHROPIC_API_KEY        Anthropic direct API");
     println!("  MINIMAX_API_KEY          MiniMax API key (minimax2.7 model)");
+    println!("  DASHSCOPE_API_KEY        Qwen API key (qwen3.6 model)");
     println!("  OPENAI_API_KEY           OpenAI or compatible provider");
     println!("  AWS_ACCESS_KEY_ID        Bedrock IAM auth");
     println!("  AWS_SECRET_ACCESS_KEY    Bedrock IAM auth");

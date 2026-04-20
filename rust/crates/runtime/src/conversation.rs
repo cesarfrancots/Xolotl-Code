@@ -111,6 +111,7 @@ pub struct ConversationRuntime<C, T> {
     max_context_tokens: usize,
     max_parallel: usize,
     pending_images: Vec<ContentBlock>,
+    model: Option<String>,
 }
 
 impl<C, T> ConversationRuntime<C, T>
@@ -142,6 +143,7 @@ where
             max_context_tokens: 120_000,
             max_parallel,
             pending_images: Vec::new(),
+            model: None,
         }
     }
 
@@ -160,6 +162,12 @@ where
     #[must_use]
     pub fn with_max_context_tokens(mut self, max_context_tokens: usize) -> Self {
         self.max_context_tokens = max_context_tokens;
+        self
+    }
+
+    #[must_use]
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = Some(model.into());
         self
     }
 
@@ -290,10 +298,22 @@ where
             // Auto-compact if context is getting too large
             self.maybe_auto_compact();
 
+            let thinking = self.model.as_ref().and_then(|m| {
+                let hints = crate::ModelHints::for_model(m);
+                if hints.should_use_thinking() {
+                    Some(api::types::ThinkingConfig {
+                        config_type: "enabled".to_string(),
+                        budget_tokens: hints.thinking_budget,
+                    })
+                } else {
+                    None
+                }
+            });
+
             let request = ApiRequest {
                 system_prompt: self.system_prompt.clone(),
                 messages: self.session.messages.clone(),
-                thinking: None,
+                thinking,
                 images: std::mem::take(&mut self.pending_images),
             };
 
