@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::compact::{
     compact_session, estimate_session_tokens, should_compact, CompactionConfig, CompactionResult,
 };
+use crate::model_hints::ModelHints;
 use crate::permissions::{PermissionOutcome, PermissionPolicy, PermissionPrompter};
 use crate::session::{ContentBlock, ConversationMessage, Session};
 use crate::usage::{TokenUsage, UsageTracker};
@@ -112,6 +113,7 @@ pub struct ConversationRuntime<C, T> {
     max_parallel: usize,
     pending_images: Vec<ContentBlock>,
     model: Option<String>,
+    model_hints: Option<ModelHints>,
 }
 
 impl<C, T> ConversationRuntime<C, T>
@@ -144,6 +146,7 @@ where
             max_parallel,
             pending_images: Vec::new(),
             model: None,
+            model_hints: None,
         }
     }
 
@@ -169,6 +172,38 @@ where
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
         self
+    }
+
+    #[must_use]
+    pub fn with_model_hints(mut self, hints: ModelHints) -> Self {
+        self.max_context_tokens = (hints.max_context as f32 * hints.compaction_ratio) as usize;
+        self.model_hints = Some(hints);
+        self
+    }
+
+    pub fn model_hints(&self) -> Option<&ModelHints> {
+        self.model_hints.as_ref()
+    }
+
+    pub fn set_system_prompt(&mut self, prompt: Vec<String>) {
+        self.system_prompt = prompt;
+    }
+
+    pub fn max_context_tokens(&self) -> usize {
+        self.max_context_tokens
+    }
+
+    pub fn preserve_usage_from(&mut self, other: &ConversationRuntime<C, T>) {
+        let (cumulative, turns) = {
+            let usage = other.usage_tracker.cumulative_usage();
+            let turns = other.usage_tracker.turns();
+            (usage, turns)
+        };
+        self.usage_tracker.set_cumulative(cumulative, turns);
+    }
+
+    pub fn usage_tracker_mut(&mut self) -> &mut UsageTracker {
+        &mut self.usage_tracker
     }
 
     pub fn add_image(&mut self, image: ContentBlock) {
@@ -298,8 +333,7 @@ where
             // Auto-compact if context is getting too large
             self.maybe_auto_compact();
 
-            let thinking = self.model.as_ref().and_then(|m| {
-                let hints = crate::ModelHints::for_model(m);
+            let thinking = self.model_hints.as_ref().and_then(|hints| {
                 if hints.should_use_thinking() {
                     Some(api::types::ThinkingConfig {
                         config_type: "enabled".to_string(),
@@ -451,9 +485,71 @@ where
     pub fn into_session(self) -> Session {
         self.session
     }
+
+    /// Run a single planning turn without tools, returning the raw assistant text.
+    /// Used by Ultra Plan Mode to generate structured JSON plans without polluting
+    /// the main conversation session.
+    pub fn run_planning_turn(&mut self, prompt: &str) -> Result<String, RuntimeError> {
+        let mut temp_messages = self.session.messages.clone();
+        temp_messages.push(ConversationMessage::user_text(prompt));
+
+        let thinking = self.model_hints.as_ref().and_then(|hints| {
+            if hints.should_use_thinking() {
+                Some(api::types::ThinkingConfig {
+                    config_type: "enabled".to_string(),
+                    budget_tokens: hints.thinking_budget,
+                })
+            } else {
+                None
+            }
+        });
+
+        let request = ApiRequest {
+            system_prompt: self.system_prompt.clone(),
+            messages: temp_messages,
+            thinking,
+            images: Vec::new(),
+        };
+
+        // Retry with exponential backoff
+        let max_retries = 3_u32;
+        let mut attempt = 0;
+        let events = loop {
+            attempt += 1;
+            match self.api_client.stream(request.clone()) {
+                Ok(events) => break events,
+                Err(err) if attempt <= max_retries && is_retryable_error(&err) => {
+                    let backoff_ms = 1000 * 2_u64.pow(attempt - 1);
+                    eprintln!(
+                        "  \x1b[33m⚠ Planning API error (attempt {attempt}/{max_retries}): {err}\x1b[0m"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                }
+                Err(err) => return Err(err),
+            }
+        };
+
+        let (assistant_message, usage) = build_assistant_message(events)?;
+        if let Some(usage) = usage {
+            self.usage_tracker.record(usage);
+        }
+
+        // Extract text blocks only (ignore tool uses — planning should not use tools)
+        let text = assistant_message
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        Ok(text)
+    }
 }
 
-fn build_assistant_message(
+pub(crate) fn build_assistant_message(
     events: Vec<AssistantEvent>,
 ) -> Result<(ConversationMessage, Option<TokenUsage>), RuntimeError> {
     let mut text = String::new();

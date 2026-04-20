@@ -391,6 +391,12 @@ fn process_bedrock_chunk(
                         .unwrap_or("")
                         .to_string();
                     *pending_tool = Some((id, name, String::new()));
+                } else if block_type == "thinking" {
+                    if let Some(thinking) = block.get("thinking").and_then(|v| v.as_str()) {
+                        if !thinking.is_empty() {
+                            events.push(AssistantEvent::ThinkingDelta(thinking.to_string()));
+                        }
+                    }
                 } else if block_type == "text" {
                     // Initial text (usually empty)
                     if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
@@ -408,6 +414,13 @@ fn process_bedrock_chunk(
             if let Some(delta) = delta {
                 let delta_type = delta.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 match delta_type {
+                    "thinking_delta" => {
+                        if let Some(thinking) = delta.get("thinking").and_then(|v| v.as_str()) {
+                            if !thinking.is_empty() {
+                                events.push(AssistantEvent::ThinkingDelta(thinking.to_string()));
+                            }
+                        }
+                    }
                     "text_delta" => {
                         if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
                             if !text.is_empty() {
@@ -471,6 +484,7 @@ pub struct BedrockRuntimeClient {
     config: BedrockConfig,
     tool_specs: Vec<DynamicToolSpec>,
     enable_tools: bool,
+    max_tokens: u32,
 }
 
 impl BedrockRuntimeClient {
@@ -478,6 +492,7 @@ impl BedrockRuntimeClient {
         model_spec: &str,
         tool_specs: Vec<DynamicToolSpec>,
         enable_tools: bool,
+        max_tokens: u32,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config = resolve_bedrock(model_spec)
             .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
@@ -487,6 +502,7 @@ impl BedrockRuntimeClient {
             config,
             tool_specs,
             enable_tools,
+            max_tokens,
         })
     }
 
@@ -506,7 +522,7 @@ impl BedrockRuntimeClient {
         );
         body.insert(
             "max_tokens".to_string(),
-            serde_json::json!(crate::DEFAULT_MAX_TOKENS),
+            serde_json::json!(self.max_tokens),
         );
         body.insert("messages".to_string(), messages_val);
 
@@ -562,6 +578,16 @@ impl BedrockRuntimeClient {
             body.insert(
                 "tool_choice".to_string(),
                 serde_json::json!({"type": "auto"}),
+            );
+        }
+
+        if let Some(ref thinking) = request.thinking {
+            body.insert(
+                "thinking".to_string(),
+                serde_json::json!({
+                    "type": "enabled",
+                    "budget_tokens": thinking.budget_tokens,
+                }),
             );
         }
 

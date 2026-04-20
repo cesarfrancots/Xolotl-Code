@@ -604,6 +604,118 @@ fn normalize_path_allow_missing(path: &str) -> io::Result<PathBuf> {
     Ok(candidate)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DirEntry {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub entry_type: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ListDirectoryOutput {
+    pub path: String,
+    pub entries: Vec<DirEntry>,
+}
+
+pub fn list_directory(path: &str, max_depth: Option<usize>) -> io::Result<ListDirectoryOutput> {
+    let root = Path::new(path);
+    let depth = max_depth.unwrap_or(1);
+    let mut entries = Vec::new();
+
+    if depth == 0 {
+        return Ok(ListDirectoryOutput {
+            path: path.to_string(),
+            entries,
+        });
+    }
+
+    if root.is_dir() {
+        for entry in fs::read_dir(root)? {
+            let entry = entry?;
+            let metadata = entry.metadata()?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            let entry_type = if metadata.is_dir() {
+                "directory"
+            } else if metadata.is_file() {
+                "file"
+            } else if metadata.is_symlink() {
+                "symlink"
+            } else {
+                "other"
+            };
+            entries.push(DirEntry {
+                name,
+                entry_type: entry_type.to_string(),
+                size: metadata.len(),
+            });
+        }
+    }
+
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    Ok(ListDirectoryOutput {
+        path: path.to_string(),
+        entries,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FileInfoOutput {
+    pub path: String,
+    pub exists: bool,
+    #[serde(rename = "type")]
+    pub file_type: Option<String>,
+    pub size: Option<u64>,
+    pub modified: Option<String>,
+    pub permissions: Option<String>,
+}
+
+pub fn file_info(path: &str) -> io::Result<FileInfoOutput> {
+    let p = Path::new(path);
+    if !p.exists() {
+        return Ok(FileInfoOutput {
+            path: path.to_string(),
+            exists: false,
+            file_type: None,
+            size: None,
+            modified: None,
+            permissions: None,
+        });
+    }
+
+    let metadata = p.metadata()?;
+    let file_type = if metadata.is_dir() {
+        Some("directory".to_string())
+    } else if metadata.is_file() {
+        Some("file".to_string())
+    } else if metadata.is_symlink() {
+        Some("symlink".to_string())
+    } else {
+        Some("other".to_string())
+    };
+
+    let modified = metadata.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| format!("{}s since epoch", d.as_secs()));
+
+    #[cfg(unix)]
+    let permissions = metadata.permissions().mode();
+    #[cfg(not(unix))]
+    let permissions = 0u32;
+    let permissions_str = format!("{:o}", permissions);
+
+    Ok(FileInfoOutput {
+        path: path.to_string(),
+        exists: true,
+        file_type,
+        size: Some(metadata.len()),
+        modified,
+        permissions: Some(permissions_str),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};

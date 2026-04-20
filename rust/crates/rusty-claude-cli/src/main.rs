@@ -21,10 +21,11 @@ use commands::handle_slash_command;
 use compat_harness::{extract_manifest, UpstreamPaths};
 use mcp::McpManager;
 use runtime::{
-    load_system_prompt, ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ContentBlock,
+    load_system_prompt_with_hints, ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ContentBlock,
     ConversationMessage, ConversationRuntime, MemorySystem, MessageRole, ModelHints,
     PermissionMode, PermissionPolicy, PermissionPromptDecision, PermissionPrompter,
     PermissionRequest, RuntimeError, Session, SddEngine, TokenUsage, ToolError, ToolExecutor,
+    PlanArtifact, build_plan_prompt, extract_json_from_response, format_plan_summary,
 };
 use tools::{execute_tool, mvp_tool_specs, DynamicToolSpec};
 
@@ -139,7 +140,7 @@ fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
         ("BEDROCK_API_KEY", "AWS Bedrock API key — paste from the Bedrock console (recommended)"),
         ("AWS_DEFAULT_REGION", "AWS region for Bedrock (default: us-east-1)"),
         ("ANTHROPIC_API_KEY", "Anthropic direct API key (alternative to Bedrock)"),
-        ("KIMI_API_KEY", "Kimi / Moonshot (for kimi/ models)"),
+        ("KIMI_API_KEY", "Kimi / Moonshot k2.6 (for kimi/ models)"),
         ("GLM_API_KEY", "Zhipu GLM (for glm/ models)"),
         ("MINIMAX_API_KEY", "MiniMax (for minimax/ models)"),
         ("DASHSCOPE_API_KEY", "Alibaba Qwen (for qwen/ models)"),
@@ -316,7 +317,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match parse_args(&args)? {
         CliAction::DumpManifests => dump_manifests(),
         CliAction::BootstrapPlan => print_bootstrap_plan(),
-        CliAction::PrintSystemPrompt { cwd, date } => print_system_prompt(cwd, date),
+        CliAction::PrintSystemPrompt { cwd, date, model } => print_system_prompt(cwd, date, model),
         CliAction::ResumeSession {
             session_path,
             command,
@@ -337,6 +338,7 @@ enum CliAction {
     PrintSystemPrompt {
         cwd: PathBuf,
         date: String,
+        model: String,
     },
     ResumeSession {
         session_path: PathBuf,
@@ -457,7 +459,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "dump-manifests" => Ok(CliAction::DumpManifests),
         "bootstrap-plan" => Ok(CliAction::BootstrapPlan),
         "setup" => Ok(CliAction::Setup),
-        "system-prompt" => parse_system_prompt_args(&rest[1..]),
+        "system-prompt" => parse_system_prompt_args(&rest[1..], model.clone()),
         "prompt" => {
             let prompt = rest[1..].join(" ");
             if prompt.trim().is_empty() {
@@ -469,7 +471,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 }
 
-fn parse_system_prompt_args(args: &[String]) -> Result<CliAction, String> {
+fn parse_system_prompt_args(args: &[String], model: String) -> Result<CliAction, String> {
     let mut cwd = env::current_dir().map_err(|error| error.to_string())?;
     let mut date = today_iso();
     let mut index = 0;
@@ -494,7 +496,7 @@ fn parse_system_prompt_args(args: &[String]) -> Result<CliAction, String> {
         }
     }
 
-    Ok(CliAction::PrintSystemPrompt { cwd, date })
+    Ok(CliAction::PrintSystemPrompt { cwd, date, model })
 }
 
 fn parse_resume_args(args: &[String]) -> Result<CliAction, String> {
@@ -534,8 +536,9 @@ fn print_bootstrap_plan() {
     }
 }
 
-fn print_system_prompt(cwd: PathBuf, date: String) {
-    match load_system_prompt(cwd, date, env::consts::OS, "unknown") {
+fn print_system_prompt(cwd: PathBuf, date: String, model: String) {
+    let hints = ModelHints::for_model(&model);
+    match load_system_prompt_with_hints(cwd, date, env::consts::OS, "unknown", hints) {
         Ok(sections) => println!("{}", sections.join("\n\n")),
         Err(error) => {
             eprintln!("failed to build system prompt: {error}");
@@ -600,6 +603,18 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
 
         // Dispatch slash commands
         if trimmed.starts_with('/') {
+            // Handle multi-word commands first (/memory search <query>)
+            if trimmed.starts_with("/memory search") {
+                let query = trimmed.strip_prefix("/memory search").unwrap().trim();
+                if !query.is_empty() {
+                    cli.search_memory(query);
+                } else {
+                    println!("  {}Usage: /memory search <query>{}", style::MUTED, style::RESET);
+                }
+                continue;
+            }
+
+            // Single-word + argument commands (splitn(2) preserves full arg)
             let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
             match parts[0] {
                 "/exit" | "/quit" => break,
@@ -631,12 +646,25 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                 "/memory" | "/memory status" => {
                     cli.print_memory_status();
                 }
-                "/memory search" => {
-                    if let Some(query) = parts.get(1) {
-                        cli.search_memory(query.trim());
+                "/plan" => {
+                    if let Some(desc) = parts.get(1).copied() {
+                        let desc = desc.trim();
+                        if !desc.is_empty() {
+                            if let Err(e) = cli.generate_plan(desc) {
+                                style::print_err(&e.to_string());
+                            }
+                        } else {
+                            println!("  {}Usage: /plan <description>{}", style::MUTED, style::RESET);
+                        }
                     } else {
-                        println!("  {}Usage: /memory search <query>{}", style::MUTED, style::RESET);
+                        cli.print_plan_status();
                     }
+                }
+                "/plan status" => {
+                    cli.print_plan_status();
+                }
+                "/plan abort" => {
+                    cli.abort_plan();
                 }
                 other => {
                     style::print_err(&format!("Unknown command: {other}  (try /help)"));
@@ -706,7 +734,7 @@ fn print_startup_banner(cli: &LiveCli) {
     println!();
     println!("  {ACCENT}{BOX_TL}{bar}{BOX_TR}{RESET}");
     // Logo row
-    let logo = format!("{ACCENT}{BOLD}{CLAW_ICON} claw{RESET}  {MUTED}v0.1.0{RESET}");
+    let logo = format!("{ACCENT}{BOLD}{CLAW_ICON} claw{RESET}  {MUTED}v{CLAW_VERSION}{RESET}");
     println!("{}", pad(&logo));
     // Divider row
     let div_inner = BOX_H.repeat(inner.saturating_sub(2));
@@ -742,6 +770,7 @@ fn print_slash_help() {
     println!("  {WHITE_BOLD}Commands{RESET}");
     println!("  {MUTED}{DIVIDER_SHORT}{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Conversation  {CYAN}/clear{RESET} · {CYAN}/compact{RESET} · {CYAN}/save{RESET} · {CYAN}/model{RESET}");
+    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Plan Mode     {CYAN}/plan <description>{RESET} · {CYAN}/plan status{RESET} · {CYAN}/plan abort{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Info          {CYAN}/status{RESET} · {CYAN}/cost{RESET} · {CYAN}/budget{RESET} · {CYAN}/sessions{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Memory        {CYAN}/memory{RESET} · {CYAN}/memory search <query>{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Tools         {CYAN}/mcp{RESET} · {CYAN}/permissions{RESET} · {CYAN}/accept-all{RESET}");
@@ -786,13 +815,15 @@ struct LiveCli {
     sdd_engine: SddEngine,
     memory: Option<MemorySystem>,
     session_start: std::time::Instant,
+    plan_artifact: Option<PlanArtifact>,
+    plan_path: Option<PathBuf>,
 }
 
 impl LiveCli {
     fn new(model: String, enable_tools: bool, auto_accept: bool) -> Result<Self, Box<dyn std::error::Error>> {
         // Connect to MCP servers (errors are warnings, not fatal)
         let mcp = Arc::new(Mutex::new(McpManager::connect()));
-        let system_prompt = build_system_prompt()?;
+        let system_prompt = build_system_prompt(&model)?;
         let runtime = build_runtime(
             Session::new(),
             model.clone(),
@@ -836,12 +867,15 @@ impl LiveCli {
             sdd_engine,
             memory,
             session_start: std::time::Instant::now(),
+            plan_artifact: None,
+            plan_path: None,
         })
     }
 
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
         use style::fmt_num;
         println!(); // breathing room before response
+        self.inject_memory_context(input);
         self.turn_start = Some(std::time::Instant::now());
         let result = self.runtime.run_turn(input, Some(&mut self.prompter));
         let elapsed = self.turn_start.take().map(|s| s.elapsed()).unwrap_or_default();
@@ -950,14 +984,10 @@ impl LiveCli {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
         let secs = now.as_secs();
-        let hours = secs / 3600;
-        let mins = (secs % 3600) / 60;
-        let date = format!("{:04}-{:02}-{:02} {:02}:{:02}",
-            2000 + (secs / 31536000) as u16,
-            ((secs % 31536000) / 2592000) as u8,
-            ((secs % 2592000) / 86400) as u8,
-            hours as u8,
-            mins as u8);
+        let date = format!("{} {:02}:{:02}",
+            today_iso(),
+            (secs % 86400) / 3600,
+            (secs % 3600) / 60);
 
         let note = runtime::SessionNote {
             title: task.clone(),
@@ -978,6 +1008,70 @@ impl LiveCli {
         if let Err(e) = memory.write_session_note(&note) {
             eprintln!("  {}Failed to write session note: {}{}", style::WARN_SYM, e, style::RESET);
         }
+    }
+
+    fn inject_memory_context(&mut self, input: &str) {
+        let Some(memory) = &self.memory else { return };
+        if !memory.is_enabled() { return }
+
+        let keywords: Vec<&str> = input
+            .split_whitespace()
+            .filter(|w| w.len() > 3 && !["with", "from", "that", "this", "have", "been", "will", "about"].contains(w))
+            .take(5)
+            .collect();
+
+        let mut relevant_paths = Vec::new();
+
+        for kw in &keywords {
+            if let Ok(results) = memory.search_notes(kw) {
+                relevant_paths.extend(results.into_iter().take(3));
+            }
+        }
+
+        if relevant_paths.is_empty() {
+            if let Ok(recent) = memory.get_recent_sessions(3) {
+                relevant_paths = recent;
+            }
+        }
+
+        if relevant_paths.is_empty() { return }
+
+        let mut summaries = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for path in relevant_paths {
+            let key = path.to_string_lossy().to_string();
+            if seen.contains(&key) { continue }
+            seen.insert(key);
+            if let Ok(content) = memory.read_note(&path) {
+                let first_line = content.lines()
+                    .find(|l| l.starts_with("# Session:"))
+                    .unwrap_or("# Unknown session")
+                    .trim_start_matches("# Session: ")
+                    .to_string();
+                let date_line = content.lines()
+                    .find(|l| l.starts_with("date:"))
+                    .map(|l| l.trim_start_matches("date: ").trim().to_string())
+                    .unwrap_or_else(|| "unknown date".to_string());
+                summaries.push(format!("- {} ({}) — relevant to current task", first_line, date_line));
+            }
+            if summaries.len() >= 5 { break }
+        }
+
+        if summaries.is_empty() { return }
+
+        let memory_section = format!(
+            "# Relevant past sessions\nThe following past sessions may be relevant to the current task:\n{}",
+            summaries.join("\n")
+        );
+
+        let mut prompt = self.system_prompt.clone();
+        let boundary_pos = prompt.iter().position(|s| s.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
+        if let Some(pos) = boundary_pos {
+            prompt.insert(pos + 1, memory_section);
+        } else {
+            prompt.push(memory_section);
+        }
+        self.runtime.set_system_prompt(prompt);
     }
 
     fn print_memory_status(&self) {
@@ -1041,6 +1135,152 @@ impl LiveCli {
                 println!("  {}Search failed: {}{}", WARN_SYM, e, RESET);
             }
         }
+    }
+
+    fn generate_plan(&mut self, description: &str) -> Result<(), Box<dyn std::error::Error>> {
+        use style::*;
+        println!();
+        println!("  {CYAN}{BOLD}Generating plan...{RESET}  {MUTED}(using planner model){RESET}");
+        println!();
+
+        let prompt = build_plan_prompt(description);
+        let response = self.runtime.run_planning_turn(&prompt)
+            .map_err(|e| format!("Planning failed: {e}"))?;
+
+        let json_str = extract_json_from_response(&response)
+            .ok_or("Planner did not return valid JSON. Try again with a clearer description.")?;
+
+        let plan: PlanArtifact = serde_json::from_str(&json_str)
+            .map_err(|e| format!("Failed to parse plan JSON: {e}"))?;
+
+        // Save plan to disk
+        let plans_dir = claw_home().join("plans");
+        std::fs::create_dir_all(&plans_dir)?;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let plan_path = plans_dir.join(format!("plan-{ts}.json"));
+        plan.save(&plan_path)?;
+        self.plan_artifact = Some(plan.clone());
+        self.plan_path = Some(plan_path);
+
+        // Convert plan to todos
+        let todos = plan.to_todos();
+        let todo_input = runtime::TodoWriteInput { todos };
+        runtime::todo_write(&todo_input)?;
+
+        // Display plan
+        println!("{}", format_plan_summary(&plan));
+        println!();
+        println!("  {GREEN}{BOLD}Plan saved{RESET}  {MUTED}{}{RESET}", style::shorten_path(&self.plan_path.as_ref().unwrap()));
+        println!("  {MUTED}Use /plan status to check progress. The plan has been added to your todos.{RESET}");
+        println!();
+
+        // Inject plan context into system prompt for the executor
+        let plan_context = format!(
+            "# Active Plan: {}\nThere is an active implementation plan with {} tasks across {} phases. \
+            Check the todo list for details. Execute the plan step by step.",
+            plan.title,
+            plan.total_tasks(),
+            plan.phases.len()
+        );
+        let mut prompt = self.system_prompt.clone();
+        let boundary_pos = prompt.iter().position(|s| s.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
+        if let Some(pos) = boundary_pos {
+            prompt.insert(pos + 1, plan_context);
+        } else {
+            prompt.push(plan_context);
+        }
+        self.runtime.set_system_prompt(prompt);
+
+        Ok(())
+    }
+
+    fn print_plan_status(&self) {
+        use style::*;
+        let Some(ref plan) = self.plan_artifact else {
+            println!("  {MUTED}No active plan. Use /plan <description> to create one.{RESET}");
+            return;
+        };
+
+        // Read current todos to get status
+        match runtime::todo_read() {
+            Ok(todo_output) => {
+                let completed = plan.completed_tasks(&todo_output.todos);
+                let total = plan.total_tasks();
+                println!();
+                println!("  {CYAN}{BOLD}Plan: {}{RESET}  {MUTED}({}/{} tasks){RESET}",
+                    plan.title, completed, total);
+                println!();
+                for (i, phase) in plan.phases.iter().enumerate() {
+                    let phase_completed = todo_output.todos.iter()
+                        .filter(|t| t.id.starts_with(&format!("plan-{i}-")) && t.status != runtime::TodoStatus::Pending && t.status != runtime::TodoStatus::InProgress)
+                        .count();
+                    let phase_total = phase.tasks.len();
+                    let (icon, icon_color) = if phase_completed == phase_total { (CHECK, GREEN) } else { (" ", MUTED) };
+                    println!("  {}{}{}{}  {}{} ({}/{} tasks){RESET}",
+                        icon_color, icon, RESET, BOLD, phase.name, MUTED, phase_completed, phase_total);
+                    for (j, task) in phase.tasks.iter().enumerate() {
+                        let todo_id = format!("plan-{i}-{j}");
+                        let status = todo_output.todos.iter()
+                            .find(|t| t.id == todo_id)
+                            .map(|t| &t.status)
+                            .unwrap_or(&runtime::TodoStatus::Pending);
+                        let (status_icon, status_color) = match status {
+                            runtime::TodoStatus::Completed => (CHECK, GREEN),
+                            runtime::TodoStatus::InProgress => ("●", CYAN),
+                            runtime::TodoStatus::Cancelled => ("✗", RED),
+                            runtime::TodoStatus::Pending => ("○", MUTED),
+                        };
+                        println!("    {}{} {}{MUTED}{}{RESET}",
+                            status_color, status_icon, task.description,
+                            task.tool.as_ref().map(|t| format!(" ({t})")).unwrap_or_default());
+                    }
+                }
+                println!();
+            }
+            Err(e) => {
+                println!("  {WARN_SYM}Failed to read todo list: {e}{RESET}");
+            }
+        }
+    }
+
+    fn abort_plan(&mut self) {
+        use style::*;
+        let Some(ref plan) = self.plan_artifact else {
+            println!("  {MUTED}No active plan to abort.{RESET}");
+            return;
+        };
+
+        // Mark all plan todos as cancelled
+        match runtime::todo_read() {
+            Ok(todo_output) => {
+                let mut todos = todo_output.todos;
+                for todo in &mut todos {
+                    if todo.id.starts_with("plan-") {
+                        todo.status = runtime::TodoStatus::Cancelled;
+                    }
+                }
+                if let Err(e) = runtime::todo_write(&runtime::TodoWriteInput { todos }) {
+                    println!("  {WARN_SYM}Failed to update todos: {e}{RESET}");
+                    return;
+                }
+            }
+            Err(e) => {
+                println!("  {WARN_SYM}Failed to read todos: {e}{RESET}");
+                return;
+            }
+        }
+
+        println!("  {YELLOW}{BOLD}Plan aborted:{RESET} {}", plan.title);
+        self.plan_artifact = None;
+        self.plan_path = None;
+
+        // Remove plan context from system prompt
+        let mut prompt = self.system_prompt.clone();
+        prompt.retain(|s| !s.starts_with("# Active Plan:"));
+        self.runtime.set_system_prompt(prompt);
     }
 
     fn print_status(&self) {
@@ -1144,8 +1384,15 @@ impl LiveCli {
     }
 
     fn compact(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let result = self.runtime.compact(CompactionConfig::default());
+        let max_tokens = self.runtime.max_context_tokens();
+        let config = CompactionConfig {
+            preserve_recent_messages: 6,
+            max_estimated_tokens: max_tokens / 2,
+        };
+        let result = self.runtime.compact(config);
         let removed = result.removed_message_count;
+        let old_usage = self.runtime.usage().cumulative_usage();
+        let old_turns = self.runtime.usage().turns();
         self.runtime = build_runtime(
             result.compacted_session,
             self.model.clone(),
@@ -1153,6 +1400,7 @@ impl LiveCli {
             Arc::clone(&self.mcp),
             true,
         )?;
+        self.runtime.usage_tracker_mut().set_cumulative(old_usage, old_turns);
         style::print_ok(&format!("Compacted {BOLD}{removed}{RESET} messages.",
             BOLD = style::BOLD, RESET = style::RESET));
         Ok(())
@@ -1173,16 +1421,19 @@ impl LiveCli {
             Arc::clone(&self.mcp),
             true,
         )?;
+        self.sdd_engine.abort();
         style::print_ok("Session cleared.");
         Ok(())
     }
 
     fn set_model(&mut self, new_model: &str) -> Result<(), Box<dyn std::error::Error>> {
         let expanded = expand_model_spec(new_model);
+        let new_prompt = build_system_prompt(&expanded)?;
+        self.system_prompt = new_prompt.clone();
         self.runtime = build_runtime(
             self.runtime.session().clone(),
             expanded.clone(),
-            self.system_prompt.clone(),
+            new_prompt,
             Arc::clone(&self.mcp),
             true,
         )?;
@@ -1415,12 +1666,14 @@ fn list_sessions() {
     println!();
 }
 
-fn build_system_prompt() -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    Ok(load_system_prompt(
+fn build_system_prompt(model: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let hints = ModelHints::for_model(model);
+    Ok(load_system_prompt_with_hints(
         env::current_dir()?,
         today_iso(),
         env::consts::OS,
         "unknown",
+        hints,
     )?)
 }
 
@@ -1488,6 +1741,10 @@ fn expand_single_alias(alias: &str) -> String {
         "qwen3.6" | "qwen3.6-plus" | "qwen-3.6-plus" | "qwen" | "qwen-plus"
             => "qwen/qwen-3.6-plus",
 
+        // ── Kimi family ────────────────────────────────────────────────
+        "kimi2.6" | "kimi-2.6" | "k2.6" | "kimi-k2-6"
+            => "kimi/moonshot-v1-32k",
+
         // ── Legacy / direct Anthropic ─────────────────────────────────
         "claude-3.7-sonnet" | "sonnet3.7"
             => "bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0",
@@ -1544,12 +1801,14 @@ fn build_single_client(
     model: &str,
     tool_specs: Vec<DynamicToolSpec>,
     enable_tools: bool,
+    hints: &runtime::ModelHints,
 ) -> Result<AnyApiClient, Box<dyn std::error::Error>> {
     if bedrock::is_bedrock_model(model) {
         Ok(AnyApiClient::Bedrock(bedrock::BedrockRuntimeClient::new(
             model,
             tool_specs,
             enable_tools,
+            hints.max_completion_tokens,
         )?))
     } else if openai::is_anthropic_model(model) {
         Ok(AnyApiClient::Anthropic(AnthropicRuntimeClient::new(
@@ -1557,12 +1816,21 @@ fn build_single_client(
             tool_specs,
             enable_tools,
             None,
+            hints.max_completion_tokens,
         )?))
     } else {
+        let cache_key = if hints.supports_prompt_cache {
+            // Stable per-model cache key. In production this should be session-scoped.
+            Some(format!("claw-{}", model.replace(['/', ' ', ':'], "-")))
+        } else {
+            None
+        };
         Ok(AnyApiClient::OpenAi(OpenAiRuntimeClient::new(
             model.to_string(),
             tool_specs,
             enable_tools,
+            hints.max_completion_tokens,
+            cache_key,
         )?))
     }
 }
@@ -1577,22 +1845,25 @@ fn build_runtime(
     let model = expand_model_spec(&model);
 
     // Build the combined tool spec list (builtin + MCP) to send to the model
-    let tool_executor = CliToolExecutor::new(Arc::clone(&mcp));
+    let tool_executor = CliToolExecutor::new(Arc::clone(&mcp), model.clone(), enable_tools, system_prompt.clone());
     let tool_specs = if enable_tools {
         tool_executor.all_tool_specs()
     } else {
         Vec::new()
     };
 
+    let hints = runtime::ModelHints::for_model(&model);
     let client = if let Some(plus) = model.find('+') {
         let planner_spec = &model[..plus];
         let executor_spec = &model[plus + 1..];
+        let planner_hints = runtime::ModelHints::for_model(planner_spec);
+        let executor_hints = runtime::ModelHints::for_model(executor_spec);
         AnyApiClient::Dual {
-            planner: Box::new(build_single_client(planner_spec, tool_specs.clone(), enable_tools)?),
-            executor: Box::new(build_single_client(executor_spec, tool_specs, enable_tools)?),
+            planner: Box::new(build_single_client(planner_spec, tool_specs.clone(), enable_tools, &planner_hints)?),
+            executor: Box::new(build_single_client(executor_spec, tool_specs, enable_tools, &executor_hints)?),
         }
     } else {
-        build_single_client(&model, tool_specs, enable_tools)?
+        build_single_client(&model, tool_specs, enable_tools, &hints)?
     };
 
     Ok(ConversationRuntime::new(
@@ -1608,7 +1879,45 @@ fn build_runtime(
             .and_then(|v| v.parse().ok())
             .unwrap_or(5),
     )
-    .with_model(model.clone()))
+    .with_model(model.clone())
+    .with_model_hints(ModelHints::for_model(&model)))
+}
+
+/// Build a child runtime for in-process sub-agent execution.
+/// Excludes the `task` tool to prevent recursive sub-agent spawning.
+fn build_subagent_runtime(
+    model: String,
+    system_prompt: Vec<String>,
+    mcp: Arc<Mutex<McpManager>>,
+) -> Result<ConversationRuntime<AnyApiClient, CliToolExecutor>, Box<dyn std::error::Error>> {
+    let tool_executor = CliToolExecutor::new(Arc::clone(&mcp), model.clone(), true, system_prompt.clone());
+    let mut tool_specs = tool_executor.all_tool_specs();
+    tool_specs.retain(|s| s.name != "task");
+
+    let hints = runtime::ModelHints::for_model(&model);
+    let client = if let Some(plus) = model.find('+') {
+        let planner_spec = &model[..plus];
+        let executor_spec = &model[plus + 1..];
+        let planner_hints = runtime::ModelHints::for_model(planner_spec);
+        let executor_hints = runtime::ModelHints::for_model(executor_spec);
+        AnyApiClient::Dual {
+            planner: Box::new(build_single_client(planner_spec, tool_specs.clone(), true, &planner_hints)?),
+            executor: Box::new(build_single_client(executor_spec, tool_specs, true, &executor_hints)?),
+        }
+    } else {
+        build_single_client(&model, tool_specs, true, &hints)?
+    };
+
+    Ok(ConversationRuntime::new(
+        Session::new(),
+        client,
+        tool_executor,
+        PermissionPolicy::new(PermissionMode::Allow), // Auto-approve all tools in sub-agents
+        system_prompt,
+    )
+    .with_max_parallel(3)
+    .with_model(model.clone())
+    .with_model_hints(hints))
 }
 
 struct AnthropicRuntimeClient {
@@ -1618,10 +1927,11 @@ struct AnthropicRuntimeClient {
     tool_specs: Vec<DynamicToolSpec>,
     enable_tools: bool,
     thinking: Option<ThinkingConfig>,
+    max_tokens: u32,
 }
 
 impl AnthropicRuntimeClient {
-    fn new(model: String, tool_specs: Vec<DynamicToolSpec>, enable_tools: bool, thinking: Option<ThinkingConfig>) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(model: String, tool_specs: Vec<DynamicToolSpec>, enable_tools: bool, thinking: Option<ThinkingConfig>, max_tokens: u32) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             client: AnthropicClient::from_env()?,
@@ -1629,6 +1939,7 @@ impl AnthropicRuntimeClient {
             tool_specs,
             enable_tools,
             thinking,
+            max_tokens,
         })
     }
 }
@@ -1639,7 +1950,7 @@ impl ApiClient for AnthropicRuntimeClient {
         let thinking = request.thinking.or_else(|| self.thinking.clone());
         let message_request = MessageRequest {
             model: self.model.clone(),
-            max_tokens: DEFAULT_MAX_TOKENS,
+            max_tokens: self.max_tokens,
             messages: convert_messages(&request.messages),
             system: if system_blocks.is_empty() { None } else { Some(system_blocks) },
             tools: self.enable_tools.then(|| {
@@ -1784,17 +2095,25 @@ fn push_output_block(
 
 struct CliToolExecutor {
     mcp: Arc<Mutex<McpManager>>,
+    model_spec: String,
+    enable_tools: bool,
+    system_prompt: Vec<String>,
 }
 
 impl Clone for CliToolExecutor {
     fn clone(&self) -> Self {
-        Self { mcp: self.mcp.clone() }
+        Self {
+            mcp: self.mcp.clone(),
+            model_spec: self.model_spec.clone(),
+            enable_tools: self.enable_tools,
+            system_prompt: self.system_prompt.clone(),
+        }
     }
 }
 
 impl CliToolExecutor {
-    fn new(mcp: Arc<Mutex<McpManager>>) -> Self {
-        Self { mcp }
+    fn new(mcp: Arc<Mutex<McpManager>>, model_spec: String, enable_tools: bool, system_prompt: Vec<String>) -> Self {
+        Self { mcp, model_spec, enable_tools, system_prompt }
     }
 
     /// Return all tool specs: builtin MVP tools + MCP tools.
@@ -1836,6 +2155,10 @@ impl CliToolExecutor {
             let pad = " ".repeat(inner.saturating_sub(2).saturating_sub(preview_vis));
             display.push(format!("  {acc}{v}{res}  {input_preview}{pad}{acc}{v}{res}",
                 acc = style::ACCENT, v = style::BOX_V, res = style::RESET));
+        }
+
+        if tool_name == "task" {
+            return self.execute_task_in_process(input, inner, start);
         }
 
         if tool_name.starts_with("mcp__") {
@@ -1889,6 +2212,141 @@ impl CliToolExecutor {
                     (Err(ToolError::new(error)), display)
                 }
             }
+        }
+    }
+
+    fn execute_task_in_process(&self, input: &str, inner: usize, start: std::time::Instant) -> (Result<String, ToolError>, Vec<String>) {
+        use serde::Deserialize;
+        use std::thread;
+
+        #[derive(Debug, Deserialize)]
+        struct TaskInput {
+            tasks: Vec<TaskSpecInput>,
+        }
+        #[derive(Debug, Deserialize)]
+        struct TaskSpecInput {
+            description: String,
+            prompt: String,
+        }
+        #[derive(Debug, serde::Serialize)]
+        struct TaskResult {
+            task_id: usize,
+            description: String,
+            success: bool,
+            output: String,
+            elapsed_ms: u64,
+        }
+
+        let mut display = Vec::new();
+        let task_input: TaskInput = match serde_json::from_str(input) {
+            Ok(v) => v,
+            Err(e) => {
+                let err = ToolError::new(format!("invalid task input: {e}"));
+                let elapsed = start.elapsed();
+                display.push(format!("  {}{} {}{}", style::RED, style::CROSS, &err, style::RESET));
+                display.push(format_tool_footer(style::RED, inner, &elapsed, true));
+                return (Err(err), display);
+            }
+        };
+
+        let max_parallel = std::env::var("MAX_PARALLEL_TASKS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(5);
+
+        display.push(format!("  {}{} Spawning {} sub-agent task(s) in-process (max_parallel={}){}",
+            style::CYAN, style::BOLD, task_input.tasks.len(), max_parallel, style::RESET));
+
+        let mut handles = Vec::new();
+        let running = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        for (idx, task) in task_input.tasks.into_iter().enumerate() {
+            while running.load(std::sync::atomic::Ordering::Relaxed) >= max_parallel {
+                thread::sleep(std::time::Duration::from_millis(50));
+            }
+            running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+            let model_spec = self.model_spec.clone();
+            let mcp = self.mcp.clone();
+            let system_prompt = self.system_prompt.clone();
+            let description = task.description;
+            let prompt = task.prompt;
+            let running_clone = running.clone();
+
+            let handle = thread::spawn(move || {
+                struct Guard(Arc<std::sync::atomic::AtomicUsize>);
+                impl Drop for Guard {
+                    fn drop(&mut self) {
+                        self.0.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+                let _guard = Guard(running_clone);
+                let task_start = std::time::Instant::now();
+
+                let result = (|| -> Result<String, String> {
+                    let child_runtime = build_subagent_runtime(
+                        model_spec,
+                        system_prompt,
+                        mcp,
+                    ).map_err(|e| e.to_string())?;
+                    let mut runtime = child_runtime;
+                    let summary = runtime.run_turn(&prompt, None)
+                        .map_err(|e| e.to_string())?;
+                    let output = summary.assistant_messages.iter()
+                        .flat_map(|m| m.blocks.iter())
+                        .filter_map(|b| match b {
+                            runtime::ContentBlock::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("");
+                    Ok(output)
+                })();
+
+                TaskResult {
+                    task_id: idx,
+                    description,
+                    success: result.is_ok(),
+                    output: result.unwrap_or_else(|e| e),
+                    elapsed_ms: u64::try_from(task_start.elapsed().as_millis()).unwrap_or(u64::MAX),
+                }
+            });
+            handles.push(handle);
+        }
+
+        let results: Vec<TaskResult> = handles.into_iter()
+            .map(|h| h.join().unwrap_or_else(|e| TaskResult {
+                task_id: 0,
+                description: "thread panicked".to_string(),
+                success: false,
+                output: format!("{e:?}"),
+                elapsed_ms: 0,
+            }))
+            .collect();
+
+        for result in &results {
+            let status_icon = if result.success { style::GREEN } else { style::RED };
+            let status_sym = if result.success { style::CHECK } else { style::CROSS };
+            display.push(format!("    {}{}{} {}  {}{:.1}s{}",
+                status_icon, status_sym, style::RESET,
+                result.description,
+                style::MUTED,
+                result.elapsed_ms as f64 / 1000.0,
+                style::RESET));
+        }
+
+        let elapsed = start.elapsed();
+        let all_success = results.iter().all(|r| r.success);
+        display.push(format_tool_footer(
+            if all_success { style::GREEN } else { style::CYAN },
+            inner,
+            &elapsed,
+            !all_success,
+        ));
+
+        match serde_json::to_string_pretty(&results) {
+            Ok(json) => (Ok(json), display),
+            Err(e) => (Err(ToolError::new(e.to_string())), display),
         }
     }
 }
@@ -1984,19 +2442,24 @@ struct OpenAiRuntimeClient {
     tool_specs: Vec<DynamicToolSpec>,
     max_tokens: u32,
     enable_tools: bool,
+    cache_key: Option<String>,
+    is_kimi: bool,
 }
 
 impl OpenAiRuntimeClient {
-    fn new(model_spec: String, tool_specs: Vec<DynamicToolSpec>, enable_tools: bool) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(model_spec: String, tool_specs: Vec<DynamicToolSpec>, enable_tools: bool, max_tokens: u32, cache_key: Option<String>) -> Result<Self, Box<dyn std::error::Error>> {
         let config = openai::resolve_provider(&model_spec)
             .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+        let is_kimi = model_spec.to_lowercase().contains("kimi") || model_spec.to_lowercase().contains("moonshot");
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             http: reqwest::Client::new(),
             config,
             tool_specs,
-            max_tokens: DEFAULT_MAX_TOKENS,
+            max_tokens,
             enable_tools,
+            cache_key,
+            is_kimi,
         })
     }
 }
@@ -2006,6 +2469,18 @@ impl ApiClient for OpenAiRuntimeClient {
         let messages =
             openai::to_openai_messages(&request.system_prompt, &request.messages);
         let tools = self.enable_tools.then(|| openai::to_openai_tools(&self.tool_specs));
+
+        let thinking = if self.is_kimi {
+            request.thinking.map(|_| {
+                serde_json::json!({
+                    "type": "enabled",
+                    "keep": "all"
+                })
+            })
+        } else {
+            None
+        };
+
         let body = openai::OaiRequest {
             model: self.config.model.clone(),
             messages,
@@ -2013,7 +2488,10 @@ impl ApiClient for OpenAiRuntimeClient {
             tool_choice: self.enable_tools.then_some("auto"),
             stream: true,
             stream_options: Some(openai::OaiStreamOptions { include_usage: true }),
-            max_tokens: self.max_tokens,
+            max_completion_tokens: self.max_tokens,
+            thinking,
+            prompt_cache_key: self.cache_key.clone(),
+            response_format: None,
         };
         self.runtime
             .block_on(openai::stream_completion(&self.http, &self.config, &body))
@@ -2142,7 +2620,7 @@ fn print_help() {
     println!("  claw --resume SESSION.json              Resume a saved session");
     println!("  claw --version                          Show version");
     println!();
-    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan · minimax2.7 · qwen3.6");
+    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan · minimax2.7 · qwen3.6 · kimi2.6");
     println!();
     println!("Slash commands:");
     println!("  /help  /status  /cost  /budget  /compact  /clear  /model  /mcp  /accept-all");
@@ -2249,6 +2727,7 @@ mod tests {
             CliAction::PrintSystemPrompt {
                 cwd: PathBuf::from("/tmp/project"),
                 date: "2026-04-01".to_string(),
+                model: default_model(),
             }
         );
     }

@@ -51,6 +51,9 @@ impl ObsidianVault {
 
     pub fn search_notes(&self, query: &str) -> Result<Vec<PathBuf>, std::io::Error> {
         let query_lower = query.to_lowercase();
+        if query_lower.is_empty() {
+            return Ok(Vec::new());
+        }
         let mut results = Vec::new();
 
         if let Ok(entries) = fs::read_dir(&self.sessions_dir) {

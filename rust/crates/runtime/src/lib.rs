@@ -8,6 +8,7 @@ mod json;
 mod memory;
 mod model_hints;
 mod permissions;
+mod plan;
 mod prompt;
 mod sdd;
 mod session;
@@ -37,20 +38,22 @@ pub use conversation::{
     ToolError, ToolExecutor, TurnSummary,
 };
 pub use file_ops::{
-    edit_file, glob_search, grep_search, read_file, read_image_base64, write_file, EditFileOutput,
-    GlobSearchOutput, GrepSearchInput, GrepSearchOutput, ReadFileOutput, StructuredPatchHunk,
-    TextFilePayload, WriteFileOutput,
+    edit_file, file_info, glob_search, grep_search, list_directory, read_file, read_image_base64,
+    write_file, DirEntry, EditFileOutput, FileInfoOutput, GlobSearchOutput, GrepSearchInput,
+    GrepSearchOutput, ListDirectoryOutput, ReadFileOutput, StructuredPatchHunk, TextFilePayload,
+    WriteFileOutput,
 };
 pub use permissions::{
     PermissionMode, PermissionOutcome, PermissionPolicy, PermissionPromptDecision,
     PermissionPrompter, PermissionRequest,
 };
 pub use prompt::{
-    load_system_prompt, prepend_bullets, ContextFile, ProjectContext, PromptBuildError,
+    load_system_prompt, load_system_prompt_with_hints, prepend_bullets, ContextFile, ProjectContext, PromptBuildError,
     SystemPromptBuilder, FRONTIER_MODEL_NAME, SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
 };
 pub use session::{ContentBlock, ConversationMessage, ImageSource, MessageRole, Session, SessionError};
 pub use subagent::{SubAgentConfig, SubAgentResult, SubAgentSpawner, TaskRegistry, TaskStatus, SubAgentInfo, SubAgentStatus};
 pub use todo::{todo_read, todo_write, TodoItem, TodoOutput, TodoPriority, TodoStatus, TodoWriteInput};
 pub use usage::{TokenUsage, UsageTracker};
-pub use web_fetch::{web_fetch, WebFetchInput, WebFetchOutput};
+pub use web_fetch::{web_fetch, web_search, SearchResult, WebFetchInput, WebFetchOutput};
+pub use plan::{PlanArtifact, PlanPhase, PlanTask, build_plan_prompt, extract_json_from_response, format_plan_summary};

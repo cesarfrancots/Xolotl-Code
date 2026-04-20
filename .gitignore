@@ -10,3 +10,14 @@ rust/Cargo.lock
 .claude/
 .planning/
 .port_sessions/
+
+# Claw harness artifacts
+.claw-code/
+graphify-out/
+*.session
+
+# Secrets and local config
+*.env
+.env*
+config.json
+!rust/**/config.json

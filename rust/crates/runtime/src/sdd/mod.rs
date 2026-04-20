@@ -50,6 +50,7 @@ pub struct SddState {
     pub phase: SddPhase,
     pub complexity: Option<Complexity>,
     pub spec: Option<InternalSpec>,
+    pub current_task: Option<String>,
     pub files_to_read: Vec<PathBuf>,
     pub files_to_create: Vec<String>,
     pub key_decisions: Vec<String>,
@@ -62,6 +63,7 @@ impl Default for SddState {
             phase: SddPhase::Idle,
             complexity: None,
             spec: None,
+            current_task: None,
             files_to_read: Vec::new(),
             files_to_create: Vec::new(),
             key_decisions: Vec::new(),
@@ -77,6 +79,7 @@ impl SddState {
 
     pub fn enter_analyze(&mut self, task: &str, files: Vec<PathBuf>) {
         self.phase = SddPhase::Analyze;
+        self.current_task = Some(task.to_string());
         self.files_to_read = files;
         self.tool_suggestion = if self.files_to_read.is_empty() {
             None
@@ -90,6 +93,12 @@ impl SddState {
         let task = spec.task.clone();
         self.spec = Some(spec);
         self.tool_suggestion = Some(format!("Spec created: {}. Transitioning to planning...", task));
+    }
+
+    pub fn enter_planify(&mut self, approach: String) {
+        self.phase = SddPhase::Planify;
+        self.key_decisions.push(approach.clone());
+        self.tool_suggestion = Some(format!("Planned approach: {approach}. Ready to implement."));
     }
 
     pub fn enter_implement(&mut self) {
@@ -176,6 +185,10 @@ impl SddEngine {
 
     pub fn transition_to_speculate(&mut self, spec: InternalSpec) {
         self.state.enter_speculate(spec);
+    }
+
+    pub fn transition_to_planify(&mut self, approach: String) {
+        self.state.enter_planify(approach);
     }
 
     pub fn transition_to_implement(&mut self) {

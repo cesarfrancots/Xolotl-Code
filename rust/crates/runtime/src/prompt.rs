@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::config::{ConfigError, ConfigLoader, RuntimeConfig};
+use crate::model_hints::ModelHints;
 
 #[derive(Debug)]
 pub enum PromptBuildError {
@@ -75,7 +76,7 @@ impl ProjectContext {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
 pub struct SystemPromptBuilder {
     output_style_name: Option<String>,
     output_style_prompt: Option<String>,
@@ -84,6 +85,7 @@ pub struct SystemPromptBuilder {
     append_sections: Vec<String>,
     project_context: Option<ProjectContext>,
     config: Option<RuntimeConfig>,
+    model_hints: Option<ModelHints>,
 }
 
 impl SystemPromptBuilder {
@@ -125,6 +127,12 @@ impl SystemPromptBuilder {
     }
 
     #[must_use]
+    pub fn with_model_hints(mut self, hints: ModelHints) -> Self {
+        self.model_hints = Some(hints);
+        self
+    }
+
+    #[must_use]
     pub fn build(&self) -> Vec<String> {
         let mut sections = Vec::new();
         sections.push(get_simple_intro_section(self.output_style_name.is_some()));
@@ -135,6 +143,11 @@ impl SystemPromptBuilder {
         sections.push(get_simple_doing_tasks_section());
         sections.push(get_actions_section());
         sections.push(get_tools_section());
+        if let Some(hints) = &self.model_hints {
+            if let Some(ref addition) = hints.system_prompt_addition {
+                sections.push(format!("# Model-specific guidance\n{addition}"));
+            }
+        }
         sections.push(get_gsd_section());
         sections.push(SYSTEM_PROMPT_DYNAMIC_BOUNDARY.to_string());
         sections.push(self.environment_section());
@@ -165,9 +178,12 @@ impl SystemPromptBuilder {
             || "unknown".to_string(),
             |context| context.current_date.clone(),
         );
+        let model_display = self.model_hints.as_ref()
+            .map(|h| format!("{:?}", h.family))
+            .unwrap_or_else(|| FRONTIER_MODEL_NAME.to_string());
         let mut lines = vec!["# Environment context".to_string()];
         lines.extend(prepend_bullets(vec![
-            format!("Model family: {FRONTIER_MODEL_NAME}"),
+            format!("Model family: {model_display}"),
             format!("Working directory: {cwd}"),
             format!("Date: {date}"),
             format!(
@@ -276,6 +292,24 @@ pub fn load_system_prompt(
         .build())
 }
 
+pub fn load_system_prompt_with_hints(
+    cwd: impl Into<PathBuf>,
+    current_date: impl Into<String>,
+    os_name: impl Into<String>,
+    os_version: impl Into<String>,
+    model_hints: ModelHints,
+) -> Result<Vec<String>, PromptBuildError> {
+    let cwd = cwd.into();
+    let project_context = ProjectContext::discover_with_git(&cwd, current_date.into())?;
+    let config = ConfigLoader::default_for(&cwd).load()?;
+    Ok(SystemPromptBuilder::new()
+        .with_os(os_name, os_version)
+        .with_project_context(project_context)
+        .with_runtime_config(config)
+        .with_model_hints(model_hints)
+        .build())
+}
+
 fn render_config_section(config: &RuntimeConfig) -> String {
     let mut lines = vec!["# Runtime config".to_string()];
     if config.loaded_entries().is_empty() {
@@ -352,7 +386,7 @@ fn get_tools_section() -> String {
     [
         "# Tools",
         "",
-        "You have access to these tools: `bash`, `read_file`, `write_file`, `edit_file`, `glob_search`, `grep_search`, `web_fetch`, `todo_write`, `todo_read`.",
+        "You have access to these tools: `bash`, `read_file`, `write_file`, `edit_file`, `glob_search`, `grep_search`, `web_fetch`, `todo_write`, `todo_read`, `read_image`, `task`, `list_directory`, `file_info`, `ask_user`, `web_search`, `git_status`, `git_diff`, `git_log`, `git_branch`, `git_commit`.",
         "",
         "## Tool usage guidelines",
         "- Use `read_file` before `edit_file` to verify the current content.",
@@ -362,6 +396,13 @@ fn get_tools_section() -> String {
         "- Use `web_fetch` to retrieve documentation, API references, or any URL the user provides.",
         "- The `bash` tool runs in PowerShell on Windows, sh on Unix. Always quote paths with spaces. Prefer single-line commands.",
         "- Never write files containing secrets (.env, credentials, API keys) unless explicitly asked.",
+        "- Use `read_image` to view image files (PNG, JPEG, GIF, WebP, SVG) when the user provides image paths with @path syntax.",
+        "- Use `task` to spawn sub-agents for parallel or independent work. Each task runs in isolation with its own context and budget.",
+        "- Use `list_directory` to explore project structure before reading files. Use `file_info` to check if a file exists.",
+        "- Use `web_search` to look up documentation, API references, or error messages when you don't have a direct URL.",
+        "- Use `git_status`, `git_diff`, and `git_log` to understand the current state of the repository before making changes.",
+        "- Use `git_commit` to save your work after completing meaningful changes.",
+        "- Use `ask_user` when you need clarification or additional information to proceed correctly.",
         "- If MCP tools are available (prefixed `mcp__`), use them when they match the task — they extend your capabilities with external services.",
     ].join("\n")
 }

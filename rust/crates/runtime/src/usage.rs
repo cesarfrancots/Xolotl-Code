@@ -51,6 +51,11 @@ impl UsageTracker {
         self.turns += 1;
     }
 
+    pub fn set_cumulative(&mut self, cumulative: TokenUsage, turns: u32) {
+        self.cumulative = cumulative;
+        self.turns = turns;
+    }
+
     #[must_use]
     pub fn current_turn_usage(&self) -> TokenUsage {
         self.latest_turn

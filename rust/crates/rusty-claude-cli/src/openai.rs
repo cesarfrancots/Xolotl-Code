@@ -93,7 +93,16 @@ pub struct OaiRequest {
     /// Ask the provider to include token counts in the final SSE chunk.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<OaiStreamOptions>,
-    pub max_tokens: u32,
+    pub max_completion_tokens: u32,
+    /// Kimi-specific: enable preserved thinking.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<serde_json::Value>,
+    /// Kimi-specific: session-level cache key for prompt caching.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    /// OpenAI/Kimi: force JSON output with optional schema.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -163,6 +172,8 @@ struct OaiDelta {
     content: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<OaiToolCallDelta>>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -441,6 +452,12 @@ fn process_sse_line(
     }
 
     for choice in &chunk.choices {
+        if let Some(reasoning) = &choice.delta.reasoning_content {
+            if !reasoning.is_empty() {
+                events.push(AssistantEvent::ThinkingDelta(reasoning.clone()));
+            }
+        }
+
         if let Some(content) = &choice.delta.content {
             if !content.is_empty() {
                 let _ = write!(stdout, "{content}");

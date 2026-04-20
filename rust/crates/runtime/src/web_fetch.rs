@@ -206,3 +206,66 @@ pub fn web_fetch(input: &WebFetchInput) -> Result<WebFetchOutput, String> {
         truncated,
     })
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SearchResult {
+    pub title: String,
+    pub url: String,
+    pub snippet: String,
+}
+
+/// Web search using DuckDuckGo HTML search.
+/// Returns a list of result titles and URLs.
+pub fn web_search(query: &str, num_results: usize) -> Result<Vec<SearchResult>, String> {
+    use reqwest::blocking::Client;
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let encoded_query: String = query
+        .chars()
+        .map(|c| match c {
+            ' ' => '+'.to_string(),
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' => c.to_string(),
+            _ => format!("%{:02X}", c as u8),
+        })
+        .collect();
+
+    let url = format!("https://html.duckduckgo.com/html/?q={}", encoded_query);
+
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .send()
+        .map_err(|e| format!("web_search request failed: {e}"))?;
+
+    let html = resp.text().map_err(|e| e.to_string())?;
+    let text = html_to_text(&html);
+
+    let mut results = Vec::new();
+    // Simple regex-free parsing: look for result blocks
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with("http") && !line.contains(' ') && results.len() < num_results {
+            // Try to find a title near this URL
+            results.push(SearchResult {
+                title: line.to_string(),
+                url: line.to_string(),
+                snippet: String::new(),
+            });
+        }
+    }
+
+    if results.is_empty() {
+        // Fallback: return raw text so the model can parse it
+        return Ok(vec![SearchResult {
+            title: "Raw search results".to_string(),
+            url: url.clone(),
+            snippet: text.chars().take(4000).collect(),
+        }]);
+    }
+
+    Ok(results)
+}
