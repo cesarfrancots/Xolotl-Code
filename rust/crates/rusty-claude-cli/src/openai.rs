@@ -385,24 +385,67 @@ pub async fn stream_completion(
 ) -> Result<Vec<AssistantEvent>, RuntimeError> {
     let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
 
-    let resp = http
+    // Build request with provider-specific headers
+    let mut request_builder = http
         .post(&url)
         .header("Authorization", format!("Bearer {}", config.api_key))
-        .header("Content-Type", "application/json")
+        .header("Content-Type", "application/json");
+
+    // Add provider-specific headers for better compatibility
+    let provider_name = detect_provider_name(&config.base_url);
+    match provider_name {
+        "minimax" => {
+            // MiniMax may require specific headers
+            request_builder = request_builder.header("Accept", "application/json");
+        }
+        "glm" | "zhipu" => {
+            // Zhipu GLM uses a different auth format sometimes
+            request_builder = request_builder.header("Accept", "application/json");
+        }
+        "qwen" | "dashscope" => {
+            // Alibaba Dashscope specific headers
+            request_builder = request_builder.header("Accept", "application/json");
+        }
+        _ => {}
+    }
+
+    let resp = request_builder
         .json(request)
         .send()
         .await
-        .map_err(|e| RuntimeError::new(format!("OpenAI-compat request failed: {e}")))?;
+        .map_err(|e| {
+            RuntimeError::new(format!(
+                "{provider_name} API request failed: {e}"
+            ))
+        })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
         return Err(RuntimeError::new(format!(
-            "OpenAI-compat API error {status}: {body}"
+            "{provider_name} API error {status}: {body}"
         )));
     }
 
     stream_sse_response(resp).await
+}
+
+/// Detect provider name from base URL for better error messages.
+fn detect_provider_name(base_url: &str) -> &'static str {
+    let url_lower = base_url.to_lowercase();
+    if url_lower.contains("minimax") {
+        "MiniMax"
+    } else if url_lower.contains("moonshot") || url_lower.contains("kimi") {
+        "Kimi"
+    } else if url_lower.contains("bigmodel") || url_lower.contains("zhipu") {
+        "GLM"
+    } else if url_lower.contains("dashscope") || url_lower.contains("qwen") {
+        "Qwen"
+    } else if url_lower.contains("openai") {
+        "OpenAI"
+    } else {
+        "Provider"
+    }
 }
 
 /// Read the SSE response chunk-by-chunk, printing text deltas immediately.

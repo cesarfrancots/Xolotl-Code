@@ -47,7 +47,7 @@ use commands::handle_slash_command;
 use compat_harness::{extract_manifest, UpstreamPaths};
 use mcp::McpManager;
 use runtime::{
-    build_plan_prompt, extract_json_from_response, format_plan_summary,
+    build_plan_prompt, build_ultra_plan_prompt, extract_json_from_response, format_plan_summary,
     load_system_prompt_with_hints, ApiClient, ApiRequest, AssistantEvent, CompactionConfig,
     ContentBlock, ConversationMessage, ConversationRuntime, MemorySystem, MessageRole, ModelHints,
     PermissionMode, PermissionPolicy, PermissionPromptDecision, PermissionPrompter,
@@ -802,6 +802,28 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                 "/plan abort" => {
                     cli.abort_plan();
                 }
+                "/ultra-plan" => {
+                    if let Some(desc) = parts.get(1).copied() {
+                        let desc = desc.trim();
+                        if desc.is_empty() {
+                            println!(
+                                "  {}Usage: /ultra-plan <description>{}",
+                                style::MUTED,
+                                style::RESET
+                            );
+                        } else if let Err(e) = cli.generate_ultra_plan(desc) {
+                            style::print_err(&e.to_string());
+                        }
+                    } else {
+                        println!(
+                            "  {}Usage: /ultra-plan <description>{}  {}Generates a comprehensive plan with dependency tracking, risk assessment, and parallelization analysis.{}",
+                            style::MUTED,
+                            style::RESET,
+                            style::MUTED,
+                            style::RESET
+                        );
+                    }
+                }
                 "/rollback" => {
                     let n = parts
                         .get(1)
@@ -929,7 +951,7 @@ fn print_slash_help() {
     println!("  {WHITE_BOLD}Commands{RESET}");
     println!("  {MUTED}{DIVIDER_SHORT}{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Conversation  {CYAN}/clear{RESET} · {CYAN}/compact{RESET} · {CYAN}/save{RESET} · {CYAN}/load{RESET} · {CYAN}/model{RESET}");
-    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Plan Mode     {CYAN}/plan <description>{RESET} · {CYAN}/plan status{RESET} · {CYAN}/plan abort{RESET}");
+    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Plan Mode     {CYAN}/plan <description>{RESET} · {CYAN}/plan status{RESET} · {CYAN}/plan abort{RESET} · {CYAN}/ultra-plan <description>{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Session Ctrl  {CYAN}/rollback <n>{RESET} · {CYAN}/diff{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Info          {CYAN}/status{RESET} · {CYAN}/cost{RESET} · {CYAN}/budget{RESET} · {CYAN}/sessions{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Memory        {CYAN}/memory{RESET} · {CYAN}/memory search <query>{RESET}");
@@ -1438,6 +1460,119 @@ impl LiveCli {
         let plan_context = format!(
             "# Active Plan: {}\nThere is an active implementation plan with {} tasks across {} phases. \
             Check the todo list for details. Execute the plan step by step.",
+            plan.title,
+            plan.total_tasks(),
+            plan.phases.len()
+        );
+        let mut prompt = self.system_prompt.clone();
+        let boundary_pos = prompt
+            .iter()
+            .position(|s| s.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
+        if let Some(pos) = boundary_pos {
+            prompt.insert(pos + 1, plan_context);
+        } else {
+            prompt.push(plan_context);
+        }
+        self.runtime.set_system_prompt(prompt);
+
+        Ok(())
+    }
+
+    fn generate_ultra_plan(&mut self, description: &str) -> Result<(), Box<dyn std::error::Error>> {
+        use style::{BOLD, CYAN, GREEN, MUTED, RESET, YELLOW};
+
+        // Check if model supports ultra-planning
+        let hints = ModelHints::for_model(&self.model);
+        if !hints.supports_ultra_planning {
+            println!();
+            println!(
+                "  {YELLOW}{BOLD}Warning:{RESET} Your current model does not fully support ultra-planning mode."
+            );
+            println!(
+                "  {MUTED}Falling back to standard plan generation. For best results, use a model like kimi-coding, minimax2.7, or opus.{RESET}"
+            );
+            println!();
+            return self.generate_plan(description);
+        }
+
+        println!();
+        println!(
+            "  {CYAN}{BOLD}Generating ultra-plan...{RESET}  {MUTED}(using enhanced planner with {}-token thinking budget){RESET}",
+            hints.plan_thinking_budget
+        );
+        println!();
+
+        let prompt = build_ultra_plan_prompt(description, None);
+        let response = self
+            .runtime
+            .run_planning_turn(&prompt)
+            .map_err(|e| format!("Ultra-planning failed: {e}"))?;
+
+        let json_str = extract_json_from_response(&response)
+            .ok_or("Planner did not return valid JSON. Try again with a clearer description.")?;
+
+        let plan: PlanArtifact = serde_json::from_str(&json_str)
+            .map_err(|e| format!("Failed to parse plan JSON: {e}"))?;
+
+        // Save plan to disk
+        let plans_dir = claw_home().join("plans");
+        std::fs::create_dir_all(&plans_dir)?;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let plan_path = plans_dir.join(format!("ultra-plan-{ts}.json"));
+        plan.save(&plan_path)?;
+        self.plan_artifact = Some(plan.clone());
+        self.plan_path = Some(plan_path);
+
+        // Convert plan to todos
+        let todos = plan.to_todos();
+        let todo_input = runtime::TodoWriteInput { todos };
+        runtime::todo_write(&todo_input)?;
+
+        // Display plan with enhanced summary
+        println!("{}", format_plan_summary(&plan));
+
+        // Show risk assessment if available
+        if let Some(ref risk) = plan.risk_assessment {
+            println!();
+            println!("  {BOLD}Risk Assessment:{RESET}");
+            println!("    Overall: {} ({}%)", risk.overall_risk.label(), plan.overall_risk_score());
+            if let Some(ref summary) = risk.summary {
+                println!("    {MUTED}{}{RESET}", summary);
+            }
+            if let Some(ref key_risks) = risk.key_risks {
+                if !key_risks.is_empty() {
+                    println!("    Key risks:");
+                    for r in key_risks {
+                        println!("      - {MUTED}{}{RESET}", r);
+                    }
+                }
+            }
+        }
+
+        // Show parallelization analysis if available
+        if let Some(ref para) = plan.parallelization_analysis {
+            if let Some(ref assessment) = para.assessment {
+                println!();
+                println!("  {BOLD}Parallelization:{RESET} {MUTED}{}{RESET}", assessment);
+            }
+        }
+
+        println!();
+        println!(
+            "  {GREEN}{BOLD}Ultra-plan saved{RESET}  {MUTED}{}{RESET}",
+            style::shorten_path(self.plan_path.as_ref().unwrap())
+        );
+        println!("  {MUTED}Use /plan status to check progress. The plan has been added to your todos.{RESET}");
+        println!();
+
+        // Inject plan context into system prompt for the executor
+        let plan_context = format!(
+            "# Active Ultra-Plan: {}\nThere is an active ultra-plan with {} tasks across {} phases. \
+            This plan includes dependency tracking, risk assessment, and rollback points. \
+            Check the todo list for details. Execute the plan step by step, respecting dependencies.",
             plan.title,
             plan.total_tasks(),
             plan.phases.len()
@@ -2332,6 +2467,7 @@ fn build_single_client(
             enable_tools,
             hints.max_completion_tokens,
             cache_key,
+            Some(hints.clone()),
         )?))
     }
 }
@@ -3187,6 +3323,10 @@ struct OpenAiRuntimeClient {
     cache_key: Option<String>,
     is_kimi: bool,
     is_kimi_coding: bool,
+    is_minimax: bool,
+    is_glm: bool,
+    is_qwen: bool,
+    model_hints: Option<runtime::ModelHints>,
 }
 
 impl OpenAiRuntimeClient {
@@ -3196,12 +3336,16 @@ impl OpenAiRuntimeClient {
         enable_tools: bool,
         max_tokens: u32,
         cache_key: Option<String>,
+        model_hints: Option<runtime::ModelHints>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config =
             openai::resolve_provider(&model_spec).map_err(Box::<dyn std::error::Error>::from)?;
-        let is_kimi = model_spec.to_lowercase().contains("kimi")
-            || model_spec.to_lowercase().contains("moonshot");
-        let is_kimi_coding = model_spec.to_lowercase().contains("kimi-coding");
+        let model_lower = model_spec.to_lowercase();
+        let is_kimi = model_lower.contains("kimi") || model_lower.contains("moonshot");
+        let is_kimi_coding = model_lower.contains("kimi-coding");
+        let is_minimax = model_lower.contains("minimax");
+        let is_glm = model_lower.contains("glm") || model_lower.contains("zhipu");
+        let is_qwen = model_lower.contains("qwen") || model_lower.contains("dashscope");
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             http: reqwest::Client::new(),
@@ -3212,6 +3356,10 @@ impl OpenAiRuntimeClient {
             cache_key,
             is_kimi,
             is_kimi_coding,
+            is_minimax,
+            is_glm,
+            is_qwen,
+            model_hints,
         })
     }
 }
@@ -3223,24 +3371,31 @@ impl ApiClient for OpenAiRuntimeClient {
             .enable_tools
             .then(|| openai::to_openai_tools(&self.tool_specs));
 
-        let thinking = if self.is_kimi_coding {
-            request.thinking.map(|_| {
-                serde_json::json!({
-                    "type": "enabled",
-                    "keep": "all",
-                    "budget": 32000
-                })
-            })
-        } else if self.is_kimi {
-            request.thinking.map(|_| {
-                serde_json::json!({
-                    "type": "enabled",
-                    "keep": "all"
-                })
-            })
+        // Configure thinking based on provider and model hints
+        let thinking = if let Some(ref hints) = self.model_hints {
+            if hints.should_use_thinking() && request.thinking.is_some() {
+                let budget = hints.thinking_budget;
+                if self.is_kimi_coding {
+                    serde_json::json!({
+                        "type": "enabled",
+                        "keep": "all",
+                        "budget": budget
+                    })
+                } else if self.is_kimi || self.is_minimax || self.is_glm || self.is_qwen {
+                    serde_json::json!({
+                        "type": "enabled",
+                        "budget": budget
+                    })
+                } else {
+                    serde_json::json!({"type": "enabled"})
+                }
+            } else {
+                serde_json::Value::Null
+            }
         } else {
-            None
+            serde_json::Value::Null
         };
+        let thinking = if thinking.is_null() { None } else { Some(thinking) };
 
         let body = openai::OaiRequest {
             model: self.config.model.clone(),
