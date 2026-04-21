@@ -34,8 +34,7 @@ impl ObsidianVault {
     #[must_use]
     pub fn status(&self) -> (PathBuf, usize) {
         let count = fs::read_dir(&self.sessions_dir)
-            .map(|d| d.filter_map(std::result::Result::ok).count())
-            .unwrap_or(0);
+            .map_or(0, |d| d.filter_map(std::result::Result::ok).count());
         (self.root.clone(), count)
     }
 

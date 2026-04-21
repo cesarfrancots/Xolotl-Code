@@ -26,7 +26,7 @@ impl Default for SubAgentConfig {
             model: None,
             token_budget: None,
             allowed_tools: None,
-            timeout: Duration::from_secs(300),
+            timeout: Duration::from_mins(5),
         }
     }
 }
@@ -159,7 +159,7 @@ impl SubAgentSpawner {
             }
         }
 
-        if child.try_wait().map(|w| w.is_none()).unwrap_or(true) {
+        if child.try_wait().map_or(true, |w| w.is_none()) {
             let _ = child.kill();
             return SubAgentResult::failure(
                 task_id,
