@@ -106,9 +106,7 @@ impl McpConnection {
         }
 
         let mut child = cmd.spawn().map_err(|e| {
-            format!(
-                "Failed to start MCP server '{server_name}' (command: {command}): {e}"
-            )
+            format!("Failed to start MCP server '{server_name}' (command: {command}): {e}")
         })?;
 
         let stdin = child.stdin.take().ok_or("No stdin on MCP server process")?;

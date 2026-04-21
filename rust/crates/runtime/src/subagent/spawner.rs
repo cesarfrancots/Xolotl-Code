@@ -76,7 +76,7 @@ pub struct SubAgentSpawner {
 }
 
 impl SubAgentSpawner {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let results_dir = std::env::temp_dir().join("claw-subagents");
         let _ = std::fs::create_dir_all(&results_dir);
@@ -86,13 +86,13 @@ impl SubAgentSpawner {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_max_total_budget(mut self, budget: usize) -> Self {
         self.max_total_budget_tokens = Some(budget);
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn spawn(&self, config: SubAgentConfig) -> SubAgentResult {
         let task_id = config.generate_task_id();
         let started = Instant::now();
@@ -207,8 +207,12 @@ impl SubAgentSpawner {
         if let Ok(result) = serde_json::from_str::<serde_json::Value>(output) {
             if let Some(usage_obj) = result.get("token_usage").or(result.get("usage")) {
                 if let (Some(input), Some(output_tok)) = (
-                    usage_obj.get("input_tokens").and_then(serde_json::Value::as_u64),
-                    usage_obj.get("output_tokens").and_then(serde_json::Value::as_u64),
+                    usage_obj
+                        .get("input_tokens")
+                        .and_then(serde_json::Value::as_u64),
+                    usage_obj
+                        .get("output_tokens")
+                        .and_then(serde_json::Value::as_u64),
                 ) {
                     return Some(TokenUsage {
                         input_tokens: u32::try_from(input).unwrap_or(u32::MAX),

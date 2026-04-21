@@ -111,7 +111,8 @@ fn is_leap_year(year: u32) -> bool {
 /// Returns `~/.claw-code/` as an absolute path.
 fn claw_home() -> PathBuf {
     let home = env::var("USERPROFILE")
-        .or_else(|_| env::var("HOME")).map_or_else(|_| PathBuf::from("."), PathBuf::from);
+        .or_else(|_| env::var("HOME"))
+        .map_or_else(|_| PathBuf::from("."), PathBuf::from);
     home.join(".claw-code")
 }
 
@@ -192,17 +193,13 @@ fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
 
     let stdin = io::stdin();
     for (var, label) in &keys {
-        let current = config
-            .get(*var)
-            .and_then(|v| v.as_str())
-            .or(None)
-            .map(|v| {
-                if v.len() > 8 {
-                    format!("{}…{}", &v[..4], &v[v.len() - 4..])
-                } else {
-                    "set".to_string()
-                }
-            });
+        let current = config.get(*var).and_then(|v| v.as_str()).or(None).map(|v| {
+            if v.len() > 8 {
+                format!("{}…{}", &v[..4], &v[v.len() - 4..])
+            } else {
+                "set".to_string()
+            }
+        });
 
         if let Some(ref hint) = current {
             eprint!("  {var} [{label}] (current: {hint}): ");
@@ -403,8 +400,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Load persisted keys before anything that might need them
     if !matches!(
         args.first().map(String::as_str),
-        Some("setup" | "--help" | "-h" | "dump-manifests" | "bootstrap-plan" |
-"system-prompt")
+        Some("setup" | "--help" | "-h" | "dump-manifests" | "bootstrap-plan" | "system-prompt")
     ) {
         load_config_keys();
     }
@@ -857,7 +853,11 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
 }
 
 fn print_startup_banner(cli: &LiveCli) {
-    use style::{format_model, shorten_path, ACCENT, SPARKLE, RESET, YELLOW, WARN_SYM, MUTED, BOX_H, strip_ansi_len, BOX_V, BOX_TL, BOX_TR, BOLD, CLAW_ICON, BOX_LM, BOX_RM, GRAY, WHITE_BOLD, BOX_BL, BOX_BR, ARROW_UP, ARROW_DOWN};
+    use style::{
+        format_model, shorten_path, strip_ansi_len, ACCENT, ARROW_DOWN, ARROW_UP, BOLD, BOX_BL,
+        BOX_BR, BOX_H, BOX_LM, BOX_RM, BOX_TL, BOX_TR, BOX_V, CLAW_ICON, GRAY, MUTED, RESET,
+        SPARKLE, WARN_SYM, WHITE_BOLD, YELLOW,
+    };
 
     // Gather info
     let model_display = format_model(&cli.model);
@@ -921,7 +921,10 @@ fn print_startup_banner(cli: &LiveCli) {
 }
 
 fn print_slash_help() {
-    use style::{WHITE_BOLD, RESET, MUTED, DIVIDER_SHORT, ACCENT, PROMPT_ARROW, CYAN, GRAY, ARROW_UP, ARROW_DOWN};
+    use style::{
+        ACCENT, ARROW_DOWN, ARROW_UP, CYAN, DIVIDER_SHORT, GRAY, MUTED, PROMPT_ARROW, RESET,
+        WHITE_BOLD,
+    };
     println!();
     println!("  {WHITE_BOLD}Commands{RESET}");
     println!("  {MUTED}{DIVIDER_SHORT}{RESET}");
@@ -946,7 +949,7 @@ fn print_slash_help() {
 }
 
 fn print_model_help(current: &str) {
-    use style::{format_model, GRAY, RESET, WHITE_BOLD, MUTED, CYAN};
+    use style::{format_model, CYAN, GRAY, MUTED, RESET, WHITE_BOLD};
     println!();
     println!(
         "  {GRAY}current{RESET}  {WHITE_BOLD}{}{RESET}",
@@ -1019,11 +1022,13 @@ impl LiveCli {
         let model_hints = ModelHints::for_model(&model);
         let sdd_engine = SddEngine::new().with_aggressive_read(model_hints.aggressive_read);
 
-        let memory = MemorySystem::discover_vault().map(|vault_path| MemorySystem::new(runtime::MemoryConfig {
+        let memory = MemorySystem::discover_vault().map(|vault_path| {
+            MemorySystem::new(runtime::MemoryConfig {
                 enabled: true,
                 vault_path: Some(vault_path),
                 ..Default::default()
-            }));
+            })
+        });
 
         Ok(Self {
             model,
@@ -1122,13 +1127,11 @@ impl LiveCli {
         if input.starts_with('/') {
             return None;
         }
-        
+
         self.sdd_engine.analyze(input)
     }
 
     fn write_session_memory(&self, duration_secs: u64) {
-        
-
         let Some(memory) = &self.memory else { return };
         if !memory.is_enabled() {
             return;
@@ -1332,9 +1335,7 @@ impl LiveCli {
             }
         } else {
             println!();
-            println!(
-                "  {MUTED}No Obsidian vault found.{RESET} Create one at:"
-            );
+            println!("  {MUTED}No Obsidian vault found.{RESET} Create one at:");
             println!("    ~/Obsidian Vault/");
             println!("    ~/Documents/Obsidian/");
             println!("    ~/.claw-code/vault/");
@@ -1343,7 +1344,7 @@ impl LiveCli {
     }
 
     fn search_memory(&self, query: &str) {
-        use style::{WARN_SYM, RESET, MUTED, CYAN, BOLD};
+        use style::{BOLD, CYAN, MUTED, RESET, WARN_SYM};
         let Some(memory) = &self.memory else {
             println!("  {WARN_SYM}No Obsidian vault configured{RESET}");
             return;
@@ -1389,7 +1390,7 @@ impl LiveCli {
     }
 
     fn generate_plan(&mut self, description: &str) -> Result<(), Box<dyn std::error::Error>> {
-        use style::{CYAN, BOLD, RESET, MUTED, GREEN};
+        use style::{BOLD, CYAN, GREEN, MUTED, RESET};
         println!();
         println!("  {CYAN}{BOLD}Generating plan...{RESET}  {MUTED}(using planner model){RESET}");
         println!();
@@ -1456,7 +1457,7 @@ impl LiveCli {
     }
 
     fn print_plan_status(&self) {
-        use style::{MUTED, RESET, CYAN, BOLD, CHECK, GREEN, RED, WARN_SYM};
+        use style::{BOLD, CHECK, CYAN, GREEN, MUTED, RED, RESET, WARN_SYM};
         let Some(ref plan) = self.plan_artifact else {
             println!("  {MUTED}No active plan. Use /plan <description> to create one.{RESET}");
             return;
@@ -1534,7 +1535,7 @@ impl LiveCli {
     }
 
     fn abort_plan(&mut self) {
-        use style::{MUTED, RESET, WARN_SYM, YELLOW, BOLD};
+        use style::{BOLD, MUTED, RESET, WARN_SYM, YELLOW};
         let Some(ref plan) = self.plan_artifact else {
             println!("  {MUTED}No active plan to abort.{RESET}");
             return;
@@ -1571,7 +1572,10 @@ impl LiveCli {
     }
 
     fn print_status(&self) {
-        use style::{YELLOW, WARN_SYM, RESET, MUTED, shorten_path, print_header, print_kv_w, format_model, fmt_num, ARROW_UP, ARROW_DOWN, SPARKLE, CYAN, WHITE_BOLD, WHITE};
+        use style::{
+            fmt_num, format_model, print_header, print_kv_w, shorten_path, ARROW_DOWN, ARROW_UP,
+            CYAN, MUTED, RESET, SPARKLE, WARN_SYM, WHITE, WHITE_BOLD, YELLOW,
+        };
         let usage = self.runtime.usage().cumulative_usage();
         let cost = self
             .runtime
@@ -1651,7 +1655,10 @@ impl LiveCli {
     }
 
     fn print_cost(&self) {
-        use style::{print_header, print_kv_w, friendly_model_name, format_model, MUTED, RESET, ARROW_UP, fmt_num, ARROW_DOWN, CYAN, WHITE_BOLD, GREEN};
+        use style::{
+            fmt_num, format_model, friendly_model_name, print_header, print_kv_w, ARROW_DOWN,
+            ARROW_UP, CYAN, GREEN, MUTED, RESET, WHITE_BOLD,
+        };
         let usage = self.runtime.usage().cumulative_usage();
         let primary = primary_model_name(&self.model);
         let cost = self.runtime.usage().cost_usd(primary);
@@ -1828,7 +1835,7 @@ impl LiveCli {
     }
 
     fn rollback(&mut self, n: usize) {
-        use style::{YELLOW, BOLD, RESET, MUTED};
+        use style::{BOLD, MUTED, RESET, YELLOW};
         let messages = &mut self.runtime.session_mut().messages;
         // Count how many complete turn cycles (assistant + tool results) to remove
         let mut turns_removed = 0usize;
@@ -1859,7 +1866,7 @@ impl LiveCli {
     }
 
     fn print_session_diff(&self) {
-        use style::{MUTED, RESET, WHITE_BOLD, DIVIDER_SHORT, GREEN, CYAN};
+        use style::{CYAN, DIVIDER_SHORT, GREEN, MUTED, RESET, WHITE_BOLD};
         let messages = &self.runtime.session().messages;
         let mut files_touched: Vec<(String, String)> = Vec::new();
         let mut seen = std::collections::HashSet::new();
@@ -1975,7 +1982,7 @@ impl LiveCli {
 // ── /doctor — diagnostics ─────────────────────────────────────────────────────
 
 fn run_doctor() {
-    use style::{print_header, GREEN, CHECK, RESET, MUTED, DOT, print_kv};
+    use style::{print_header, print_kv, CHECK, DOT, GREEN, MUTED, RESET};
     print_header("Doctor");
 
     // Check credentials
@@ -2004,7 +2011,8 @@ fn run_doctor() {
     // Check config files
     println!();
     let config_home = env::var("USERPROFILE")
-        .or_else(|_| env::var("HOME")).map_or_else(|_| PathBuf::from("."), PathBuf::from);
+        .or_else(|_| env::var("HOME"))
+        .map_or_else(|_| PathBuf::from("."), PathBuf::from);
 
     let config_files: Vec<(PathBuf, &str)> = vec![
         (claw_home().join("config.json"), "claw config"),
@@ -2122,7 +2130,7 @@ fn run_init() -> Result<(), Box<dyn std::error::Error>> {
 // ── /sessions — list saved sessions ───────────────────────────────────────────
 
 fn list_sessions() {
-    use style::{print_header, print_muted, CYAN, RESET, MUTED};
+    use style::{print_header, print_muted, CYAN, MUTED, RESET};
     let dir = sessions_dir();
     let mut entries: Vec<(String, u64, usize)> = Vec::new();
 
@@ -3191,8 +3199,8 @@ impl OpenAiRuntimeClient {
         max_tokens: u32,
         cache_key: Option<String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let config = openai::resolve_provider(&model_spec)
-            .map_err(Box::<dyn std::error::Error>::from)?;
+        let config =
+            openai::resolve_provider(&model_spec).map_err(Box::<dyn std::error::Error>::from)?;
         let is_kimi = model_spec.to_lowercase().contains("kimi")
             || model_spec.to_lowercase().contains("moonshot");
         let is_kimi_coding = model_spec.to_lowercase().contains("kimi-coding");

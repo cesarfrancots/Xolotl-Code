@@ -56,7 +56,7 @@ pub struct TaskStatusInfo {
     pub tasks: Vec<TaskInfo>,
 }
 
-#[must_use] 
+#[must_use]
 pub fn get_task_status() -> TaskStatusInfo {
     TaskStatusInfo {
         pending: 0,

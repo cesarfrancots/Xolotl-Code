@@ -84,7 +84,7 @@ pub struct MemorySystem {
 }
 
 impl MemorySystem {
-    #[must_use] 
+    #[must_use]
     pub fn new(config: MemoryConfig) -> Self {
         let vault = config
             .vault_path
@@ -93,12 +93,12 @@ impl MemorySystem {
         Self { vault, config }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn discover_vault() -> Option<PathBuf> {
         vault::discover_vault()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_enabled(&self) -> bool {
         self.config.enabled && self.vault.is_some()
     }
@@ -137,7 +137,7 @@ impl MemorySystem {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn vault_status(&self) -> Option<(PathBuf, usize)> {
         self.vault.as_ref().map(vault::ObsidianVault::status)
     }

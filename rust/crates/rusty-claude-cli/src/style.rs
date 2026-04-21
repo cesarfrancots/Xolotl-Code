@@ -246,9 +246,7 @@ pub fn print_kv(key: &str, value: &str) {
 
 /// Print a key-value row with custom key width.
 pub fn print_kv_w(key: &str, value: &str, width: usize) {
-    println!(
-        "  {CYAN}{key:<width$}{RESET}{value}"
-    );
+    println!("  {CYAN}{key:<width$}{RESET}{value}");
 }
 
 /// Print a success confirmation.

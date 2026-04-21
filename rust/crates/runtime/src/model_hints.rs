@@ -26,7 +26,7 @@ pub struct ModelHints {
 }
 
 impl ModelHints {
-    #[must_use] 
+    #[must_use]
     #[allow(clippy::too_many_lines)]
     pub fn for_model(model: &str) -> Self {
         let model_lower = model.to_lowercase();
@@ -202,7 +202,7 @@ impl ModelHints {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn should_use_thinking(&self) -> bool {
         matches!(
             self.family,
@@ -214,9 +214,13 @@ impl ModelHints {
         ) && self.thinking_budget > 0
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn context_near_limit(&self, used_tokens: usize) -> bool {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
         {
             let threshold = (self.max_context as f32 * self.compaction_ratio) as usize;
             used_tokens >= threshold

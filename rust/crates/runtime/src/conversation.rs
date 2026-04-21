@@ -178,7 +178,11 @@ where
 
     #[must_use]
     pub fn with_model_hints(mut self, hints: ModelHints) -> Self {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
         {
             self.max_context_tokens = (hints.max_context as f32 * hints.compaction_ratio) as usize;
         }

@@ -464,8 +464,12 @@ fn process_bedrock_chunk(
 }
 
 fn parse_token_usage(usage: &serde_json::Value) -> Option<TokenUsage> {
-    let get_u32 =
-        |key: &str| -> u32 { usage.get(key).and_then(serde_json::Value::as_u64).unwrap_or(0) as u32 };
+    let get_u32 = |key: &str| -> u32 {
+        usage
+            .get(key)
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u32
+    };
     Some(TokenUsage {
         input_tokens: get_u32("input_tokens"),
         output_tokens: get_u32("output_tokens"),
@@ -492,8 +496,7 @@ impl BedrockRuntimeClient {
         enable_tools: bool,
         max_tokens: u32,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let config =
-            resolve_bedrock(model_spec).map_err(Box::<dyn std::error::Error>::from)?;
+        let config = resolve_bedrock(model_spec).map_err(Box::<dyn std::error::Error>::from)?;
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             http: Client::new(),

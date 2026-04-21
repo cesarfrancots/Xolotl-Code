@@ -68,12 +68,12 @@ pub enum Complexity {
 }
 
 impl Complexity {
-    #[must_use] 
+    #[must_use]
     pub fn is_complex(&self) -> bool {
         !matches!(self, Complexity::Low)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn threshold(&self) -> usize {
         match self {
             Complexity::Low => 1,
@@ -88,20 +88,20 @@ pub struct ComplexityDetector {
 }
 
 impl ComplexityDetector {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             aggressive_read_threshold: 5,
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_aggressive_threshold(mut self, threshold: usize) -> Self {
         self.aggressive_read_threshold = threshold;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn detect(&self, input: &str) -> Complexity {
         let input_lower = input.to_lowercase();
 
@@ -165,9 +165,30 @@ impl ComplexityDetector {
 
             let is_code_file = matches!(
                 path_buf.extension().and_then(|e| e.to_str()),
-                Some("rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "cpp" | "c" |
-"h" | "hpp" | "cs" | "rb" | "swift" | "kt" | "scala" | "md" | "json" | "yaml"
-| "yml" | "toml" | "txt")
+                Some(
+                    "rs" | "ts"
+                        | "tsx"
+                        | "js"
+                        | "jsx"
+                        | "py"
+                        | "go"
+                        | "java"
+                        | "cpp"
+                        | "c"
+                        | "h"
+                        | "hpp"
+                        | "cs"
+                        | "rb"
+                        | "swift"
+                        | "kt"
+                        | "scala"
+                        | "md"
+                        | "json"
+                        | "yaml"
+                        | "yml"
+                        | "toml"
+                        | "txt"
+                )
             );
 
             if is_code_file || path.contains('/') || path.contains('\\') {
@@ -178,7 +199,7 @@ impl ComplexityDetector {
         files
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn should_read_aggressively(&self, files: &[PathBuf]) -> bool {
         files.len() >= self.aggressive_read_threshold
     }

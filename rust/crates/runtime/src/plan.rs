@@ -33,7 +33,7 @@ pub struct PlanArtifact {
 
 impl PlanArtifact {
     /// Convert the plan into todo items for tracking progress.
-    #[must_use] 
+    #[must_use]
     pub fn to_todos(&self) -> Vec<TodoItem> {
         let mut todos = Vec::new();
         for (phase_idx, phase) in self.phases.iter().enumerate() {
@@ -80,7 +80,7 @@ impl PlanArtifact {
 }
 
 /// Extract JSON from a markdown code block in assistant text.
-#[must_use] 
+#[must_use]
 pub fn extract_json_from_response(text: &str) -> Option<String> {
     // Look for ```json ... ``` block
     if let Some(start) = text.find("```json") {

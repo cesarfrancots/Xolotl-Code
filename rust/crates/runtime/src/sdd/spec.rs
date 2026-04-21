@@ -17,7 +17,7 @@ pub struct InternalSpec {
 }
 
 impl InternalSpec {
-    #[must_use] 
+    #[must_use]
     pub fn new(task: String) -> Self {
         Self {
             task,
@@ -32,55 +32,55 @@ impl InternalSpec {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_requirements(mut self, requirements: Vec<String>) -> Self {
         self.inferred_requirements = requirements;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_constraints(mut self, constraints: Vec<String>) -> Self {
         self.constraints = constraints;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_acceptance_criteria(mut self, criteria: Vec<String>) -> Self {
         self.acceptance_criteria = criteria;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_files_to_read(mut self, files: Vec<PathBuf>) -> Self {
         self.files_to_read = files;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_files_to_create(mut self, files: Vec<String>) -> Self {
         self.files_to_create = files;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_files_to_modify(mut self, files: Vec<PathBuf>) -> Self {
         self.files_to_modify = files;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_approach(mut self, approach: String) -> Self {
         self.suggested_approach = approach;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_complexity(mut self, complexity: Complexity) -> Self {
         self.complexity = complexity;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn summary(&self) -> String {
         let mut lines = Vec::new();
 
@@ -144,7 +144,7 @@ impl InternalSpec {
         lines.join("\n")
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn phase_context(&self) -> String {
         match self.complexity {
             Complexity::Low => {
@@ -173,11 +173,7 @@ impl InternalSpec {
                     );
                 }
                 if !self.files_to_create.is_empty() {
-                    let _ = write!(
-                        ctx,
-                        "Will create: {}. ",
-                        self.files_to_create.join(", ")
-                    );
+                    let _ = write!(ctx, "Will create: {}. ", self.files_to_create.join(", "));
                 }
                 ctx
             }

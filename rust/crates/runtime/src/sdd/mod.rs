@@ -17,12 +17,12 @@ pub enum SddPhase {
 }
 
 impl SddPhase {
-    #[must_use] 
+    #[must_use]
     pub fn is_terminal(&self) -> bool {
         matches!(self, SddPhase::Idle | SddPhase::Verify)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn suggested_tools(&self) -> &'static [&'static str] {
         match self {
             SddPhase::Idle => &["*"],
@@ -34,7 +34,7 @@ impl SddPhase {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn description(&self) -> &'static str {
         match self {
             SddPhase::Idle => "Ready for new task",
@@ -75,7 +75,7 @@ impl Default for SddState {
 }
 
 impl SddState {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -123,7 +123,7 @@ impl SddState {
         *self = Self::default();
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_active(&self) -> bool {
         !matches!(self.phase, SddPhase::Idle)
     }
@@ -157,7 +157,7 @@ pub struct SddEngine {
 }
 
 impl SddEngine {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             state: SddState::new(),
@@ -165,13 +165,13 @@ impl SddEngine {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_aggressive_read(mut self, aggressive: bool) -> Self {
         self.aggressive_read = aggressive;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn state(&self) -> &SddState {
         &self.state
     }
@@ -217,7 +217,7 @@ impl SddEngine {
         self.state.reset();
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn suggest_next_tool(&self, _last_tool_used: Option<&str>) -> Option<String> {
         if !self.state.is_active() {
             return None;

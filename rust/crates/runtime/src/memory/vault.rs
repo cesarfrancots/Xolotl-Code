@@ -13,7 +13,7 @@ pub struct ObsidianVault {
 }
 
 impl ObsidianVault {
-    #[must_use] 
+    #[must_use]
     pub fn new(root: PathBuf) -> Self {
         let sessions_dir = root.join("sessions");
         let learnings_dir = root.join("learnings");
@@ -31,7 +31,7 @@ impl ObsidianVault {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn status(&self) -> (PathBuf, usize) {
         let count = fs::read_dir(&self.sessions_dir)
             .map(|d| d.filter_map(std::result::Result::ok).count())
@@ -149,11 +149,7 @@ impl ObsidianVault {
 
         let mut md = String::new();
         md.push_str("---\n");
-        let _ = writeln!(
-            md,
-            "date: {}",
-            chrono::Utc::now().format("%Y-%m-%d")
-        );
+        let _ = writeln!(md, "date: {}", chrono::Utc::now().format("%Y-%m-%d"));
         let _ = writeln!(md, "topics: [{}]", topics.join(", "));
         md.push_str("---\n\n");
         let _ = writeln!(md, "# {title}");
@@ -175,7 +171,10 @@ pub fn discover_vault() -> Option<PathBuf> {
         std::env::current_dir().ok().map(|p| p.join(".obsidian")),
     ];
 
-    candidates.into_iter().flatten().find(|candidate| is_valid_vault(candidate))
+    candidates
+        .into_iter()
+        .flatten()
+        .find(|candidate| is_valid_vault(candidate))
 }
 
 fn is_valid_vault(path: &Path) -> bool {

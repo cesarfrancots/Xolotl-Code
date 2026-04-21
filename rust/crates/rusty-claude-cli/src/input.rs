@@ -98,7 +98,8 @@ impl InputHistory {
 
     fn path() -> PathBuf {
         let home = std::env::var("USERPROFILE")
-            .or_else(|_| std::env::var("HOME")).map_or_else(|_| PathBuf::from("."), PathBuf::from);
+            .or_else(|_| std::env::var("HOME"))
+            .map_or_else(|_| PathBuf::from("."), PathBuf::from);
         home.join(".claw-code").join("history.txt")
     }
 }
