@@ -247,9 +247,7 @@ pub fn print_kv(key: &str, value: &str) {
 /// Print a key-value row with custom key width.
 pub fn print_kv_w(key: &str, value: &str, width: usize) {
     println!(
-        "  {CYAN}{key:<width$}{RESET}{value}",
-        key = key,
-        width = width
+        "  {CYAN}{key:<width$}{RESET}{value}"
     );
 }
 
@@ -297,5 +295,5 @@ pub fn shorten_path(path: &std::path::Path) -> String {
             return format!("~{rest}");
         }
     }
-    s.to_string()
+    s.clone()
 }

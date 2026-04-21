@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::sdd::Complexity;
@@ -16,6 +17,7 @@ pub struct InternalSpec {
 }
 
 impl InternalSpec {
+    #[must_use] 
     pub fn new(task: String) -> Self {
         Self {
             task,
@@ -30,46 +32,55 @@ impl InternalSpec {
         }
     }
 
+    #[must_use] 
     pub fn with_requirements(mut self, requirements: Vec<String>) -> Self {
         self.inferred_requirements = requirements;
         self
     }
 
+    #[must_use] 
     pub fn with_constraints(mut self, constraints: Vec<String>) -> Self {
         self.constraints = constraints;
         self
     }
 
+    #[must_use] 
     pub fn with_acceptance_criteria(mut self, criteria: Vec<String>) -> Self {
         self.acceptance_criteria = criteria;
         self
     }
 
+    #[must_use] 
     pub fn with_files_to_read(mut self, files: Vec<PathBuf>) -> Self {
         self.files_to_read = files;
         self
     }
 
+    #[must_use] 
     pub fn with_files_to_create(mut self, files: Vec<String>) -> Self {
         self.files_to_create = files;
         self
     }
 
+    #[must_use] 
     pub fn with_files_to_modify(mut self, files: Vec<PathBuf>) -> Self {
         self.files_to_modify = files;
         self
     }
 
+    #[must_use] 
     pub fn with_approach(mut self, approach: String) -> Self {
         self.suggested_approach = approach;
         self
     }
 
+    #[must_use] 
     pub fn with_complexity(mut self, complexity: Complexity) -> Self {
         self.complexity = complexity;
         self
     }
 
+    #[must_use] 
     pub fn summary(&self) -> String {
         let mut lines = Vec::new();
 
@@ -79,7 +90,7 @@ impl InternalSpec {
         if !self.inferred_requirements.is_empty() {
             lines.push("## Requirements".to_string());
             for req in &self.inferred_requirements {
-                lines.push(format!("- {}", req));
+                lines.push(format!("- {req}"));
             }
             lines.push(String::new());
         }
@@ -87,7 +98,7 @@ impl InternalSpec {
         if !self.constraints.is_empty() {
             lines.push("## Constraints".to_string());
             for constraint in &self.constraints {
-                lines.push(format!("- {}", constraint));
+                lines.push(format!("- {constraint}"));
             }
             lines.push(String::new());
         }
@@ -95,7 +106,7 @@ impl InternalSpec {
         if !self.acceptance_criteria.is_empty() {
             lines.push("## Acceptance Criteria".to_string());
             for criterion in &self.acceptance_criteria {
-                lines.push(format!("- [ ] {}", criterion));
+                lines.push(format!("- [ ] {criterion}"));
             }
             lines.push(String::new());
         }
@@ -111,7 +122,7 @@ impl InternalSpec {
         if !self.files_to_create.is_empty() {
             lines.push("## Files to Create".to_string());
             for file in &self.files_to_create {
-                lines.push(format!("- `{}`", file));
+                lines.push(format!("- `{file}`"));
             }
             lines.push(String::new());
         }
@@ -133,6 +144,7 @@ impl InternalSpec {
         lines.join("\n")
     }
 
+    #[must_use] 
     pub fn phase_context(&self) -> String {
         match self.complexity {
             Complexity::Low => {
@@ -154,16 +166,18 @@ impl InternalSpec {
                     self.files_to_read.len()
                 );
                 if !self.inferred_requirements.is_empty() {
-                    ctx.push_str(&format!(
+                    let _ = write!(
+                        ctx,
                         "Requirements: {}. ",
                         self.inferred_requirements.join(", ")
-                    ));
+                    );
                 }
                 if !self.files_to_create.is_empty() {
-                    ctx.push_str(&format!(
+                    let _ = write!(
+                        ctx,
                         "Will create: {}. ",
                         self.files_to_create.join(", ")
-                    ));
+                    );
                 }
                 ctx
             }

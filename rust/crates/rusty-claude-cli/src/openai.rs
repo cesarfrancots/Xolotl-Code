@@ -1,4 +1,4 @@
-/// OpenAI-compatible API client for Kimi, MiniMax, GLM, OpenAI, and any
+/// OpenAI-compatible API client for Kimi, `MiniMax`, GLM, `OpenAI`, and any
 /// provider that implements the `/v1/chat/completions` + SSE streaming interface.
 use std::collections::HashMap;
 use std::io;
@@ -114,7 +114,7 @@ pub struct OaiMessage {
     pub tool_call_id: Option<String>,
 }
 
-/// OpenAI message content can be either a plain string or an array of parts
+/// `OpenAI` message content can be either a plain string or an array of parts
 /// (text + images for multimodal input).
 #[derive(Debug, Serialize, Clone)]
 #[serde(untagged)]
@@ -218,7 +218,7 @@ struct OaiUsage {
 
 // ── Message conversion ─────────────────────────────────────────────────────────
 
-/// Convert our internal conversation format to OpenAI's messages array.
+/// Convert our internal conversation format to `OpenAI`'s messages array.
 pub fn to_openai_messages(
     system_prompt: &[String],
     messages: &[ConversationMessage],
@@ -358,7 +358,7 @@ pub fn to_openai_messages(
     result
 }
 
-/// Convert our tool specs to OpenAI's function-calling format.
+/// Convert our tool specs to `OpenAI`'s function-calling format.
 pub fn to_openai_tools(specs: &[DynamicToolSpec]) -> Vec<OaiTool> {
     specs
         .iter()
@@ -533,7 +533,7 @@ fn process_sse_line(
 
         if matches!(
             choice.finish_reason.as_deref(),
-            Some("tool_calls") | Some("stop") | Some("end_turn")
+            Some("tool_calls" | "stop" | "end_turn")
         ) {
             for (_, (id, name, input)) in pending_tools.drain() {
                 events.push(AssistantEvent::ToolUse { id, name, input });
@@ -546,7 +546,7 @@ fn process_sse_line(
 }
 
 /// Seal off the event stream: flush any pending tool calls, ensure a
-/// MessageStop exists, and append token usage if available.
+/// `MessageStop` exists, and append token usage if available.
 fn finalize_events(
     events: &mut Vec<AssistantEvent>,
     pending_tools: &mut HashMap<usize, (String, String, String)>,
@@ -585,9 +585,16 @@ fn finalize_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Tests that modify environment variables must run serially
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn resolves_kimi_coding_provider() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        // Temporarily set a dummy API key for testing
+        std::env::set_var("KIMI_CODING_API_KEY", "test-key");
         let config = resolve_provider("kimi-coding/k2.6").unwrap();
         assert_eq!(config.base_url, "https://api.kimi.com/coding/v1");
         assert_eq!(config.model, "k2.6");
@@ -595,6 +602,8 @@ mod tests {
 
     #[test]
     fn resolves_standard_kimi_provider() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("KIMI_API_KEY", "test-key");
         let config = resolve_provider("kimi/moonshot-v1-32k").unwrap();
         assert_eq!(config.base_url, "https://api.moonshot.cn/v1");
         assert_eq!(config.model, "moonshot-v1-32k");
@@ -602,6 +611,8 @@ mod tests {
 
     #[test]
     fn resolves_minimax_provider() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("MINIMAX_API_KEY", "test-key");
         let config = resolve_provider("minimax/MiniMax-Text-01").unwrap();
         assert_eq!(config.base_url, "https://api.minimax.chat/v1");
         assert_eq!(config.model, "MiniMax-Text-01");
@@ -609,6 +620,8 @@ mod tests {
 
     #[test]
     fn resolves_glm_provider() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("GLM_API_KEY", "test-key");
         let config = resolve_provider("glm/glm-5.1").unwrap();
         assert_eq!(config.base_url, "https://open.bigmodel.cn/api/paas/v4");
         assert_eq!(config.model, "glm-5.1");

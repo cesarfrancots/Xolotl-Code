@@ -9,7 +9,7 @@
 /// `AWS_SESSION_TOKEN` and `AWS_DEFAULT_REGION`).
 ///
 /// Uses the streaming `/invoke-with-response-stream` endpoint so tokens appear in
-/// real time, exactly like the Anthropic and OpenAI clients.
+/// real time, exactly like the Anthropic and `OpenAI` clients.
 use std::io::{self, Write};
 
 use reqwest::Client;
@@ -225,7 +225,7 @@ fn utc_compact() -> String {
 }
 
 fn leap(year: u32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 // ── AWS event-stream frame decoder ────────────────────────────────────────────
@@ -262,7 +262,7 @@ fn crc32(data: &[u8]) -> u32 {
 }
 
 /// Extract the event-type value from the binary headers section.
-/// Headers are encoded as: [name_len: u8][name: bytes][type: u8][value_len: u16 BE][value: bytes]
+/// Headers are encoded as: [`name_len`: u8][name: bytes][type: u8][value_len: u16 BE][value: bytes]
 fn parse_event_type(headers: &[u8]) -> Option<String> {
     let mut pos = 0;
     while pos < headers.len() {
@@ -374,7 +374,7 @@ fn process_bedrock_chunk(
             // May contain initial usage
             if let Some(usage) = chunk_json
                 .pointer("/message/usage")
-                .and_then(|u| parse_token_usage(u))
+                .and_then(parse_token_usage)
             {
                 *usage_out = Some(usage);
             }
@@ -451,7 +451,7 @@ fn process_bedrock_chunk(
             }
         }
         "message_delta" => {
-            if let Some(usage) = chunk_json.get("usage").and_then(|u| parse_token_usage(u)) {
+            if let Some(usage) = chunk_json.get("usage").and_then(parse_token_usage) {
                 *usage_out = Some(usage);
             }
         }
@@ -465,7 +465,7 @@ fn process_bedrock_chunk(
 
 fn parse_token_usage(usage: &serde_json::Value) -> Option<TokenUsage> {
     let get_u32 =
-        |key: &str| -> u32 { usage.get(key).and_then(|v| v.as_u64()).unwrap_or(0) as u32 };
+        |key: &str| -> u32 { usage.get(key).and_then(serde_json::Value::as_u64).unwrap_or(0) as u32 };
     Some(TokenUsage {
         input_tokens: get_u32("input_tokens"),
         output_tokens: get_u32("output_tokens"),
@@ -493,7 +493,7 @@ impl BedrockRuntimeClient {
         max_tokens: u32,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config =
-            resolve_bedrock(model_spec).map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+            resolve_bedrock(model_spec).map_err(Box::<dyn std::error::Error>::from)?;
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             http: Client::new(),
@@ -744,7 +744,7 @@ impl ApiClient for BedrockRuntimeClient {
                 events.push(AssistantEvent::Usage(usage));
             }
 
-            if !saw_stop {
+            if saw_stop {
                 events.push(AssistantEvent::MessageStop);
             } else {
                 events.push(AssistantEvent::MessageStop);

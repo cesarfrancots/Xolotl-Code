@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
-use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -179,7 +178,10 @@ where
 
     #[must_use]
     pub fn with_model_hints(mut self, hints: ModelHints) -> Self {
-        self.max_context_tokens = (hints.max_context as f32 * hints.compaction_ratio) as usize;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+        {
+            self.max_context_tokens = (hints.max_context as f32 * hints.compaction_ratio) as usize;
+        }
         self.model_hints = Some(hints);
         self
     }
@@ -242,7 +244,7 @@ where
                 if ch.is_whitespace() || ch == '"' || ch == '\'' || ch == ')' || ch == ']' {
                     // End of path - try to load image
                     if !current_path.is_empty() {
-                        if let Ok(blocks) = self.load_image_from_path(&current_path) {
+                        if let Ok(blocks) = Self::load_image_from_path(&current_path) {
                             for block in blocks {
                                 self.pending_images.push(block);
                             }
@@ -261,7 +263,7 @@ where
 
         // Handle trailing @path
         if in_at_path && !current_path.is_empty() {
-            if let Ok(blocks) = self.load_image_from_path(&current_path) {
+            if let Ok(blocks) = Self::load_image_from_path(&current_path) {
                 for block in blocks {
                     self.pending_images.push(block);
                 }
@@ -271,7 +273,7 @@ where
         result
     }
 
-    fn load_image_from_path(&self, path: &str) -> Result<Vec<ContentBlock>, std::io::Error> {
+    fn load_image_from_path(path: &str) -> Result<Vec<ContentBlock>, std::io::Error> {
         use crate::session::ImageSource;
         use std::fs;
 
@@ -450,13 +452,13 @@ where
                         }
                         PermissionOutcome::Allow => {
                             let mut executor = executor;
-                            hooks.dispatch(HookEvent::PreTool {
+                            hooks.dispatch(&HookEvent::PreTool {
                                 tool_name: &tool_name,
                                 tool_input: &input,
                             });
                             match executor.execute(&tool_name, &input) {
                                 Ok(output) => {
-                                    hooks.dispatch(HookEvent::PostTool {
+                                    hooks.dispatch(&HookEvent::PostTool {
                                         tool_name: &tool_name,
                                         tool_input: &input,
                                         tool_output: &output,
@@ -470,7 +472,7 @@ where
                                 }
                                 Err(error) => {
                                     let msg = error.message.clone();
-                                    hooks.dispatch(HookEvent::ToolError {
+                                    hooks.dispatch(&HookEvent::ToolError {
                                         tool_name: &tool_name,
                                         tool_input: &input,
                                         error: &msg,
@@ -684,15 +686,33 @@ fn base64_encode(data: &[u8]) -> String {
 
 fn guess_media_type(path: &str) -> String {
     let path_lower = path.to_lowercase();
-    if path_lower.ends_with(".png") {
+    if std::path::Path::new(&path_lower)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+    {
         "image/png".to_string()
-    } else if path_lower.ends_with(".jpg") || path_lower.ends_with(".jpeg") {
+    } else if std::path::Path::new(&path_lower)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("jpg"))
+        || std::path::Path::new(&path_lower)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("jpeg"))
+    {
         "image/jpeg".to_string()
-    } else if path_lower.ends_with(".gif") {
+    } else if std::path::Path::new(&path_lower)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gif"))
+    {
         "image/gif".to_string()
-    } else if path_lower.ends_with(".webp") {
+    } else if std::path::Path::new(&path_lower)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("webp"))
+    {
         "image/webp".to_string()
-    } else if path_lower.ends_with(".svg") {
+    } else if std::path::Path::new(&path_lower)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
+    {
         "image/svg+xml".to_string()
     } else {
         "application/octet-stream".to_string()

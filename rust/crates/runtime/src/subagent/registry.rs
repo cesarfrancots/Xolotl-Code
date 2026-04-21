@@ -5,10 +5,13 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
+#[allow(dead_code)]
 static TASK_REGISTRY_COUNTER: AtomicUsize = AtomicUsize::new(0);
+#[allow(dead_code)]
 static GLOBAL_REGISTRY: std::sync::LazyLock<Arc<Mutex<TaskRegistry>>> =
     std::sync::LazyLock::new(|| Arc::new(Mutex::new(TaskRegistry::new(10))));
 
+#[allow(dead_code)]
 pub fn global_task_registry() -> Arc<Mutex<TaskRegistry>> {
     GLOBAL_REGISTRY.clone()
 }
@@ -23,6 +26,7 @@ pub struct TaskStatus {
 }
 
 impl TaskStatus {
+    #[must_use] 
     pub fn total(&self) -> usize {
         self.running + self.pending + self.completed + self.failed + self.cancelled
     }
@@ -35,6 +39,7 @@ pub struct TaskRegistry {
 }
 
 impl TaskRegistry {
+    #[must_use] 
     pub fn new(max_concurrent: usize) -> Self {
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
@@ -89,6 +94,7 @@ impl TaskRegistry {
         }
     }
 
+    #[must_use] 
     pub fn cancel(&self, task_id: &str) -> bool {
         let mut tasks = self.tasks.lock().unwrap();
         if let Some(info) = tasks.get_mut(task_id) {
@@ -109,6 +115,7 @@ impl TaskRegistry {
         results.push(result);
     }
 
+    #[must_use] 
     pub fn status(&self) -> TaskStatus {
         let tasks = self.tasks.lock().unwrap();
         let mut status = TaskStatus::default();
@@ -124,16 +131,19 @@ impl TaskRegistry {
         status
     }
 
+    #[must_use] 
     pub fn list_tasks(&self) -> Vec<SubAgentInfo> {
         let tasks = self.tasks.lock().unwrap();
         tasks.values().cloned().collect()
     }
 
+    #[must_use] 
     pub fn get_result(&self, task_id: &str) -> Option<SubAgentResult> {
         let results = self.results.lock().unwrap();
         results.iter().find(|r| r.task_id == task_id).cloned()
     }
 
+    #[must_use] 
     pub fn max_concurrent(&self) -> usize {
         self.max_concurrent
     }

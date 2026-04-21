@@ -46,6 +46,7 @@ pub struct HookManager {
 }
 
 impl HookManager {
+    #[must_use] 
     pub fn new() -> Self {
         Self { hooks: Vec::new() }
     }
@@ -54,7 +55,7 @@ impl HookManager {
         self.hooks.push(hook);
     }
 
-    pub fn dispatch(&self, event: HookEvent) {
+    pub fn dispatch(&self, event: &HookEvent) {
         for hook in &self.hooks {
             hook.on_event(event.clone());
         }
@@ -78,7 +79,7 @@ impl Hook for LoggingHook {
             } => {
                 eprintln!("[hook] tool-error: {tool_name} — {error}");
             }
-            _ => {}
+            HookEvent::PostTurn { .. } => {}
         }
     }
 }

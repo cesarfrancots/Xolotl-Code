@@ -1,5 +1,5 @@
+use std::fmt::Write;
 use std::fs;
-use std::io::{self, BufRead};
 use std::path::{Path, PathBuf};
 
 use super::SessionNote;
@@ -13,6 +13,7 @@ pub struct ObsidianVault {
 }
 
 impl ObsidianVault {
+    #[must_use] 
     pub fn new(root: PathBuf) -> Self {
         let sessions_dir = root.join("sessions");
         let learnings_dir = root.join("learnings");
@@ -30,9 +31,10 @@ impl ObsidianVault {
         }
     }
 
+    #[must_use] 
     pub fn status(&self) -> (PathBuf, usize) {
         let count = fs::read_dir(&self.sessions_dir)
-            .map(|d| d.filter_map(|e| e.ok()).count())
+            .map(|d| d.filter_map(std::result::Result::ok).count())
             .unwrap_or(0);
         (self.root.clone(), count)
     }
@@ -40,7 +42,7 @@ impl ObsidianVault {
     pub fn write_session_note(&self, note: &SessionNote) -> Result<PathBuf, std::io::Error> {
         let filename = format!(
             "{}-{}.md",
-            note.date.replace(':', "-").replace(' ', "-"),
+            note.date.replace([':', ' '], "-"),
             sanitize_filename(&note.task)
         );
         let path = self.sessions_dir.join(&filename);
@@ -57,7 +59,7 @@ impl ObsidianVault {
         let mut results = Vec::new();
 
         if let Ok(entries) = fs::read_dir(&self.sessions_dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
+            for entry in entries.filter_map(std::result::Result::ok) {
                 let path = entry.path();
                 if path.extension().and_then(|s| s.to_str()) == Some("md") {
                     if let Ok(content) = fs::read_to_string(&path) {
@@ -70,7 +72,7 @@ impl ObsidianVault {
         }
 
         if let Ok(entries) = fs::read_dir(&self.learnings_dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
+            for entry in entries.filter_map(std::result::Result::ok) {
                 let path = entry.path();
                 if path.extension().and_then(|s| s.to_str()) == Some("md") {
                     if let Ok(content) = fs::read_to_string(&path) {
@@ -89,7 +91,7 @@ impl ObsidianVault {
 
     pub fn get_recent_sessions(&self, limit: usize) -> Result<Vec<PathBuf>, std::io::Error> {
         let mut sessions: Vec<_> = fs::read_dir(&self.sessions_dir)?
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("md"))
             .collect();
 
@@ -117,7 +119,7 @@ impl ObsidianVault {
         let mut results = Vec::new();
         for dir in [&self.sessions_dir, &self.learnings_dir, &self.project_dir] {
             if let Ok(entries) = fs::read_dir(dir) {
-                for entry in entries.filter_map(|e| e.ok()) {
+                for entry in entries.filter_map(std::result::Result::ok) {
                     let path = entry.path();
                     if path.extension().and_then(|s| s.to_str()) == Some("md") {
                         let modified = entry.metadata().and_then(|m| m.modified()).ok();
@@ -125,8 +127,7 @@ impl ObsidianVault {
                             .file_stem()
                             .and_then(|s| s.to_str())
                             .unwrap_or("untitled")
-                            .replace('-', " ")
-                            .replace('_', " ");
+                            .replace(['-', '_'], " ");
                         if let Some(mtime) = modified {
                             results.push((path, title, mtime));
                         }
@@ -148,13 +149,15 @@ impl ObsidianVault {
 
         let mut md = String::new();
         md.push_str("---\n");
-        md.push_str(&format!(
-            "date: {}\n",
+        let _ = writeln!(
+            md,
+            "date: {}",
             chrono::Utc::now().format("%Y-%m-%d")
-        ));
-        md.push_str(&format!("topics: [{}]\n", topics.join(", ")));
+        );
+        let _ = writeln!(md, "topics: [{}]", topics.join(", "));
         md.push_str("---\n\n");
-        md.push_str(&format!("# {}\n\n", title));
+        let _ = writeln!(md, "# {title}");
+        md.push('\n');
         md.push_str(content);
         md.push('\n');
 
@@ -172,13 +175,7 @@ pub fn discover_vault() -> Option<PathBuf> {
         std::env::current_dir().ok().map(|p| p.join(".obsidian")),
     ];
 
-    for candidate in candidates.into_iter().flatten() {
-        if is_valid_vault(&candidate) {
-            return Some(candidate);
-        }
-    }
-
-    None
+    candidates.into_iter().flatten().find(|candidate| is_valid_vault(candidate))
 }
 
 fn is_valid_vault(path: &Path) -> bool {

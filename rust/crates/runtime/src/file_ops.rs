@@ -710,7 +710,7 @@ pub fn file_info(path: &str) -> io::Result<FileInfoOutput> {
     let permissions = metadata.permissions().mode();
     #[cfg(not(unix))]
     let permissions = 0u32;
-    let permissions_str = format!("{:o}", permissions);
+    let permissions_str = format!("{permissions:o}");
 
     Ok(FileInfoOutput {
         path: path.to_string(),

@@ -180,9 +180,7 @@ impl SystemPromptBuilder {
         );
         let model_display = self
             .model_hints
-            .as_ref()
-            .map(|h| format!("{:?}", h.family))
-            .unwrap_or_else(|| FRONTIER_MODEL_NAME.to_string());
+            .as_ref().map_or_else(|| FRONTIER_MODEL_NAME.to_string(), |h| format!("{:?}", h.family));
         let mut lines = vec!["# Environment context".to_string()];
         lines.extend(prepend_bullets(vec![
             format!("Model family: {model_display}"),

@@ -68,10 +68,12 @@ pub enum Complexity {
 }
 
 impl Complexity {
+    #[must_use] 
     pub fn is_complex(&self) -> bool {
         !matches!(self, Complexity::Low)
     }
 
+    #[must_use] 
     pub fn threshold(&self) -> usize {
         match self {
             Complexity::Low => 1,
@@ -86,24 +88,27 @@ pub struct ComplexityDetector {
 }
 
 impl ComplexityDetector {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             aggressive_read_threshold: 5,
         }
     }
 
+    #[must_use] 
     pub fn with_aggressive_threshold(mut self, threshold: usize) -> Self {
         self.aggressive_read_threshold = threshold;
         self
     }
 
+    #[must_use] 
     pub fn detect(&self, input: &str) -> Complexity {
         let input_lower = input.to_lowercase();
 
-        let file_count = self.count_file_references(input);
-        let has_complexity_keyword = self.contains_keywords(&input_lower, &COMPLEXITY_KEYWORDS);
-        let has_scope_keyword = self.contains_keywords(&input_lower, &SCOPE_KEYWORDS);
-        let mentions_existing = self.mentions_existing_code(input);
+        let file_count = Self::count_file_references(input);
+        let has_complexity_keyword = Self::contains_keywords(&input_lower, &COMPLEXITY_KEYWORDS);
+        let has_scope_keyword = Self::contains_keywords(&input_lower, &SCOPE_KEYWORDS);
+        let mentions_existing = Self::mentions_existing_code(input);
         let has_multiple_files = file_count >= 2;
 
         let complexity_score = {
@@ -156,56 +161,37 @@ impl ComplexityDetector {
             }
             seen.insert(normalized.clone());
 
-            let pathBuf = PathBuf::from(path);
+            let path_buf = PathBuf::from(path);
 
             let is_code_file = matches!(
-                pathBuf.extension().and_then(|e| e.to_str()),
-                Some("rs")
-                    | Some("ts")
-                    | Some("tsx")
-                    | Some("js")
-                    | Some("jsx")
-                    | Some("py")
-                    | Some("go")
-                    | Some("java")
-                    | Some("cpp")
-                    | Some("c")
-                    | Some("h")
-                    | Some("hpp")
-                    | Some("cs")
-                    | Some("rb")
-                    | Some("swift")
-                    | Some("kt")
-                    | Some("scala")
-                    | Some("md")
-                    | Some("json")
-                    | Some("yaml")
-                    | Some("yml")
-                    | Some("toml")
-                    | Some("txt")
+                path_buf.extension().and_then(|e| e.to_str()),
+                Some("rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "cpp" | "c" |
+"h" | "hpp" | "cs" | "rb" | "swift" | "kt" | "scala" | "md" | "json" | "yaml"
+| "yml" | "toml" | "txt")
             );
 
             if is_code_file || path.contains('/') || path.contains('\\') {
-                files.push(pathBuf);
+                files.push(path_buf);
             }
         }
 
         files
     }
 
+    #[must_use] 
     pub fn should_read_aggressively(&self, files: &[PathBuf]) -> bool {
         files.len() >= self.aggressive_read_threshold
     }
 
-    fn count_file_references(&self, input: &str) -> usize {
+    fn count_file_references(input: &str) -> usize {
         FILE_PATH_REGEX.captures_iter(input).count()
     }
 
-    fn contains_keywords(&self, text: &str, keywords: &[&str]) -> bool {
+    fn contains_keywords(text: &str, keywords: &[&str]) -> bool {
         keywords.iter().any(|kw| text.contains(kw))
     }
 
-    fn mentions_existing_code(&self, input: &str) -> bool {
+    fn mentions_existing_code(input: &str) -> bool {
         EXISTING_CODE_PATTERNS.iter().any(|re| re.is_match(input))
     }
 }

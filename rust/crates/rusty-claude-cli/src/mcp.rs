@@ -1,7 +1,7 @@
 /// MCP (Model Context Protocol) client.
 ///
 /// Reads `mcpServers` from `~/.claude/settings.json` (same format as Claude Code /
-/// OpenCode), spawns each server as a child process communicating over stdio
+/// `OpenCode`), spawns each server as a child process communicating over stdio
 /// using JSON-RPC 2.0, performs `initialize` + `tools/list` at startup, and
 /// routes `tools/call` requests when the model uses an `mcp__<server>__<tool>` name.
 ///
@@ -24,7 +24,7 @@
 /// ```
 ///
 /// Tool names exposed to the model use the prefix `mcp__<server>__<tool>`.
-/// This mirrors the Claude Code / OpenCode convention.
+/// This mirrors the Claude Code / `OpenCode` convention.
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -107,8 +107,7 @@ impl McpConnection {
 
         let mut child = cmd.spawn().map_err(|e| {
             format!(
-                "Failed to start MCP server '{}' (command: {}): {}",
-                server_name, command, e
+                "Failed to start MCP server '{server_name}' (command: {command}): {e}"
             )
         })?;
 
@@ -357,8 +356,7 @@ fn load_mcp_configs() -> HashMap<String, McpServerConfig> {
         for (name, server) in servers {
             let Some(command) = server.get("command").and_then(|v| v.as_str()) else {
                 eprintln!(
-                    "  \x1b[33m⚠ MCP server '{}' missing 'command' field, skipping\x1b[0m",
-                    name
+                    "  \x1b[33m⚠ MCP server '{name}' missing 'command' field, skipping\x1b[0m"
                 );
                 continue;
             };

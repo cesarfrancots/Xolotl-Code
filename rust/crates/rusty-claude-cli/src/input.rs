@@ -12,7 +12,7 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
 /// Persistent input history stored in `~/.claw-code/history.txt`.
 pub struct InputHistory {
     entries: Vec<String>,
-    /// Current browse position (entries.len() == "new input", < len = browsing).
+    /// Current browse position (`entries.len()` == "new input", < len = browsing).
     cursor: usize,
     /// Maximum entries to keep in memory/on disk.
     max_entries: usize,
@@ -45,7 +45,7 @@ impl InputHistory {
             return;
         }
         // Deduplicate consecutive entries
-        if self.entries.last().map_or(false, |last| *last == entry) {
+        if self.entries.last().is_some_and(|last| *last == entry) {
             self.cursor = self.entries.len();
             return;
         }
@@ -98,9 +98,7 @@ impl InputHistory {
 
     fn path() -> PathBuf {
         let home = std::env::var("USERPROFILE")
-            .or_else(|_| std::env::var("HOME"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("."));
+            .or_else(|_| std::env::var("HOME")).map_or_else(|_| PathBuf::from("."), PathBuf::from);
         home.join(".claw-code").join("history.txt")
     }
 }

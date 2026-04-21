@@ -567,13 +567,13 @@ fn run_ask_user(input: AskUserInput) -> Result<String, String> {
     io::stdin()
         .read_line(&mut response)
         .map_err(|e| e.to_string())?;
-    to_pretty_json(&serde_json::json!({ "response": response.trim() }))
+    to_pretty_json(serde_json::json!({ "response": response.trim() }))
 }
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_web_search(input: WebSearchInput) -> Result<String, String> {
     let results =
-        web_search(&input.query, input.num_results.unwrap_or(5)).map_err(|e| e.to_string())?;
+        web_search(&input.query, input.num_results.unwrap_or(5)).map_err(|e| e.clone())?;
     to_pretty_json(&results)
 }
 
@@ -589,7 +589,7 @@ fn run_git_status(input: GitStatusInput) -> Result<String, String> {
     if !output.status.success() && stdout.is_empty() {
         return Err(format!("git status failed: {stderr}"));
     }
-    to_pretty_json(&serde_json::json!({ "status": stdout, "stderr": stderr }))
+    to_pretty_json(serde_json::json!({ "status": stdout, "stderr": stderr }))
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -608,7 +608,7 @@ fn run_git_diff(input: GitDiffInput) -> Result<String, String> {
     if !output.status.success() && stdout.is_empty() {
         return Err(format!("git diff failed: {stderr}"));
     }
-    to_pretty_json(&serde_json::json!({ "diff": stdout, "stderr": stderr }))
+    to_pretty_json(serde_json::json!({ "diff": stdout, "stderr": stderr }))
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -628,7 +628,7 @@ fn run_git_log(input: GitLogInput) -> Result<String, String> {
     if !output.status.success() && stdout.is_empty() {
         return Err(format!("git log failed: {stderr}"));
     }
-    to_pretty_json(&serde_json::json!({ "log": stdout, "stderr": stderr }))
+    to_pretty_json(serde_json::json!({ "log": stdout, "stderr": stderr }))
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -659,7 +659,7 @@ fn run_git_branch(input: GitBranchInput) -> Result<String, String> {
     if !output.status.success() && stdout.is_empty() {
         return Err(format!("git branch failed: {stderr}"));
     }
-    to_pretty_json(&serde_json::json!({ "output": stdout, "stderr": stderr }))
+    to_pretty_json(serde_json::json!({ "output": stdout, "stderr": stderr }))
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -688,7 +688,7 @@ fn run_git_commit(input: GitCommitInput) -> Result<String, String> {
     if !output.status.success() {
         return Err(format!("git commit failed: {stderr}"));
     }
-    to_pretty_json(&serde_json::json!({ "output": stdout, "stderr": stderr }))
+    to_pretty_json(serde_json::json!({ "output": stdout, "stderr": stderr }))
 }
 
 fn to_pretty_json<T: serde::Serialize>(value: T) -> Result<String, String> {

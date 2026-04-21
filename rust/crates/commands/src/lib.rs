@@ -1,4 +1,6 @@
-use runtime::{compact_session, CompactionConfig, Session, SubAgentInfo, SubAgentStatus};
+use std::fmt::Write;
+
+use runtime::{compact_session, CompactionConfig, Session};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandManifestEntry {
@@ -54,6 +56,7 @@ pub struct TaskStatusInfo {
     pub tasks: Vec<TaskInfo>,
 }
 
+#[must_use] 
 pub fn get_task_status() -> TaskStatusInfo {
     TaskStatusInfo {
         pending: 0,
@@ -66,7 +69,7 @@ pub fn get_task_status() -> TaskStatusInfo {
 }
 
 #[must_use]
-pub fn format_task_status(status: TaskStatusInfo) -> String {
+pub fn format_task_status(status: &TaskStatusInfo) -> String {
     let mut output = String::new();
     output.push_str("## Sub-Agent Task Status\n\n");
 
@@ -75,23 +78,25 @@ pub fn format_task_status(status: TaskStatusInfo) -> String {
         return output;
     }
 
-    output.push_str(&format!(
+    let _ = write!(
+        output,
         "**Summary:** {} pending, {} running, {} completed, {} failed, {} cancelled\n\n",
         status.pending, status.running, status.completed, status.failed, status.cancelled
-    ));
+    );
 
     output.push_str("| Task ID | Description | Status | Started | Completed |\n");
     output.push_str("|---------|-------------|--------|---------|----------|\n");
 
     for task in &status.tasks {
-        output.push_str(&format!(
-            "| {} | {} | {} | {} | {} |\n",
+        let _ = writeln!(
+            output,
+            "| {} | {} | {} | {} | {} |",
             task.task_id,
             task.description.chars().take(30).collect::<String>(),
             task.status,
             task.started_at.as_deref().unwrap_or("-"),
             task.completed_at.as_deref().unwrap_or("-")
-        ));
+        );
     }
 
     output
@@ -126,7 +131,7 @@ pub fn handle_slash_command(
         }
         Some("/tasks") => {
             let status = get_task_status();
-            let message = format_task_status(status);
+            let message = format_task_status(&status);
             Some(SlashCommandResult {
                 message,
                 session: session.clone(),

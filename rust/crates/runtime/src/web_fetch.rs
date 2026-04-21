@@ -214,7 +214,7 @@ pub struct SearchResult {
     pub snippet: String,
 }
 
-/// Web search using DuckDuckGo HTML search.
+/// Web search using `DuckDuckGo` HTML search.
 /// Returns a list of result titles and URLs.
 pub fn web_search(query: &str, num_results: usize) -> Result<Vec<SearchResult>, String> {
     use reqwest::blocking::Client;
@@ -233,7 +233,7 @@ pub fn web_search(query: &str, num_results: usize) -> Result<Vec<SearchResult>, 
         })
         .collect();
 
-    let url = format!("https://html.duckduckgo.com/html/?q={}", encoded_query);
+    let url = format!("https://html.duckduckgo.com/html/?q={encoded_query}");
 
     let resp = client
         .get(&url)

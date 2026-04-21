@@ -4,7 +4,7 @@
 //! model required — pure classical IR that works offline and cross-platform.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// A scored document result from a search query.
 #[derive(Debug, Clone)]
@@ -17,9 +17,9 @@ pub struct MemorySearchResult {
 
 /// In-memory TF-IDF index for a collection of markdown notes.
 pub struct NoteIndex {
-    /// term -> (doc_id, term_frequency_in_doc)
+    /// term -> (`doc_id`, `term_frequency_in_doc`)
     inverted: HashMap<String, Vec<(usize, f64)>>,
-    /// doc_id -> document metadata
+    /// `doc_id` -> document metadata
     docs: Vec<DocMeta>,
     /// Total number of documents indexed
     doc_count: usize,
@@ -29,8 +29,6 @@ pub struct NoteIndex {
 struct DocMeta {
     path: PathBuf,
     title: String,
-    term_counts: HashMap<String, usize>,
-    total_terms: usize,
     modified: Option<std::time::SystemTime>,
 }
 
@@ -63,6 +61,7 @@ impl NoteIndex {
 
         // Index terms
         for (term, count) in &term_counts {
+            #[allow(clippy::cast_precision_loss)]
             let tf = (*count as f64) / (total_terms.max(1) as f64);
             self.inverted
                 .entry(term.clone())
@@ -73,8 +72,6 @@ impl NoteIndex {
         self.docs.push(DocMeta {
             path,
             title,
-            term_counts,
-            total_terms,
             modified,
         });
         self.doc_count += 1;
@@ -92,6 +89,7 @@ impl NoteIndex {
 
         for term in &query_terms {
             if let Some(postings) = self.inverted.get(term) {
+                #[allow(clippy::cast_precision_loss)]
                 let idf = ((self.doc_count as f64) / (postings.len().max(1) as f64)).ln() + 1.0;
                 for (doc_id, tf) in postings {
                     let score = tf * idf;
@@ -113,6 +111,7 @@ impl NoteIndex {
         for (doc_id, doc) in self.docs.iter().enumerate() {
             if let Some(modified) = doc.modified {
                 if let Ok(age_secs) = now.duration_since(modified).map(|d| d.as_secs()) {
+                    #[allow(clippy::cast_precision_loss)]
                     let days = age_secs as f64 / 86400.0;
                     let recency_boost = 1.0 + (30.0 / (days + 30.0));
                     if let Some(score) = scores.get_mut(&doc_id) {
@@ -172,9 +171,8 @@ fn tokenize(text: &str) -> Vec<String> {
 /// Extract a snippet around the first matching query term.
 fn extract_snippet(doc_id: usize, query_terms: &[String], docs: &[DocMeta]) -> String {
     let doc = &docs[doc_id];
-    let content = match std::fs::read_to_string(&doc.path) {
-        Ok(c) => c,
-        Err(_) => return String::new(),
+    let Ok(content) = std::fs::read_to_string(&doc.path) else {
+        return String::new();
     };
 
     let content_lower = content.to_lowercase();
@@ -183,7 +181,7 @@ fn extract_snippet(doc_id: usize, query_terms: &[String], docs: &[DocMeta]) -> S
             let start = pos.saturating_sub(60);
             let end = (pos + term.len() + 120).min(content.len());
             let snippet = &content[start..end];
-            return snippet.trim().replace('\n', " ").to_string();
+            return snippet.trim().replace('\n', " ").clone();
         }
     }
 

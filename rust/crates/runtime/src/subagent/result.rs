@@ -32,7 +32,7 @@ impl SubAgentResult {
             success: true,
             output,
             token_usage,
-            elapsed_ms: elapsed.as_millis() as u64,
+            elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
             error: None,
             budget_tokens: None,
             exceeded_budget: false,
@@ -48,14 +48,14 @@ impl SubAgentResult {
         elapsed: Duration,
         budget_tokens: u32,
     ) -> Self {
-        let actual = token_usage.as_ref().map(|u| u.total_tokens()).unwrap_or(0);
+        let actual = token_usage.as_ref().map_or(0, |u| u.total_tokens());
         Self {
             task_id,
             description,
             success: true,
             output,
             token_usage,
-            elapsed_ms: elapsed.as_millis() as u64,
+            elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
             error: None,
             budget_tokens: Some(budget_tokens),
             exceeded_budget: actual > budget_tokens,
@@ -70,7 +70,7 @@ impl SubAgentResult {
             success: false,
             output: String::new(),
             token_usage: None,
-            elapsed_ms: elapsed.as_millis() as u64,
+            elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
             error: Some(error),
             budget_tokens: None,
             exceeded_budget: false,
@@ -86,17 +86,16 @@ impl SubAgentResult {
         elapsed: Duration,
         budget_tokens: u32,
     ) -> Self {
-        let actual = token_usage.as_ref().map(|u| u.total_tokens()).unwrap_or(0);
+        let actual = token_usage.as_ref().map_or(0, |u| u.total_tokens());
         Self {
             task_id,
             description,
             success: false,
             output,
             token_usage,
-            elapsed_ms: elapsed.as_millis() as u64,
+            elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
             error: Some(format!(
-                "Token budget exceeded: {} tokens used > {} budget",
-                actual, budget_tokens
+                "Token budget exceeded: {actual} tokens used > {budget_tokens} budget"
             )),
             budget_tokens: Some(budget_tokens),
             exceeded_budget: true,

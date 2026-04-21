@@ -1,3 +1,29 @@
+// Allow various clippy lints that would require significant refactoring
+#![allow(
+    clippy::too_many_lines,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::needless_pass_by_value,
+    clippy::format_push_string,
+    clippy::unused_self,
+    clippy::similar_names,
+    clippy::case_sensitive_file_extension_comparisons,
+    clippy::clone_on_ref_ptr,
+    clippy::manual_let_else,
+    clippy::doc_lazy_continuation,
+    clippy::redundant_clone,
+    clippy::unnecessary_wraps,
+    clippy::unused_unit,
+    clippy::let_underscore_untyped,
+    clippy::if_same_then_else,
+    clippy::too_many_arguments,
+    clippy::assigning_clones,
+    clippy::needless_continue,
+    clippy::format_collect,
+    clippy::no_effect_underscore_binding,
+    dead_code
+)]
+
 mod bedrock;
 mod input;
 mod mcp;
@@ -79,15 +105,13 @@ fn today_iso() -> String {
 }
 
 fn is_leap_year(year: u32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 /// Returns `~/.claw-code/` as an absolute path.
 fn claw_home() -> PathBuf {
     let home = env::var("USERPROFILE")
-        .or_else(|_| env::var("HOME"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."));
+        .or_else(|_| env::var("HOME")).map_or_else(|_| PathBuf::from("."), PathBuf::from);
     home.join(".claw-code")
 }
 
@@ -171,7 +195,7 @@ fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
         let current = config
             .get(*var)
             .and_then(|v| v.as_str())
-            .or_else(|| None)
+            .or(None)
             .map(|v| {
                 if v.len() > 8 {
                     format!("{}…{}", &v[..4], &v[v.len() - 4..])
@@ -280,18 +304,17 @@ impl PermissionPrompter for ReplPermissionPrompter {
         );
         eprintln!("  {}{}{}", style::YELLOW, style::BOX_V, style::RESET);
         eprintln!(
-            "  {}{}{}  {}tool{}   {}{}",
+            "  {}{}{}  {}tool{}   {}",
             style::YELLOW,
             style::BOX_V,
             style::RESET,
             style::CYAN,
             style::RESET,
-            display_name,
-            ""
+            display_name
         );
         // Print input preview (wrapping at width-4)
         let wrap_width = width.saturating_sub(9);
-        let input_clean: String = preview.replace('\n', " ").replace('\t', " ");
+        let input_clean: String = preview.replace(['\n', '\t'], " ");
         let input_line = if input_clean.chars().count() > wrap_width {
             format!(
                 "{}…",
@@ -304,14 +327,13 @@ impl PermissionPrompter for ReplPermissionPrompter {
             input_clean
         };
         eprintln!(
-            "  {}{}{}  {}input{}  {}{}",
+            "  {}{}{}  {}input{}  {}",
             style::YELLOW,
             style::BOX_V,
             style::RESET,
             style::CYAN,
             style::RESET,
-            input_line,
-            ""
+            input_line
         );
         eprintln!("  {}{}{}", style::YELLOW, style::BOX_V, style::RESET);
         eprintln!(
@@ -381,12 +403,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Load persisted keys before anything that might need them
     if !matches!(
         args.first().map(String::as_str),
-        Some("setup")
-            | Some("--help")
-            | Some("-h")
-            | Some("dump-manifests")
-            | Some("bootstrap-plan")
-            | Some("system-prompt")
+        Some("setup" | "--help" | "-h" | "dump-manifests" | "bootstrap-plan" |
+"system-prompt")
     ) {
         load_config_keys();
     }
@@ -400,7 +418,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             command,
         } => resume_session(&session_path, command),
         CliAction::Prompt { prompt, model } => {
-            LiveCli::new(model, false, false)?.run_turn(&prompt)?
+            LiveCli::new(model, false, false)?.run_turn(&prompt)?;
         }
         CliAction::Repl { model, auto_accept } => run_repl(model, auto_accept)?,
         CliAction::Setup => run_setup()?,
@@ -456,7 +474,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     while index < args.len() {
         match args[index].as_str() {
             "--version" | "-v" => {
-                println!("claw version {}", CLAW_VERSION);
+                println!("claw version {CLAW_VERSION}");
                 std::process::exit(0);
             }
             "--model" => {
@@ -706,14 +724,14 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
             // Handle multi-word commands first (/memory search <query>)
             if trimmed.starts_with("/memory search") {
                 let query = trimmed.strip_prefix("/memory search").unwrap().trim();
-                if !query.is_empty() {
-                    cli.search_memory(query);
-                } else {
+                if query.is_empty() {
                     println!(
                         "  {}Usage: /memory search <query>{}",
                         style::MUTED,
                         style::RESET
                     );
+                } else {
+                    cli.search_memory(query);
                 }
                 continue;
             }
@@ -731,14 +749,14 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                 "/load" => {
                     if let Some(id) = parts.get(1).copied() {
                         let id = id.trim();
-                        if !id.is_empty() {
-                            cli.load_session(id)?;
-                        } else {
+                        if id.is_empty() {
                             println!(
                                 "  {}Usage: /load <session-id>{}",
                                 style::MUTED,
                                 style::RESET
                             );
+                        } else {
+                            cli.load_session(id)?;
                         }
                     } else {
                         list_sessions();
@@ -769,16 +787,14 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                 "/plan" => {
                     if let Some(desc) = parts.get(1).copied() {
                         let desc = desc.trim();
-                        if !desc.is_empty() {
-                            if let Err(e) = cli.generate_plan(desc) {
-                                style::print_err(&e.to_string());
-                            }
-                        } else {
+                        if desc.is_empty() {
                             println!(
                                 "  {}Usage: /plan <description>{}",
                                 style::MUTED,
                                 style::RESET
                             );
+                        } else if let Err(e) = cli.generate_plan(desc) {
+                            style::print_err(&e.to_string());
                         }
                     } else {
                         cli.print_plan_status();
@@ -836,18 +852,16 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
         cli.write_session_memory(turn_start.elapsed().as_secs());
     }
 
-    println!("\n  {}{}{}\n", style::MUTED, "Bye.", style::RESET);
+    println!("\n  {}Bye.{}\n", style::MUTED, style::RESET);
     Ok(())
 }
 
 fn print_startup_banner(cli: &LiveCli) {
-    use style::*;
+    use style::{format_model, shorten_path, ACCENT, SPARKLE, RESET, YELLOW, WARN_SYM, MUTED, BOX_H, strip_ansi_len, BOX_V, BOX_TL, BOX_TR, BOLD, CLAW_ICON, BOX_LM, BOX_RM, GRAY, WHITE_BOLD, BOX_BL, BOX_BR, ARROW_UP, ARROW_DOWN};
 
     // Gather info
     let model_display = format_model(&cli.model);
-    let cwd = env::current_dir()
-        .map(|p| shorten_path(&p))
-        .unwrap_or_else(|_| ".".to_string());
+    let cwd = env::current_dir().map_or_else(|_| ".".to_string(), |p| shorten_path(&p));
     let mcp_count = cli.mcp.lock().map(|m| m.tools.len()).unwrap_or(0);
     let builtin_count = tools::mvp_tool_specs().len();
     let tool_str = if mcp_count > 0 {
@@ -907,7 +921,7 @@ fn print_startup_banner(cli: &LiveCli) {
 }
 
 fn print_slash_help() {
-    use style::*;
+    use style::{WHITE_BOLD, RESET, MUTED, DIVIDER_SHORT, ACCENT, PROMPT_ARROW, CYAN, GRAY, ARROW_UP, ARROW_DOWN};
     println!();
     println!("  {WHITE_BOLD}Commands{RESET}");
     println!("  {MUTED}{DIVIDER_SHORT}{RESET}");
@@ -932,7 +946,7 @@ fn print_slash_help() {
 }
 
 fn print_model_help(current: &str) {
-    use style::*;
+    use style::{format_model, GRAY, RESET, WHITE_BOLD, MUTED, CYAN};
     println!();
     println!(
         "  {GRAY}current{RESET}  {WHITE_BOLD}{}{RESET}",
@@ -1005,15 +1019,11 @@ impl LiveCli {
         let model_hints = ModelHints::for_model(&model);
         let sdd_engine = SddEngine::new().with_aggressive_read(model_hints.aggressive_read);
 
-        let memory = if let Some(vault_path) = MemorySystem::discover_vault() {
-            Some(MemorySystem::new(runtime::MemoryConfig {
+        let memory = MemorySystem::discover_vault().map(|vault_path| MemorySystem::new(runtime::MemoryConfig {
                 enabled: true,
                 vault_path: Some(vault_path),
                 ..Default::default()
-            }))
-        } else {
-            None
-        };
+            }));
 
         Ok(Self {
             model,
@@ -1112,12 +1122,12 @@ impl LiveCli {
         if input.starts_with('/') {
             return None;
         }
-        let suggestion = self.sdd_engine.analyze(input);
-        suggestion
+        
+        self.sdd_engine.analyze(input)
     }
 
     fn write_session_memory(&self, duration_secs: u64) {
-        use std::fmt::Write as FmtWrite;
+        
 
         let Some(memory) = &self.memory else { return };
         if !memory.is_enabled() {
@@ -1172,7 +1182,7 @@ impl LiveCli {
             .sdd_engine
             .state()
             .complexity
-            .map(|c| format!("{:?}", c))
+            .map(|c| format!("{c:?}"))
             .unwrap_or_default();
 
         let now = std::time::SystemTime::now()
@@ -1286,7 +1296,7 @@ impl LiveCli {
     }
 
     fn print_memory_status(&self) {
-        use style::*;
+        use style::{print_header, print_kv_w, MUTED, RESET, WARN_SYM};
         if let Some(memory) = &self.memory {
             if let Some((vault_path, note_count)) = memory.vault_status() {
                 print_header("Obsidian Memory");
@@ -1308,14 +1318,14 @@ impl LiveCli {
                                     MUTED,
                                     i + 1,
                                     RESET,
-                                    name.replace('-', " ").replace('_', " "),
+                                    name.replace(['-', '_'], " "),
                                     MUTED
                                 );
                             }
                         }
                     }
                     Err(e) => {
-                        println!("  {}Failed to list sessions: {}{}", WARN_SYM, e, RESET);
+                        println!("  {WARN_SYM}Failed to list sessions: {e}{RESET}");
                     }
                 }
                 println!();
@@ -1323,8 +1333,7 @@ impl LiveCli {
         } else {
             println!();
             println!(
-                "  {}No Obsidian vault found.{} Create one at:",
-                MUTED, RESET
+                "  {MUTED}No Obsidian vault found.{RESET} Create one at:"
             );
             println!("    ~/Obsidian Vault/");
             println!("    ~/Documents/Obsidian/");
@@ -1334,9 +1343,9 @@ impl LiveCli {
     }
 
     fn search_memory(&self, query: &str) {
-        use style::*;
+        use style::{WARN_SYM, RESET, MUTED, CYAN, BOLD};
         let Some(memory) = &self.memory else {
-            println!("  {}No Obsidian vault configured{}", WARN_SYM, RESET);
+            println!("  {WARN_SYM}No Obsidian vault configured{RESET}");
             return;
         };
 
@@ -1371,16 +1380,16 @@ impl LiveCli {
                 println!();
             }
             Ok(_) => {
-                println!("  {}No results for \"{}{}{}\"", MUTED, CYAN, query, MUTED);
+                println!("  {MUTED}No results for \"{CYAN}{query}{MUTED}\"");
             }
             Err(e) => {
-                println!("  {}Search failed: {}{}", WARN_SYM, e, RESET);
+                println!("  {WARN_SYM}Search failed: {e}{RESET}");
             }
         }
     }
 
     fn generate_plan(&mut self, description: &str) -> Result<(), Box<dyn std::error::Error>> {
-        use style::*;
+        use style::{CYAN, BOLD, RESET, MUTED, GREEN};
         println!();
         println!("  {CYAN}{BOLD}Generating plan...{RESET}  {MUTED}(using planner model){RESET}");
         println!();
@@ -1419,7 +1428,7 @@ impl LiveCli {
         println!();
         println!(
             "  {GREEN}{BOLD}Plan saved{RESET}  {MUTED}{}{RESET}",
-            style::shorten_path(&self.plan_path.as_ref().unwrap())
+            style::shorten_path(self.plan_path.as_ref().unwrap())
         );
         println!("  {MUTED}Use /plan status to check progress. The plan has been added to your todos.{RESET}");
         println!();
@@ -1447,7 +1456,7 @@ impl LiveCli {
     }
 
     fn print_plan_status(&self) {
-        use style::*;
+        use style::{MUTED, RESET, CYAN, BOLD, CHECK, GREEN, RED, WARN_SYM};
         let Some(ref plan) = self.plan_artifact else {
             println!("  {MUTED}No active plan. Use /plan <description> to create one.{RESET}");
             return;
@@ -1497,8 +1506,7 @@ impl LiveCli {
                             .todos
                             .iter()
                             .find(|t| t.id == todo_id)
-                            .map(|t| &t.status)
-                            .unwrap_or(&runtime::TodoStatus::Pending);
+                            .map_or(&runtime::TodoStatus::Pending, |t| &t.status);
                         let (status_icon, status_color) = match status {
                             runtime::TodoStatus::Completed => (CHECK, GREEN),
                             runtime::TodoStatus::InProgress => ("●", CYAN),
@@ -1526,7 +1534,7 @@ impl LiveCli {
     }
 
     fn abort_plan(&mut self) {
-        use style::*;
+        use style::{MUTED, RESET, WARN_SYM, YELLOW, BOLD};
         let Some(ref plan) = self.plan_artifact else {
             println!("  {MUTED}No active plan to abort.{RESET}");
             return;
@@ -1563,7 +1571,7 @@ impl LiveCli {
     }
 
     fn print_status(&self) {
-        use style::*;
+        use style::{YELLOW, WARN_SYM, RESET, MUTED, shorten_path, print_header, print_kv_w, format_model, fmt_num, ARROW_UP, ARROW_DOWN, SPARKLE, CYAN, WHITE_BOLD, WHITE};
         let usage = self.runtime.usage().cumulative_usage();
         let cost = self
             .runtime
@@ -1574,9 +1582,7 @@ impl LiveCli {
         } else {
             format!("{MUTED}prompt for writes{RESET}")
         };
-        let cwd = env::current_dir()
-            .map(|p| shorten_path(&p))
-            .unwrap_or_else(|_| ".".to_string());
+        let cwd = env::current_dir().map_or_else(|_| ".".to_string(), |p| shorten_path(&p));
 
         print_header("Session");
         print_kv_w("model", &format_model(&self.model), 12);
@@ -1611,13 +1617,13 @@ impl LiveCli {
             let state = self.sdd_engine.state();
             print_kv_w("phase", &format!("{:?}", state.phase), 12);
             if let Some(ref complexity) = state.complexity {
-                print_kv_w("complexity", &format!("{:?}", complexity), 12);
+                print_kv_w("complexity", &format!("{complexity:?}"), 12);
             }
             if !state.files_to_read.is_empty() {
                 println!("  {MUTED}──────────────────────────────────{RESET}");
                 println!("  {CYAN}{:<12}{RESET}Files to read:", "read");
                 for file in &state.files_to_read {
-                    println!("    {MUTED}{}{RESET} {}", "-", file.display());
+                    println!("    {MUTED}-{RESET} {}", file.display());
                 }
             }
             if let Some(ref spec) = state.spec {
@@ -1645,15 +1651,15 @@ impl LiveCli {
     }
 
     fn print_cost(&self) {
-        use style::*;
+        use style::{print_header, print_kv_w, friendly_model_name, format_model, MUTED, RESET, ARROW_UP, fmt_num, ARROW_DOWN, CYAN, WHITE_BOLD, GREEN};
         let usage = self.runtime.usage().cumulative_usage();
         let primary = primary_model_name(&self.model);
         let cost = self.runtime.usage().cost_usd(primary);
 
         // Compute cache savings estimate (cache reads are ~10x cheaper)
         let saved = if usage.cache_read_input_tokens > 0 {
-            let full_cost = (usage.cache_read_input_tokens as f64 / 1_000_000.0) * 3.0; // $3/MTok full rate
-            let cache_cost = (usage.cache_read_input_tokens as f64 / 1_000_000.0) * 0.3; // ~$0.30/MTok cached
+            let full_cost = (f64::from(usage.cache_read_input_tokens) / 1_000_000.0) * 3.0; // $3/MTok full rate
+            let cache_cost = (f64::from(usage.cache_read_input_tokens) / 1_000_000.0) * 0.3; // ~$0.30/MTok cached
             full_cost - cache_cost
         } else {
             0.0
@@ -1795,7 +1801,7 @@ impl LiveCli {
         let path = if id.ends_with(".json") {
             sessions_dir.join(id)
         } else {
-            sessions_dir.join(format!("{}.json", id))
+            sessions_dir.join(format!("{id}.json"))
         };
 
         if !path.exists() {
@@ -1822,7 +1828,7 @@ impl LiveCli {
     }
 
     fn rollback(&mut self, n: usize) {
-        use style::*;
+        use style::{YELLOW, BOLD, RESET, MUTED};
         let messages = &mut self.runtime.session_mut().messages;
         // Count how many complete turn cycles (assistant + tool results) to remove
         let mut turns_removed = 0usize;
@@ -1853,7 +1859,7 @@ impl LiveCli {
     }
 
     fn print_session_diff(&self) {
-        use style::*;
+        use style::{MUTED, RESET, WHITE_BOLD, DIVIDER_SHORT, GREEN, CYAN};
         let messages = &self.runtime.session().messages;
         let mut files_touched: Vec<(String, String)> = Vec::new();
         let mut seen = std::collections::HashSet::new();
@@ -1939,20 +1945,17 @@ impl LiveCli {
             .usage()
             .cost_usd(primary_model_name(&self.model));
         style::print_header("Budget");
-        match self.budget_limit {
-            Some(limit) => {
-                let pct = if limit > 0.0 {
-                    cost / limit * 100.0
-                } else {
-                    0.0
-                };
-                style::print_kv("budget", &format!("${limit:.2}"));
-                style::print_kv("spent", &format!("${cost:.4}  ({pct:.1}%)"));
-            }
-            None => {
-                style::print_kv("spent", &format!("${cost:.4}"));
-                style::print_muted("No budget set. Use /budget <usd> to set one.");
-            }
+        if let Some(limit) = self.budget_limit {
+            let pct = if limit > 0.0 {
+                cost / limit * 100.0
+            } else {
+                0.0
+            };
+            style::print_kv("budget", &format!("${limit:.2}"));
+            style::print_kv("spent", &format!("${cost:.4}  ({pct:.1}%)"));
+        } else {
+            style::print_kv("spent", &format!("${cost:.4}"));
+            style::print_muted("No budget set. Use /budget <usd> to set one.");
         }
         println!();
     }
@@ -1972,7 +1975,7 @@ impl LiveCli {
 // ── /doctor — diagnostics ─────────────────────────────────────────────────────
 
 fn run_doctor() {
-    use style::*;
+    use style::{print_header, GREEN, CHECK, RESET, MUTED, DOT, print_kv};
     print_header("Doctor");
 
     // Check credentials
@@ -2001,9 +2004,7 @@ fn run_doctor() {
     // Check config files
     println!();
     let config_home = env::var("USERPROFILE")
-        .or_else(|_| env::var("HOME"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."));
+        .or_else(|_| env::var("HOME")).map_or_else(|_| PathBuf::from("."), PathBuf::from);
 
     let config_files: Vec<(PathBuf, &str)> = vec![
         (claw_home().join("config.json"), "claw config"),
@@ -2033,7 +2034,7 @@ fn run_doctor() {
     println!();
     let session_dir = sessions_dir();
     let session_count = std::fs::read_dir(&session_dir)
-        .map(|entries| entries.count())
+        .map(std::iter::Iterator::count)
         .unwrap_or(0);
     print_kv("sessions", &format!("{session_count} saved"));
     print_kv(
@@ -2121,7 +2122,7 @@ fn run_init() -> Result<(), Box<dyn std::error::Error>> {
 // ── /sessions — list saved sessions ───────────────────────────────────────────
 
 fn list_sessions() {
-    use style::*;
+    use style::{print_header, print_muted, CYAN, RESET, MUTED};
     let dir = sessions_dir();
     let mut entries: Vec<(String, u64, usize)> = Vec::new();
 
@@ -2263,7 +2264,7 @@ fn primary_model_name(model: &str) -> &str {
 /// Everything before `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` is static and gets
 /// `cache_control: {"type": "ephemeral"}` so the API provider can cache it.
 /// Everything after the boundary changes per turn (git status, date, etc.)
-/// and is sent without cache_control.
+/// and is sent without `cache_control`.
 fn build_cached_system_blocks(sections: &[String]) -> Vec<SystemContentBlock> {
     use runtime::SYSTEM_PROMPT_DYNAMIC_BOUNDARY;
 
@@ -2536,7 +2537,7 @@ impl ApiClient for AnthropicRuntimeClient {
                                 ContentBlockDelta::TextDelta { text } => {
                                     if !text.is_empty() {
                                         write!(stdout, "{text}")
-                                            .and_then(|_| stdout.flush())
+                                            .and_then(|()| stdout.flush())
                                             .map_err(|error| RuntimeError::new(error.to_string()))?;
                                         events.push(AssistantEvent::TextDelta(text));
                                     }
@@ -2607,7 +2608,7 @@ fn push_output_block(
         OutputContentBlock::Text { text } => {
             if !text.is_empty() {
                 write!(out, "{text}")
-                    .and_then(|_| out.flush())
+                    .and_then(|()| out.flush())
                     .map_err(|error| RuntimeError::new(error.to_string()))?;
                 events.push(AssistantEvent::TextDelta(text));
             }
@@ -3191,7 +3192,7 @@ impl OpenAiRuntimeClient {
         cache_key: Option<String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config = openai::resolve_provider(&model_spec)
-            .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+            .map_err(Box::<dyn std::error::Error>::from)?;
         let is_kimi = model_spec.to_lowercase().contains("kimi")
             || model_spec.to_lowercase().contains("moonshot");
         let is_kimi_coding = model_spec.to_lowercase().contains("kimi-coding");
@@ -3281,8 +3282,7 @@ impl ApiClient for AnyApiClient {
                 let last_is_tool = request
                     .messages
                     .last()
-                    .map(|m| m.role == MessageRole::Tool)
-                    .unwrap_or(false);
+                    .is_some_and(|m| m.role == MessageRole::Tool);
                 if last_is_tool {
                     executor.stream(request)
                 } else {
@@ -3367,7 +3367,7 @@ pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMes
 }
 
 fn print_help() {
-    println!("claw — personal AI coding agent v{}", CLAW_VERSION);
+    println!("claw — personal AI coding agent v{CLAW_VERSION}");
     println!();
     println!("Usage:");
     println!("  claw                                    Start interactive REPL");

@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub mod detector;
@@ -18,10 +17,12 @@ pub enum SddPhase {
 }
 
 impl SddPhase {
+    #[must_use] 
     pub fn is_terminal(&self) -> bool {
         matches!(self, SddPhase::Idle | SddPhase::Verify)
     }
 
+    #[must_use] 
     pub fn suggested_tools(&self) -> &'static [&'static str] {
         match self {
             SddPhase::Idle => &["*"],
@@ -33,6 +34,7 @@ impl SddPhase {
         }
     }
 
+    #[must_use] 
     pub fn description(&self) -> &'static str {
         match self {
             SddPhase::Idle => "Ready for new task",
@@ -73,6 +75,7 @@ impl Default for SddState {
 }
 
 impl SddState {
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -93,14 +96,13 @@ impl SddState {
         let task = spec.task.clone();
         self.spec = Some(spec);
         self.tool_suggestion = Some(format!(
-            "Spec created: {}. Transitioning to planning...",
-            task
+            "Spec created: {task}. Transitioning to planning..."
         ));
     }
 
-    pub fn enter_planify(&mut self, approach: String) {
+    pub fn enter_planify(&mut self, approach: &str) {
         self.phase = SddPhase::Planify;
-        self.key_decisions.push(approach.clone());
+        self.key_decisions.push(approach.to_string());
         self.tool_suggestion = Some(format!("Planned approach: {approach}. Ready to implement."));
     }
 
@@ -121,6 +123,7 @@ impl SddState {
         *self = Self::default();
     }
 
+    #[must_use] 
     pub fn is_active(&self) -> bool {
         !matches!(self.phase, SddPhase::Idle)
     }
@@ -154,6 +157,7 @@ pub struct SddEngine {
 }
 
 impl SddEngine {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             state: SddState::new(),
@@ -161,11 +165,13 @@ impl SddEngine {
         }
     }
 
+    #[must_use] 
     pub fn with_aggressive_read(mut self, aggressive: bool) -> Self {
         self.aggressive_read = aggressive;
         self
     }
 
+    #[must_use] 
     pub fn state(&self) -> &SddState {
         &self.state
     }
@@ -190,7 +196,7 @@ impl SddEngine {
         self.state.enter_speculate(spec);
     }
 
-    pub fn transition_to_planify(&mut self, approach: String) {
+    pub fn transition_to_planify(&mut self, approach: &str) {
         self.state.enter_planify(approach);
     }
 
@@ -211,7 +217,8 @@ impl SddEngine {
         self.state.reset();
     }
 
-    pub fn suggest_next_tool(&self, last_tool_used: Option<&str>) -> Option<String> {
+    #[must_use] 
+    pub fn suggest_next_tool(&self, _last_tool_used: Option<&str>) -> Option<String> {
         if !self.state.is_active() {
             return None;
         }
