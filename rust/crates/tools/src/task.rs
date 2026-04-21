@@ -88,16 +88,16 @@ impl TaskRuntime {
             .spawn()
             .map_err(|e| format!("failed to spawn subagent: {e}"))?;
 
-        let timeout = std::time::Duration::from_secs(300);
+        let timeout = std::time::Duration::from_mins(5);
         let start = Instant::now();
         while start.elapsed() < timeout {
-            if child.try_wait().map(|w| w.is_some()).unwrap_or(false) {
+            if child.try_wait().is_ok_and(|w| w.is_some()) {
                 break;
             }
             thread::sleep(std::time::Duration::from_millis(100));
         }
 
-        if child.try_wait().map(|w| w.is_none()).unwrap_or(true) {
+        if child.try_wait().map_or(true, |w| w.is_none()) {
             let _ = child.kill();
             return Err("task timed out after 5 minutes".to_string());
         }
