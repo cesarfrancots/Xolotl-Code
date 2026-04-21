@@ -2041,8 +2041,7 @@ fn run_doctor() {
     // Session info and platform
     println!();
     let session_dir = sessions_dir();
-    let session_count = std::fs::read_dir(&session_dir)
-        .map_or(0, std::iter::Iterator::count);
+    let session_count = std::fs::read_dir(&session_dir).map_or(0, std::iter::Iterator::count);
     print_kv("sessions", &format!("{session_count} saved"));
     print_kv(
         "platform",
