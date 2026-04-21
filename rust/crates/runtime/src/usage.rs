@@ -91,6 +91,29 @@ impl UsageTracker {
             + f64::from(self.cumulative.cache_creation_input_tokens) / m * cache_write_rate
             + f64::from(self.cumulative.cache_read_input_tokens) / m * cache_read_rate
     }
+
+    /// Calculate cache hit ratio (0.0 to 1.0) based on cache read vs total input tokens.
+    /// Returns None if no input tokens have been recorded.
+    #[must_use]
+    pub fn cache_hit_ratio(&self) -> Option<f64> {
+        let total_input = self.cumulative.input_tokens + self.cumulative.cache_read_input_tokens;
+        if total_input == 0 {
+            return None;
+        }
+        Some(f64::from(self.cumulative.cache_read_input_tokens) / f64::from(total_input))
+    }
+
+    /// Return a human-readable summary of cache usage.
+    #[must_use]
+    pub fn cache_summary(&self) -> String {
+        let created = self.cumulative.cache_creation_input_tokens;
+        let read = self.cumulative.cache_read_input_tokens;
+        let hit_ratio = self.cache_hit_ratio().unwrap_or(0.0);
+        format!(
+            "Cache: {} tokens created, {} tokens read ({:.1}% hit rate)",
+            created, read, hit_ratio * 100.0
+        )
+    }
 }
 
 #[cfg(test)]
@@ -143,5 +166,44 @@ mod tests {
         let tracker = UsageTracker::from_session(&session);
         assert_eq!(tracker.turns(), 1);
         assert_eq!(tracker.cumulative_usage().total_tokens(), 8);
+    }
+
+    #[test]
+    fn cache_hit_ratio_calculation() {
+        let mut tracker = UsageTracker::new();
+        assert!(tracker.cache_hit_ratio().is_none());
+
+        tracker.record(TokenUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation_input_tokens: 200,
+            cache_read_input_tokens: 50,
+        });
+        let ratio = tracker.cache_hit_ratio().unwrap();
+        assert!((ratio - 0.3333).abs() < 0.01);
+
+        tracker.record(TokenUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 150,
+        });
+        let ratio = tracker.cache_hit_ratio().unwrap();
+        assert!((ratio - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn cache_summary_format() {
+        let mut tracker = UsageTracker::new();
+        tracker.record(TokenUsage {
+            input_tokens: 1000,
+            output_tokens: 500,
+            cache_creation_input_tokens: 2000,
+            cache_read_input_tokens: 3000,
+        });
+        let summary = tracker.cache_summary();
+        assert!(summary.contains("2000 tokens created"));
+        assert!(summary.contains("3000 tokens read"));
+        assert!(summary.contains("75.0% hit rate"));
     }
 }

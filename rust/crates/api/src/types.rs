@@ -3,7 +3,7 @@ use serde_json::Value;
 
 /// A block within the `system` array of a `MessageRequest`.
 /// Supports `cache_control` for Anthropic prompt caching.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SystemContentBlock {
     #[serde(rename = "type")]
     pub block_type: String,
@@ -12,7 +12,7 @@ pub struct SystemContentBlock {
     pub cache_control: Option<CacheControl>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CacheControl {
     #[serde(rename = "type")]
     pub cache_type: String,

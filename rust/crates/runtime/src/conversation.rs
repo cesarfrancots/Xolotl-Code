@@ -15,6 +15,9 @@ use crate::usage::{TokenUsage, UsageTracker};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiRequest {
     pub system_prompt: Vec<String>,
+    /// Optional system prompt as content blocks with cache control.
+    /// When present, API clients should prefer this over `system_prompt`.
+    pub system_prompt_blocks: Option<Vec<api::types::SystemContentBlock>>,
     pub messages: Vec<ConversationMessage>,
     pub thinking: Option<api::types::ThinkingConfig>,
     pub images: Vec<ContentBlock>,
@@ -24,6 +27,12 @@ impl ApiRequest {
     #[must_use]
     pub fn with_thinking(mut self, thinking: api::types::ThinkingConfig) -> Self {
         self.thinking = Some(thinking);
+        self
+    }
+
+    #[must_use]
+    pub fn with_cached_system_prompt(mut self, blocks: Vec<api::types::SystemContentBlock>) -> Self {
+        self.system_prompt_blocks = Some(blocks);
         self
     }
 }
@@ -369,8 +378,10 @@ where
                 }
             });
 
+            let system_prompt_blocks = self.build_system_prompt_blocks();
             let request = ApiRequest {
                 system_prompt: self.system_prompt.clone(),
+                system_prompt_blocks,
                 messages: self.session.messages.clone(),
                 thinking,
                 images: std::mem::take(&mut self.pending_images),
@@ -539,33 +550,115 @@ where
         self.session
     }
 
+    /// Build system prompt content blocks with cache control when the model supports it.
+    /// Static content before `SYSTEM_PROMPT_DYNAMIC_BOUNDARY` is marked as cacheable.
+    fn build_system_prompt_blocks(&self) -> Option<Vec<api::types::SystemContentBlock>> {
+        let hints = self.model_hints.as_ref()?;
+        if !hints.supports_prompt_cache {
+            return None;
+        }
+
+        use crate::prompt::SYSTEM_PROMPT_DYNAMIC_BOUNDARY;
+
+        let full = self.system_prompt.join("\n\n");
+        if let Some(split_pos) = full.find(SYSTEM_PROMPT_DYNAMIC_BOUNDARY) {
+            let static_part = full[..split_pos].trim();
+            let dynamic_part = full[split_pos + SYSTEM_PROMPT_DYNAMIC_BOUNDARY.len()..].trim();
+
+            let mut blocks = Vec::new();
+            if !static_part.is_empty() {
+                blocks.push(api::types::SystemContentBlock::cached_text(static_part));
+            }
+            if !dynamic_part.is_empty() {
+                blocks.push(api::types::SystemContentBlock::text(dynamic_part));
+            }
+            Some(blocks)
+        } else {
+            // No boundary marker — cache the whole thing
+            Some(vec![api::types::SystemContentBlock::cached_text(full)])
+        }
+    }
+
     /// Run a single planning turn without tools, returning the raw assistant text.
     /// Used by Ultra Plan Mode to generate structured JSON plans without polluting
     /// the main conversation session.
+    ///
+    /// Uses model-specific optimizations:
+    /// - plan_thinking_budget instead of regular thinking_budget for planning
+    /// - plan_mode_system_prompt_addition appended to system prompt
+    /// - Adaptive retry limits based on model capabilities
     pub fn run_planning_turn(&mut self, prompt: &str) -> Result<String, RuntimeError> {
         let mut temp_messages = self.session.messages.clone();
         temp_messages.push(ConversationMessage::user_text(prompt));
 
+        // Build enhanced system prompt with plan-mode additions
+        let system_prompt = if let Some(ref hints) = self.model_hints {
+            if let Some(ref plan_addition) = hints.plan_mode_system_prompt_addition {
+                let mut enhanced = self.system_prompt.clone();
+                enhanced.push(format!("# Plan mode guidance\n{plan_addition}"));
+                enhanced
+            } else {
+                self.system_prompt.clone()
+            }
+        } else {
+            self.system_prompt.clone()
+        };
+
         let thinking = self.model_hints.as_ref().and_then(|hints| {
             if hints.should_use_thinking() {
+                // Use plan-specific thinking budget if available
+                let budget = if hints.plan_thinking_budget > 0 {
+                    hints.plan_thinking_budget
+                } else {
+                    hints.thinking_budget
+                };
                 Some(api::types::ThinkingConfig {
                     config_type: "enabled".to_string(),
-                    budget_tokens: hints.thinking_budget,
+                    budget_tokens: budget,
                 })
             } else {
                 None
             }
         });
 
+        let system_prompt_blocks = if self.model_hints.as_ref().map_or(false, |h| h.supports_prompt_cache) {
+            use crate::prompt::SYSTEM_PROMPT_DYNAMIC_BOUNDARY;
+            let full = system_prompt.join("\n\n");
+            if let Some(split_pos) = full.find(SYSTEM_PROMPT_DYNAMIC_BOUNDARY) {
+                let static_part = full[..split_pos].trim();
+                let dynamic_part = full[split_pos + SYSTEM_PROMPT_DYNAMIC_BOUNDARY.len()..].trim();
+                let mut blocks = Vec::new();
+                if !static_part.is_empty() {
+                    blocks.push(api::types::SystemContentBlock::cached_text(static_part));
+                }
+                if !dynamic_part.is_empty() {
+                    blocks.push(api::types::SystemContentBlock::text(dynamic_part));
+                }
+                Some(blocks)
+            } else {
+                Some(vec![api::types::SystemContentBlock::cached_text(full)])
+            }
+        } else {
+            None
+        };
+
         let request = ApiRequest {
-            system_prompt: self.system_prompt.clone(),
+            system_prompt,
+            system_prompt_blocks,
             messages: temp_messages,
             thinking,
             images: Vec::new(),
         };
 
-        // Retry with exponential backoff
-        let max_retries = 3_u32;
+        // Adaptive retry limits based on model capabilities
+        let max_retries = self.model_hints.as_ref().map_or(3, |hints| {
+            if hints.supports_ultra_planning {
+                5 // More retries for complex planning with capable models
+            } else {
+                3
+            }
+        });
+
         let mut attempt = 0;
         let events = loop {
             attempt += 1;
