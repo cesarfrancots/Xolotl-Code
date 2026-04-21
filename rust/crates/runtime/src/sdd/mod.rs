@@ -3,7 +3,7 @@ use std::path::PathBuf;
 pub mod detector;
 pub mod spec;
 
-pub use detector::{Complexity, ComplexityDetector};
+pub use detector::{Complexity, ComplexityDetector, ComplexityScore, ModelAwareComplexityDetector};
 pub use spec::InternalSpec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
