@@ -50,8 +50,9 @@ pub use permissions::{
     PermissionPrompter, PermissionRequest,
 };
 pub use plan::{
-    build_plan_prompt, extract_json_from_response, format_plan_summary, PlanArtifact, PlanPhase,
-    PlanTask,
+    build_plan_prompt, build_ultra_plan_prompt, extract_json_from_response, format_plan_summary,
+    ParallelizationAnalysis, PlanArtifact, PlanMilestone, PlanPhase, PlanTask, RiskAssessment,
+    RiskLevel, RollbackPoint,
 };
 pub use prompt::{
     load_system_prompt, load_system_prompt_with_hints, prepend_bullets, ContextFile,
