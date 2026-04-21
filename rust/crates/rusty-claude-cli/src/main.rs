@@ -151,6 +151,10 @@ fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
             "Anthropic direct API key (alternative to Bedrock)",
         ),
         ("KIMI_API_KEY", "Kimi / Moonshot k2.6 (for kimi/ models)"),
+        (
+            "KIMI_CODING_API_KEY",
+            "Kimi K2.6 Coding (for kimi-coding/ models)",
+        ),
         ("GLM_API_KEY", "Zhipu GLM (for glm/ models)"),
         ("MINIMAX_API_KEY", "MiniMax (for minimax/ models)"),
         ("DASHSCOPE_API_KEY", "Alibaba Qwen (for qwen/ models)"),
@@ -724,6 +728,22 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                 "/compact" => cli.compact()?,
                 "/clear" => cli.clear_session()?,
                 "/save" => cli.save_session()?,
+                "/load" => {
+                    if let Some(id) = parts.get(1).copied() {
+                        let id = id.trim();
+                        if !id.is_empty() {
+                            cli.load_session(id)?;
+                        } else {
+                            println!(
+                                "  {}Usage: /load <session-id>{}",
+                                style::MUTED,
+                                style::RESET
+                            );
+                        }
+                    } else {
+                        list_sessions();
+                    }
+                }
                 "/mcp" => cli.print_mcp_status(),
                 "/doctor" => run_doctor(),
                 "/init" => run_init()?,
@@ -891,7 +911,7 @@ fn print_slash_help() {
     println!();
     println!("  {WHITE_BOLD}Commands{RESET}");
     println!("  {MUTED}{DIVIDER_SHORT}{RESET}");
-    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Conversation  {CYAN}/clear{RESET} · {CYAN}/compact{RESET} · {CYAN}/save{RESET} · {CYAN}/model{RESET}");
+    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Conversation  {CYAN}/clear{RESET} · {CYAN}/compact{RESET} · {CYAN}/save{RESET} · {CYAN}/load{RESET} · {CYAN}/model{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Plan Mode     {CYAN}/plan <description>{RESET} · {CYAN}/plan status{RESET} · {CYAN}/plan abort{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Session Ctrl  {CYAN}/rollback <n>{RESET} · {CYAN}/diff{RESET}");
     println!("  {ACCENT}{PROMPT_ARROW}{RESET} Info          {CYAN}/status{RESET} · {CYAN}/cost{RESET} · {CYAN}/budget{RESET} · {CYAN}/sessions{RESET}");
@@ -927,6 +947,14 @@ fn print_model_help(current: &str) {
     println!("  {CYAN}sonnet4.5{RESET}    Claude Sonnet 4.5");
     println!("  {CYAN}opus4.5{RESET}      Claude Opus 4.5");
     println!("  {CYAN}opusplan{RESET}     Opus 4.6 plans, Sonnet 4.6 executes");
+    println!();
+    println!(
+        "  {CYAN}kimi-coding{RESET}  Kimi K2.6 Coding   {GRAY}(coding-optimized · 256K ctx){RESET}"
+    );
+    println!("  {CYAN}kimi2.6{RESET}      Kimi K2.6 Standard {GRAY}(general purpose){RESET}");
+    println!("  {CYAN}minimax2.7{RESET}   MiniMax 2.7        {GRAY}(1M context){RESET}");
+    println!("  {CYAN}glm5.1{RESET}       GLM 5.1            {GRAY}(128K context){RESET}");
+    println!("  {CYAN}qwen3.6{RESET}      Qwen 3.6 Plus");
     println!();
     println!("  {MUTED}Dual model:  /model opus+sonnet{RESET}");
     println!();
@@ -1762,6 +1790,37 @@ impl LiveCli {
         Ok(())
     }
 
+    fn load_session(&mut self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let sessions_dir = sessions_dir();
+        let path = if id.ends_with(".json") {
+            sessions_dir.join(id)
+        } else {
+            sessions_dir.join(format!("{}.json", id))
+        };
+
+        if !path.exists() {
+            style::print_err(&format!("Session not found: {}", path.display()));
+            return Ok(());
+        }
+
+        let session = Session::load_from_path(&path)?;
+        let msg_count = session.messages.len();
+        self.runtime = build_runtime(
+            session,
+            self.model.clone(),
+            self.system_prompt.clone(),
+            Arc::clone(&self.mcp),
+            true,
+        )?;
+        style::print_ok(&format!(
+            "Loaded {} {} ({} messages)",
+            style::ARROW_RIGHT,
+            style::shorten_path(&path),
+            msg_count
+        ));
+        Ok(())
+    }
+
     fn rollback(&mut self, n: usize) {
         use style::*;
         let messages = &mut self.runtime.session_mut().messages;
@@ -1922,6 +1981,7 @@ fn run_doctor() {
         ("AWS_ACCESS_KEY_ID", "AWS IAM (access key)"),
         ("ANTHROPIC_API_KEY", "Anthropic direct API"),
         ("KIMI_API_KEY", "Kimi provider"),
+        ("KIMI_CODING_API_KEY", "Kimi Coding provider"),
         ("GLM_API_KEY", "GLM provider"),
         ("MINIMAX_API_KEY", "MiniMax provider"),
         ("OPENAI_API_KEY", "OpenAI provider"),
@@ -2177,6 +2237,7 @@ fn expand_single_alias(alias: &str) -> String {
         "qwen3.6" | "qwen3.6-plus" | "qwen-3.6-plus" | "qwen" | "qwen-plus" => "qwen/qwen-3.6-plus",
 
         // ── Kimi family ────────────────────────────────────────────────
+        "kimi-coding" | "kimi-coding-k2.6" | "k2.6-coding" => "kimi-coding/k2.6",
         "kimi2.6" | "kimi-2.6" | "k2.6" | "kimi-k2-6" => "kimi/moonshot-v1-32k",
 
         // ── Legacy / direct Anthropic ─────────────────────────────────
@@ -3118,6 +3179,7 @@ struct OpenAiRuntimeClient {
     enable_tools: bool,
     cache_key: Option<String>,
     is_kimi: bool,
+    is_kimi_coding: bool,
 }
 
 impl OpenAiRuntimeClient {
@@ -3132,6 +3194,7 @@ impl OpenAiRuntimeClient {
             .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
         let is_kimi = model_spec.to_lowercase().contains("kimi")
             || model_spec.to_lowercase().contains("moonshot");
+        let is_kimi_coding = model_spec.to_lowercase().contains("kimi-coding");
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             http: reqwest::Client::new(),
@@ -3141,6 +3204,7 @@ impl OpenAiRuntimeClient {
             enable_tools,
             cache_key,
             is_kimi,
+            is_kimi_coding,
         })
     }
 }
@@ -3152,7 +3216,15 @@ impl ApiClient for OpenAiRuntimeClient {
             .enable_tools
             .then(|| openai::to_openai_tools(&self.tool_specs));
 
-        let thinking = if self.is_kimi {
+        let thinking = if self.is_kimi_coding {
+            request.thinking.map(|_| {
+                serde_json::json!({
+                    "type": "enabled",
+                    "keep": "all",
+                    "budget": 32000
+                })
+            })
+        } else if self.is_kimi {
             request.thinking.map(|_| {
                 serde_json::json!({
                     "type": "enabled",
@@ -3307,7 +3379,7 @@ fn print_help() {
     println!("  claw --resume SESSION.json              Resume a saved session");
     println!("  claw --version                          Show version");
     println!();
-    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan · minimax2.7 · qwen3.6 · kimi2.6");
+    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan · minimax2.7 · qwen3.6 · kimi2.6 · kimi-coding");
     println!();
     println!("Slash commands:");
     println!("  /help  /status  /cost  /budget  /compact  /clear  /model  /mcp  /accept-all");

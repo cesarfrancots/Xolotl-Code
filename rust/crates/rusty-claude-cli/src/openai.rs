@@ -31,7 +31,10 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
     };
 
     let (base_url, key_var): (String, &str) = match prefix {
-        "kimi-coding" => ("https://api.kimi.com/coding/v1".into(), "KIMI_CODING_API_KEY"),
+        "kimi-coding" => (
+            "https://api.kimi.com/coding/v1".into(),
+            "KIMI_CODING_API_KEY",
+        ),
         "kimi" | "moonshot" => ("https://api.moonshot.cn/v1".into(), "KIMI_API_KEY"),
         "glm" | "zhipu" => ("https://open.bigmodel.cn/api/paas/v4".into(), "GLM_API_KEY"),
         "minimax" => ("https://api.minimax.chat/v1".into(), "MINIMAX_API_KEY"),
@@ -576,5 +579,38 @@ fn finalize_events(
             cache_creation_input_tokens: 0,
             cache_read_input_tokens: 0,
         }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_kimi_coding_provider() {
+        let config = resolve_provider("kimi-coding/k2.6").unwrap();
+        assert_eq!(config.base_url, "https://api.kimi.com/coding/v1");
+        assert_eq!(config.model, "k2.6");
+    }
+
+    #[test]
+    fn resolves_standard_kimi_provider() {
+        let config = resolve_provider("kimi/moonshot-v1-32k").unwrap();
+        assert_eq!(config.base_url, "https://api.moonshot.cn/v1");
+        assert_eq!(config.model, "moonshot-v1-32k");
+    }
+
+    #[test]
+    fn resolves_minimax_provider() {
+        let config = resolve_provider("minimax/MiniMax-Text-01").unwrap();
+        assert_eq!(config.base_url, "https://api.minimax.chat/v1");
+        assert_eq!(config.model, "MiniMax-Text-01");
+    }
+
+    #[test]
+    fn resolves_glm_provider() {
+        let config = resolve_provider("glm/glm-5.1").unwrap();
+        assert_eq!(config.base_url, "https://open.bigmodel.cn/api/paas/v4");
+        assert_eq!(config.model, "glm-5.1");
     }
 }

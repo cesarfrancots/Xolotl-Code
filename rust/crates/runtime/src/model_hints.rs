@@ -8,6 +8,7 @@ pub enum ModelFamily {
     Claude,
     BedrockAnthropic,
     OpenAI,
+    KimiCoding,
     Generic,
 }
 
@@ -149,6 +150,25 @@ impl ModelHints {
                 system_prompt_addition: None,
                 supports_prompt_cache: false,
             }
+        } else if model_lower.contains("kimi-coding") || model_lower == "k2.6" {
+            Self {
+                family: ModelFamily::KimiCoding,
+                thinking_budget: 32_000,
+                max_context: 262_144,
+                max_completion_tokens: 32_768,
+                aggressive_read: true,
+                aggressive_read_threshold: 12,
+                compaction_ratio: 0.7,
+                system_prompt_addition: Some(
+                    "You are Kimi K2.6, a coding-optimized model with extended reasoning. \
+                    You excel at software engineering tasks including architecture design, \
+                    code review, debugging, and complex refactoring. Use thinking blocks for \
+                    deep analysis. You have 256K context - read extensively before implementing. \
+                    Prefer writing complete, production-ready solutions over incremental changes."
+                        .into(),
+                ),
+                supports_prompt_cache: true,
+            }
         } else if model_lower.contains("kimi") || model_lower.contains("moonshot") {
             Self {
                 family: ModelFamily::OpenAI,
@@ -183,7 +203,11 @@ impl ModelHints {
     pub fn should_use_thinking(&self) -> bool {
         matches!(
             self.family,
-            ModelFamily::Claude | ModelFamily::MiniMax | ModelFamily::Glm | ModelFamily::Qwen
+            ModelFamily::Claude
+                | ModelFamily::MiniMax
+                | ModelFamily::Glm
+                | ModelFamily::Qwen
+                | ModelFamily::KimiCoding
         ) && self.thinking_budget > 0
     }
 
@@ -243,6 +267,18 @@ mod tests {
         let hints = ModelHints::for_model("haiku");
         assert_eq!(hints.family, ModelFamily::Claude);
         assert_eq!(hints.thinking_budget, 8_000);
+    }
+
+    #[test]
+    fn test_kimi_coding_hints() {
+        let hints = ModelHints::for_model("kimi-coding/k2.6");
+        assert_eq!(hints.family, ModelFamily::KimiCoding);
+        assert_eq!(hints.thinking_budget, 32_000);
+        assert_eq!(hints.max_context, 262_144);
+        assert_eq!(hints.max_completion_tokens, 32_768);
+        assert!(hints.aggressive_read);
+        assert!(hints.should_use_thinking());
+        assert!(hints.supports_prompt_cache);
     }
 
     #[test]

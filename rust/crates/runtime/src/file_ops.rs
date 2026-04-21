@@ -4,6 +4,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use crate::session::ImageSource;
 use glob::Pattern;
 use regex::RegexBuilder;
