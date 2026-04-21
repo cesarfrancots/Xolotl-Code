@@ -1,4 +1,4 @@
-//! Sub-agent spawning logic.
+//! Sub-agent spawning logic with retry support.
 
 use super::SubAgentResult;
 use crate::usage::TokenUsage;
@@ -16,6 +16,10 @@ pub struct SubAgentConfig {
     pub token_budget: Option<u32>,
     pub allowed_tools: Option<Vec<String>>,
     pub timeout: Duration,
+    /// Maximum number of retry attempts for transient failures.
+    pub max_retries: u32,
+    /// Initial backoff duration between retries.
+    pub retry_backoff: Duration,
 }
 
 impl Default for SubAgentConfig {
@@ -26,7 +30,9 @@ impl Default for SubAgentConfig {
             model: None,
             token_budget: None,
             allowed_tools: None,
-            timeout: Duration::from_mins(5),
+            timeout: Duration::from_secs(300),
+            max_retries: 2,
+            retry_backoff: Duration::from_secs(1),
         }
     }
 }
@@ -64,6 +70,18 @@ impl SubAgentConfig {
         self
     }
 
+    #[must_use]
+    pub fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+
+    #[must_use]
+    pub fn with_retry_backoff(mut self, backoff: Duration) -> Self {
+        self.retry_backoff = backoff;
+        self
+    }
+
     pub fn generate_task_id(&self) -> String {
         let counter = SUBAGENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         format!("subagent-{counter}")
@@ -92,9 +110,40 @@ impl SubAgentSpawner {
         self
     }
 
+    /// Spawn a sub-agent with automatic retry for transient failures.
     #[must_use]
     pub fn spawn(&self, config: SubAgentConfig) -> SubAgentResult {
         let task_id = config.generate_task_id();
+        let started = Instant::now();
+        
+        let mut last_result = self.spawn_once(&config, &task_id);
+        
+        // Retry loop for retryable failures
+        for attempt in 1..=config.max_retries {
+            if !last_result.is_retryable() {
+                break;
+            }
+            
+            // Exponential backoff
+            let backoff = config.retry_backoff * 2_u32.pow(attempt - 1);
+            std::thread::sleep(backoff);
+            
+            // Retry with same task_id for continuity
+            let retry_result = self.spawn_once(&config, &task_id);
+            
+            // Merge retry history
+            last_result = last_result.with_retry(
+                retry_result.output,
+                retry_result.error,
+                started.elapsed(),
+            );
+        }
+        
+        last_result
+    }
+
+    /// Execute a single spawn attempt without retries.
+    fn spawn_once(&self, config: &SubAgentConfig, task_id: &str) -> SubAgentResult {
         let started = Instant::now();
         let result_path = self.results_dir.join(format!("{task_id}.json"));
 
@@ -102,8 +151,8 @@ impl SubAgentSpawner {
             Ok(exe) => exe,
             Err(e) => {
                 return SubAgentResult::failure(
-                    task_id,
-                    config.description,
+                    task_id.to_string(),
+                    config.description.clone(),
                     format!("failed to find executable: {e}"),
                     started.elapsed(),
                 );
@@ -117,7 +166,7 @@ impl SubAgentSpawner {
             .arg("--task-output")
             .arg(result_path.to_str().unwrap_or(""))
             .arg("--task-id")
-            .arg(&task_id);
+            .arg(task_id);
 
         if let Some(model) = &config.model {
             cmd.arg("--model").arg(model);
@@ -141,8 +190,8 @@ impl SubAgentSpawner {
             Ok(child) => child,
             Err(e) => {
                 return SubAgentResult::failure(
-                    task_id,
-                    config.description,
+                    task_id.to_string(),
+                    config.description.clone(),
                     format!("failed to spawn sub-agent: {e}"),
                     started.elapsed(),
                 );
@@ -162,8 +211,8 @@ impl SubAgentSpawner {
         if child.try_wait().map_or(true, |w| w.is_none()) {
             let _ = child.kill();
             return SubAgentResult::failure(
-                task_id,
-                config.description,
+                task_id.to_string(),
+                config.description.clone(),
                 "task timed out".to_string(),
                 started.elapsed(),
             );
@@ -182,8 +231,8 @@ impl SubAgentSpawner {
             if let Some(usage) = &token_usage {
                 if usage.total_tokens() > budget {
                     return SubAgentResult::budget_exceeded(
-                        task_id,
-                        config.description,
+                        task_id.to_string(),
+                        config.description.clone(),
                         output,
                         token_usage,
                         started.elapsed(),
@@ -194,8 +243,8 @@ impl SubAgentSpawner {
         }
 
         SubAgentResult::success_with_budget(
-            task_id,
-            config.description,
+            task_id.to_string(),
+            config.description.clone(),
             output,
             token_usage,
             started.elapsed(),
@@ -249,13 +298,17 @@ mod tests {
         let config = SubAgentConfig::new("test task", "do something")
             .with_model("sonnet")
             .with_token_budget(5000)
-            .with_timeout(Duration::from_secs(60));
+            .with_timeout(Duration::from_secs(60))
+            .with_max_retries(3)
+            .with_retry_backoff(Duration::from_secs(2));
 
         assert_eq!(config.description, "test task");
         assert_eq!(config.prompt, "do something");
         assert_eq!(config.model, Some("sonnet".to_string()));
         assert_eq!(config.token_budget, Some(5000));
         assert_eq!(config.timeout, Duration::from_secs(60));
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.retry_backoff, Duration::from_secs(2));
     }
 
     #[test]
@@ -269,5 +322,12 @@ mod tests {
         assert_ne!(id1, id2);
         assert!(id1.starts_with("subagent-"));
         assert!(id2.starts_with("subagent-"));
+    }
+
+    #[test]
+    fn default_retry_config() {
+        let config = SubAgentConfig::default();
+        assert_eq!(config.max_retries, 2);
+        assert_eq!(config.retry_backoff, Duration::from_secs(1));
     }
 }
