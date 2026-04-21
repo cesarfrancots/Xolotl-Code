@@ -23,8 +23,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Pinned Rust version for reproducible CI. Bump intentionally after local testing.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt, clippy
 
@@ -57,8 +58,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Pinned Rust version for reproducible CI. Bump intentionally after local testing.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt, clippy, llvm-tools-preview
 

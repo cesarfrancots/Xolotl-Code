@@ -365,23 +365,23 @@ impl ModelAwareComplexityDetector {
 
         // Model-specific adjustments
         match self.hints.family {
-            ModelFamily::MiniMax => {
+            ModelFamily::MiniMax
                 // MiniMax has 1M context - can handle more files without score penalty
-                if score.file_count >= 3 && score.file_count <= 8 {
-                    score.raw_score = score.raw_score.saturating_sub(1);
-                }
+                if score.file_count >= 3 && score.file_count <= 8 =>
+            {
+                score.raw_score = score.raw_score.saturating_sub(1);
             }
-            ModelFamily::KimiCoding => {
+            ModelFamily::KimiCoding
                 // Kimi K2.6 excels at coding with 256K context
-                if score.has_complexity_keyword && score.file_count >= 3 {
-                    score.raw_score = score.raw_score.saturating_sub(1);
-                }
+                if score.has_complexity_keyword && score.file_count >= 3 =>
+            {
+                score.raw_score = score.raw_score.saturating_sub(1);
             }
-            ModelFamily::Glm => {
+            ModelFamily::Glm
                 // GLM is more conservative - bump up complexity for large tasks
-                if score.file_count >= 5 && score.raw_score >= 5 {
-                    score.raw_score += 1;
-                }
+                if score.file_count >= 5 && score.raw_score >= 5 =>
+            {
+                score.raw_score += 1;
             }
             _ => {}
         }

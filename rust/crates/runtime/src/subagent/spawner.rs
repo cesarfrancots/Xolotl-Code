@@ -30,7 +30,7 @@ impl Default for SubAgentConfig {
             model: None,
             token_budget: None,
             allowed_tools: None,
-            timeout: Duration::from_secs(300),
+            timeout: Duration::from_mins(5),
             max_retries: 2,
             retry_backoff: Duration::from_secs(1),
         }
