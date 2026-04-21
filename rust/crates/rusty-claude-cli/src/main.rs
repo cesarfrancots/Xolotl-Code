@@ -1544,13 +1544,13 @@ impl LiveCli {
                 plan.overall_risk_score()
             );
             if let Some(ref summary) = risk.summary {
-                println!("    {MUTED}{}{RESET}", summary);
+                println!("    {MUTED}{summary}{RESET}");
             }
             if let Some(ref key_risks) = risk.key_risks {
                 if !key_risks.is_empty() {
                     println!("    Key risks:");
                     for r in key_risks {
-                        println!("      - {MUTED}{}{RESET}", r);
+                        println!("      - {MUTED}{r}{RESET}");
                     }
                 }
             }
@@ -1560,10 +1560,7 @@ impl LiveCli {
         if let Some(ref para) = plan.parallelization_analysis {
             if let Some(ref assessment) = para.assessment {
                 println!();
-                println!(
-                    "  {BOLD}Parallelization:{RESET} {MUTED}{}{RESET}",
-                    assessment
-                );
+                println!("  {BOLD}Parallelization:{RESET} {MUTED}{assessment}{RESET}");
             }
         }
 
@@ -3320,6 +3317,7 @@ fn format_tool_footer(
 
 // ── OpenAI-compatible runtime client ──────────────────────────────────────────
 
+#[allow(clippy::struct_excessive_bools)]
 struct OpenAiRuntimeClient {
     runtime: tokio::runtime::Runtime,
     http: reqwest::Client,

@@ -176,16 +176,19 @@ impl InternalSpec {
                 self.estimated_tokens
             ));
             if let Some(ref hints) = self.model_hints {
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    clippy::cast_precision_loss
+                )]
                 let max_effective = (hints.max_context as f32 * hints.compaction_ratio) as usize;
                 if self.estimated_tokens > max_effective {
                     lines.push(format!(
-                        "- WARNING: Exceeds effective context limit of {} tokens",
-                        max_effective
+                        "- WARNING: Exceeds effective context limit of {max_effective} tokens"
                     ));
                 } else {
                     lines.push(format!(
-                        "- Within effective context limit of {} tokens",
-                        max_effective
+                        "- Within effective context limit of {max_effective} tokens"
                     ));
                 }
             }

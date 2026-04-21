@@ -334,6 +334,7 @@ pub struct ModelAwareComplexityDetector {
     hints: ModelHints,
 }
 
+#[allow(dead_code)]
 impl ModelAwareComplexityDetector {
     #[must_use]
     pub fn new(hints: ModelHints) -> Self {
@@ -400,6 +401,11 @@ impl ModelAwareComplexityDetector {
 
     /// Estimate how many tokens this task might need based on complexity and model.
     #[must_use]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     pub fn estimated_context_tokens(&self, complexity: Complexity, file_count: usize) -> usize {
         let base_estimate = match complexity {
             Complexity::Low => 2_000,
