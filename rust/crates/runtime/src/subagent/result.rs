@@ -168,12 +168,17 @@ impl SubAgentResult {
 
     /// Create a retried result that preserves history from a previous attempt.
     #[must_use]
-    pub fn with_retry(self, new_output: String, new_error: Option<String>, elapsed: Duration) -> Self {
+    pub fn with_retry(
+        self,
+        new_output: String,
+        new_error: Option<String>,
+        elapsed: Duration,
+    ) -> Self {
         let mut retry_history = self.retry_history;
         retry_history.push(self.output);
-        
+
         let error_category = new_error.as_ref().map(|e| ErrorCategory::from_message(e));
-        
+
         Self {
             task_id: self.task_id,
             description: self.description,
@@ -202,7 +207,7 @@ impl SubAgentResult {
     #[must_use]
     pub fn summary(&self) -> String {
         let mut parts = vec![format!("Task: {}", self.description)];
-        
+
         if self.success {
             parts.push("Status: SUCCESS".to_string());
         } else if self.exceeded_budget {
@@ -210,22 +215,22 @@ impl SubAgentResult {
         } else {
             parts.push("Status: FAILED".to_string());
         }
-        
+
         if self.retry_count > 0 {
             parts.push(format!("Retries: {}", self.retry_count));
         }
-        
+
         if let Some(ref error) = self.error {
             parts.push(format!("Error: {error}"));
         }
-        
+
         if let Some(ref usage) = self.token_usage {
             parts.push(format!(
                 "Tokens: {} input, {} output",
                 usage.input_tokens, usage.output_tokens
             ));
         }
-        
+
         parts.push(format!("Elapsed: {}ms", self.elapsed_ms));
         parts.join(" | ")
     }
@@ -286,13 +291,9 @@ mod tests {
             "First attempt failed".to_string(),
             Duration::from_secs(1),
         );
-        
-        let retried = result.with_retry(
-            "Second output".to_string(),
-            None,
-            Duration::from_secs(2),
-        );
-        
+
+        let retried = result.with_retry("Second output".to_string(), None, Duration::from_secs(2));
+
         assert_eq!(retried.retry_count, 1);
         assert!(retried.success);
         assert_eq!(retried.retry_history.len(), 1);
@@ -313,7 +314,7 @@ mod tests {
             }),
             Duration::from_secs(1),
         );
-        
+
         let summary = result.summary();
         assert!(summary.contains("test task"));
         assert!(summary.contains("SUCCESS"));

@@ -113,7 +113,10 @@ impl InternalSpec {
                 hints.aggressive_read_threshold
             ));
             if hints.supports_ultra_planning {
-                lines.push(format!("- Ultra-planning: up to {} phases", hints.max_plan_phases));
+                lines.push(format!(
+                    "- Ultra-planning: up to {} phases",
+                    hints.max_plan_phases
+                ));
             }
             lines.push(String::new());
         }
@@ -168,10 +171,12 @@ impl InternalSpec {
 
         if self.estimated_tokens > 0 {
             lines.push("## Token Estimate".to_string());
-            lines.push(format!("- Estimated context needed: ~{} tokens", self.estimated_tokens));
+            lines.push(format!(
+                "- Estimated context needed: ~{} tokens",
+                self.estimated_tokens
+            ));
             if let Some(ref hints) = self.model_hints {
-                let max_effective =
-                    (hints.max_context as f32 * hints.compaction_ratio) as usize;
+                let max_effective = (hints.max_context as f32 * hints.compaction_ratio) as usize;
                 if self.estimated_tokens > max_effective {
                     lines.push(format!(
                         "- WARNING: Exceeds effective context limit of {} tokens",

@@ -31,7 +31,10 @@ impl ApiRequest {
     }
 
     #[must_use]
-    pub fn with_cached_system_prompt(mut self, blocks: Vec<api::types::SystemContentBlock>) -> Self {
+    pub fn with_cached_system_prompt(
+        mut self,
+        blocks: Vec<api::types::SystemContentBlock>,
+    ) -> Self {
         self.system_prompt_blocks = Some(blocks);
         self
     }
@@ -554,7 +557,7 @@ where
     /// Static content before `SYSTEM_PROMPT_DYNAMIC_BOUNDARY` is marked as cacheable.
     fn build_system_prompt_blocks(&self) -> Option<Vec<api::types::SystemContentBlock>> {
         use crate::prompt::SYSTEM_PROMPT_DYNAMIC_BOUNDARY;
-        
+
         let hints = self.model_hints.as_ref()?;
         if !hints.supports_prompt_cache {
             return None;
@@ -621,7 +624,11 @@ where
             }
         });
 
-        let system_prompt_blocks = if self.model_hints.as_ref().is_some_and(|h| h.supports_prompt_cache) {
+        let system_prompt_blocks = if self
+            .model_hints
+            .as_ref()
+            .is_some_and(|h| h.supports_prompt_cache)
+        {
             use crate::prompt::SYSTEM_PROMPT_DYNAMIC_BOUNDARY;
             let full = system_prompt.join("\n\n");
             if let Some(split_pos) = full.find(SYSTEM_PROMPT_DYNAMIC_BOUNDARY) {

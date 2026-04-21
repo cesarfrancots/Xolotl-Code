@@ -452,10 +452,8 @@ Guidelines:
 /// Build an ultra-planning prompt that asks for deeper analysis.
 #[must_use]
 pub fn build_ultra_plan_prompt(description: &str, context: Option<&str>) -> String {
-    let context_section = context.map_or_else(
-        String::new,
-        |c| format!("\n## Additional Context\n{c}\n"),
-    );
+    let context_section =
+        context.map_or_else(String::new, |c| format!("\n## Additional Context\n{c}\n"));
 
     format!(
         r"You are an elite software architect and systems planner. Create a comprehensive ultra-plan for the following complex task.
@@ -556,7 +554,11 @@ pub fn format_plan_summary(plan: &PlanArtifact) -> String {
     if let Some(ref milestones) = plan.milestones {
         lines.push("\n**Milestones:**".to_string());
         for m in milestones {
-            lines.push(format!("  • {} (after phase {})", m.name, m.phase_index + 1));
+            lines.push(format!(
+                "  • {} (after phase {})",
+                m.name,
+                m.phase_index + 1
+            ));
         }
     }
 
@@ -664,7 +666,10 @@ Hope this helps!"#;
         };
         let todos = plan.to_todos();
         assert_eq!(todos.len(), 2);
-        assert_eq!(todos[0].content, "[Research] Read source file [risk: Low] [effort: 5 min]");
+        assert_eq!(
+            todos[0].content,
+            "[Research] Read source file [risk: Low] [effort: 5 min]"
+        );
         assert_eq!(todos[0].status, TodoStatus::Pending);
         assert_eq!(todos[0].priority, TodoPriority::Low);
         assert_eq!(
@@ -822,10 +827,7 @@ Hope this helps!"#;
         assert_eq!(loaded.phases[0].tasks[0].risk, Some(RiskLevel::Medium));
         assert!(loaded.phases[0].tasks[0].parallelizable);
         assert_eq!(loaded.milestones.as_ref().unwrap().len(), 1);
-        assert_eq!(
-            loaded.rollback_points.as_ref().unwrap()[0].task_id,
-            "p1-t1"
-        );
+        assert_eq!(loaded.rollback_points.as_ref().unwrap()[0].task_id, "p1-t1");
 
         std::fs::remove_file(&temp_file).unwrap();
     }

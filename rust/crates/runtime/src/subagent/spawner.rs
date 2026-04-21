@@ -115,30 +115,27 @@ impl SubAgentSpawner {
     pub fn spawn(&self, config: &SubAgentConfig) -> SubAgentResult {
         let task_id = config.generate_task_id();
         let started = Instant::now();
-        
+
         let mut last_result = self.spawn_once(config, &task_id);
-        
+
         // Retry loop for retryable failures
         for attempt in 1..=config.max_retries {
             if !last_result.is_retryable() {
                 break;
             }
-            
+
             // Exponential backoff
             let backoff = config.retry_backoff * 2_u32.pow(attempt - 1);
             std::thread::sleep(backoff);
-            
+
             // Retry with same task_id for continuity
             let retry_result = self.spawn_once(config, &task_id);
-            
+
             // Merge retry history
-            last_result = last_result.with_retry(
-                retry_result.output,
-                retry_result.error,
-                started.elapsed(),
-            );
+            last_result =
+                last_result.with_retry(retry_result.output, retry_result.error, started.elapsed());
         }
-        
+
         last_result
     }
 

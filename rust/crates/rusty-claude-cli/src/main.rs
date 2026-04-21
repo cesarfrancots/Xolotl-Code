@@ -1538,7 +1538,11 @@ impl LiveCli {
         if let Some(ref risk) = plan.risk_assessment {
             println!();
             println!("  {BOLD}Risk Assessment:{RESET}");
-            println!("    Overall: {} ({}%)", risk.overall_risk.label(), plan.overall_risk_score());
+            println!(
+                "    Overall: {} ({}%)",
+                risk.overall_risk.label(),
+                plan.overall_risk_score()
+            );
             if let Some(ref summary) = risk.summary {
                 println!("    {MUTED}{}{RESET}", summary);
             }
@@ -1556,7 +1560,10 @@ impl LiveCli {
         if let Some(ref para) = plan.parallelization_analysis {
             if let Some(ref assessment) = para.assessment {
                 println!();
-                println!("  {BOLD}Parallelization:{RESET} {MUTED}{}{RESET}", assessment);
+                println!(
+                    "  {BOLD}Parallelization:{RESET} {MUTED}{}{RESET}",
+                    assessment
+                );
             }
         }
 
@@ -3395,7 +3402,11 @@ impl ApiClient for OpenAiRuntimeClient {
         } else {
             serde_json::Value::Null
         };
-        let thinking = if thinking.is_null() { None } else { Some(thinking) };
+        let thinking = if thinking.is_null() {
+            None
+        } else {
+            Some(thinking)
+        };
 
         let body = openai::OaiRequest {
             model: self.config.model.clone(),

@@ -413,11 +413,7 @@ pub async fn stream_completion(
         .json(request)
         .send()
         .await
-        .map_err(|e| {
-            RuntimeError::new(format!(
-                "{provider_name} API request failed: {e}"
-            ))
-        })?;
+        .map_err(|e| RuntimeError::new(format!("{provider_name} API request failed: {e}")))?;
 
     if !resp.status().is_success() {
         let status = resp.status();

@@ -111,7 +111,9 @@ impl UsageTracker {
         let hit_ratio = self.cache_hit_ratio().unwrap_or(0.0);
         format!(
             "Cache: {} tokens created, {} tokens read ({:.1}% hit rate)",
-            created, read, hit_ratio * 100.0
+            created,
+            read,
+            hit_ratio * 100.0
         )
     }
 }

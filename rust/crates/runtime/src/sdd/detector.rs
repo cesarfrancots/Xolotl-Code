@@ -85,6 +85,7 @@ static FILE_PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Detailed breakdown of complexity scoring for diagnostics and tuning.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ComplexityScore {
     pub raw_score: usize,
     pub file_count: usize,
@@ -327,6 +328,7 @@ impl Default for ComplexityDetector {
 
 /// Model-aware complexity detector that calibrates thresholds and scoring
 /// based on the target model's capabilities.
+#[allow(dead_code)]
 pub struct ModelAwareComplexityDetector {
     base_detector: ComplexityDetector,
     hints: ModelHints,
@@ -424,15 +426,9 @@ impl ModelAwareComplexityDetector {
     #[must_use]
     pub fn should_use_planning_mode(&self, complexity: Complexity, file_count: usize) -> bool {
         match self.hints.family {
-            ModelFamily::MiniMax => {
-                complexity == Complexity::High || file_count >= 8
-            }
-            ModelFamily::KimiCoding => {
-                complexity == Complexity::High || file_count >= 6
-            }
-            ModelFamily::Glm => {
-                complexity == Complexity::High || file_count >= 4
-            }
+            ModelFamily::MiniMax => complexity == Complexity::High || file_count >= 8,
+            ModelFamily::KimiCoding => complexity == Complexity::High || file_count >= 6,
+            ModelFamily::Glm => complexity == Complexity::High || file_count >= 4,
             _ => complexity == Complexity::High || file_count >= 5,
         }
     }
@@ -486,8 +482,12 @@ mod tests {
         let detector = ComplexityDetector::new();
         let files = detector.extract_file_references("update Cargo.toml and package.json");
         assert_eq!(files.len(), 2);
-        assert!(files.iter().any(|f| f.to_string_lossy().contains("Cargo.toml")));
-        assert!(files.iter().any(|f| f.to_string_lossy().contains("package.json")));
+        assert!(files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("Cargo.toml")));
+        assert!(files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("package.json")));
     }
 
     #[test]
@@ -517,7 +517,8 @@ mod tests {
     fn test_model_aware_minimax() {
         let hints = ModelHints::for_model("minimax2.7");
         let detector = ModelAwareComplexityDetector::new(hints);
-        let score = detector.detect_with_score("read file1.rs, file2.rs, file3.rs and implement feature");
+        let score =
+            detector.detect_with_score("read file1.rs, file2.rs, file3.rs and implement feature");
         // MiniMax should reduce score for 3 files
         assert!(score.model_adjusted);
     }
@@ -526,7 +527,8 @@ mod tests {
     fn test_model_aware_kimi() {
         let hints = ModelHints::for_model("kimi-coding/k2.6");
         let detector = ModelAwareComplexityDetector::new(hints);
-        let score = detector.detect_with_score("refactor the current auth module in auth.rs, models.rs, utils.rs");
+        let score = detector
+            .detect_with_score("refactor the current auth module in auth.rs, models.rs, utils.rs");
         // Kimi should handle this well
         assert!(score.model_adjusted);
     }
@@ -586,8 +588,12 @@ mod tests {
         let minimax = ModelHints::for_model("minimax2.7");
         let glm = ModelHints::for_model("glm5.1");
 
-        assert!(Complexity::High.description_for_model(&kimi).contains("Kimi"));
-        assert!(Complexity::High.description_for_model(&minimax).contains("MiniMax"));
+        assert!(Complexity::High
+            .description_for_model(&kimi)
+            .contains("Kimi"));
+        assert!(Complexity::High
+            .description_for_model(&minimax)
+            .contains("MiniMax"));
         assert!(Complexity::High.description_for_model(&glm).contains("GLM"));
     }
 

@@ -222,7 +222,11 @@ impl TaskRegistry {
     #[must_use]
     pub fn retried_results(&self) -> Vec<SubAgentResult> {
         let results = self.results.lock().unwrap();
-        results.iter().filter(|r| r.retry_count > 0).cloned().collect()
+        results
+            .iter()
+            .filter(|r| r.retry_count > 0)
+            .cloned()
+            .collect()
     }
 
     /// Get a summary report of all tasks and results.
@@ -244,7 +248,10 @@ impl TaskRegistry {
             "=== Token Usage ===".to_string(),
             format!("  Input: {}", aggregated.total_input_tokens),
             format!("  Output: {}", aggregated.total_output_tokens),
-            format!("  Total: {}", aggregated.total_input_tokens + aggregated.total_output_tokens),
+            format!(
+                "  Total: {}",
+                aggregated.total_input_tokens + aggregated.total_output_tokens
+            ),
             String::new(),
             format!("Total elapsed: {}ms", aggregated.total_elapsed_ms),
         ];
@@ -262,7 +269,10 @@ impl TaskRegistry {
             lines.push(String::new());
             lines.push(format!("=== Retried Tasks ({}) ===", retried.len()));
             for result in retried {
-                lines.push(format!("  - {} ({} retries)", result.description, result.retry_count));
+                lines.push(format!(
+                    "  - {} ({} retries)",
+                    result.description, result.retry_count
+                ));
             }
         }
 
