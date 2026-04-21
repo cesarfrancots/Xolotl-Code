@@ -147,6 +147,8 @@ impl SystemPromptBuilder {
             if let Some(ref addition) = hints.system_prompt_addition {
                 sections.push(format!("# Model-specific guidance\n{addition}"));
             }
+            sections.push(get_model_capabilities_section(hints));
+            sections.push(get_optimized_tool_guidance(hints));
         }
         sections.push(get_gsd_section());
         sections.push(SYSTEM_PROMPT_DYNAMIC_BOUNDARY.to_string());
@@ -406,6 +408,109 @@ fn get_tools_section() -> String {
         "- Use `ask_user` when you need clarification or additional information to proceed correctly.",
         "- If MCP tools are available (prefixed `mcp__`), use them when they match the task — they extend your capabilities with external services.",
     ].join("\n")
+}
+
+fn get_model_capabilities_section(hints: &ModelHints) -> String {
+    let mut lines = vec!["# Model capabilities".to_string()];
+
+    // Context window info
+    lines.push(format!(
+        "- Context window: {} tokens (use generously for research)",
+        hints.max_context
+    ));
+
+    // Thinking/thoughts support
+    if hints.should_use_thinking() {
+        lines.push(format!(
+            "- Thinking budget: {} tokens (use for complex reasoning before acting)",
+            hints.thinking_budget
+        ));
+    }
+
+    // Aggressive read guidance
+    if hints.aggressive_read {
+        lines.push(format!(
+            "- Aggressive reading: Read up to {} files before implementing to ensure full understanding",
+            hints.aggressive_read_threshold
+        ));
+    }
+
+    // Prompt cache
+    if hints.supports_prompt_cache {
+        lines.push("- Prompt caching: Supported (long system prompts are efficient)".to_string());
+    }
+
+    // Ultra-planning support
+    if hints.supports_ultra_planning {
+        lines.push(format!(
+            "- Ultra-planning: Supported (create up to {} phases with deep analysis)",
+            hints.max_plan_phases
+        ));
+    }
+
+    lines.join("\n")
+}
+
+fn get_optimized_tool_guidance(hints: &ModelHints) -> String {
+    let mut lines = vec!["# Optimized tool guidance".to_string()];
+
+    match hints.family {
+        crate::model_hints::ModelFamily::KimiCoding => {
+            lines.extend([
+                "- With 256K context and strong coding capabilities, prefer reading multiple related files at once before making changes.".to_string(),
+                "- Use thinking blocks for complex architectural decisions.".to_string(),
+                "- When editing code, verify with read_file after edit_file to confirm correctness.".to_string(),
+                "- Leverage large context window: read entire modules or crates when refactoring.".to_string(),
+                "- For debugging, use grep_search to find all call sites before modifying function signatures.".to_string(),
+            ]);
+        }
+        crate::model_hints::ModelFamily::MiniMax => {
+            lines.extend([
+                "- With 1M token context, perform exhaustive codebase analysis before planning.".to_string(),
+                "- Read entire directories with list_directory before selective file reads.".to_string(),
+                "- Use task tool to spawn parallel sub-agents for independent work units.".to_string(),
+                "- When context is large, use compact summaries instead of full file contents in reasoning.".to_string(),
+                "- Prefer batching multiple bash commands with semicolons instead of separate calls.".to_string(),
+            ]);
+        }
+        crate::model_hints::ModelFamily::Glm => {
+            lines.extend([
+                "- Follow standard SDD practices: read files before implementing.".to_string(),
+                "- Focus on correctness: verify with tests after each significant change.".to_string(),
+                "- Use todo_write to track progress through multi-step tasks.".to_string(),
+                "- For complex tasks, break into smaller verifiable steps.".to_string(),
+                "- Prefer explicit reasoning in text before using tools for destructive operations.".to_string(),
+            ]);
+        }
+        crate::model_hints::ModelFamily::Claude
+        | crate::model_hints::ModelFamily::BedrockAnthropic => {
+            lines.extend([
+                "- Use thinking blocks for complex multi-step reasoning.".to_string(),
+                "- Read files before editing; verify after.".to_string(),
+                "- Use task tool for parallel work when appropriate.".to_string(),
+            ]);
+        }
+        crate::model_hints::ModelFamily::OpenAI => {
+            lines.extend([
+                "- Read files before editing; use grep_search to find relevant code.".to_string(),
+                "- Break complex tasks into sequential steps with todo tracking.".to_string(),
+            ]);
+        }
+        crate::model_hints::ModelFamily::Qwen => {
+            lines.extend([
+                "- Read files before editing; verify after changes.".to_string(),
+                "- Use aggressive file reading for thorough understanding.".to_string(),
+            ]);
+        }
+        _ => {
+            lines.extend([
+                "- Read files before editing.".to_string(),
+                "- Use todo_write for multi-step tasks.".to_string(),
+            ]);
+        }
+    }
+
+    lines.join("\n")
 }
 
 fn get_gsd_section() -> String {
