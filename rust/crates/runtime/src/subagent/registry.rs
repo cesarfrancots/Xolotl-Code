@@ -33,8 +33,8 @@ impl TaskStatus {
 
     #[must_use]
     pub fn success_rate(&self) -> f64 {
-        let completed = self.completed as f64;
-        let failed = self.failed as f64;
+        let completed = f64::from(u32::try_from(self.completed).unwrap_or(u32::MAX));
+        let failed = f64::from(u32::try_from(self.failed).unwrap_or(u32::MAX));
         let total = completed + failed;
         if total == 0.0 {
             0.0

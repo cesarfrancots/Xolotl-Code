@@ -112,11 +112,11 @@ impl SubAgentSpawner {
 
     /// Spawn a sub-agent with automatic retry for transient failures.
     #[must_use]
-    pub fn spawn(&self, config: SubAgentConfig) -> SubAgentResult {
+    pub fn spawn(&self, config: &SubAgentConfig) -> SubAgentResult {
         let task_id = config.generate_task_id();
         let started = Instant::now();
         
-        let mut last_result = self.spawn_once(&config, &task_id);
+        let mut last_result = self.spawn_once(config, &task_id);
         
         // Retry loop for retryable failures
         for attempt in 1..=config.max_retries {
@@ -129,7 +129,7 @@ impl SubAgentSpawner {
             std::thread::sleep(backoff);
             
             // Retry with same task_id for continuity
-            let retry_result = self.spawn_once(&config, &task_id);
+            let retry_result = self.spawn_once(config, &task_id);
             
             // Merge retry history
             last_result = last_result.with_retry(

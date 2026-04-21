@@ -553,12 +553,12 @@ where
     /// Build system prompt content blocks with cache control when the model supports it.
     /// Static content before `SYSTEM_PROMPT_DYNAMIC_BOUNDARY` is marked as cacheable.
     fn build_system_prompt_blocks(&self) -> Option<Vec<api::types::SystemContentBlock>> {
+        use crate::prompt::SYSTEM_PROMPT_DYNAMIC_BOUNDARY;
+        
         let hints = self.model_hints.as_ref()?;
         if !hints.supports_prompt_cache {
             return None;
         }
-
-        use crate::prompt::SYSTEM_PROMPT_DYNAMIC_BOUNDARY;
 
         let full = self.system_prompt.join("\n\n");
         if let Some(split_pos) = full.find(SYSTEM_PROMPT_DYNAMIC_BOUNDARY) {
@@ -584,8 +584,8 @@ where
     /// the main conversation session.
     ///
     /// Uses model-specific optimizations:
-    /// - plan_thinking_budget instead of regular thinking_budget for planning
-    /// - plan_mode_system_prompt_addition appended to system prompt
+    /// - `plan_thinking_budget` instead of regular `thinking_budget` for planning
+    /// - `plan_mode_system_prompt_addition` appended to system prompt
     /// - Adaptive retry limits based on model capabilities
     pub fn run_planning_turn(&mut self, prompt: &str) -> Result<String, RuntimeError> {
         let mut temp_messages = self.session.messages.clone();
@@ -621,7 +621,7 @@ where
             }
         });
 
-        let system_prompt_blocks = if self.model_hints.as_ref().map_or(false, |h| h.supports_prompt_cache) {
+        let system_prompt_blocks = if self.model_hints.as_ref().is_some_and(|h| h.supports_prompt_cache) {
             use crate::prompt::SYSTEM_PROMPT_DYNAMIC_BOUNDARY;
             let full = system_prompt.join("\n\n");
             if let Some(split_pos) = full.find(SYSTEM_PROMPT_DYNAMIC_BOUNDARY) {

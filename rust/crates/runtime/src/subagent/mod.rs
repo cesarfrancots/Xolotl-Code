@@ -8,8 +8,8 @@ mod registry;
 mod result;
 mod spawner;
 
-pub use registry::{AggregatedResults, TaskRegistry, TaskStatus};
-pub use result::{ErrorCategory, SubAgentResult};
+pub use registry::{TaskRegistry, TaskStatus};
+pub use result::SubAgentResult;
 pub use spawner::{SubAgentConfig, SubAgentSpawner};
 
 use serde::{Deserialize, Serialize};

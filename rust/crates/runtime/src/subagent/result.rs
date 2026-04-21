@@ -45,7 +45,7 @@ impl ErrorCategory {
 
     /// Returns true if this error category should be retried.
     #[must_use]
-    pub fn should_retry(&self) -> bool {
+    pub fn should_retry(self) -> bool {
         matches!(self, Self::Retryable | Self::Unknown)
     }
 }
@@ -194,7 +194,7 @@ impl SubAgentResult {
     #[must_use]
     pub fn is_retryable(&self) -> bool {
         !self.success
-            && self.error_category.as_ref().map_or(true, |c| c.should_retry())
+            && self.error_category.is_none_or(ErrorCategory::should_retry)
             && !self.exceeded_budget
     }
 

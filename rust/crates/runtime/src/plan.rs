@@ -196,16 +196,25 @@ impl PlanArtifact {
 
                 if let Some(ref deps) = task.dependencies {
                     if !deps.is_empty() {
-                        content.push_str(&format!(" [deps: {}]", deps.join(", ")));
+                        let _ = std::fmt::Write::write_fmt(
+                            &mut content,
+                            format_args!(" [deps: {}]", deps.join(", ")),
+                        );
                     }
                 }
 
                 if let Some(ref risk) = task.risk {
-                    content.push_str(&format!(" [risk: {}]", risk.label()));
+                    let _ = std::fmt::Write::write_fmt(
+                        &mut content,
+                        format_args!(" [risk: {}]", risk.label()),
+                    );
                 }
 
                 if let Some(ref effort) = task.estimated_effort {
-                    content.push_str(&format!(" [effort: {effort}]"));
+                    let _ = std::fmt::Write::write_fmt(
+                        &mut content,
+                        format_args!(" [effort: {effort}]"),
+                    );
                 }
 
                 if task.rollback_point {
@@ -217,7 +226,7 @@ impl PlanArtifact {
                     content,
                     status: TodoStatus::Pending,
                     priority: match task.risk {
-                        Some(RiskLevel::Critical) | Some(RiskLevel::High) => TodoPriority::High,
+                        Some(RiskLevel::Critical | RiskLevel::High) => TodoPriority::High,
                         Some(RiskLevel::Medium) => TodoPriority::Medium,
                         _ => TodoPriority::Low,
                     },
@@ -284,7 +293,7 @@ impl PlanArtifact {
             return 25; // Default: low risk
         }
 
-        ((total_score / count) * 25) as u8
+        u8::try_from((total_score / count) * 25).unwrap_or(100)
     }
 
     /// Get tasks that are ready to execute (all dependencies met).
@@ -449,7 +458,7 @@ pub fn build_ultra_plan_prompt(description: &str, context: Option<&str>) -> Stri
     );
 
     format!(
-        r#"You are an elite software architect and systems planner. Create a comprehensive ultra-plan for the following complex task.
+        r"You are an elite software architect and systems planner. Create a comprehensive ultra-plan for the following complex task.
 
 Task: {description}{context_section}
 
@@ -475,7 +484,7 @@ Guidelines:
 - Estimate effort realistically
 - Consider model-specific capabilities (thinking, tool use, context limits)
 - Do NOT use any tools — just return the JSON plan
-- Ensure the JSON is valid and parseable"#
+- Ensure the JSON is valid and parseable"
     )
 }
 

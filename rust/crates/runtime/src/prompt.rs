@@ -502,7 +502,7 @@ fn get_optimized_tool_guidance(hints: &ModelHints) -> String {
                 "- Use aggressive file reading for thorough understanding.".to_string(),
             ]);
         }
-        _ => {
+        crate::model_hints::ModelFamily::Generic => {
             lines.extend([
                 "- Read files before editing.".to_string(),
                 "- Use todo_write for multi-step tasks.".to_string(),
