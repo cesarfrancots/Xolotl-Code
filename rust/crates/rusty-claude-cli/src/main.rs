@@ -862,7 +862,7 @@ fn print_startup_banner(cli: &LiveCli) {
     // Gather info
     let model_display = format_model(&cli.model);
     let cwd = env::current_dir().map_or_else(|_| ".".to_string(), |p| shorten_path(&p));
-    let mcp_count = cli.mcp.lock().map(|m| m.tools.len()).unwrap_or(0);
+    let mcp_count = cli.mcp.lock().map_or(0, |m| m.tools.len());
     let builtin_count = tools::mvp_tool_specs().len();
     let tool_str = if mcp_count > 0 {
         format!("{builtin_count} built-in  {ACCENT}{SPARKLE}{RESET} {mcp_count} MCP")
@@ -2042,8 +2042,7 @@ fn run_doctor() {
     println!();
     let session_dir = sessions_dir();
     let session_count = std::fs::read_dir(&session_dir)
-        .map(std::iter::Iterator::count)
-        .unwrap_or(0);
+        .map_or(0, std::iter::Iterator::count);
     print_kv("sessions", &format!("{session_count} saved"));
     print_kv(
         "platform",
@@ -2151,7 +2150,7 @@ fn list_sessions() {
         }
     }
 
-    entries.sort_by(|a, b| b.1.cmp(&a.1));
+    entries.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     print_header("Saved Sessions");
     print_muted(&dir.display().to_string());
