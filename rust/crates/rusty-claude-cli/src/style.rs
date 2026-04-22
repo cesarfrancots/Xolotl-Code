@@ -79,6 +79,22 @@ pub const GEAR: &str = "⚙";
 pub const CHAIN: &str = "⛓";
 pub const PROMPT_ARROW: &str = "›";
 
+// ── Terminal width ────────────────────────────────────────────────────────────
+
+/// Detect the current terminal width using crossterm.
+/// Falls back to 80 if detection fails.
+pub fn terminal_width() -> usize {
+    crossterm::terminal::size()
+        .map(|(w, _)| w as usize)
+        .unwrap_or(80)
+}
+
+/// Inner width for bordered boxes, accounting for 2-space left padding,
+/// box borders, and a small right margin.
+pub fn box_inner_width() -> usize {
+    terminal_width().saturating_sub(8).max(40)
+}
+
 // ── Dividers ──────────────────────────────────────────────────────────────────
 
 #[allow(dead_code)]
@@ -154,7 +170,28 @@ pub fn friendly_model_name(model: &str) -> String {
         return "Claude 3 Opus".into();
     }
 
-    // OpenAI / Kimi / etc. pass-through
+    // ── Provider models (OpenAI-compatible) ───────────────────────────
+    let model_lower = model.to_lowercase();
+    if model_lower.starts_with("kimi-coding/") || model_lower == "kimi-coding" {
+        return "Kimi K2.6 Coding".into();
+    }
+    if model_lower.starts_with("kimi/") || model_lower == "kimi" {
+        return "Kimi K2.6".into();
+    }
+    if model_lower.starts_with("minimax/") || model_lower == "minimax" {
+        return "MiniMax 2.7".into();
+    }
+    if model_lower.starts_with("glm/") || model_lower == "glm" {
+        return "GLM 5.1".into();
+    }
+    if model_lower.starts_with("qwen/") || model_lower == "qwen" {
+        return "Qwen 3.6".into();
+    }
+    if model_lower.starts_with("openai/") || model_lower == "openai" {
+        return "OpenAI".into();
+    }
+
+    // Fallback: strip bedrock prefix if present, otherwise return raw
     model.strip_prefix("bedrock/").unwrap_or(model).to_string()
 }
 
@@ -176,7 +213,7 @@ pub fn format_model(model: &str) -> String {
 /// Build a full-width bordered box (reserved for future use).
 #[allow(dead_code)]
 pub fn box_print(color: &str, title: &str, lines: &[String], footer: Option<&str>) {
-    let inner_width = 52usize;
+    let inner_width = box_inner_width();
     let title_str = if title.is_empty() {
         BOX_H.repeat(inner_width)
     } else {

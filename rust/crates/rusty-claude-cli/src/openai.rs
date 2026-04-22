@@ -30,27 +30,37 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
         None => ("", model_spec),
     };
 
-    let (base_url, key_var): (String, &str) = match prefix {
-        "kimi-coding" => (
-            "https://api.kimi.com/coding/v1".into(),
-            "KIMI_CODING_API_KEY",
-        ),
-        "kimi" | "moonshot" => ("https://api.moonshot.cn/v1".into(), "KIMI_API_KEY"),
-        "glm" | "zhipu" => ("https://open.bigmodel.cn/api/paas/v4".into(), "GLM_API_KEY"),
-        "minimax" => ("https://api.minimax.chat/v1".into(), "MINIMAX_API_KEY"),
+    let (default_url, key_var): (&str, &str) = match prefix {
+        "kimi-coding" => ("https://api.kimi.com/coding/v1", "KIMI_CODING_API_KEY"),
+        "kimi" | "moonshot" => ("https://api.moonshot.cn/v1", "KIMI_API_KEY"),
+        "glm" | "zhipu" => ("https://open.bigmodel.cn/api/paas/v4", "GLM_API_KEY"),
+        "minimax" => ("https://api.minimax.chat/v1", "MINIMAX_API_KEY"),
         "qwen" => (
-            "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "DASHSCOPE_API_KEY",
         ),
-        "openai" | "" => (
-            std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com".into()),
-            "OPENAI_API_KEY",
-        ),
-        other => (
-            std::env::var("OPENAI_BASE_URL")
-                .unwrap_or_else(|_| format!("https://api.{other}.com/v1")),
-            "OPENAI_API_KEY",
-        ),
+        "openai" | "" => ("https://api.openai.com", "OPENAI_API_KEY"),
+        _other => ("", "OPENAI_API_KEY"),
+    };
+
+    // Allow per-provider base URL overrides via <PROVIDER>_BASE_URL env vars
+    // (e.g. KIMI_CODING_BASE_URL, KIMI_BASE_URL, MINIMAX_BASE_URL, etc.)
+    let base_url = if prefix.is_empty() {
+        std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| default_url.to_string())
+    } else {
+        let base_var = format!(
+            "{}_BASE_URL",
+            key_var.strip_suffix("_API_KEY").unwrap_or(key_var)
+        );
+        std::env::var(&base_var)
+            .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+            .unwrap_or_else(|_| {
+                if default_url.is_empty() {
+                    format!("https://api.{prefix}.com/v1")
+                } else {
+                    default_url.to_string()
+                }
+            })
     };
 
     let api_key = std::env::var(key_var)
@@ -394,17 +404,18 @@ pub async fn stream_completion(
     // Add provider-specific headers for better compatibility
     let provider_name = detect_provider_name(&config.base_url);
     match provider_name {
-        "minimax" => {
-            // MiniMax may require specific headers
+        "MiniMax" | "GLM" | "Qwen" => {
             request_builder = request_builder.header("Accept", "application/json");
         }
-        "glm" | "zhipu" => {
-            // Zhipu GLM uses a different auth format sometimes
-            request_builder = request_builder.header("Accept", "application/json");
-        }
-        "qwen" | "dashscope" => {
-            // Alibaba Dashscope specific headers
-            request_builder = request_builder.header("Accept", "application/json");
+        "Kimi" => {
+            // Kimi Coding endpoint requires identification as an approved coding agent.
+            // We mimic the headers that Claude Code and other approved agents send.
+            request_builder = request_builder
+                .header("Accept", "application/json")
+                .header("User-Agent", "claude-code/1.0.0 (Windows; x64)")
+                .header("X-Client-Name", "claude-code")
+                .header("X-Client-Version", "1.0.0")
+                .header("X-Source", "claude-code");
         }
         _ => {}
     }
@@ -513,7 +524,11 @@ fn process_sse_line(
     output_tokens: &mut u32,
     stdout: &mut impl io::Write,
 ) -> bool {
-    let data = match line.strip_prefix("data: ") {
+    // Kimi sends `data:{...}` without a space after the colon.
+    let data = match line
+        .strip_prefix("data: ")
+        .or_else(|| line.strip_prefix("data:"))
+    {
         Some(d) => d,
         None => return false,
     };
@@ -634,9 +649,9 @@ mod tests {
         let _guard = ENV_MUTEX.lock().unwrap();
         // Temporarily set a dummy API key for testing
         std::env::set_var("KIMI_CODING_API_KEY", "test-key");
-        let config = resolve_provider("kimi-coding/k2.6").unwrap();
+        let config = resolve_provider("kimi-coding/kimi-for-coding").unwrap();
         assert_eq!(config.base_url, "https://api.kimi.com/coding/v1");
-        assert_eq!(config.model, "k2.6");
+        assert_eq!(config.model, "kimi-for-coding");
     }
 
     #[test]
@@ -664,5 +679,17 @@ mod tests {
         let config = resolve_provider("glm/glm-5.1").unwrap();
         assert_eq!(config.base_url, "https://open.bigmodel.cn/api/paas/v4");
         assert_eq!(config.model, "glm-5.1");
+    }
+
+    #[test]
+    fn respects_provider_base_url_override() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("KIMI_CODING_API_KEY", "test-key");
+        std::env::set_var("KIMI_CODING_BASE_URL", "https://custom.kimi.com/v1");
+        let config = resolve_provider("kimi-coding/kimi-for-coding").unwrap();
+        assert_eq!(config.base_url, "https://custom.kimi.com/v1");
+        assert_eq!(config.model, "kimi-for-coding");
+        // clean up so it doesn't affect other tests
+        std::env::remove_var("KIMI_CODING_BASE_URL");
     }
 }

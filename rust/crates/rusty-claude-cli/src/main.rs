@@ -58,7 +58,7 @@ use tools::{execute_tool, mvp_tool_specs, DynamicToolSpec};
 
 const DEFAULT_BEDROCK_MODEL: &str = "bedrock/us.anthropic.claude-sonnet-4-6";
 const DEFAULT_MAX_TOKENS: u32 = 16384;
-const CLAW_VERSION: &str = "0.2.0";
+const CLAW_VERSION: &str = "0.2.1";
 
 static STDOUT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -67,9 +67,8 @@ fn stdout_lock() -> &'static Mutex<()> {
 }
 
 /// Returns the default model.
-/// Always uses Bedrock cross-region Sonnet 4.6.
 fn default_model() -> String {
-    DEFAULT_BEDROCK_MODEL.to_string()
+    "kimi-coding".to_string()
 }
 
 /// Returns the current UTC date as `YYYY-MM-DD` using only stdlib.
@@ -276,7 +275,7 @@ impl PermissionPrompter for ReplPermissionPrompter {
             .tool_name
             .strip_prefix("mcp__")
             .unwrap_or(&request.tool_name);
-        let width = 52usize;
+        let width = style::box_inner_width();
         let bar = style::BOX_H.repeat(width);
 
         eprintln!();
@@ -771,10 +770,54 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                     }
                 }
                 "/model" => {
-                    if let Some(name) = parts.get(1).copied() {
-                        cli.set_model(name.trim())?;
+                    let model_name = if let Some(name) = parts.get(1).copied() {
+                        name.trim().to_string()
                     } else {
                         print_model_help(&cli.model);
+                        eprint!("  {}Model: ", style::PROMPT_ARROW);
+                        let _ = io::stderr().flush();
+                        let mut line = String::new();
+                        if io::stdin().lock().read_line(&mut line).is_err() {
+                            continue;
+                        }
+                        let trimmed = line.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        trimmed.to_string()
+                    };
+                    if let Err(e) = cli.set_model(&model_name) {
+                        style::print_err(&e.to_string());
+                        // Show a helpful hint for common provider errors
+                        let msg = e.to_string().to_lowercase();
+                        if msg.contains("missing api key") || msg.contains("api key") {
+                            println!(
+                                "  {}Hint: Run /connect <provider> to set your API key first.{}",
+                                style::MUTED,
+                                style::RESET
+                            );
+                        }
+                    }
+                }
+                "/connect" => {
+                    let provider = if let Some(p) = parts.get(1).copied() {
+                        p.trim().to_string()
+                    } else {
+                        print_connect_help();
+                        eprint!("  {}Provider: ", style::PROMPT_ARROW);
+                        let _ = io::stderr().flush();
+                        let mut line = String::new();
+                        if io::stdin().lock().read_line(&mut line).is_err() {
+                            continue;
+                        }
+                        let trimmed = line.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        trimmed.to_string()
+                    };
+                    if let Err(e) = cli.connect_provider(&provider) {
+                        style::print_err(&e.to_string());
                     }
                 }
                 "/memory" | "/memory status" => {
@@ -898,7 +941,7 @@ fn print_startup_banner(cli: &LiveCli) {
     };
 
     // Inner width of the box (between the vertical bars)
-    let inner = 52usize;
+    let inner = style::box_inner_width();
     let bar = BOX_H.repeat(inner);
     let pad = |s: &str| {
         let vis = strip_ansi_len(s);
@@ -963,10 +1006,32 @@ fn print_slash_help() {
         "  {ACCENT}{PROMPT_ARROW}{RESET} Session       {CYAN}/help{RESET} · {CYAN}/exit{RESET}"
     );
     println!();
+    println!("  {ACCENT}{PROMPT_ARROW}{RESET} Providers   {CYAN}/connect <provider>{RESET}");
+    println!();
     println!("  {GRAY}Keyboard{RESET}");
     println!("  {MUTED}  {ARROW_UP}/{ARROW_DOWN}   Browse input history{RESET}");
     println!("  {MUTED}  Shift+Enter   Insert newline{RESET}");
     println!("  {MUTED}  Ctrl+C        Cancel current input{RESET}");
+    println!();
+}
+
+fn print_connect_help() {
+    use style::{CYAN, GRAY, MUTED, RESET, WHITE_BOLD};
+    println!();
+    println!("  {WHITE_BOLD}Connect a provider{RESET}");
+    println!();
+    println!("  {MUTED}Usage: /connect <provider>{RESET}");
+    println!();
+    println!("  {CYAN}minimax{RESET}      MiniMax 2.7        {GRAY}(MINIMAX_API_KEY){RESET}");
+    println!("  {CYAN}kimi{RESET}         Kimi K2.6          {GRAY}(KIMI_API_KEY){RESET}");
+    println!("  {CYAN}kimi-coding{RESET}  Kimi K2.6 Coding   {GRAY}(KIMI_CODING_API_KEY){RESET}");
+    println!("  {CYAN}glm{RESET}          Zhipu GLM 5.1      {GRAY}(GLM_API_KEY){RESET}");
+    println!("  {CYAN}qwen{RESET}         Alibaba Qwen       {GRAY}(DASHSCOPE_API_KEY){RESET}");
+    println!("  {CYAN}anthropic{RESET}    Anthropic Claude   {GRAY}(ANTHROPIC_API_KEY){RESET}");
+    println!("  {CYAN}bedrock{RESET}      AWS Bedrock        {GRAY}(BEDROCK_API_KEY){RESET}");
+    println!("  {CYAN}openai{RESET}       OpenAI             {GRAY}(OPENAI_API_KEY){RESET}");
+    println!();
+    println!("  {MUTED}Example: /connect minimax{RESET}");
     println!();
 }
 
@@ -1914,6 +1979,7 @@ impl LiveCli {
             true,
         )?;
         self.model = expanded.clone();
+        let provider_hint = provider_hint_for_model(&expanded);
         if let Some(i) = expanded.find('+') {
             style::print_ok(&format!(
                 "Dual model  {}{}+{}{}",
@@ -1924,11 +1990,139 @@ impl LiveCli {
             ));
         } else {
             style::print_ok(&format!(
-                "Model {} {}",
+                "Model {} {}  {}{}{}",
                 style::ARROW_RIGHT,
-                style::friendly_model_name(&expanded)
+                style::friendly_model_name(&expanded),
+                style::MUTED,
+                provider_hint,
+                style::RESET,
             ));
         }
+        Ok(())
+    }
+
+    fn connect_provider(&self, provider: &str) -> Result<(), Box<dyn std::error::Error>> {
+        use std::io::Write;
+
+        let (env_var, label, default_url) = match provider.to_lowercase().as_str() {
+            "minimax" => (
+                "MINIMAX_API_KEY",
+                "MiniMax",
+                Some("https://api.minimax.chat/v1"),
+            ),
+            "kimi" | "moonshot" => (
+                "KIMI_API_KEY",
+                "Kimi / Moonshot",
+                Some("https://api.moonshot.cn/v1"),
+            ),
+            "kimi-coding" => (
+                "KIMI_CODING_API_KEY",
+                "Kimi Coding",
+                Some("https://api.kimi.com/coding/v1"),
+            ),
+            "glm" | "zhipu" => (
+                "GLM_API_KEY",
+                "Zhipu GLM",
+                Some("https://open.bigmodel.cn/api/paas/v4"),
+            ),
+            "qwen" => (
+                "DASHSCOPE_API_KEY",
+                "Alibaba Qwen",
+                Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            ),
+            "anthropic" => ("ANTHROPIC_API_KEY", "Anthropic", None),
+            "bedrock" => ("BEDROCK_API_KEY", "AWS Bedrock", None),
+            "openai" => ("OPENAI_API_KEY", "OpenAI", None),
+            other => {
+                return Err(format!(
+                    "Unknown provider '{other}'. Available: minimax, kimi, kimi-coding, glm, qwen, anthropic, bedrock, openai"
+                )
+                .into());
+            }
+        };
+
+        println!();
+        println!("  {}Connecting to {}{}", style::CYAN, label, style::RESET);
+
+        // Show current key if present
+        if let Ok(existing) = env::var(env_var) {
+            if !existing.is_empty() && existing.len() > 8 {
+                println!(
+                    "  {}Current key: {}…{}{}",
+                    style::MUTED,
+                    &existing[..4],
+                    &existing[existing.len() - 4..],
+                    style::RESET
+                );
+            }
+        }
+
+        eprint!("  {}API key for {}: ", style::PROMPT_ARROW, label);
+        let _ = io::stderr().flush();
+
+        let mut line = String::new();
+        io::stdin().lock().read_line(&mut line)?;
+        let key = line.trim();
+
+        if key.is_empty() {
+            println!(
+                "  {}No key provided. Connection cancelled.{}",
+                style::MUTED,
+                style::RESET
+            );
+            return Ok(());
+        }
+
+        // Save to config file
+        let config_path = claw_home().join("config.json");
+        let mut config: serde_json::Map<String, serde_json::Value> = config_path
+            .exists()
+            .then(|| {
+                std::fs::read_to_string(&config_path)
+                    .ok()
+                    .and_then(|t| serde_json::from_str(&t).ok())
+            })
+            .flatten()
+            .unwrap_or_default();
+
+        config.insert(
+            env_var.to_string(),
+            serde_json::Value::String(key.to_string()),
+        );
+
+        // Optionally save base URL for custom endpoints
+        if let Some(url) = default_url {
+            let url_var = format!(
+                "{}_BASE_URL",
+                env_var.strip_suffix("_API_KEY").unwrap_or(env_var)
+            );
+            if env::var(&url_var).is_err() && !config.contains_key(&url_var) {
+                config.insert(url_var, serde_json::Value::String(url.to_string()));
+            }
+        }
+
+        std::fs::create_dir_all(claw_home())?;
+        let json = serde_json::to_string_pretty(&serde_json::Value::Object(config))?;
+        std::fs::write(&config_path, json)?;
+
+        // Set in current process so it works immediately
+        env::set_var(env_var, key);
+
+        println!();
+        println!(
+            "  {}{} {}{} connected successfully.{}",
+            style::GREEN,
+            style::CHECK,
+            style::RESET,
+            label,
+            style::RESET
+        );
+        println!(
+            "  {}Key saved to ~/.claw-code/config.json{}",
+            style::MUTED,
+            style::RESET
+        );
+        println!();
         Ok(())
     }
 
@@ -2354,6 +2548,28 @@ fn expand_model_spec(spec: &str) -> String {
     expand_single_alias(spec)
 }
 
+/// Return a short provider hint for display after switching models.
+fn provider_hint_for_model(model: &str) -> String {
+    let lower = model.to_lowercase();
+    if lower.starts_with("bedrock/") {
+        "(AWS Bedrock)".into()
+    } else if lower.starts_with("kimi-coding/") {
+        "(Kimi Coding API)".into()
+    } else if lower.starts_with("kimi/") {
+        "(Moonshot API)".into()
+    } else if lower.starts_with("minimax/") {
+        "(MiniMax API)".into()
+    } else if lower.starts_with("glm/") {
+        "(Zhipu GLM API)".into()
+    } else if lower.starts_with("qwen/") {
+        "(Alibaba Qwen API)".into()
+    } else if openai::is_anthropic_model(model) {
+        "(Anthropic API)".into()
+    } else {
+        "(OpenAI-compatible)".into()
+    }
+}
+
 /// Map a single model alias to its full Bedrock model ID.
 fn expand_single_alias(alias: &str) -> String {
     let alias_lower = alias.to_lowercase();
@@ -2379,11 +2595,14 @@ fn expand_single_alias(alias: &str) -> String {
         // ── MiniMax family ───────────────────────────────────────────
         "minimax2.7" | "minimax-2.7" | "minimax" | "minimax-text-01" => "minimax/MiniMax-Text-01",
 
+        // ── GLM family ────────────────────────────────────────────────
+        "glm5.1" | "glm-5.1" | "glm" => "glm/glm-5.1",
+
         // ── Qwen family ───────────────────────────────────────────────
         "qwen3.6" | "qwen3.6-plus" | "qwen-3.6-plus" | "qwen" | "qwen-plus" => "qwen/qwen-3.6-plus",
 
         // ── Kimi family ────────────────────────────────────────────────
-        "kimi-coding" | "kimi-coding-k2.6" | "k2.6-coding" => "kimi-coding/k2.6",
+        "kimi-coding" | "kimi-coding-k2.6" | "k2.6-coding" => "kimi-coding/kimi-for-coding",
         "kimi2.6" | "kimi-2.6" | "k2.6" | "kimi-k2-6" => "kimi/moonshot-v1-32k",
 
         // ── Legacy / direct Anthropic ─────────────────────────────────
@@ -2860,7 +3079,7 @@ impl CliToolExecutor {
         let start = std::time::Instant::now();
         let display_name = tool_name.strip_prefix("mcp__").unwrap_or(tool_name);
         let input_preview = extract_tool_preview(tool_name, input);
-        let inner = 52usize;
+        let inner = style::box_inner_width();
         let mut display = Vec::new();
 
         let title = format!(
@@ -2922,20 +3141,25 @@ impl CliToolExecutor {
                 }
             }
         } else {
-            let value = match serde_json::from_str(input) {
-                Ok(v) => v,
-                Err(error) => {
-                    let err = ToolError::new(format!("invalid tool input JSON: {error}"));
-                    let elapsed = start.elapsed();
-                    display.push(format!(
-                        "  {}{} {}{}",
-                        style::RED,
-                        style::CROSS,
-                        &err,
-                        style::RESET
-                    ));
-                    display.push(format_tool_footer(style::RED, inner, &elapsed, true));
-                    return (Err(err), display);
+            // Treat empty input as empty object {} for tools that don't require arguments
+            let value = if input.trim().is_empty() {
+                serde_json::json!({})
+            } else {
+                match serde_json::from_str(input) {
+                    Ok(v) => v,
+                    Err(error) => {
+                        let err = ToolError::new(format!("invalid tool input JSON: {error}"));
+                        let elapsed = start.elapsed();
+                        display.push(format!(
+                            "  {}{} {}{}",
+                            style::RED,
+                            style::CROSS,
+                            &err,
+                            style::RESET
+                        ));
+                        display.push(format_tool_footer(style::RED, inner, &elapsed, true));
+                        return (Err(err), display);
+                    }
                 }
             };
             match execute_tool(tool_name, &value) {
@@ -3491,15 +3715,17 @@ pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMes
                 MessageRole::System | MessageRole::User | MessageRole::Tool => "user",
                 MessageRole::Assistant => "assistant",
             };
-            let content = message
+            let content: Vec<InputContentBlock> = message
                 .blocks
                 .iter()
-                .map(|block| match block {
-                    ContentBlock::Text { text } => InputContentBlock::Text { text: text.clone() },
-                    ContentBlock::Thinking { .. } => InputContentBlock::Text {
-                        text: String::new(),
-                    },
-                    ContentBlock::Image { source } => InputContentBlock::Image {
+                .filter_map(|block| match block {
+                    // Skip empty text blocks — Anthropic/Bedrock rejects them
+                    ContentBlock::Text { text } if !text.is_empty() => {
+                        Some(InputContentBlock::Text { text: text.clone() })
+                    }
+                    // Skip empty text and thinking blocks — API doesn't accept them as input
+                    ContentBlock::Text { .. } | ContentBlock::Thinking { .. } => None,
+                    ContentBlock::Image { source } => Some(InputContentBlock::Image {
                         source: match source {
                             runtime::ImageSource::Base64 { media_type, data } => ApiImageSource {
                                 source_type: "base64".to_string(),
@@ -3507,27 +3733,27 @@ pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMes
                                 data: data.clone(),
                             },
                         },
-                    },
-                    ContentBlock::ToolUse { id, name, input } => InputContentBlock::ToolUse {
+                    }),
+                    ContentBlock::ToolUse { id, name, input } => Some(InputContentBlock::ToolUse {
                         id: id.clone(),
                         name: name.clone(),
                         input: serde_json::from_str(input)
                             .unwrap_or_else(|_| serde_json::json!({ "raw": input })),
-                    },
+                    }),
                     ContentBlock::ToolResult {
                         tool_use_id,
                         output,
                         is_error,
                         ..
-                    } => InputContentBlock::ToolResult {
+                    } => Some(InputContentBlock::ToolResult {
                         tool_use_id: tool_use_id.clone(),
                         content: vec![ToolResultContentBlock::Text {
                             text: output.clone(),
                         }],
                         is_error: *is_error,
-                    },
+                    }),
                 })
-                .collect::<Vec<_>>();
+                .collect();
             (!content.is_empty()).then(|| InputMessage {
                 role: role.to_string(),
                 content,
@@ -3549,10 +3775,12 @@ fn print_help() {
     println!("  claw --resume SESSION.json              Resume a saved session");
     println!("  claw --version                          Show version");
     println!();
-    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan · minimax2.7 · qwen3.6 · kimi2.6 · kimi-coding");
+    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan · minimax2.7 · glm5.1 · qwen3.6 · kimi2.6 · kimi-coding");
     println!();
     println!("Slash commands:");
-    println!("  /help  /status  /cost  /budget  /compact  /clear  /model  /mcp  /accept-all");
+    println!(
+        "  /help  /status  /cost  /budget  /compact  /clear  /model  /connect  /mcp  /accept-all"
+    );
     println!("  /tasks  /sessions  /doctor  /init  /save  /exit");
     println!();
     println!("Flags:");
@@ -3564,7 +3792,10 @@ fn print_help() {
     println!("  BEDROCK_API_KEY          Bedrock API key (recommended)");
     println!("  AWS_DEFAULT_REGION       Bedrock region (default: us-east-1)");
     println!("  ANTHROPIC_API_KEY        Anthropic direct API");
+    println!("  KIMI_API_KEY             Kimi / Moonshot API (kimi2.6 model)");
+    println!("  KIMI_CODING_API_KEY      Kimi Coding API (kimi-coding model)");
     println!("  MINIMAX_API_KEY          MiniMax API key (minimax2.7 model)");
+    println!("  GLM_API_KEY              Zhipu GLM API (glm5.1 model)");
     println!("  DASHSCOPE_API_KEY        Qwen API key (qwen3.6 model)");
     println!("  OPENAI_API_KEY           OpenAI or compatible provider");
     println!("  AWS_ACCESS_KEY_ID        Bedrock IAM auth");
@@ -3706,5 +3937,40 @@ mod tests {
         assert_eq!(converted.len(), 3);
         assert_eq!(converted[1].role, "assistant");
         assert_eq!(converted[2].role, "user");
+    }
+
+    #[test]
+    fn expands_glm51_alias() {
+        assert_eq!(super::expand_single_alias("glm5.1"), "glm/glm-5.1");
+        assert_eq!(super::expand_single_alias("glm-5.1"), "glm/glm-5.1");
+        assert_eq!(super::expand_single_alias("glm"), "glm/glm-5.1");
+    }
+
+    #[test]
+    fn expands_minimax_alias() {
+        assert_eq!(
+            super::expand_single_alias("minimax2.7"),
+            "minimax/MiniMax-Text-01"
+        );
+    }
+
+    #[test]
+    fn expands_kimi_aliases() {
+        assert_eq!(
+            super::expand_single_alias("kimi2.6"),
+            "kimi/moonshot-v1-32k"
+        );
+        assert_eq!(
+            super::expand_single_alias("kimi-coding"),
+            "kimi-coding/kimi-for-coding"
+        );
+    }
+
+    #[test]
+    fn expands_dual_model_spec() {
+        assert_eq!(
+            super::expand_model_spec("opus+sonnet"),
+            "bedrock/us.anthropic.claude-opus-4-6-v1+bedrock/us.anthropic.claude-sonnet-4-6"
+        );
     }
 }

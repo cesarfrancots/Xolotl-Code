@@ -49,6 +49,22 @@ Rules:
 - Conservative file reading (threshold: 5 files)
 - Good balance for general coding tasks
 
+### Connecting Providers
+
+Use `/connect <provider>` in the REPL for plug-and-play provider setup. You only need to provide the API key — endpoints and model IDs are configured automatically.
+
+```
+› /connect minimax
+› /connect kimi
+› /connect kimi-coding
+› /connect glm
+› /connect anthropic
+› /connect bedrock
+› /connect openai
+```
+
+Keys are saved to `~/.claw-code/config.json` and are available immediately without restarting the session.
+
 ### Switching Models
 
 Use `/model <alias>` in the REPL to switch models mid-session:

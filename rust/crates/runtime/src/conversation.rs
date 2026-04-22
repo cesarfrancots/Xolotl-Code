@@ -153,7 +153,7 @@ where
             tool_executor,
             permission_policy,
             system_prompt,
-            max_iterations: 16,
+            max_iterations: 32,
             usage_tracker,
             max_context_tokens: 120_000,
             max_parallel,
