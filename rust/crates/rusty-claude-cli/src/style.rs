@@ -84,9 +84,7 @@ pub const PROMPT_ARROW: &str = "›";
 /// Detect the current terminal width using crossterm.
 /// Falls back to 80 if detection fails.
 pub fn terminal_width() -> usize {
-    crossterm::terminal::size()
-        .map(|(w, _)| w as usize)
-        .unwrap_or(80)
+    crossterm::terminal::size().map_or(80, |(w, _)| w as usize)
 }
 
 /// Inner width for bordered boxes, accounting for 2-space left padding,
