@@ -109,7 +109,7 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "DASHSCOPE_API_KEY",
         ),
-        "openai" | "" => ("https://api.openai.com", "OPENAI_API_KEY"),
+        "openai" | "" => ("https://api.openai.com/v1", "OPENAI_API_KEY"),
         _other => ("", "OPENAI_API_KEY"),
     };
 
@@ -857,6 +857,26 @@ mod tests {
         assert_eq!(config.api_key, "test-kimi-coding-key");
         std::env::remove_var("OPENAI_BASE_URL");
         std::env::remove_var("KIMI_CODING_API_KEY");
+    }
+
+    #[test]
+    fn defaults_plain_openai_model_to_v1_base_url() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::remove_var("OPENAI_BASE_URL");
+        std::env::set_var("OPENAI_API_KEY", "test-openai-key");
+        let config = resolve_provider("gpt-5.1-mini").unwrap();
+        assert_eq!(config.base_url, "https://api.openai.com/v1");
+        assert_eq!(config.kind, ProviderKind::OpenAi);
+    }
+
+    #[test]
+    fn defaults_prefixed_openai_model_to_v1_base_url() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::remove_var("OPENAI_BASE_URL");
+        std::env::set_var("OPENAI_API_KEY", "test-openai-key");
+        let config = resolve_provider("openai/gpt-5.1-mini").unwrap();
+        assert_eq!(config.base_url, "https://api.openai.com/v1");
+        assert_eq!(config.kind, ProviderKind::OpenAi);
     }
 
     #[test]
