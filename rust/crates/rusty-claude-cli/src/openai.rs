@@ -2,8 +2,10 @@
 /// provider that implements the `/v1/chat/completions` + SSE streaming interface.
 use std::collections::{HashMap, HashSet};
 use std::io;
+use std::time::Duration;
 
 use reqwest::Client;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -572,47 +574,101 @@ pub async fn stream_completion(
     request: &OaiRequest,
 ) -> Result<Vec<AssistantEvent>, RuntimeError> {
     let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
-
-    // Build request with provider-specific headers
-    let mut request_builder = http
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", config.api_key))
-        .header("Content-Type", "application/json");
-
-    // Add provider-specific headers for better compatibility
     let provider_name = config.kind.display_name();
-    match config.kind {
-        ProviderKind::MiniMax | ProviderKind::Glm | ProviderKind::Qwen => {
-            request_builder = request_builder.header("Accept", "application/json");
+
+    for attempt in 0..MAX_OPENAI_REQUEST_ATTEMPTS {
+        // Build request with provider-specific headers
+        let mut request_builder = http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", config.api_key))
+            .header("Content-Type", "application/json");
+
+        // Add provider-specific headers for better compatibility
+        match config.kind {
+            ProviderKind::MiniMax | ProviderKind::Glm | ProviderKind::Qwen => {
+                request_builder = request_builder.header("Accept", "application/json");
+            }
+            ProviderKind::Kimi => {
+                // Kimi Coding endpoint requires identification as an approved coding agent.
+                // We mimic the headers that Claude Code and other approved agents send.
+                request_builder = request_builder
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "claude-code/1.0.0 (Windows; x64)")
+                    .header("X-Client-Name", "claude-code")
+                    .header("X-Client-Version", "1.0.0")
+                    .header("X-Source", "claude-code");
+            }
+            ProviderKind::OpenAi | ProviderKind::Generic => {}
         }
-        ProviderKind::Kimi => {
-            // Kimi Coding endpoint requires identification as an approved coding agent.
-            // We mimic the headers that Claude Code and other approved agents send.
-            request_builder = request_builder
-                .header("Accept", "application/json")
-                .header("User-Agent", "claude-code/1.0.0 (Windows; x64)")
-                .header("X-Client-Name", "claude-code")
-                .header("X-Client-Version", "1.0.0")
-                .header("X-Source", "claude-code");
+
+        match request_builder.json(request).send().await {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    return stream_sse_response(resp).await;
+                }
+
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                if should_retry_openai_status(status) && attempt + 1 < MAX_OPENAI_REQUEST_ATTEMPTS {
+                    let delay = openai_retry_delay(attempt);
+                    eprintln!(
+                        "\n{provider_name} API returned {status}. Retrying in {}ms ({}/{}).",
+                        delay.as_millis(),
+                        attempt + 1,
+                        MAX_OPENAI_REQUEST_ATTEMPTS - 1
+                    );
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+
+                return Err(RuntimeError::new(format!(
+                    "{provider_name} API error {status}: {body}"
+                )));
+            }
+            Err(error) => {
+                if should_retry_openai_error(&error) && attempt + 1 < MAX_OPENAI_REQUEST_ATTEMPTS {
+                    let delay = openai_retry_delay(attempt);
+                    eprintln!(
+                        "\n{provider_name} API request failed: {error}. Retrying in {}ms ({}/{}).",
+                        delay.as_millis(),
+                        attempt + 1,
+                        MAX_OPENAI_REQUEST_ATTEMPTS - 1
+                    );
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+
+                return Err(RuntimeError::new(format!(
+                    "{provider_name} API request failed: {error}"
+                )));
+            }
         }
-        ProviderKind::OpenAi | ProviderKind::Generic => {}
     }
 
-    let resp = request_builder
-        .json(request)
-        .send()
-        .await
-        .map_err(|e| RuntimeError::new(format!("{provider_name} API request failed: {e}")))?;
+    Err(RuntimeError::new(format!(
+        "{provider_name} API request failed after {MAX_OPENAI_REQUEST_ATTEMPTS} attempts."
+    )))
+}
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(RuntimeError::new(format!(
-            "{provider_name} API error {status}: {body}"
-        )));
-    }
+const MAX_OPENAI_REQUEST_ATTEMPTS: usize = 3;
+const OPENAI_RETRY_BASE_MS: u64 = 250;
+const OPENAI_RETRY_MAX_MS: u64 = 2_000;
 
-    stream_sse_response(resp).await
+fn should_retry_openai_status(status: StatusCode) -> bool {
+    status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+}
+
+fn should_retry_openai_error(error: &reqwest::Error) -> bool {
+    error.is_timeout() || error.is_connect()
+}
+
+fn openai_retry_delay(attempt: usize) -> Duration {
+    let shift = u32::try_from(attempt).unwrap_or(u32::MAX).min(10);
+    let factor = 1_u64 << shift;
+    let millis = OPENAI_RETRY_BASE_MS
+        .saturating_mul(factor)
+        .min(OPENAI_RETRY_MAX_MS);
+    Duration::from_millis(millis)
 }
 
 /// Read the SSE response chunk-by-chunk, printing text deltas immediately.
@@ -1041,5 +1097,35 @@ mod tests {
                 cache_read_input_tokens: 80,
             })
         )));
+    }
+
+    #[test]
+    fn retries_on_429_and_server_errors() {
+        assert!(should_retry_openai_status(StatusCode::TOO_MANY_REQUESTS));
+        assert!(should_retry_openai_status(
+            StatusCode::INTERNAL_SERVER_ERROR
+        ));
+        assert!(should_retry_openai_status(StatusCode::BAD_GATEWAY));
+        assert!(should_retry_openai_status(StatusCode::SERVICE_UNAVAILABLE));
+    }
+
+    #[test]
+    fn does_not_retry_non_retryable_status_codes() {
+        assert!(!should_retry_openai_status(StatusCode::BAD_REQUEST));
+        assert!(!should_retry_openai_status(StatusCode::UNAUTHORIZED));
+        assert!(!should_retry_openai_status(StatusCode::FORBIDDEN));
+        assert!(!should_retry_openai_status(StatusCode::NOT_FOUND));
+        assert!(!should_retry_openai_status(
+            StatusCode::UNPROCESSABLE_ENTITY
+        ));
+    }
+
+    #[test]
+    fn retry_backoff_grows_and_caps() {
+        assert_eq!(openai_retry_delay(0), Duration::from_millis(250));
+        assert_eq!(openai_retry_delay(1), Duration::from_millis(500));
+        assert_eq!(openai_retry_delay(2), Duration::from_millis(1000));
+        assert_eq!(openai_retry_delay(3), Duration::from_millis(2000));
+        assert_eq!(openai_retry_delay(10), Duration::from_millis(2000));
     }
 }
