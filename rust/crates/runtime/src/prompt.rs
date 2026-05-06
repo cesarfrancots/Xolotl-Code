@@ -290,6 +290,16 @@ fn render_design_file(file: &ContextFile) -> String {
     [
         "# Design system".to_string(),
         "The project includes a DESIGN.md file. Treat it as native, first-class design context. Its YAML tokens are normative values; its prose explains how to apply them. Use it before inventing colors, typography, spacing, shape, or component styling.".to_string(),
+        [
+            "Design execution gate:",
+            "- Before changing UI, state the visual thesis, audience, content hierarchy, and the specific product signal the first viewport must communicate.",
+            "- Translate DESIGN.md tokens into implementation primitives first; do not drift into a generic SaaS palette, generic cards, or placeholder marketing copy.",
+            "- Premium design requires a distinctive concept, coherent spacing rhythm, domain-specific visual artifacts, strong typography, and clear interaction states.",
+            "- The first viewport must reveal the actual product, workflow, data, or system state. Decorative visuals that could belong to any AI startup are a failure.",
+            "- For frontend work, verify the result in a real browser at desktop and mobile widths. If the screenshot feels bland, visually inconsistent, cramped, generic, clipped, or shows accidental horizontal scrolling, revise before finalizing.",
+            "- Horizontal scrolling is only acceptable for deliberate data exploration surfaces with clear affordances; never leave accidental scrollbars in first-viewport hero panels.",
+        ]
+        .join("\n"),
         format!("## {}", file.path.display()),
         file.content.trim().to_string(),
     ]
@@ -725,6 +735,9 @@ mod tests {
 
         assert!(prompt.contains("# Design system"));
         assert!(prompt.contains("first-class design context"));
+        assert!(prompt.contains("Design execution gate"));
+        assert!(prompt.contains("generic SaaS palette"));
+        assert!(prompt.contains("accidental horizontal scrolling"));
         assert!(prompt.contains("brand color: xolotl green"));
 
         fs::remove_dir_all(root).expect("cleanup temp dir");

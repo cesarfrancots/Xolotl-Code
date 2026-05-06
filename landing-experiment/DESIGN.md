@@ -13,19 +13,22 @@ colors:
   cobalt: "#3F7CFF"
   violet: "#7E57C2"
   signal: "#E8FF6A"
+  console-bg: "#0C0F12"
+  panel-dark: "rgba(36, 42, 48, 0.96)"
+  led-active: "rgba(61, 220, 151, 0.25)"
 typography:
   display:
     fontFamily: Inter, Arial, sans-serif
     fontSize: 64px
     fontWeight: 780
     lineHeight: 0.98
-    letterSpacing: 0
+    letterSpacing: -0.02em
   headline:
     fontFamily: Inter, Arial, sans-serif
     fontSize: 38px
     fontWeight: 720
     lineHeight: 1.05
-    letterSpacing: 0
+    letterSpacing: -0.02em
   body:
     fontFamily: Inter, Arial, sans-serif
     fontSize: 17px
@@ -37,7 +40,7 @@ typography:
     fontSize: 12px
     fontWeight: 700
     lineHeight: 1.2
-    letterSpacing: 0
+    letterSpacing: 0.04em
 spacing:
   xs: 6px
   sm: 10px
@@ -47,7 +50,7 @@ spacing:
   xxl: 72px
 rounded:
   sm: 4px
-  md: 8px
+  md: 6px
   full: 999px
 components:
   primary-button:
@@ -58,6 +61,15 @@ components:
     background: "{colors.bone}"
     border: "{colors.grid}"
     radius: "{rounded.md}"
+  runtime-panel:
+    background: "{colors.graphite}"
+    border: "rgba(216, 209, 194, 0.18)"
+    radius: "{rounded.md}"
+  command-strip:
+    background: "{colors.ink}"
+    color: "{colors.xolotl}"
+    radius: "{rounded.sm}"
+    fontFamily: "{typography.label.fontFamily}"
 ---
 
 # Xolotl Harness Field Manual
@@ -70,9 +82,13 @@ Xolotl should feel like a serious engineering instrument, not a marketing mascot
 
 Use ink and graphite for runtime surfaces, paper and bone for teaching sections, and multiple accents for state. Xolotl green is reserved for the main action and successful loop states. Ember marks intervention, cobalt marks model/provider routing, violet marks memory/context, and signal marks active execution.
 
+### Lab Console Surfaces
+
+Console backgrounds sit one shade darker than ink for terminal readouts. Panels use graphite at high opacity with subtle warm borders. LEDs and active indicators use xolotl with a soft outer glow. Borders should never be fully opaque; they must feel like etched lines on dark metal.
+
 ## Typography
 
-Use Inter for product narrative and JetBrains Mono or Consolas for command surfaces, labels, logs, metrics, and short technical affordances. Text must remain compact and legible; never scale type with viewport width.
+Use Inter for product narrative and JetBrains Mono or Consolas for command surfaces, labels, logs, metrics, and short technical affordances. Text must remain compact and legible; never scale type with viewport width. Use explicit media queries for mobile sizing.
 
 ## Layout
 
@@ -80,11 +96,11 @@ Use full-width bands with a constrained inner width. The first viewport must sho
 
 ## Elevation & Depth
 
-Depth should come from borders, dark panels, subtle shadows, and layered terminal rows. Avoid decorative blobs, orbs, and generic gradients.
+Depth should come from borders, dark panels, subtle shadows, and layered terminal rows. Avoid decorative blobs, orbs, and generic gradients. Runtime visuals should feel like stacked instrument panels rather than floating cards.
 
 ## Shapes
 
-Use 4px radius for controls and 8px maximum radius for panels. Round pills are allowed only for compact status indicators.
+Use 4px radius for controls and 6px maximum radius for panels. Round pills are allowed only for compact status indicators.
 
 ## Components
 

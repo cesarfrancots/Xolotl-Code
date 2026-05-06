@@ -8,99 +8,161 @@
       name="description"
       content="Xolotl is a model-agnostic coding harness for agentic software work: prompt loops, context caches, tools, tests, commits, and learning."
     />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;430;500;600;700;720;760;780;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header class="topbar" aria-label="Primary">
       <a class="brand" href="#top" aria-label="Xolotl home">
         <span class="brand-mark" aria-hidden="true">xo</span>
-        <span>Xolotl</span>
+        <span class="brand-name">Xolotl</span>
       </a>
       <nav class="nav" aria-label="Sections">
         <a href="#loop">Loop</a>
-        <a href="#models">Models</a>
-        <a href="#practice">Practice</a>
+        <a href="#models">Router</a>
+        <a href="#practice">Protocol</a>
       </nav>
-      <a class="nav-action" href="#experiment">Open field manual</a>
+      <a class="nav-action" href="#experiment">Open Console</a>
     </header>
 
     <main id="top">
       <section class="hero band band-dark">
-        <div class="hero-copy">
-          <p class="eyebrow">Agentic coding harness</p>
-          <h1>Xolotl turns coding agents into an engineered loop.</h1>
-          <p class="hero-lede">
-            Run open and compatible models through the same disciplined workflow:
-            gather context, route the task, use tools, verify the CLI, commit the
-            change, and feed the result back into the harness.
-          </p>
-          <div class="hero-actions" aria-label="Primary calls to action">
-            <a class="button button-primary" href="#experiment">Study the loop</a>
-            <a class="button button-secondary" href="#practice">See operating principles</a>
+        <div class="hero-layout">
+          <div class="hero-copy">
+            <p class="eyebrow">Agentic coding harness</p>
+            <h1>Xolotl turns coding agents into an engineered loop.</h1>
+            <p class="hero-lede">
+              Run open and compatible models through the same disciplined workflow:
+              gather context, route the task, use tools, verify the CLI, commit the
+              change, and feed the result back into the harness.
+            </p>
+            <div class="hero-actions" aria-label="Primary calls to action">
+              <a class="button button-primary" href="#experiment">Initialize Loop</a>
+              <a class="button button-secondary" href="#practice">Read Protocol</a>
+            </div>
+            <dl class="hero-metrics" aria-label="Harness metrics">
+              <div>
+                <dt>1M</dt>
+                <dd>context-ready model path</dd>
+              </div>
+              <div>
+                <dt>0</dt>
+                <dd>vendor lock-in assumptions</dd>
+              </div>
+              <div>
+                <dt>6</dt>
+                <dd>verification gates per loop</dd>
+              </div>
+            </dl>
           </div>
-          <dl class="hero-metrics" aria-label="Harness metrics">
-            <div>
-              <dt>1M</dt>
-              <dd>context-ready model path</dd>
-            </div>
-            <div>
-              <dt>0</dt>
-              <dd>vendor lock-in assumptions</dd>
-            </div>
-            <div>
-              <dt>6</dt>
-              <dd>verification gates per loop</dd>
-            </div>
-          </dl>
-        </div>
 
-        <div class="runtime-visual" aria-label="Live Xolotl harness run">
-          <div class="runtime-topline">
-            <span class="status-dot" aria-hidden="true"></span>
-            <span>xolotl run</span>
-            <span class="runtime-model">kimi-coding</span>
-          </div>
-          <div class="runtime-grid" id="runtime-grid">
-            <div class="node active" data-step="0">
-              <span>01</span>
-              <strong>Prompt</strong>
-              <small>goal + constraints</small>
+          <div class="runtime-visual" aria-label="Live Xolotl harness run">
+            <div class="runtime-header">
+              <div class="runtime-status">
+                <span class="status-led" aria-hidden="true"></span>
+                <span class="status-label">xolotl run</span>
+              </div>
+              <div class="runtime-meta">
+                <span class="meta-badge" id="meta-model">kimi-coding</span>
+                <span class="meta-item" id="meta-latency">12ms</span>
+                <span class="meta-item" id="meta-ctx">ctx 142K</span>
+              </div>
             </div>
-            <div class="node" data-step="1">
-              <span>02</span>
-              <strong>Context</strong>
-              <small>graph + cache</small>
+
+            <div class="loop-pipeline" id="loop-pipeline">
+              <div class="loop-step active" data-step="0">
+                <span class="step-num">01</span>
+                <span class="step-name">PROMPT</span>
+              </div>
+              <div class="loop-connector" aria-hidden="true"></div>
+              <div class="loop-step" data-step="1">
+                <span class="step-num">02</span>
+                <span class="step-name">CONTEXT</span>
+              </div>
+              <div class="loop-connector" aria-hidden="true"></div>
+              <div class="loop-step" data-step="2">
+                <span class="step-num">03</span>
+                <span class="step-name">ROUTE</span>
+              </div>
+              <div class="loop-connector" aria-hidden="true"></div>
+              <div class="loop-step" data-step="3">
+                <span class="step-num">04</span>
+                <span class="step-name">TOOLS</span>
+              </div>
+              <div class="loop-connector" aria-hidden="true"></div>
+              <div class="loop-step" data-step="4">
+                <span class="step-num">05</span>
+                <span class="step-name">VERIFY</span>
+              </div>
+              <div class="loop-connector" aria-hidden="true"></div>
+              <div class="loop-step" data-step="5">
+                <span class="step-num">06</span>
+                <span class="step-name">COMMIT</span>
+              </div>
             </div>
-            <div class="node" data-step="2">
-              <span>03</span>
-              <strong>Route</strong>
-              <small>Kimi / MiniMax / GLM</small>
+
+            <div class="runtime-body">
+              <div class="cache-panel">
+                <div class="panel-title">Cache Graph</div>
+                <div class="cache-rows" id="cache-rows">
+                  <div class="cache-row hit">
+                    <span class="cache-file">DESIGN.md</span>
+                    <span class="cache-state">hit</span>
+                  </div>
+                  <div class="cache-row hit">
+                    <span class="cache-file">AGENTS.md</span>
+                    <span class="cache-state">hit</span>
+                  </div>
+                  <div class="cache-row read">
+                    <span class="cache-file">src/prompt.rs</span>
+                    <span class="cache-state">read</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ledger-panel">
+                <div class="panel-title">Verification Ledger</div>
+                <div class="ledger-entries" id="ledger-entries">
+                  <div class="ledger-entry">
+                    <span class="led ok" aria-hidden="true">●</span>
+                    cargo test — 7 passed
+                  </div>
+                  <div class="ledger-entry">
+                    <span class="led ok" aria-hidden="true">●</span>
+                    fmt — clean
+                  </div>
+                  <div class="ledger-entry">
+                    <span class="led warn" aria-hidden="true">●</span>
+                    clippy — 0 warnings
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="node" data-step="3">
-              <span>04</span>
-              <strong>Tools</strong>
-              <small>shell + patch</small>
-            </div>
-            <div class="node" data-step="4">
-              <span>05</span>
-              <strong>Verify</strong>
-              <small>tests + clippy</small>
-            </div>
-            <div class="node" data-step="5">
-              <span>06</span>
-              <strong>Commit</strong>
-              <small>green main</small>
-            </div>
-          </div>
-          <div class="terminal" aria-label="Harness terminal output">
-            <div class="terminal-line">
-              <span class="prompt">$</span>
-              <span id="typed-command">xolotl prompt "improve the harness"</span>
-            </div>
-            <div class="terminal-log" id="terminal-log">
-              <p><span>cache</span> loaded graphify report and DESIGN.md</p>
-              <p><span>plan</span> split implementation from verification</p>
-              <p><span>test</span> cargo test -p runtime prompt::tests::</p>
+
+            <div class="terminal" aria-label="Harness terminal output">
+              <div class="terminal-line">
+                <span class="prompt" aria-hidden="true">$</span>
+                <span id="typed-command">xolotl prompt "improve the harness"</span>
+                <span class="cursor" aria-hidden="true"></span>
+              </div>
+              <div class="terminal-log" id="terminal-log">
+                <p>
+                  <span class="log-label cache">cache</span> loaded graphify
+                  report and DESIGN.md
+                </p>
+                <p>
+                  <span class="log-label plan">plan</span> split implementation
+                  from verification
+                </p>
+                <p>
+                  <span class="log-label test">test</span> cargo test -p runtime
+                  prompt::tests::
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -115,29 +177,38 @@
             bounded tools, observable state, repeatable checks, and durable memory.
           </p>
         </div>
-        <div class="principle-grid">
-          <article>
-            <span class="tag tag-green">Context</span>
+        <div class="protocol-grid">
+          <article class="protocol-card">
+            <div class="protocol-header">
+              <span class="tag tag-green">Context</span>
+              <span class="protocol-id">01</span>
+            </div>
             <h3>Read the codebase before acting</h3>
             <p>
               Graph structure, local instructions, design systems, and recent git
               state become first-class context before the model writes code.
             </p>
           </article>
-          <article>
-            <span class="tag tag-blue">Control</span>
+          <article class="protocol-card">
+            <div class="protocol-header">
+              <span class="tag tag-blue">Control</span>
+              <span class="protocol-id">02</span>
+            </div>
             <h3>Route work to the right model</h3>
             <p>
               Use Kimi for coding-heavy loops, MiniMax for huge codebase passes,
               GLM or Qwen for balanced tasks, and frontier models when needed.
             </p>
           </article>
-          <article>
-            <span class="tag tag-ember">Verification</span>
+          <article class="protocol-card">
+            <div class="protocol-header">
+              <span class="tag tag-ember">Verification</span>
+              <span class="protocol-id">03</span>
+            </div>
             <h3>Green CLI before green commit</h3>
             <p>
-              Each loop ends with format, tests, lint, smoke commands, and a commit
-              that records a verified step forward.
+              Each loop ends with format, tests, lint, smoke commands, and a
+              commit that records a verified step forward.
             </p>
           </article>
         </div>
@@ -145,29 +216,39 @@
 
       <section class="band band-light" id="models">
         <div class="model-layout">
-          <div>
+          <div class="model-copy">
             <p class="eyebrow">Model-agnostic by design</p>
             <h2>One harness, many execution profiles.</h2>
             <p>
               Xolotl normalizes provider quirks into the same operator surface:
-              connect the key, choose the model, run the loop, inspect the result.
+              connect the key, choose the model, run the loop, inspect the
+              result.
             </p>
           </div>
-          <div class="model-table" role="table" aria-label="Supported model profiles">
+          <div
+            class="model-table"
+            role="table"
+            aria-label="Supported model profiles"
+          >
+            <div class="table-header" role="row">
+              <span role="cell">Profile</span>
+              <span role="cell">Execution mode</span>
+              <span role="cell">Context window</span>
+            </div>
             <div role="row">
               <span role="cell">kimi-coding</span>
               <strong role="cell">coding-heavy loops</strong>
-              <em role="cell">256K context</em>
+              <em role="cell">256K</em>
             </div>
             <div role="row">
               <span role="cell">minimax2.7</span>
               <strong role="cell">large codebase sweeps</strong>
-              <em role="cell">1M context</em>
+              <em role="cell">1M</em>
             </div>
             <div role="row">
               <span role="cell">glm5.1</span>
               <strong role="cell">balanced execution</strong>
-              <em role="cell">128K context</em>
+              <em role="cell">128K</em>
             </div>
             <div role="row">
               <span role="cell">opus+sonnet</span>
@@ -187,22 +268,30 @@
           <article>
             <b>01</b>
             <h3>Surface assumptions</h3>
-            <p>Ambiguity is tracked before implementation, not hidden in code.</p>
+            <p>
+              Ambiguity is tracked before implementation, not hidden in code.
+            </p>
           </article>
           <article>
             <b>02</b>
             <h3>Keep changes surgical</h3>
-            <p>Every touched line should trace back to the current objective.</p>
+            <p>
+              Every touched line should trace back to the current objective.
+            </p>
           </article>
           <article>
             <b>03</b>
             <h3>Cache expensive knowledge</h3>
-            <p>Graph reports, design files, and prior outcomes reduce token spend.</p>
+            <p>
+              Graph reports, design files, and prior outcomes reduce token spend.
+            </p>
           </article>
           <article>
             <b>04</b>
             <h3>Commit verified increments</h3>
-            <p>Shipping means the CLI is green and the repository state is durable.</p>
+            <p>
+              Shipping means the CLI is green and the repository state is durable.
+            </p>
           </article>
         </div>
       </section>

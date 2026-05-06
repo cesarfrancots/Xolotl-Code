@@ -460,8 +460,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             session_path,
             command,
         } => resume_session(&session_path, command),
-        CliAction::Prompt { prompt, model } => {
-            LiveCli::new(model, false, false)?.run_turn(&prompt)?;
+        CliAction::Prompt {
+            prompt,
+            model,
+            auto_accept,
+        } => {
+            LiveCli::new(model, true, auto_accept)?.run_turn(&prompt)?;
         }
         CliAction::Repl { model, auto_accept } => run_repl(model, auto_accept)?,
         CliAction::Setup => run_setup()?,
@@ -491,6 +495,7 @@ enum CliAction {
     Prompt {
         prompt: String,
         model: String,
+        auto_accept: bool,
     },
     Repl {
         model: String,
@@ -615,7 +620,11 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             if prompt.trim().is_empty() {
                 return Err("prompt subcommand requires a prompt string".to_string());
             }
-            Ok(CliAction::Prompt { prompt, model })
+            Ok(CliAction::Prompt {
+                prompt,
+                model,
+                auto_accept,
+            })
         }
         other => Err(format!("unknown subcommand: {other}")),
     }
@@ -4198,6 +4207,25 @@ mod tests {
             CliAction::Prompt {
                 prompt: "hello world".to_string(),
                 model: default_model(),
+                auto_accept: false,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_yes_for_prompt_subcommand() {
+        let args = vec![
+            "--yes".to_string(),
+            "prompt".to_string(),
+            "edit".to_string(),
+            "files".to_string(),
+        ];
+        assert_eq!(
+            parse_args(&args).expect("args should parse"),
+            CliAction::Prompt {
+                prompt: "edit files".to_string(),
+                model: default_model(),
+                auto_accept: true,
             }
         );
     }
