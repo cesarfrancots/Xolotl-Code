@@ -50,7 +50,7 @@ use mcp::McpManager;
 use runtime::{
     build_plan_prompt, build_ultra_plan_prompt, extract_json_from_response, format_plan_summary,
     load_system_prompt_with_hints, ApiClient, ApiRequest, AssistantEvent, CompactionConfig,
-    ContentBlock, ConversationMessage, ConversationRuntime, MemorySystem, MessageRole, ModelHints,
+    ContentBlock, ConversationMessage, ConversationRuntime, MemorySystem, MessageRole,
     PermissionMode, PermissionPolicy, PermissionPromptDecision, PermissionPrompter,
     PermissionRequest, PlanArtifact, RuntimeError, SddEngine, Session, TokenUsage, ToolError,
     ToolExecutor,
@@ -728,7 +728,7 @@ fn print_bootstrap_plan() {
 }
 
 fn print_system_prompt(cwd: PathBuf, date: String, model: String) {
-    let hints = ModelHints::for_model(&model);
+    let hints = model_hints_for_runtime_model(primary_model_name(&model));
     match load_system_prompt_with_hints(cwd, date, env::consts::OS, "unknown", hints) {
         Ok(sections) => println!("{}", sections.join("\n\n")),
         Err(error) => {
@@ -1342,7 +1342,7 @@ impl LiveCli {
             .as_secs();
         let auto_save_path = dir.join(format!("session-{ts}.json"));
 
-        let model_hints = ModelHints::for_model(&model);
+        let model_hints = model_hints_for_runtime_model(primary_model_name(&model));
         let sdd_engine = SddEngine::new().with_aggressive_read(model_hints.aggressive_read);
 
         let memory = MemorySystem::discover_vault().map(|vault_path| {
@@ -1813,7 +1813,7 @@ impl LiveCli {
         use style::{BOLD, CYAN, GREEN, MUTED, RESET, YELLOW};
 
         // Check if model supports ultra-planning
-        let hints = ModelHints::for_model(&self.model);
+        let hints = model_hints_for_runtime_model(primary_model_name(&self.model));
         if !hints.supports_ultra_planning {
             println!();
             println!(
@@ -2787,7 +2787,7 @@ fn list_sessions() {
 }
 
 fn build_system_prompt(model: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let hints = ModelHints::for_model(model);
+    let hints = model_hints_for_runtime_model(primary_model_name(model));
     Ok(load_system_prompt_with_hints(
         env::current_dir()?,
         today_iso(),
@@ -2902,6 +2902,44 @@ fn primary_model_name(model: &str) -> &str {
     }
 }
 
+fn model_hints_for_runtime_model(model_spec: &str) -> runtime::ModelHints {
+    if model_spec.contains('+')
+        || bedrock::is_bedrock_model(model_spec)
+        || openai::is_anthropic_model(model_spec)
+    {
+        return runtime::ModelHints::for_model(model_spec);
+    }
+
+    if let Ok(config) = openai::resolve_provider(model_spec) {
+        return model_hints_for_resolved_openai_runtime(model_spec, &config);
+    }
+
+    runtime::ModelHints::for_model(model_spec)
+}
+
+fn model_hints_for_resolved_openai_runtime(
+    model_spec: &str,
+    config: &openai::ProviderConfig,
+) -> runtime::ModelHints {
+    let flags = provider_flags_for_openai_runtime(model_spec, config);
+    let normalized = if flags.is_kimi_coding {
+        format!("kimi-coding/{}", config.model)
+    } else if flags.is_minimax {
+        format!("minimax/{}", config.model)
+    } else if flags.is_glm {
+        format!("glm/{}", config.model)
+    } else if flags.is_qwen {
+        format!("qwen/{}", config.model)
+    } else if flags.is_kimi {
+        format!("kimi/{}", config.model)
+    } else if matches!(config.kind, openai::ProviderKind::OpenAi) {
+        format!("openai/{}", config.model)
+    } else {
+        model_spec.to_string()
+    };
+    runtime::ModelHints::for_model(&normalized)
+}
+
 /// Split system prompt sections into cached (static) and non-cached (dynamic) blocks.
 ///
 /// Everything before `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` is static and gets
@@ -3012,12 +3050,16 @@ fn build_runtime(
         Vec::new()
     };
 
-    let hints = runtime::ModelHints::for_model(&model);
+    let hints = if let Some(plus) = model.find('+') {
+        model_hints_for_runtime_model(&model[..plus])
+    } else {
+        model_hints_for_runtime_model(&model)
+    };
     let client = if let Some(plus) = model.find('+') {
         let planner_spec = &model[..plus];
         let executor_spec = &model[plus + 1..];
-        let planner_hints = runtime::ModelHints::for_model(planner_spec);
-        let executor_hints = runtime::ModelHints::for_model(executor_spec);
+        let planner_hints = model_hints_for_runtime_model(planner_spec);
+        let executor_hints = model_hints_for_runtime_model(executor_spec);
         AnyApiClient::Dual {
             planner: Box::new(build_single_client(
                 planner_spec,
@@ -3052,7 +3094,7 @@ fn build_runtime(
             .unwrap_or(5),
     )
     .with_model(model.clone())
-    .with_model_hints(ModelHints::for_model(&model)))
+    .with_model_hints(hints))
 }
 
 /// Build a child runtime for in-process sub-agent execution.
@@ -3068,12 +3110,16 @@ fn build_subagent_runtime(
     let mut tool_specs = tool_executor.all_tool_specs();
     tool_specs.retain(|s| s.name != "task");
 
-    let hints = runtime::ModelHints::for_model(&model);
+    let hints = if let Some(plus) = model.find('+') {
+        model_hints_for_runtime_model(&model[..plus])
+    } else {
+        model_hints_for_runtime_model(&model)
+    };
     let client = if let Some(plus) = model.find('+') {
         let planner_spec = &model[..plus];
         let executor_spec = &model[plus + 1..];
-        let planner_hints = runtime::ModelHints::for_model(planner_spec);
-        let executor_hints = runtime::ModelHints::for_model(executor_spec);
+        let planner_hints = model_hints_for_runtime_model(planner_spec);
+        let executor_hints = model_hints_for_runtime_model(executor_spec);
         AnyApiClient::Dual {
             planner: Box::new(build_single_client(
                 planner_spec,
@@ -4395,5 +4441,48 @@ mod tests {
         let flags = super::provider_flags_for_openai_runtime("kimi-for-coding", &config);
         assert!(flags.is_kimi);
         assert!(flags.is_kimi_coding);
+    }
+
+    #[test]
+    fn provider_aware_hints_treat_kimi_coding_endpoint_as_kimi_coding() {
+        let config = super::openai::ProviderConfig {
+            base_url: "https://api.kimi.com/coding/v1".to_string(),
+            api_key: "test-key".to_string(),
+            model: "kimi-for-coding".to_string(),
+            kind: super::openai::ProviderKind::Kimi,
+        };
+        let hints = super::model_hints_for_resolved_openai_runtime("kimi-for-coding", &config);
+        assert!(hints.supports_prompt_cache);
+        assert_eq!(hints.thinking_budget, 32_000);
+        assert_eq!(hints.max_context, 262_144);
+        assert!(hints.aggressive_read);
+    }
+
+    #[test]
+    fn provider_aware_hints_use_minimax_profile_for_plain_model() {
+        let config = super::openai::ProviderConfig {
+            base_url: "https://api.minimax.chat/v1".to_string(),
+            api_key: "test-key".to_string(),
+            model: "abab6.5s-chat".to_string(),
+            kind: super::openai::ProviderKind::MiniMax,
+        };
+        let hints = super::model_hints_for_resolved_openai_runtime("abab6.5s-chat", &config);
+        assert_eq!(hints.thinking_budget, 24_000);
+        assert_eq!(hints.max_context, 1_000_000);
+        assert!(hints.aggressive_read);
+    }
+
+    #[test]
+    fn provider_aware_hints_keep_openai_profile_for_openai_kind() {
+        let config = super::openai::ProviderConfig {
+            base_url: "https://api.openai.com".to_string(),
+            api_key: "test-key".to_string(),
+            model: "gpt-5.1-mini".to_string(),
+            kind: super::openai::ProviderKind::OpenAi,
+        };
+        let hints = super::model_hints_for_resolved_openai_runtime("gpt-5.1-mini", &config);
+        assert_eq!(hints.thinking_budget, 8_000);
+        assert_eq!(hints.max_context, 128_000);
+        assert!(!hints.supports_prompt_cache);
     }
 }
