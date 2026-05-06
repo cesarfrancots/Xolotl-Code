@@ -1300,6 +1300,7 @@ struct LiveCli {
     runtime: ConversationRuntime<AnyApiClient, CliToolExecutor>,
     prompter: ReplPermissionPrompter,
     auto_save_path: PathBuf,
+    cache_scope: String,
     mcp: Arc<Mutex<McpManager>>,
     budget_limit: Option<f64>,
     auto_accept: bool,
@@ -1326,14 +1327,7 @@ impl LiveCli {
         // Connect to MCP servers (errors are warnings, not fatal)
         let mcp = Arc::new(Mutex::new(McpManager::connect()));
         let system_prompt = build_system_prompt(&model)?;
-        let runtime = build_runtime(
-            Session::new(),
-            model.clone(),
-            system_prompt.clone(),
-            Arc::clone(&mcp),
-            enable_tools,
-        )?;
-        // Create a stable session path for this REPL invocation.
+        // Create a stable session path and derive a stable prompt-cache scope from it.
         let dir = sessions_dir();
         std::fs::create_dir_all(&dir)?;
         let ts = std::time::SystemTime::now()
@@ -1341,6 +1335,15 @@ impl LiveCli {
             .unwrap_or_default()
             .as_secs();
         let auto_save_path = dir.join(format!("session-{ts}.json"));
+        let cache_scope = build_prompt_cache_scope_for_session_path(&auto_save_path);
+        let runtime = build_runtime(
+            Session::new(),
+            model.clone(),
+            system_prompt.clone(),
+            Arc::clone(&mcp),
+            enable_tools,
+            &cache_scope,
+        )?;
 
         let model_hints = model_hints_for_runtime_model(primary_model_name(&model));
         let sdd_engine = SddEngine::new().with_aggressive_read(model_hints.aggressive_read);
@@ -1359,6 +1362,7 @@ impl LiveCli {
             runtime,
             prompter: ReplPermissionPrompter::new(auto_accept),
             auto_save_path,
+            cache_scope,
             mcp,
             budget_limit: None,
             auto_accept,
@@ -2213,6 +2217,7 @@ impl LiveCli {
             self.system_prompt.clone(),
             Arc::clone(&self.mcp),
             true,
+            &self.cache_scope,
         )?;
         self.runtime
             .usage_tracker_mut()
@@ -2233,12 +2238,14 @@ impl LiveCli {
             .unwrap_or_default()
             .as_secs();
         self.auto_save_path = dir.join(format!("session-{ts}.json"));
+        self.cache_scope = build_prompt_cache_scope_for_session_path(&self.auto_save_path);
         self.runtime = build_runtime(
             Session::new(),
             self.model.clone(),
             self.system_prompt.clone(),
             Arc::clone(&self.mcp),
             true,
+            &self.cache_scope,
         )?;
         self.sdd_engine.abort();
         style::print_ok("Session cleared.");
@@ -2255,6 +2262,7 @@ impl LiveCli {
             new_prompt,
             Arc::clone(&self.mcp),
             true,
+            &self.cache_scope,
         )?;
         self.model = expanded.clone();
         let provider_hint = provider_hint_for_model(&expanded);
@@ -2430,12 +2438,15 @@ impl LiveCli {
 
         let session = Session::load_from_path(&path)?;
         let msg_count = session.messages.len();
+        self.auto_save_path = path.clone();
+        self.cache_scope = build_prompt_cache_scope_for_session_path(&self.auto_save_path);
         self.runtime = build_runtime(
             session,
             self.model.clone(),
             self.system_prompt.clone(),
             Arc::clone(&self.mcp),
             true,
+            &self.cache_scope,
         )?;
         style::print_ok(&format!(
             "Loaded {} {} ({} messages)",
@@ -3012,12 +3023,43 @@ fn build_single_client(
     }
 }
 
-fn build_prompt_cache_scope() -> String {
-    let millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    format!("pid{}-{millis}", std::process::id())
+fn build_prompt_cache_scope_for_session_path(session_path: &Path) -> String {
+    let stem = session_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("session");
+    let normalized_stem: String = stem
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let normalized_stem = normalized_stem.trim_matches('-');
+    let stem_prefix = if normalized_stem.is_empty() {
+        "session"
+    } else {
+        normalized_stem
+    };
+    let hash = stable_scope_hash(&session_path.to_string_lossy());
+    format!("{stem_prefix}-{hash:016x}")
+}
+
+fn stable_scope_hash(input: &str) -> u64 {
+    // FNV-1a 64-bit keeps cache scopes deterministic across processes.
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in input.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+fn build_prompt_cache_scope_for_process() -> String {
+    format!("pid{}", std::process::id())
 }
 
 fn build_prompt_cache_key(model: &str, scope: &str) -> String {
@@ -3033,9 +3075,9 @@ fn build_runtime(
     system_prompt: Vec<String>,
     mcp: Arc<Mutex<McpManager>>,
     enable_tools: bool,
+    cache_scope: &str,
 ) -> Result<ConversationRuntime<AnyApiClient, CliToolExecutor>, Box<dyn std::error::Error>> {
     let model = expand_model_spec(&model);
-    let cache_scope = build_prompt_cache_scope();
 
     // Build the combined tool spec list (builtin + MCP) to send to the model
     let tool_executor = CliToolExecutor::new(
@@ -3066,18 +3108,18 @@ fn build_runtime(
                 tool_specs.clone(),
                 enable_tools,
                 &planner_hints,
-                &cache_scope,
+                cache_scope,
             )?),
             executor: Box::new(build_single_client(
                 executor_spec,
                 tool_specs,
                 enable_tools,
                 &executor_hints,
-                &cache_scope,
+                cache_scope,
             )?),
         }
     } else {
-        build_single_client(&model, tool_specs, enable_tools, &hints, &cache_scope)?
+        build_single_client(&model, tool_specs, enable_tools, &hints, cache_scope)?
     };
 
     Ok(ConversationRuntime::new(
@@ -3104,7 +3146,7 @@ fn build_subagent_runtime(
     system_prompt: Vec<String>,
     mcp: Arc<Mutex<McpManager>>,
 ) -> Result<ConversationRuntime<AnyApiClient, CliToolExecutor>, Box<dyn std::error::Error>> {
-    let cache_scope = build_prompt_cache_scope();
+    let cache_scope = build_prompt_cache_scope_for_process();
     let tool_executor =
         CliToolExecutor::new(Arc::clone(&mcp), model.clone(), true, system_prompt.clone());
     let mut tool_specs = tool_executor.all_tool_specs();
@@ -4415,6 +4457,24 @@ mod tests {
     fn prompt_cache_key_is_scope_and_model_scoped() {
         let key = super::build_prompt_cache_key("kimi-coding/kimi-for-coding", "pid7-123456");
         assert_eq!(key, "xolotl-pid7-123456-kimi-coding-kimi-for-coding");
+    }
+
+    #[test]
+    fn prompt_cache_scope_is_stable_for_same_session_path() {
+        let path = PathBuf::from("sessions/session-1700000000.json");
+        let scope_a = super::build_prompt_cache_scope_for_session_path(&path);
+        let scope_b = super::build_prompt_cache_scope_for_session_path(&path);
+        assert_eq!(scope_a, scope_b);
+        assert!(scope_a.starts_with("session-1700000000-"));
+    }
+
+    #[test]
+    fn prompt_cache_scope_changes_for_different_session_paths() {
+        let a = PathBuf::from("sessions/session-1.json");
+        let b = PathBuf::from("sessions/session-2.json");
+        let scope_a = super::build_prompt_cache_scope_for_session_path(&a);
+        let scope_b = super::build_prompt_cache_scope_for_session_path(&b);
+        assert_ne!(scope_a, scope_b);
     }
 
     #[test]
