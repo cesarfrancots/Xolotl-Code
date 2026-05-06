@@ -12,7 +12,88 @@ pub enum ModelFamily {
     Generic,
 }
 
+/// Effort level controls how much reasoning/thinking the model applies.
+/// Higher levels use more thinking tokens and more aggressive reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum EffortLevel {
+    /// Minimal effort — fast responses, minimal thinking.
+    Minimal,
+    /// Low effort — slightly more thinking than minimal.
+    Low,
+    /// Standard effort — balanced thinking and speed (default).
+    #[default]
+    Standard,
+    /// High effort — deep reasoning, more thorough analysis.
+    High,
+    /// Maximum effort — exhaustive thinking, maximum context usage.
+    Maximum,
+}
+
+impl EffortLevel {
+    /// Returns the multiplier for thinking budget.
+    #[must_use]
+    pub fn thinking_multiplier(self) -> f32 {
+        match self {
+            Self::Minimal => 0.25,
+            Self::Low => 0.5,
+            Self::Standard => 1.0,
+            Self::High => 1.5,
+            Self::Maximum => 2.0,
+        }
+    }
+
+    /// Returns the multiplier for aggressive read threshold.
+    /// Lower values = more aggressive reading.
+    #[must_use]
+    pub fn read_threshold_multiplier(self) -> f32 {
+        match self {
+            Self::Minimal => 2.0,
+            Self::Low => 1.5,
+            Self::Standard => 1.0,
+            Self::High => 0.75,
+            Self::Maximum => 0.5,
+        }
+    }
+
+    /// Returns the max iterations multiplier.
+    #[must_use]
+    pub fn iteration_multiplier(self) -> f32 {
+        match self {
+            Self::Minimal => 0.5,
+            Self::Low => 0.75,
+            Self::Standard => 1.0,
+            Self::High => 1.25,
+            Self::Maximum => 1.5,
+        }
+    }
+
+    /// Returns a human-readable label.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Standard => "standard",
+            Self::High => "high",
+            Self::Maximum => "maximum",
+        }
+    }
+
+    /// Cycle to the next effort level.
+    #[must_use]
+    pub fn next(self) -> Self {
+        match self {
+            Self::Minimal => Self::Low,
+            Self::Low => Self::Standard,
+            Self::Standard => Self::High,
+            Self::High => Self::Maximum,
+            Self::Maximum => Self::Minimal,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ModelHints {
     pub family: ModelFamily,
     pub thinking_budget: u32,
@@ -23,15 +104,52 @@ pub struct ModelHints {
     pub compaction_ratio: f32,
     pub system_prompt_addition: Option<String>,
     pub supports_prompt_cache: bool,
+    pub supports_images: bool,
     // Plan-mode / ultra-planning fields
     pub plan_thinking_budget: u32,
     pub supports_ultra_planning: bool,
     pub max_plan_phases: usize,
     pub plan_aggressive_read_threshold: usize,
     pub plan_mode_system_prompt_addition: Option<String>,
+    /// Current effort level — controls thinking depth and reading aggressiveness.
+    pub effort_level: EffortLevel,
 }
 
 impl ModelHints {
+    /// Returns the effective thinking budget adjusted for effort level.
+    #[must_use]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    pub fn effective_thinking_budget(&self) -> u32 {
+        (self.thinking_budget as f32 * self.effort_level.thinking_multiplier()) as u32
+    }
+
+    /// Returns the effective aggressive read threshold adjusted for effort level.
+    #[must_use]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    pub fn effective_read_threshold(&self) -> usize {
+        (self.aggressive_read_threshold as f32 * self.effort_level.read_threshold_multiplier())
+            as usize
+    }
+
+    /// Returns the effective max iterations adjusted for effort level.
+    #[must_use]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    pub fn effective_max_iterations(&self, base: usize) -> usize {
+        (base as f32 * self.effort_level.iteration_multiplier()) as usize
+    }
+
     #[must_use]
     #[allow(clippy::too_many_lines)]
     pub fn for_model(model: &str) -> Self {
@@ -57,6 +175,7 @@ impl ModelHints {
                         .into(),
                 ),
                 supports_prompt_cache: false,
+                supports_images: false,
                 plan_thinking_budget: 40_000,
                 supports_ultra_planning: true,
                 max_plan_phases: 10,
@@ -68,6 +187,7 @@ impl ModelHints {
                     and rollback strategies explicitly. Prefer breadth-first exploration before depth-first implementation."
                         .into(),
                 ),
+                effort_level: EffortLevel::Standard,
             }
         } else if model_lower.contains("glm")
             || model_lower.contains("glm5.1")
@@ -87,6 +207,7 @@ impl ModelHints {
                         .into(),
                 ),
                 supports_prompt_cache: false,
+                supports_images: false,
                 plan_thinking_budget: 24_000,
                 supports_ultra_planning: true,
                 max_plan_phases: 5,
@@ -97,6 +218,7 @@ impl ModelHints {
                     establish verification criteria for each phase before proceeding."
                         .into(),
                 ),
+                effort_level: EffortLevel::Standard,
             }
         } else if model_lower.contains("qwen") {
             Self {
@@ -113,6 +235,7 @@ impl ModelHints {
                         .into(),
                 ),
                 supports_prompt_cache: false,
+                supports_images: true,
                 plan_thinking_budget: 20_000,
                 supports_ultra_planning: true,
                 max_plan_phases: 6,
@@ -122,6 +245,7 @@ impl ModelHints {
                     implementation efficiency. Each phase should produce a testable increment."
                         .into(),
                 ),
+                effort_level: EffortLevel::Standard,
             }
         } else if model_lower.contains("opus") {
             Self {
@@ -138,6 +262,7 @@ impl ModelHints {
                         .into(),
                 ),
                 supports_prompt_cache: false,
+                supports_images: true,
                 plan_thinking_budget: 48_000,
                 supports_ultra_planning: true,
                 max_plan_phases: 8,
@@ -148,6 +273,7 @@ impl ModelHints {
                     Include verification and rollback steps."
                         .into(),
                 ),
+                effort_level: EffortLevel::Standard,
             }
         } else if model_lower.contains("sonnet") {
             Self {
@@ -164,6 +290,7 @@ impl ModelHints {
                         .into(),
                 ),
                 supports_prompt_cache: false,
+                supports_images: true,
                 plan_thinking_budget: 24_000,
                 supports_ultra_planning: true,
                 max_plan_phases: 6,
@@ -173,6 +300,7 @@ impl ModelHints {
                     Identify critical path and parallelization opportunities."
                         .into(),
                 ),
+                effort_level: EffortLevel::Standard,
             }
         } else if model_lower.contains("haiku") {
             Self {
@@ -189,6 +317,7 @@ impl ModelHints {
                         .into(),
                 ),
                 supports_prompt_cache: false,
+                supports_images: true,
                 plan_thinking_budget: 12_000,
                 supports_ultra_planning: false,
                 max_plan_phases: 3,
@@ -198,6 +327,7 @@ impl ModelHints {
                     high-impact actions with clear success criteria."
                         .into(),
                 ),
+                effort_level: EffortLevel::Standard,
             }
         } else if model_lower.contains("bedrock") || model_lower.contains("anthropic") {
             Self {
@@ -210,6 +340,7 @@ impl ModelHints {
                 compaction_ratio: 0.5,
                 system_prompt_addition: None,
                 supports_prompt_cache: false,
+                supports_images: true,
                 plan_thinking_budget: 24_000,
                 supports_ultra_planning: true,
                 max_plan_phases: 6,
@@ -219,6 +350,7 @@ impl ModelHints {
                     Document assumptions and validate with tests at each phase boundary."
                         .into(),
                 ),
+                effort_level: EffortLevel::Standard,
             }
         } else if model_lower.contains("gpt") || model_lower.contains("openai") {
             Self {
@@ -231,6 +363,7 @@ impl ModelHints {
                 compaction_ratio: 0.5,
                 system_prompt_addition: None,
                 supports_prompt_cache: false,
+                supports_images: true,
                 plan_thinking_budget: 16_000,
                 supports_ultra_planning: true,
                 max_plan_phases: 5,
@@ -240,6 +373,7 @@ impl ModelHints {
                     Prioritize iterative delivery with verifiable outcomes."
                         .into(),
                 ),
+                effort_level: EffortLevel::Standard,
             }
         } else if model_lower.contains("kimi-coding")
             || model_lower == "k2.6"
@@ -255,14 +389,29 @@ impl ModelHints {
                 aggressive_read_threshold: 12,
                 compaction_ratio: 0.7,
                 system_prompt_addition: Some(
-                    "You are Kimi K2.6, a coding-optimized model with extended reasoning. \
+                    "You are Kimi K2.6 Coding, an advanced coding-optimized model with extended reasoning. \
                     You excel at software engineering tasks including architecture design, \
                     code review, debugging, and complex refactoring. Use thinking blocks for \
                     deep analysis. You have 256K context - read extensively before implementing. \
-                    Prefer writing complete, production-ready solutions over incremental changes."
+                    Prefer writing complete, production-ready solutions over incremental changes. \
+                    \
+                    Key strengths:\
+                    - Deep reasoning with up to 32K thinking budget\
+                    - Aggressive file reading (read up to 12 files at once when needed)\
+                    - Prompt caching support for efficient long-context sessions\
+                    - Excellent at understanding large codebases and cross-file dependencies\
+                    - Prefer comprehensive architectural analysis before implementation\
+                    \
+                    When given a task:\
+                    1. First explore the codebase thoroughly to understand patterns and conventions\
+                    2. Read all relevant files before making changes\
+                    3. Use thinking blocks to reason through complex logic\
+                    4. Write complete, well-tested solutions rather than minimal patches\
+                    5. Consider edge cases, error handling, and performance implications"
                         .into(),
                 ),
                 supports_prompt_cache: true,
+                supports_images: true,
                 plan_thinking_budget: 48_000,
                 supports_ultra_planning: true,
                 max_plan_phases: 8,
@@ -273,9 +422,17 @@ impl ModelHints {
                     Each phase must have verifiable deliverables and rollback procedures. \
                     Consider edge cases, failure modes, and performance implications. \
                     Leverage your 256K context for exhaustive codebase analysis before planning. \
-                    Prefer comprehensive solutions that minimize future technical debt."
+                    Prefer comprehensive solutions that minimize future technical debt. \
+                    \
+                    Planning guidelines for Kimi K2.6:\
+                    - Use up to 48K thinking budget for complex architectural decisions\
+                    - Read all relevant source files before creating the plan\
+                    - Identify cross-file dependencies and interfaces early\
+                    - Include specific file paths and function signatures in plan tasks\
+                    - Define clear verification criteria for each phase"
                         .into(),
                 ),
+                effort_level: EffortLevel::Standard,
             }
         } else if model_lower.contains("kimi") || model_lower.contains("moonshot") {
             Self {
@@ -292,6 +449,7 @@ impl ModelHints {
                         .into(),
                 ),
                 supports_prompt_cache: true,
+                supports_images: true,
                 plan_thinking_budget: 32_000,
                 supports_ultra_planning: true,
                 max_plan_phases: 7,
@@ -301,6 +459,7 @@ impl ModelHints {
                     complex architectural decisions. Validate assumptions with code analysis."
                         .into(),
                 ),
+                effort_level: EffortLevel::Standard,
             }
         } else {
             Self {
@@ -313,6 +472,7 @@ impl ModelHints {
                 compaction_ratio: 0.6,
                 system_prompt_addition: None,
                 supports_prompt_cache: false,
+                supports_images: false,
                 plan_thinking_budget: 18_000,
                 supports_ultra_planning: false,
                 max_plan_phases: 4,
@@ -321,6 +481,7 @@ impl ModelHints {
                     "PLAN MODE: Create a simple 2-4 phase plan with clear steps and verification."
                         .into(),
                 ),
+                effort_level: EffortLevel::Standard,
             }
         }
     }
@@ -352,14 +513,21 @@ impl ModelHints {
         }
     }
 
-    /// Returns the appropriate thinking budget based on whether we're in plan mode.
+    /// Returns the appropriate thinking budget based on whether we're in plan mode
+    /// and the current effort level.
     #[must_use]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     pub fn thinking_budget_for_mode(&self, is_planning: bool) -> u32 {
-        if is_planning && self.plan_thinking_budget > 0 {
+        let base = if is_planning && self.plan_thinking_budget > 0 {
             self.plan_thinking_budget
         } else {
             self.thinking_budget
-        }
+        };
+        (base as f32 * self.effort_level.thinking_multiplier()) as u32
     }
 
     /// Returns the appropriate aggressive read threshold based on whether we're in plan mode.
@@ -581,5 +749,50 @@ mod tests {
         assert!(!hints.supports_ultra_planning);
         assert_eq!(hints.max_plan_phases, 4);
         assert_eq!(hints.plan_thinking_budget, 18_000);
+    }
+
+    #[test]
+    fn test_effort_level_multipliers() {
+        assert_eq!(EffortLevel::Minimal.thinking_multiplier(), 0.25);
+        assert_eq!(EffortLevel::Low.thinking_multiplier(), 0.5);
+        assert_eq!(EffortLevel::Standard.thinking_multiplier(), 1.0);
+        assert_eq!(EffortLevel::High.thinking_multiplier(), 1.5);
+        assert_eq!(EffortLevel::Maximum.thinking_multiplier(), 2.0);
+
+        assert_eq!(EffortLevel::Minimal.read_threshold_multiplier(), 2.0);
+        assert_eq!(EffortLevel::Maximum.read_threshold_multiplier(), 0.5);
+    }
+
+    #[test]
+    fn test_effort_level_cycling() {
+        assert_eq!(EffortLevel::Minimal.next(), EffortLevel::Low);
+        assert_eq!(EffortLevel::Low.next(), EffortLevel::Standard);
+        assert_eq!(EffortLevel::Standard.next(), EffortLevel::High);
+        assert_eq!(EffortLevel::High.next(), EffortLevel::Maximum);
+        assert_eq!(EffortLevel::Maximum.next(), EffortLevel::Minimal);
+    }
+
+    #[test]
+    fn test_effective_thinking_budget() {
+        let mut hints = ModelHints::for_model("kimi-coding/k2.6");
+        // Default is Standard = 1.0x
+        assert_eq!(hints.effective_thinking_budget(), hints.thinking_budget);
+
+        hints.effort_level = EffortLevel::High;
+        assert_eq!(hints.effective_thinking_budget(), 48_000); // 32_000 * 1.5
+
+        hints.effort_level = EffortLevel::Minimal;
+        assert_eq!(hints.effective_thinking_budget(), 8_000); // 32_000 * 0.25
+    }
+
+    #[test]
+    fn test_thinking_budget_for_mode_with_effort() {
+        let mut hints = ModelHints::for_model("kimi-coding/k2.6");
+        // Standard effort, normal mode
+        assert_eq!(hints.thinking_budget_for_mode(false), 32_000);
+
+        hints.effort_level = EffortLevel::High;
+        assert_eq!(hints.thinking_budget_for_mode(false), 48_000);
+        assert_eq!(hints.thinking_budget_for_mode(true), 72_000); // 48_000 * 1.5
     }
 }

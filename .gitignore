@@ -12,7 +12,7 @@ rust/Cargo.lock
 .port_sessions/
 
 # Claw harness artifacts
-.claw-code/
+.xolotl-code/
 graphify-out/
 *.session
 

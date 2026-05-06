@@ -225,7 +225,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
                 - Pass the COMPLETE updated list every time — it replaces the previous list entirely.\n\
                 - Update task status in real-time: set 'in_progress' when starting, 'completed' when done.\n\
                 - Keep at most ONE task 'in_progress' at a time.\n\
-                - The todo list persists across sessions in ~/.claw-code/todos.json.",
+                - The todo list persists across sessions in ~/.xolotl-code/todos.json.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -560,7 +560,7 @@ fn run_file_info(input: FileInfoInput) -> Result<String, String> {
 #[allow(clippy::needless_pass_by_value)]
 fn run_ask_user(input: AskUserInput) -> Result<String, String> {
     use std::io::{self, Write};
-    println!("\n  [claw asks] {}", input.question);
+    println!("\n  [xolotl asks] {}", input.question);
     print!("  Your response: ");
     io::stdout().flush().map_err(|e| e.to_string())?;
     let mut response = String::new();

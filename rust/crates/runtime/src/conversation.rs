@@ -212,6 +212,10 @@ where
         self.model_hints.as_ref()
     }
 
+    pub fn model_hints_mut(&mut self) -> Option<&mut ModelHints> {
+        self.model_hints.as_mut()
+    }
+
     pub fn set_system_prompt(&mut self, prompt: Vec<String>) {
         self.system_prompt = prompt;
     }
@@ -243,6 +247,16 @@ where
 
     pub fn pending_image_count(&self) -> usize {
         self.pending_images.len()
+    }
+
+    /// Returns true if the current model supports image input.
+    pub fn supports_images(&self) -> bool {
+        self.model_hints.as_ref().is_some_and(|h| h.supports_images)
+    }
+
+    /// Clear all pending images without sending them.
+    pub fn clear_pending_images(&mut self) {
+        self.pending_images.clear();
     }
 
     /// Parse input for @image references and add them to pending images.
@@ -359,9 +373,13 @@ where
         let mut tool_results = Vec::new();
         let mut iterations = 0;
 
+        let effective_max_iterations = self.model_hints.as_ref().map_or(self.max_iterations, |h| {
+            h.effective_max_iterations(self.max_iterations)
+        });
+
         loop {
             iterations += 1;
-            if iterations > self.max_iterations {
+            if iterations > effective_max_iterations {
                 return Err(RuntimeError::new(
                     "conversation loop exceeded the maximum number of iterations",
                 ));
@@ -374,7 +392,7 @@ where
                 if hints.should_use_thinking() {
                     Some(api::types::ThinkingConfig {
                         config_type: "enabled".to_string(),
-                        budget_tokens: hints.thinking_budget,
+                        budget_tokens: hints.effective_thinking_budget(),
                     })
                 } else {
                     None
@@ -609,15 +627,9 @@ where
 
         let thinking = self.model_hints.as_ref().and_then(|hints| {
             if hints.should_use_thinking() {
-                // Use plan-specific thinking budget if available
-                let budget = if hints.plan_thinking_budget > 0 {
-                    hints.plan_thinking_budget
-                } else {
-                    hints.thinking_budget
-                };
                 Some(api::types::ThinkingConfig {
                     config_type: "enabled".to_string(),
-                    budget_tokens: budget,
+                    budget_tokens: hints.thinking_budget_for_mode(true),
                 })
             } else {
                 None

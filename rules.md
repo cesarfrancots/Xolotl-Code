@@ -1,4 +1,4 @@
-# Project Rules — Claw-code
+# Project Rules — Xolotl-code
 
 These rules exist to keep the codebase healthy, CI green, and developer velocity high. If a rule is slowing you down without preventing real problems, propose a change—do not silently ignore it.
 

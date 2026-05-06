@@ -157,7 +157,7 @@ async fn execute_bash_async(input: BashCommandInput) -> io::Result<BashCommandOu
     if total_len > MAX_OUTPUT_BYTES {
         // Save full output to a temp file
         let tmp = std::env::temp_dir().join(format!(
-            "claw-output-{}.txt",
+            "xolotl-output-{}.txt",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()

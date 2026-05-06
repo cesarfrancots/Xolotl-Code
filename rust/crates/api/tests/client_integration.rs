@@ -427,6 +427,7 @@ fn sample_request(stream: bool) -> MessageRequest {
                     is_error: false,
                 },
             ],
+            reasoning_content: None,
         }],
         system: Some(vec![api::SystemContentBlock::text("Use tools when needed")]),
         tools: Some(vec![ToolDefinition {

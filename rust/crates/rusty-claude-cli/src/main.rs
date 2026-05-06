@@ -35,6 +35,7 @@ use std::collections::HashSet;
 use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use api::{
@@ -61,9 +62,20 @@ const DEFAULT_MAX_TOKENS: u32 = 16384;
 const CLAW_VERSION: &str = "0.2.1";
 
 static STDOUT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static SHOW_THINKING: AtomicBool = AtomicBool::new(false);
 
 fn stdout_lock() -> &'static Mutex<()> {
     STDOUT_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// Check whether thinking/reasoning output should be displayed.
+pub fn should_show_thinking() -> bool {
+    SHOW_THINKING.load(Ordering::Relaxed)
+}
+
+/// Set whether thinking/reasoning output should be displayed.
+pub fn set_show_thinking(show: bool) {
+    SHOW_THINKING.store(show, Ordering::Relaxed);
 }
 
 /// Returns the default model.
@@ -107,23 +119,58 @@ fn is_leap_year(year: u32) -> bool {
     (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
-/// Returns `~/.claw-code/` as an absolute path.
-fn claw_home() -> PathBuf {
+/// Returns `~/.xolotl-code/` as an absolute path.
+fn xolotl_home() -> PathBuf {
+    let home = env::var("USERPROFILE")
+        .or_else(|_| env::var("HOME"))
+        .map_or_else(|_| PathBuf::from("."), PathBuf::from);
+    home.join(".xolotl-code")
+}
+
+/// Returns the legacy `~/.claw-code/` path for backward compatibility.
+fn legacy_claw_home() -> PathBuf {
     let home = env::var("USERPROFILE")
         .or_else(|_| env::var("HOME"))
         .map_or_else(|_| PathBuf::from("."), PathBuf::from);
     home.join(".claw-code")
 }
 
-/// Returns `~/.claw-code/sessions/` as an absolute path.
-fn sessions_dir() -> PathBuf {
-    claw_home().join("sessions")
+/// Migrate config from legacy `~/.claw-code/` to `~/.xolotl-code/` if needed.
+/// Returns true if a migration occurred.
+fn maybe_migrate_legacy_config() -> bool {
+    let legacy_path = legacy_claw_home().join("config.json");
+    let new_path = xolotl_home().join("config.json");
+
+    if new_path.exists() || !legacy_path.exists() {
+        return false;
+    }
+
+    if let Ok(text) = std::fs::read_to_string(&legacy_path) {
+        if std::fs::create_dir_all(xolotl_home()).is_ok() && std::fs::write(&new_path, text).is_ok()
+        {
+            eprintln!(
+                "  {}Migrated config from ~/.claw-code to ~/.xolotl-code{}",
+                style::GREEN,
+                style::RESET
+            );
+            return true;
+        }
+    }
+    false
 }
 
-/// Load API keys from `~/.claw-code/config.json` into env vars (only if not
+/// Returns `~/.xolotl-code/sessions/` as an absolute path.
+fn sessions_dir() -> PathBuf {
+    xolotl_home().join("sessions")
+}
+
+/// Load API keys from `~/.xolotl-code/config.json` into env vars (only if not
 /// already set). Silently skips if the file doesn't exist.
+/// Checks the legacy `~/.claw-code/config.json` location and auto-migrates.
 fn load_config_keys() {
-    let path = claw_home().join("config.json");
+    maybe_migrate_legacy_config();
+
+    let path = xolotl_home().join("config.json");
     let Ok(text) = std::fs::read_to_string(&path) else {
         return;
     };
@@ -143,14 +190,15 @@ fn load_config_keys() {
     }
 }
 
-/// Interactive setup wizard: writes API keys to `~/.claw-code/config.json`.
+/// Interactive setup wizard: writes API keys to `~/.xolotl-code/config.json`.
 fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
     use std::io::BufRead;
 
-    println!("Claw Code setup — saves API keys to ~/.claw-code/config.json");
+    println!("Xolotl Code setup — saves API keys to ~/.xolotl-code/config.json");
     println!("Press Enter to keep the current value. Type 'clear' to unset.\n");
 
-    let config_path = claw_home().join("config.json");
+    maybe_migrate_legacy_config();
+    let config_path = xolotl_home().join("config.json");
     let mut config: serde_json::Map<String, serde_json::Value> = config_path
         .exists()
         .then(|| {
@@ -223,7 +271,7 @@ fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    std::fs::create_dir_all(claw_home())?;
+    std::fs::create_dir_all(xolotl_home())?;
     let json = serde_json::to_string_pretty(&serde_json::Value::Object(config))?;
     std::fs::write(&config_path, json)?;
 
@@ -469,7 +517,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     while index < args.len() {
         match args[index].as_str() {
             "--version" | "-v" => {
-                println!("claw version {CLAW_VERSION}");
+                println!("xolotl version {CLAW_VERSION}");
                 std::process::exit(0);
             }
             "--model" => {
@@ -697,22 +745,80 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
 
     print_startup_banner(&cli);
 
-    while let Some(input) = editor.read_line()? {
+    while let (Some(input), action) = editor.read_line_with_actions()? {
+        // Handle keyboard shortcut actions first
+        match action {
+            Some(input::EditorAction::ToggleThinking) => {
+                cli.toggle_thinking_display();
+                continue;
+            }
+            Some(input::EditorAction::CycleEffort) => {
+                cli.cycle_effort_level();
+                continue;
+            }
+            Some(input::EditorAction::QuickModel) => {
+                print_model_help(&cli.model);
+                eprint!("  {}Model: ", style::PROMPT_ARROW);
+                let _ = io::stderr().flush();
+                let mut line = String::new();
+                if io::stdin().lock().read_line(&mut line).is_ok() {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        if let Err(e) = cli.set_model(trimmed) {
+                            style::print_err(&e.to_string());
+                        }
+                    }
+                }
+                continue;
+            }
+            Some(input::EditorAction::SaveSession) => {
+                if let Err(e) = cli.save_session() {
+                    style::print_err(&e.to_string());
+                }
+                continue;
+            }
+            Some(input::EditorAction::RetryLast) => {
+                let last = cli.last_prompt.clone();
+                if let Some(last) = last {
+                    let turn_start = std::time::Instant::now();
+                    cli.run_turn(&last)?;
+                    cli.write_session_memory(turn_start.elapsed().as_secs());
+                } else {
+                    style::print_warn("No previous prompt to retry.");
+                }
+                continue;
+            }
+            Some(input::EditorAction::ClearScreen) => {
+                // Already handled in editor
+                continue;
+            }
+            _ => {}
+        }
+
         let trimmed = cli.runtime.parse_input_images(input.trim());
         let pending_image_count = cli.runtime.pending_image_count();
         if pending_image_count > 0 {
-            println!(
-                "  {}{}{} {} image(s) attached{}",
-                style::CYAN,
-                style::BOLD,
-                style::CHECK,
-                pending_image_count,
-                style::RESET
-            );
+            if cli.runtime.supports_images() {
+                println!(
+                    "  {}{}{} {pending_image_count} image(s) attached{}",
+                    style::CYAN,
+                    style::BOLD,
+                    style::CHECK,
+                    style::RESET
+                );
+            } else {
+                style::print_warn(&format!(
+                    "The current model does not support image input. {pending_image_count} image(s) ignored."
+                ));
+                cli.runtime.clear_pending_images();
+            }
         }
         if trimmed.is_empty() && !cli.runtime.has_pending_images() {
             continue;
         }
+
+        // Store prompt for retry
+        cli.last_prompt = Some(trimmed.clone());
 
         // Dispatch slash commands
         if trimmed.starts_with('/') {
@@ -738,6 +844,31 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
                 "/help" => print_slash_help(),
                 "/status" => cli.print_status(),
                 "/cost" => cli.print_cost(),
+                "/thinking" => cli.toggle_thinking_display(),
+                "/effort" => {
+                    if let Some(level) = parts.get(1).copied() {
+                        match level.trim().to_lowercase().as_str() {
+                            "minimal" => cli.effort_level = runtime::EffortLevel::Minimal,
+                            "low" => cli.effort_level = runtime::EffortLevel::Low,
+                            "standard" => cli.effort_level = runtime::EffortLevel::Standard,
+                            "high" => cli.effort_level = runtime::EffortLevel::High,
+                            "maximum" => cli.effort_level = runtime::EffortLevel::Maximum,
+                            other => {
+                                style::print_err(&format!("Unknown effort level: {other}. Use: minimal, low, standard, high, maximum"));
+                                continue;
+                            }
+                        }
+                        if let Some(ref mut hints) = cli.runtime.model_hints_mut() {
+                            hints.effort_level = cli.effort_level;
+                        }
+                        style::print_ok(&format!(
+                            "Effort level set to: {}",
+                            cli.effort_level.label()
+                        ));
+                    } else {
+                        cli.cycle_effort_level();
+                    }
+                }
                 "/compact" => cli.compact()?,
                 "/clear" => cli.clear_session()?,
                 "/save" => cli.save_session()?,
@@ -920,9 +1051,16 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
 fn print_startup_banner(cli: &LiveCli) {
     use style::{
         format_model, shorten_path, strip_ansi_len, ACCENT, ARROW_DOWN, ARROW_UP, BOLD, BOX_BL,
-        BOX_BR, BOX_H, BOX_LM, BOX_RM, BOX_TL, BOX_TR, BOX_V, CLAW_ICON, GRAY, MUTED, RESET,
+        BOX_BR, BOX_H, BOX_LM, BOX_RM, BOX_TL, BOX_TR, BOX_V, CLAW_ICON, CYAN, GRAY, MUTED, RESET,
         SPARKLE, WARN_SYM, WHITE_BOLD, YELLOW,
     };
+    const PALE_PINK: &str = "\x1b[38;2;255;198;220m";
+    const PINK: &str = "\x1b[38;2;255;151;190m";
+    const HOT_PINK: &str = "\x1b[38;2;255;97;150m";
+    const CORAL: &str = "\x1b[38;2;255;122;148m";
+    const BLUSH: &str = "\x1b[38;2;255;173;196m";
+    const EYE: &str = "\x1b[38;2;71;45;92m";
+    const SHADOW: &str = "\x1b[38;2;214;122;165m";
 
     // Gather info
     let model_display = format_model(&cli.model);
@@ -939,6 +1077,12 @@ fn print_startup_banner(cli: &LiveCli) {
     } else {
         format!("{MUTED}prompt for writes{RESET}")
     };
+    let effort_str = format!("{MUTED}effort: {CYAN}{}{RESET}", cli.effort_level.label());
+    let thinking_str = if cli.show_thinking {
+        format!("{CYAN}thinking visible{RESET}")
+    } else {
+        format!("{MUTED}thinking hidden{RESET}")
+    };
 
     // Inner width of the box (between the vertical bars)
     let inner = style::box_inner_width();
@@ -952,10 +1096,45 @@ fn print_startup_banner(cli: &LiveCli) {
         )
     };
 
+    // Pixel art axolotl. The character matrix keeps the terminal mascot editable.
+    let axolotl = [
+        "    H H    H H    ",
+        "   CHH    HHC   ",
+        "  CHPP    PPHC  ",
+        "    PPPPPPPP    ",
+        "   PPLLLLLLPP   ",
+        "  HPLLLLLLLLPH  ",
+        "CHLLELLLLELLHC",
+        " HLLBLLLLBLLH ",
+        "  PLLLLSLLLP  ",
+        "   PLLLLLLP   ",
+        "  PPPPPPPPPP  ",
+        " HPLPLLLLPLPH ",
+        "  PLLLLLLLLP  ",
+        "   SPPPPPS   ",
+    ];
+
+    println!();
+    for row in axolotl {
+        print!("  ");
+        for pixel in row.chars() {
+            match pixel {
+                'L' => print!("{PALE_PINK}██{RESET}"),
+                'P' => print!("{PINK}██{RESET}"),
+                'H' => print!("{HOT_PINK}██{RESET}"),
+                'C' => print!("{CORAL}██{RESET}"),
+                'B' => print!("{BLUSH}██{RESET}"),
+                'E' => print!("{EYE}██{RESET}"),
+                'S' => print!("{SHADOW}██{RESET}"),
+                _ => print!("  "),
+            }
+        }
+        println!();
+    }
     println!();
     println!("  {ACCENT}{BOX_TL}{bar}{BOX_TR}{RESET}");
     // Logo row
-    let logo = format!("{ACCENT}{BOLD}{CLAW_ICON} claw{RESET}  {MUTED}v{CLAW_VERSION}{RESET}");
+    let logo = format!("{ACCENT}{BOLD}{CLAW_ICON} xolotl{RESET}  {MUTED}v{CLAW_VERSION}{RESET}");
     println!("{}", pad(&logo));
     // Divider row
     let div_inner = BOX_H.repeat(inner.saturating_sub(2));
@@ -972,6 +1151,9 @@ fn print_startup_banner(cli: &LiveCli) {
     // mode
     let mode_row = format!("{GRAY}mode    {RESET}{mode_str}");
     println!("{}", pad(&mode_row));
+    // effort
+    let effort_row = format!("{GRAY}effort  {RESET}{effort_str}  {thinking_str}");
+    println!("{}", pad(&effort_row));
     // Divider row before session
     println!("  {ACCENT}{BOX_V}{BOX_LM}{div_inner}{BOX_RM}{BOX_V}{RESET}");
     // session path
@@ -982,6 +1164,7 @@ fn print_startup_banner(cli: &LiveCli) {
     println!("  {ACCENT}{BOX_BL}{bar}{BOX_BR}{RESET}");
     println!();
     println!("  {MUTED}/help for commands  ·  {ARROW_UP}/{ARROW_DOWN} history  ·  Shift+Enter newline{RESET}");
+    println!("  {MUTED}Ctrl+T thinking  ·  Ctrl+E effort  ·  Ctrl+M model  ·  Ctrl+R retry  ·  Ctrl+S save{RESET}");
     println!();
 }
 
@@ -1012,6 +1195,12 @@ fn print_slash_help() {
     println!("  {MUTED}  {ARROW_UP}/{ARROW_DOWN}   Browse input history{RESET}");
     println!("  {MUTED}  Shift+Enter   Insert newline{RESET}");
     println!("  {MUTED}  Ctrl+C        Cancel current input{RESET}");
+    println!("  {MUTED}  Ctrl+L        Clear screen{RESET}");
+    println!("  {MUTED}  Ctrl+T        Toggle thinking display{RESET}");
+    println!("  {MUTED}  Ctrl+E        Cycle effort level{RESET}");
+    println!("  {MUTED}  Ctrl+M        Quick model switch{RESET}");
+    println!("  {MUTED}  Ctrl+S        Save session{RESET}");
+    println!("  {MUTED}  Ctrl+R        Retry last prompt{RESET}");
     println!();
 }
 
@@ -1079,6 +1268,12 @@ struct LiveCli {
     session_start: std::time::Instant,
     plan_artifact: Option<PlanArtifact>,
     plan_path: Option<PathBuf>,
+    /// Whether to display thinking/reasoning output in real-time.
+    show_thinking: bool,
+    /// Current effort level controlling thinking depth.
+    effort_level: runtime::EffortLevel,
+    /// Last submitted prompt for retry functionality.
+    last_prompt: Option<String>,
 }
 
 impl LiveCli {
@@ -1132,6 +1327,9 @@ impl LiveCli {
             session_start: std::time::Instant::now(),
             plan_artifact: None,
             plan_path: None,
+            show_thinking: false,
+            effort_level: runtime::EffortLevel::Standard,
+            last_prompt: None,
         })
     }
 
@@ -1208,6 +1406,33 @@ impl LiveCli {
         } else {
             style::print_ok("Auto-accept OFF — tool calls will prompt for permission.");
         }
+    }
+
+    fn toggle_thinking_display(&mut self) {
+        self.show_thinking = !self.show_thinking;
+        set_show_thinking(self.show_thinking);
+        if self.show_thinking {
+            style::print_ok("Thinking display ON — model reasoning will be visible.");
+        } else {
+            style::print_ok("Thinking display OFF — model reasoning hidden.");
+        }
+    }
+
+    fn cycle_effort_level(&mut self) {
+        self.effort_level = self.effort_level.next();
+        let label = self.effort_level.label();
+        // Update runtime model hints with new effort level
+        if let Some(ref mut hints) = self.runtime.model_hints_mut() {
+            hints.effort_level = self.effort_level;
+        }
+        style::print_ok(&format!(
+            "Effort level: {BOLD}{label}{RESET}  {MUTED}(thinking: {mult}x, read: {read}x){RESET}",
+            BOLD = style::BOLD,
+            RESET = style::RESET,
+            MUTED = style::MUTED,
+            mult = self.effort_level.thinking_multiplier(),
+            read = self.effort_level.read_threshold_multiplier()
+        ));
     }
 
     fn sdd_suggest(&mut self, input: &str) -> Option<String> {
@@ -1425,7 +1650,7 @@ impl LiveCli {
             println!("  {MUTED}No Obsidian vault found.{RESET} Create one at:");
             println!("    ~/Obsidian Vault/");
             println!("    ~/Documents/Obsidian/");
-            println!("    ~/.claw-code/vault/");
+            println!("    ~/.xolotl-code/vault/");
             println!();
         }
     }
@@ -1495,7 +1720,7 @@ impl LiveCli {
             .map_err(|e| format!("Failed to parse plan JSON: {e}"))?;
 
         // Save plan to disk
-        let plans_dir = claw_home().join("plans");
+        let plans_dir = xolotl_home().join("plans");
         std::fs::create_dir_all(&plans_dir)?;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1580,7 +1805,7 @@ impl LiveCli {
             .map_err(|e| format!("Failed to parse plan JSON: {e}"))?;
 
         // Save plan to disk
-        let plans_dir = claw_home().join("plans");
+        let plans_dir = xolotl_home().join("plans");
         std::fs::create_dir_all(&plans_dir)?;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1796,6 +2021,18 @@ impl LiveCli {
         print_kv_w("model", &format_model(&self.model), 12);
         print_kv_w("cwd", &format!("{MUTED}{cwd}{RESET}"), 12);
         print_kv_w("mode", &mode_str, 12);
+        let effort_str = format!(
+            "{CYAN}{}{RESET}  {MUTED}(thinking: {:.1}x){RESET}",
+            self.effort_level.label(),
+            self.effort_level.thinking_multiplier()
+        );
+        print_kv_w("effort", &effort_str, 12);
+        let thinking_str = if self.show_thinking {
+            format!("{CYAN}visible{RESET}")
+        } else {
+            format!("{MUTED}hidden{RESET}")
+        };
+        print_kv_w("thinking", &thinking_str, 12);
         print_kv_w("turns", &self.runtime.usage().turns().to_string(), 12);
         print_kv_w(
             "messages",
@@ -2074,7 +2311,8 @@ impl LiveCli {
         }
 
         // Save to config file
-        let config_path = claw_home().join("config.json");
+        maybe_migrate_legacy_config();
+        let config_path = xolotl_home().join("config.json");
         let mut config: serde_json::Map<String, serde_json::Value> = config_path
             .exists()
             .then(|| {
@@ -2101,7 +2339,7 @@ impl LiveCli {
             }
         }
 
-        std::fs::create_dir_all(claw_home())?;
+        std::fs::create_dir_all(xolotl_home())?;
         let json = serde_json::to_string_pretty(&serde_json::Value::Object(config))?;
         std::fs::write(&config_path, json)?;
 
@@ -2118,7 +2356,7 @@ impl LiveCli {
             style::RESET
         );
         println!(
-            "  {}Key saved to ~/.claw-code/config.json{}",
+            "  {}Key saved to ~/.xolotl-code/config.json{}",
             style::MUTED,
             style::RESET
         );
@@ -2348,7 +2586,7 @@ fn run_doctor() {
         .map_or_else(|_| PathBuf::from("."), PathBuf::from);
 
     let config_files: Vec<(PathBuf, &str)> = vec![
-        (claw_home().join("config.json"), "claw config"),
+        (xolotl_home().join("config.json"), "xolotl config"),
         (
             config_home.join(".claude").join("settings.json"),
             "claude settings (user)",
@@ -2500,7 +2738,7 @@ fn list_sessions() {
         }
         println!();
         print_muted(&format!(
-            "Resume with: claw --resume {}",
+            "Resume with: xolotl --resume {}",
             dir.join(&entries[0].0).display()
         ));
     }
@@ -2680,7 +2918,7 @@ fn build_single_client(
     } else {
         let cache_key = if hints.supports_prompt_cache {
             // Stable per-model cache key. In production this should be session-scoped.
-            Some(format!("claw-{}", model.replace(['/', ' ', ':'], "-")))
+            Some(format!("xolotl-{}", model.replace(['/', ' ', ':'], "-")))
         } else {
             None
         };
@@ -2908,7 +3146,9 @@ impl ApiClient for AnthropicRuntimeClient {
                                     }
                                 }
                                 ContentBlockDelta::ThinkingDelta { thinking } => {
-                                    style::print_thinking_fragment(&thinking);
+                                    if should_show_thinking() {
+                                        style::print_thinking_fragment(&thinking);
+                                    }
                                     events.push(AssistantEvent::ThinkingDelta(thinking));
                                 }
                                 ContentBlockDelta::InputJsonDelta { partial_json } => {
@@ -3603,7 +3843,10 @@ impl ApiClient for OpenAiRuntimeClient {
         // Configure thinking based on provider and model hints
         let thinking = if let Some(ref hints) = self.model_hints {
             if hints.should_use_thinking() && request.thinking.is_some() {
-                let budget = hints.thinking_budget;
+                let budget = request.thinking.as_ref().map_or_else(
+                    || hints.effective_thinking_budget(),
+                    |thinking| thinking.budget_tokens,
+                );
                 if self.is_kimi_coding {
                     serde_json::json!({
                         "type": "enabled",
@@ -3715,6 +3958,8 @@ pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMes
                 MessageRole::System | MessageRole::User | MessageRole::Tool => "user",
                 MessageRole::Assistant => "assistant",
             };
+            let is_assistant = role == "assistant";
+            let mut reasoning_content = String::new();
             let content: Vec<InputContentBlock> = message
                 .blocks
                 .iter()
@@ -3723,8 +3968,18 @@ pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMes
                     ContentBlock::Text { text } if !text.is_empty() => {
                         Some(InputContentBlock::Text { text: text.clone() })
                     }
-                    // Skip empty text and thinking blocks — API doesn't accept them as input
-                    ContentBlock::Text { .. } | ContentBlock::Thinking { .. } => None,
+                    // Skip empty text blocks
+                    ContentBlock::Text { .. } => None,
+                    // Extract thinking content for assistant messages (Kimi/OpenAI compat)
+                    ContentBlock::Thinking { thinking, .. } => {
+                        if is_assistant {
+                            if !reasoning_content.is_empty() {
+                                reasoning_content.push('\n');
+                            }
+                            reasoning_content.push_str(thinking);
+                        }
+                        None
+                    }
                     ContentBlock::Image { source } => Some(InputContentBlock::Image {
                         source: match source {
                             runtime::ImageSource::Base64 { media_type, data } => ApiImageSource {
@@ -3757,23 +4012,32 @@ pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMes
             (!content.is_empty()).then(|| InputMessage {
                 role: role.to_string(),
                 content,
+                reasoning_content: is_assistant.then(|| {
+                    if reasoning_content.is_empty() {
+                        " ".to_string()
+                    } else {
+                        reasoning_content.clone()
+                    }
+                }),
             })
         })
         .collect()
 }
 
 fn print_help() {
-    println!("claw — personal AI coding agent v{CLAW_VERSION}");
+    println!("xolotl — personal AI coding agent v{CLAW_VERSION}");
     println!();
     println!("Usage:");
-    println!("  claw                                    Start interactive REPL");
-    println!("  claw -y / --yes                         Start with auto-accept (skip permission prompts)");
-    println!("  claw setup                              Save API keys to ~/.claw-code/config.json");
-    println!("  claw --model MODEL                      Start REPL with a specific model");
-    println!("  claw --model opusplan                   Opus plans, Sonnet executes");
-    println!("  claw prompt TEXT                         Send one prompt and exit");
-    println!("  claw --resume SESSION.json              Resume a saved session");
-    println!("  claw --version                          Show version");
+    println!("  xolotl                                    Start interactive REPL");
+    println!("  xolotl -y / --yes                         Start with auto-accept (skip permission prompts)");
+    println!(
+        "  xolotl setup                              Save API keys to ~/.xolotl-code/config.json"
+    );
+    println!("  xolotl --model MODEL                      Start REPL with a specific model");
+    println!("  xolotl --model opusplan                   Opus plans, Sonnet executes");
+    println!("  xolotl prompt TEXT                         Send one prompt and exit");
+    println!("  xolotl --resume SESSION.json              Resume a saved session");
+    println!("  xolotl --version                          Show version");
     println!();
     println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan · minimax2.7 · glm5.1 · qwen3.6 · kimi2.6 · kimi-coding");
     println!();
@@ -3781,14 +4045,14 @@ fn print_help() {
     println!(
         "  /help  /status  /cost  /budget  /compact  /clear  /model  /connect  /mcp  /accept-all"
     );
-    println!("  /tasks  /sessions  /doctor  /init  /save  /exit");
+    println!("  /thinking  /effort  /tasks  /sessions  /doctor  /init  /save  /exit");
     println!();
     println!("Flags:");
     println!("  --yes, -y, --dangerously-skip-permissions   Auto-accept all tool calls");
     println!("  --model MODEL                               Use a specific model or alias");
     println!("  --version, -v                               Show version information");
     println!();
-    println!("Environment (or save with 'claw setup'):");
+    println!("Environment (or save with 'xolotl setup'):");
     println!("  BEDROCK_API_KEY          Bedrock API key (recommended)");
     println!("  AWS_DEFAULT_REGION       Bedrock region (default: us-east-1)");
     println!("  ANTHROPIC_API_KEY        Anthropic direct API");

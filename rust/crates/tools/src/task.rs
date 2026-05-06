@@ -24,7 +24,7 @@ pub struct TaskRuntime {
 
 impl TaskRuntime {
     pub fn new(max_parallel: usize) -> Self {
-        let results_dir = std::env::temp_dir().join("claw-tasks");
+        let results_dir = std::env::temp_dir().join("xolotl-tasks");
         let _ = fs::create_dir_all(&results_dir);
         Self {
             max_parallel,

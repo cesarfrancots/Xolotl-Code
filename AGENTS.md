@@ -63,7 +63,7 @@ Use `/connect <provider>` in the REPL for plug-and-play provider setup. You only
 › /connect openai
 ```
 
-Keys are saved to `~/.claw-code/config.json` and are available immediately without restarting the session.
+Keys are saved to `~/.xolotl-code/config.json` and are available immediately without restarting the session.
 
 ### Switching Models
 

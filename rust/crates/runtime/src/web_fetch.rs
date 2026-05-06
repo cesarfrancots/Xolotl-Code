@@ -134,7 +134,7 @@ pub fn web_fetch(input: &WebFetchInput) -> Result<WebFetchOutput, String> {
     }
 
     let client = reqwest::blocking::Client::builder()
-        .user_agent("claw/0.1 (AI coding agent)")
+        .user_agent("xolotl/0.1 (AI coding agent)")
         .timeout(std::time::Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::limited(5))
         .build()

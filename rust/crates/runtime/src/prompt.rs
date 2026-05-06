@@ -205,9 +205,22 @@ pub fn prepend_bullets(items: Vec<String>) -> Vec<String> {
 }
 
 fn discover_instruction_files(cwd: &Path) -> std::io::Result<Vec<ContextFile>> {
+    let home_dir = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from);
+    discover_instruction_files_with_home(cwd, home_dir.as_deref())
+}
+
+fn discover_instruction_files_with_home(
+    cwd: &Path,
+    home_dir: Option<&Path>,
+) -> std::io::Result<Vec<ContextFile>> {
     let mut directories = Vec::new();
     let mut cursor = Some(cwd);
     while let Some(dir) = cursor {
+        if home_dir.is_some_and(|home| dir == home) {
+            break;
+        }
         directories.push(dir.to_path_buf());
         cursor = dir.parent();
     }
@@ -610,6 +623,28 @@ mod tests {
                 "nested rules"
             ]
         );
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn skips_home_scoped_claude_instructions() {
+        let root = temp_dir();
+        let home = root.join("home");
+        let project = home.join("project");
+        fs::create_dir_all(home.join(".claude")).expect("home claude dir");
+        fs::create_dir_all(&project).expect("project dir");
+        fs::write(home.join(".claude").join("CLAUDE.md"), "global rules")
+            .expect("write home instructions");
+        fs::write(project.join("CLAUDE.md"), "project rules").expect("write project instructions");
+
+        let files = super::discover_instruction_files_with_home(&project, Some(&home))
+            .expect("instructions should load");
+        let contents = files
+            .iter()
+            .map(|file| file.content.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(contents, vec!["project rules"]);
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }
 

@@ -72,7 +72,7 @@ pub const HOURGLASS: &str = "⏱";
 pub const ARROW_UP: &str = "↑";
 pub const ARROW_DOWN: &str = "↓";
 pub const ARROW_RIGHT: &str = "→";
-pub const CLAW_ICON: &str = "⚡";
+pub const CLAW_ICON: &str = "🦎";
 #[allow(dead_code)]
 pub const GEAR: &str = "⚙";
 #[allow(dead_code)]

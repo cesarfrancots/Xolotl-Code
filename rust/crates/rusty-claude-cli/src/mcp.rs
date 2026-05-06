@@ -99,7 +99,7 @@ impl McpConnection {
         cmd.args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit()); // let server errors appear in claw's stderr
+            .stderr(Stdio::inherit()); // let server errors appear in xolotl's stderr
 
         for (k, v) in env {
             cmd.env(k, v);
@@ -210,7 +210,7 @@ impl McpConnection {
             Some(json!({
                 "protocolVersion": "2024-11-05",
                 "capabilities": { "tools": {} },
-                "clientInfo": { "name": "claw", "version": "0.1" }
+                "clientInfo": { "name": "xolotl", "version": "0.1" }
             })),
         )?;
 

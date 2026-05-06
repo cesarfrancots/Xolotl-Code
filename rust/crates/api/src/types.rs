@@ -85,6 +85,10 @@ impl MessageRequest {
 pub struct InputMessage {
     pub role: String,
     pub content: Vec<InputContentBlock>,
+    /// Extended thinking/reasoning content for models that support it (e.g. Kimi).
+    /// Only sent for assistant messages when thinking is enabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
 }
 
 impl InputMessage {
@@ -93,6 +97,7 @@ impl InputMessage {
         Self {
             role: "user".to_string(),
             content: vec![InputContentBlock::Text { text: text.into() }],
+            reasoning_content: None,
         }
     }
 
@@ -111,6 +116,7 @@ impl InputMessage {
                 }],
                 is_error,
             }],
+            reasoning_content: None,
         }
     }
 }

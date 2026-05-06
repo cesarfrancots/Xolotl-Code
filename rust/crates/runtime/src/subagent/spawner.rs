@@ -96,7 +96,7 @@ pub struct SubAgentSpawner {
 impl SubAgentSpawner {
     #[must_use]
     pub fn new() -> Self {
-        let results_dir = std::env::temp_dir().join("claw-subagents");
+        let results_dir = std::env::temp_dir().join("xolotl-subagents");
         let _ = std::fs::create_dir_all(&results_dir);
         Self {
             results_dir,

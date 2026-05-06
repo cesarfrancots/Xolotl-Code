@@ -1,6 +1,6 @@
 /// Todo list tools — `TodoWrite` and `TodoRead`.
 ///
-/// Todos are stored in `~/.claw-code/todos.json` and persist across sessions.
+/// Todos are stored in `~/.xolotl-code/todos.json` and persist across sessions.
 /// The schema matches the `OpenCode` / `Claude Code` `TodoWrite` tool so models that
 /// know those tools will use these correctly.
 use serde::{Deserialize, Serialize};
@@ -54,7 +54,7 @@ fn todos_path() -> PathBuf {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .map_or_else(|_| PathBuf::from("."), PathBuf::from);
-    home.join(".claw-code").join("todos.json")
+    home.join(".xolotl-code").join("todos.json")
 }
 
 fn load_todos() -> Vec<TodoItem> {

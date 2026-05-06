@@ -122,6 +122,9 @@ pub struct OaiMessage {
     pub tool_calls: Option<Vec<OaiToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// Thinking/reasoning content for models that support it (e.g. Kimi).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
 }
 
 /// `OpenAI` message content can be either a plain string or an array of parts
@@ -224,6 +227,38 @@ struct OaiFnDelta {
 struct OaiUsage {
     prompt_tokens: u32,
     completion_tokens: u32,
+    #[serde(default)]
+    prompt_tokens_details: Option<OaiPromptTokensDetails>,
+    #[serde(default, alias = "prompt_cache_miss_tokens")]
+    cache_creation_input_tokens: u32,
+    #[serde(default, alias = "prompt_cache_hit_tokens", alias = "cached_tokens")]
+    cache_read_input_tokens: u32,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct OaiPromptTokensDetails {
+    #[serde(default, alias = "cache_tokens")]
+    cached_tokens: u32,
+}
+
+impl OaiUsage {
+    fn into_token_usage(self) -> TokenUsage {
+        let detail_cached = self
+            .prompt_tokens_details
+            .map_or(0, |details| details.cached_tokens);
+        let cache_read_input_tokens = self.cache_read_input_tokens.max(detail_cached);
+        let uncached_input_tokens = self
+            .prompt_tokens
+            .saturating_sub(cache_read_input_tokens)
+            .saturating_sub(self.cache_creation_input_tokens);
+
+        TokenUsage {
+            input_tokens: uncached_input_tokens,
+            output_tokens: self.completion_tokens,
+            cache_creation_input_tokens: self.cache_creation_input_tokens,
+            cache_read_input_tokens,
+        }
+    }
 }
 
 // ── Message conversion ─────────────────────────────────────────────────────────
@@ -241,6 +276,7 @@ pub fn to_openai_messages(
             content: Some(OaiContent::Text(system_prompt.join("\n\n"))),
             tool_calls: None,
             tool_call_id: None,
+            reasoning_content: None,
         });
     }
 
@@ -254,6 +290,7 @@ pub fn to_openai_messages(
                             content: Some(OaiContent::Text(text.clone())),
                             tool_calls: None,
                             tool_call_id: None,
+                            reasoning_content: None,
                         });
                     }
                 }
@@ -299,6 +336,7 @@ pub fn to_openai_messages(
                     content: Some(content),
                     tool_calls: None,
                     tool_call_id: None,
+                    reasoning_content: None,
                 });
             }
             MessageRole::Assistant => {
@@ -311,6 +349,16 @@ pub fn to_openai_messages(
                     })
                     .collect::<Vec<_>>()
                     .join("");
+
+                let reasoning_content: String = msg
+                    .blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::Thinking { thinking, .. } => Some(thinking.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
 
                 let tool_calls: Vec<OaiToolCall> = msg
                     .blocks
@@ -342,6 +390,11 @@ pub fn to_openai_messages(
                         Some(tool_calls)
                     },
                     tool_call_id: None,
+                    reasoning_content: if reasoning_content.is_empty() {
+                        None
+                    } else {
+                        Some(reasoning_content)
+                    },
                 });
             }
             MessageRole::Tool => {
@@ -358,6 +411,7 @@ pub fn to_openai_messages(
                             content: Some(OaiContent::Text(output.clone())),
                             tool_calls: None,
                             tool_call_id: Some(tool_use_id.clone()),
+                            reasoning_content: None,
                         });
                     }
                 }
@@ -461,8 +515,7 @@ async fn stream_sse_response(
 ) -> Result<Vec<AssistantEvent>, RuntimeError> {
     let mut events: Vec<AssistantEvent> = Vec::new();
     let mut pending_tools: HashMap<usize, (String, String, String)> = HashMap::new();
-    let mut input_tokens = 0u32;
-    let mut output_tokens = 0u32;
+    let mut usage = TokenUsage::default();
     let mut stdout = io::stdout();
     // Partial line carried across chunk boundaries
     let mut line_buf = String::new();
@@ -489,8 +542,7 @@ async fn stream_sse_response(
                         &line,
                         &mut events,
                         &mut pending_tools,
-                        &mut input_tokens,
-                        &mut output_tokens,
+                        &mut usage,
                         &mut stdout,
                     ) {
                         break 'outer; // saw [DONE]
@@ -505,13 +557,7 @@ async fn stream_sse_response(
         }
     }
 
-    finalize_events(
-        &mut events,
-        &mut pending_tools,
-        input_tokens,
-        output_tokens,
-        interrupted,
-    );
+    finalize_events(&mut events, &mut pending_tools, usage, interrupted);
     Ok(events)
 }
 
@@ -520,8 +566,7 @@ fn process_sse_line(
     line: &str,
     events: &mut Vec<AssistantEvent>,
     pending_tools: &mut HashMap<usize, (String, String, String)>,
-    input_tokens: &mut u32,
-    output_tokens: &mut u32,
+    usage: &mut TokenUsage,
     stdout: &mut impl io::Write,
 ) -> bool {
     // Kimi sends `data:{...}` without a space after the colon.
@@ -542,14 +587,17 @@ fn process_sse_line(
         Err(_) => return false,
     };
 
-    if let Some(usage) = chunk.usage {
-        *input_tokens = usage.prompt_tokens;
-        *output_tokens = usage.completion_tokens;
+    if let Some(chunk_usage) = chunk.usage {
+        *usage = chunk_usage.into_token_usage();
     }
 
     for choice in &chunk.choices {
         if let Some(reasoning) = &choice.delta.reasoning_content {
             if !reasoning.is_empty() {
+                // Print thinking fragments if display is enabled
+                if crate::should_show_thinking() {
+                    crate::style::print_thinking_fragment(reasoning);
+                }
                 events.push(AssistantEvent::ThinkingDelta(reasoning.clone()));
             }
         }
@@ -604,8 +652,7 @@ fn process_sse_line(
 fn finalize_events(
     events: &mut Vec<AssistantEvent>,
     pending_tools: &mut HashMap<usize, (String, String, String)>,
-    input_tokens: u32,
-    output_tokens: u32,
+    usage: TokenUsage,
     interrupted: bool,
 ) {
     if !events
@@ -626,13 +673,8 @@ fn finalize_events(
         events.push(AssistantEvent::MessageStop);
     }
 
-    if input_tokens > 0 || output_tokens > 0 {
-        events.push(AssistantEvent::Usage(TokenUsage {
-            input_tokens,
-            output_tokens,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-        }));
+    if usage.total_tokens() > 0 {
+        events.push(AssistantEvent::Usage(usage));
     }
 }
 
@@ -691,5 +733,53 @@ mod tests {
         assert_eq!(config.model, "kimi-for-coding");
         // clean up so it doesn't affect other tests
         std::env::remove_var("KIMI_CODING_BASE_URL");
+    }
+
+    #[test]
+    fn converts_cached_prompt_usage_without_double_counting_input() {
+        let usage = OaiUsage {
+            prompt_tokens: 120,
+            completion_tokens: 10,
+            prompt_tokens_details: Some(OaiPromptTokensDetails { cached_tokens: 80 }),
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        }
+        .into_token_usage();
+
+        assert_eq!(usage.input_tokens, 40);
+        assert_eq!(usage.output_tokens, 10);
+        assert_eq!(usage.cache_read_input_tokens, 80);
+        assert_eq!(usage.total_tokens(), 130);
+    }
+
+    #[test]
+    fn records_cache_usage_from_sse_chunks() {
+        let mut events = Vec::new();
+        let mut pending_tools = HashMap::new();
+        let mut usage = TokenUsage::default();
+        let mut stdout = Vec::new();
+        let line = r#"data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":120,"completion_tokens":10,"prompt_tokens_details":{"cached_tokens":80}}}"#;
+
+        assert!(!process_sse_line(
+            line,
+            &mut events,
+            &mut pending_tools,
+            &mut usage,
+            &mut stdout
+        ));
+        finalize_events(&mut events, &mut pending_tools, usage, false);
+
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, AssistantEvent::MessageStop)));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AssistantEvent::Usage(TokenUsage {
+                input_tokens: 40,
+                output_tokens: 10,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 80,
+            })
+        )));
     }
 }

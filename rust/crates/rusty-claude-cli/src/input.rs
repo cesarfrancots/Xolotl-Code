@@ -9,7 +9,7 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
 
 // ── Input History ─────────────────────────────────────────────────────────────
 
-/// Persistent input history stored in `~/.claw-code/history.txt`.
+/// Persistent input history stored in `~/.xolotl-code/history.txt`.
 pub struct InputHistory {
     entries: Vec<String>,
     /// Current browse position (`entries.len()` == "new input", < len = browsing).
@@ -100,7 +100,7 @@ impl InputHistory {
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
             .map_or_else(|_| PathBuf::from("."), PathBuf::from);
-        home.join(".claw-code").join("history.txt")
+        home.join(".xolotl-code").join("history.txt")
     }
 }
 
@@ -226,6 +226,22 @@ impl LineEditor {
         result
     }
 
+    /// Read a line with action support — returns both the input and any special action.
+    pub fn read_line_with_actions(&mut self) -> io::Result<(Option<String>, Option<EditorAction>)> {
+        if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+            return self.read_line_fallback().map(|s| (s, None));
+        }
+
+        enable_raw_mode()?;
+        let result = self.read_line_raw_with_actions();
+        let _ = disable_raw_mode();
+
+        if let Ok((Some(ref text), _)) = result {
+            self.history.push(text.clone());
+        }
+        result
+    }
+
     fn read_line_raw(&mut self) -> io::Result<Option<String>> {
         let mut stdout = io::stdout();
         let mut input = InputBuffer::new();
@@ -244,6 +260,57 @@ impl LineEditor {
                     EditorAction::Cancel => {
                         writeln!(stdout)?;
                         return Ok(None);
+                    }
+                    EditorAction::ClearScreen => {
+                        let _ = queue!(stdout, Clear(ClearType::All), MoveToColumn(0));
+                        let _ = stdout.flush();
+                        self.redraw(&mut stdout, &input)?;
+                    }
+                    EditorAction::ToggleThinking
+                    | EditorAction::CycleEffort
+                    | EditorAction::QuickModel
+                    | EditorAction::SaveSession
+                    | EditorAction::RetryLast => {
+                        // These should be handled by the caller
+                        writeln!(stdout)?;
+                        return Ok(Some(input.as_str().to_owned()));
+                    }
+                }
+            }
+        }
+    }
+
+    fn read_line_raw_with_actions(&mut self) -> io::Result<(Option<String>, Option<EditorAction>)> {
+        let mut stdout = io::stdout();
+        let mut input = InputBuffer::new();
+        self.history.reset_cursor();
+        self.redraw(&mut stdout, &input)?;
+
+        loop {
+            let event = event::read()?;
+            if let Event::Key(key) = event {
+                match self.handle_key(key, &mut input) {
+                    EditorAction::Continue => self.redraw(&mut stdout, &input)?,
+                    EditorAction::Submit => {
+                        writeln!(stdout)?;
+                        return Ok((Some(input.as_str().to_owned()), None));
+                    }
+                    EditorAction::Cancel => {
+                        writeln!(stdout)?;
+                        return Ok((None, None));
+                    }
+                    EditorAction::ClearScreen => {
+                        let _ = queue!(stdout, Clear(ClearType::All), MoveToColumn(0));
+                        let _ = stdout.flush();
+                        self.redraw(&mut stdout, &input)?;
+                    }
+                    action @ (EditorAction::ToggleThinking
+                    | EditorAction::CycleEffort
+                    | EditorAction::QuickModel
+                    | EditorAction::SaveSession
+                    | EditorAction::RetryLast) => {
+                        writeln!(stdout)?;
+                        return Ok((Some(input.as_str().to_owned()), Some(action)));
                     }
                 }
             }
@@ -279,6 +346,36 @@ impl LineEditor {
                 modifiers,
                 ..
             } if modifiers.contains(KeyModifiers::CONTROL) => EditorAction::Cancel,
+            KeyEvent {
+                code: KeyCode::Char('l'),
+                modifiers,
+                ..
+            } if modifiers.contains(KeyModifiers::CONTROL) => EditorAction::ClearScreen,
+            KeyEvent {
+                code: KeyCode::Char('t'),
+                modifiers,
+                ..
+            } if modifiers.contains(KeyModifiers::CONTROL) => EditorAction::ToggleThinking,
+            KeyEvent {
+                code: KeyCode::Char('e'),
+                modifiers,
+                ..
+            } if modifiers.contains(KeyModifiers::CONTROL) => EditorAction::CycleEffort,
+            KeyEvent {
+                code: KeyCode::Char('m'),
+                modifiers,
+                ..
+            } if modifiers.contains(KeyModifiers::CONTROL) => EditorAction::QuickModel,
+            KeyEvent {
+                code: KeyCode::Char('s'),
+                modifiers,
+                ..
+            } if modifiers.contains(KeyModifiers::CONTROL) => EditorAction::SaveSession,
+            KeyEvent {
+                code: KeyCode::Char('r'),
+                modifiers,
+                ..
+            } if modifiers.contains(KeyModifiers::CONTROL) => EditorAction::RetryLast,
             KeyEvent {
                 code: KeyCode::Char('j'),
                 modifiers,
@@ -388,10 +485,16 @@ impl LineEditor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EditorAction {
+pub enum EditorAction {
     Continue,
     Submit,
     Cancel,
+    ClearScreen,
+    ToggleThinking,
+    CycleEffort,
+    QuickModel,
+    SaveSession,
+    RetryLast,
 }
 
 #[cfg(test)]

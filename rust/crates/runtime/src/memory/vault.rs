@@ -166,7 +166,7 @@ pub fn discover_vault() -> Option<PathBuf> {
         dirs::home_dir().map(|h| h.join("Obsidian Vault")),
         dirs::home_dir().map(|h| h.join("Documents/Obsidian")),
         dirs::home_dir().map(|h| h.join("Documents/Obsidian Vault")),
-        dirs::home_dir().map(|h| h.join(".claw-code/vault")),
+        dirs::home_dir().map(|h| h.join(".xolotl-code/vault")),
         std::env::current_dir().ok().map(|p| p.join(".obsidian")),
     ];
 

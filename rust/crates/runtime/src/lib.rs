@@ -20,7 +20,7 @@ mod usage;
 mod web_fetch;
 
 pub use memory::{MemoryConfig, MemorySearchResult, MemorySystem, ObsidianVault, SessionNote};
-pub use model_hints::ModelHints;
+pub use model_hints::{EffortLevel, ModelHints};
 pub use sdd::{Complexity, ComplexityDetector, InternalSpec, SddEngine, SddPhase, SddState};
 pub use tokenizer::estimate_tokens;
 
