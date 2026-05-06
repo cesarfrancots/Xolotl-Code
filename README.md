@@ -1,127 +1,150 @@
 # Xolotl Code
 
+Xolotl Code is a Rust-based, multi-provider coding agent harness for large codebases. It gives you one terminal workflow for model switching, tool use, planning, sub-agents, persistent sessions, memory, and provider setup across Claude, Kimi, MiniMax, GLM, Qwen, OpenAI-compatible APIs, and AWS Bedrock.
+
+The current focus is practical agentic coding: read the codebase, plan when needed, use tools safely, run tests, preserve context, and keep token usage under control for long-running work.
+
+## What It Does
+
+- Multi-provider model routing with friendly aliases such as `kimi-coding`, `minimax2.7`, `glm5.1`, `qwen3.6`, `sonnet`, and `opus`.
+- OpenAI-compatible provider support for Kimi Coding, Moonshot/Kimi, MiniMax, GLM, Qwen, OpenAI, and custom compatible endpoints.
+- Bedrock and Anthropic clients for Claude-family models.
+- Interactive REPL with slash commands, auto-save sessions, rollback, compaction, model switching, and provider setup.
+- Built-in tools for file operations, shell commands, web fetch/search, todo management, image reads, git inspection, and sub-agent tasks.
+- Model-aware behavior for large context windows, thinking budgets, aggressive read thresholds, prompt caching, and ultra-planning.
+- Prompt cache accounting for compatible streaming providers so cache hits are visible in usage and cost summaries.
+- Persistent memory hooks for session notes and project context.
+- Graphify support for local code knowledge graphs in `graphify-out/`.
+
+## Install
+
+```bash
+cd rust
+cargo install --path crates/rusty-claude-cli --force
 ```
-      ▓▓      ▓▓
-     ▓▓▓    ▓▓▓
-      ▓▓▓▓▓▓▓
-     ▓◉▓▓▓▓◉▓
-      ▓▓▓▓▓▓▓
-     ▓▓▓▓▓▓▓▓
-    ▓▓▓▓▓▓▓▓▓▓
-   ▓▓▓▓▓▓▓▓▓▓▓▓
-   ▓▓▓▓▓▓▓▓▓▓▓▓
-    ▓▓▓▓▓▓▓▓▓▓
-     ▓▓▓▓▓▓▓
-```
 
-**Xolotl** is a multi-provider AI coding agent harness. Talk to Claude, Kimi, MiniMax, GLM, Qwen, or OpenAI models from a single terminal interface with built-in tool use, session management, and REPL workflow.
-
-## Features
-
-- **Multi-Provider** — Switch between Anthropic (Claude), Kimi, MiniMax, GLM, Qwen, and OpenAI models mid-session
-- **Tool Use** — Built-in file operations, bash execution, web fetch, todo lists, and MCP server support
-- **Session Management** — Auto-save conversations, resume later, rollback turns
-- **Planning Mode** — `/plan` and `/ultra-plan` for multi-phase architectural planning
-- **Memory System** — Persistent vault for session notes and project context
-- **Dual Model** — Planner + executor pairs (e.g., Opus plans, Sonnet executes)
-- **Pixel Art Welcome** — Because every CLI deserves a mascot
+After install, `xolotl --version` should print the current CLI version.
 
 ## Quick Start
 
 ```bash
-# Install
- cargo install --path rust/crates/rusty-claude-cli
+# Interactive coding session
+xolotl
 
-# Start interactive REPL
- xolotl
-
-# Start with auto-accept (skip permission prompts)
- xolotl -y
+# Start with tool calls auto-approved
+xolotl -y
 
 # One-shot prompt
- xolotl prompt "refactor the auth module"
+xolotl prompt "inspect the runtime crate and summarize the agent loop"
 
-# Setup API keys
- xolotl setup
+# Configure API keys interactively
+xolotl setup
 ```
 
-## Supported Models
+Configuration is stored in `~/.xolotl-code/config.json`. Existing `~/.claw-code/config.json` files are migrated automatically when possible.
 
-| Alias | Provider | Context | Thinking |
-|-------|----------|---------|----------|
-| `sonnet` | AWS Bedrock | 200K | Yes |
-| `opus` | AWS Bedrock | 200K | Yes |
-| `kimi-coding` | Kimi | 256K | Yes (32K) |
-| `kimi2.6` | Moonshot | 256K | Yes |
-| `minimax2.7` | MiniMax | 1M | Yes |
-| `glm5.1` | Zhipu GLM | 128K | Yes |
-| `qwen3.6` | Alibaba Qwen | 128K | Yes |
+## Provider Setup
 
-```bash
-# Switch models mid-session
-› /model minimax2.7
+Inside the REPL, use `/connect <provider>`:
 
-# Dual model mode
-› /model opus+sonnet
+```text
+/connect kimi-coding
+/connect kimi
+/connect minimax
+/connect glm
+/connect qwen
+/connect anthropic
+/connect bedrock
+/connect openai
 ```
 
-## Configuration
+Supported environment variables:
 
-API keys are stored in `~/.xolotl-code/config.json` and loaded automatically:
+| Variable | Purpose |
+| --- | --- |
+| `KIMI_CODING_API_KEY` | Kimi K2.6 Coding endpoint |
+| `KIMI_API_KEY` | Moonshot/Kimi endpoint |
+| `MINIMAX_API_KEY` | MiniMax endpoint |
+| `GLM_API_KEY` | Zhipu GLM endpoint |
+| `DASHSCOPE_API_KEY` | Alibaba Qwen endpoint |
+| `ANTHROPIC_API_KEY` | Anthropic direct API |
+| `BEDROCK_API_KEY` | AWS Bedrock API key flow |
+| `OPENAI_API_KEY` | OpenAI or compatible fallback |
 
-```bash
-# Interactive setup
- xolotl setup
+Provider base URLs can be overridden with variables such as `KIMI_CODING_BASE_URL`, `MINIMAX_BASE_URL`, or `OPENAI_BASE_URL`.
 
-# Or set environment variables
- export ANTHROPIC_API_KEY="sk-..."
- export KIMI_CODING_API_KEY="..."
- export MINIMAX_API_KEY="..."
+## Model Aliases
+
+| Alias | Provider | Notes |
+| --- | --- | --- |
+| `kimi-coding` | Kimi Coding | Coding-optimized, 256K context, prompt cache enabled |
+| `kimi2.6` | Moonshot/Kimi | General Kimi route |
+| `minimax2.7` | MiniMax | 1M context for broad codebase reads |
+| `glm5.1` | Zhipu GLM | 128K context |
+| `qwen3.6` | Alibaba Qwen | Qwen compatible route |
+| `sonnet` | AWS Bedrock | Claude Sonnet alias |
+| `opus` | AWS Bedrock | Claude Opus alias |
+| `haiku` | AWS Bedrock | Fast Claude Haiku alias |
+
+Dual-model mode is supported with `planner+executor` syntax:
+
+```text
+/model opus+sonnet
+/model opus+kimi-coding
 ```
 
 ## REPL Commands
 
-```
-› /help              Show all commands
-› /plan <desc>       Create a multi-phase plan
-› /status            Show session status and cost
-› /save              Save session to disk
-› /load <file>       Load a saved session
-› /model <alias>     Switch model
-› /connect <provider> Configure a new provider
-› /compact           Compact session context
-› /clear             Clear screen
-› /exit              Quit
+```text
+/help                  Show commands
+/status                Show session, model, usage, memory, and SDD state
+/cost                  Show token and cache cost breakdown
+/model <alias>         Switch models
+/connect <provider>    Save provider API key
+/plan <description>    Generate a structured implementation plan
+/ultra-plan <desc>     Generate a deeper plan with risk and dependency tracking
+/compact               Compact session context
+/save                  Save the current session
+/load <session>        Load a saved session
+/rollback <n>          Roll back recent assistant turns
+/diff                  Show files touched during the session
+/memory                Show memory status
+/mcp                   Show connected MCP tools
+/accept-all            Toggle auto-approval for tool calls
+/doctor                Check local configuration
+/exit                  Quit
 ```
 
-## Keyboard Shortcuts
+Keyboard shortcuts:
 
 | Key | Action |
-|-----|--------|
-| `↑ / ↓` | Browse history |
-| `Shift+Enter` | Insert newline |
-| `Ctrl+T` | Toggle thinking display |
-| `Ctrl+E` | Cycle effort level |
-| `Ctrl+M` | Quick model switch |
-| `Ctrl+S` | Save session |
-| `Ctrl+R` | Retry last prompt |
-| `Ctrl+C` | Cancel input |
+| --- | --- |
+| Up / Down | Browse input history |
+| Shift+Enter | Insert newline |
+| Ctrl+T | Toggle thinking display |
+| Ctrl+E | Cycle effort level |
+| Ctrl+M | Quick model switch |
+| Ctrl+S | Save session |
+| Ctrl+R | Retry last prompt |
+| Ctrl+C | Cancel input |
 
-## Project Structure
+## Project Layout
 
-```
+```text
 .
-├── rust/                    # Rust implementation (primary)
-│   ├── crates/
-│   │   ├── rusty-claude-cli/   # CLI binary
-│   │   ├── runtime/            # Conversation, tools, session
-│   │   ├── api/                # Provider clients
-│   │   ├── commands/           # Slash command handlers
-│   │   └── tools/              # Tool implementations
-│   └── Cargo.toml
-├── src/                     # Python port (archived)
-├── tests/                   # Test suites
-└── graphify-out/            # Knowledge graph
+|-- rust/
+|   |-- Cargo.toml
+|   `-- crates/
+|       |-- api/                 # Anthropic API types/client/SSE support
+|       |-- commands/            # Slash command handling
+|       |-- compat-harness/      # Compatibility harness utilities
+|       |-- runtime/             # Conversation loop, prompts, memory, tools, SDD
+|       |-- rusty-claude-cli/    # xolotl binary
+|       `-- tools/               # Built-in tool specs and dispatch
+|-- graphify-out/                # Local knowledge graph output
+|-- assets/                      # Project images/assets
+|-- src/                         # Archived Python-era source
+`-- tests/                       # Legacy/compat test assets
 ```
 
 ## Development
@@ -129,21 +152,46 @@ API keys are stored in `~/.xolotl-code/config.json` and loaded automatically:
 ```bash
 cd rust
 
-# Build
 cargo build --workspace
-
-# Test
 cargo test --workspace --exclude compat-harness
-
-# Lint
-cargo clippy --workspace --all-features -- -D warnings
 cargo fmt --all -- --check
+cargo clippy --workspace --all-features --exclude compat-harness -- -D warnings
 ```
+
+After modifying code files, update the local graph:
+
+```bash
+graphify update .
+```
+
+## Verification Checklist
+
+Before pushing changes:
+
+```bash
+cd rust
+cargo fmt --all -- --check
+cargo test --workspace --exclude compat-harness
+cargo clippy --workspace --all-features --exclude compat-harness -- -D warnings
+cargo run -p rusty-claude-cli -- --version
+```
+
+For the installed command:
+
+```bash
+cargo install --path rust/crates/rusty-claude-cli --force
+xolotl --version
+```
+
+## Design Goals
+
+- Work well on large repositories without wasting context.
+- Prefer cache-friendly prompts and accurate token accounting.
+- Make open-source and OpenAI-compatible coding models first-class.
+- Keep agentic tool loops reliable, testable, and recoverable.
+- Preserve project instructions without leaking unrelated global context into tests.
+- Make it easy to commit only after the CLI is green.
 
 ## License
 
 MIT
-
----
-
-*Named after the axolotl — the eternally youthful salamander that regenerates. May your code do the same.*

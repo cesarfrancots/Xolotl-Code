@@ -667,17 +667,49 @@ fn parse_resume_args(args: &[String]) -> Result<CliAction, String> {
 fn dump_manifests() {
     let workspace_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let paths = UpstreamPaths::from_workspace_dir(&workspace_dir);
-    match extract_manifest(&paths) {
-        Ok(manifest) => {
-            println!("commands: {}", manifest.commands.entries().len());
-            println!("tools: {}", manifest.tools.entries().len());
-            println!("bootstrap phases: {}", manifest.bootstrap.phases().len());
-        }
-        Err(error) => {
-            eprintln!("failed to extract manifests: {error}");
-            std::process::exit(1);
-        }
+    if let Ok(manifest) = extract_manifest(&paths) {
+        println!("commands: {}", manifest.commands.entries().len());
+        println!("tools: {}", manifest.tools.entries().len());
+        println!("bootstrap phases: {}", manifest.bootstrap.phases().len());
+    } else {
+        let (commands, tools, phases) = local_manifest_counts();
+        println!("commands: {commands}");
+        println!("tools: {tools}");
+        println!("bootstrap phases: {phases}");
+        println!("source: local rust harness");
     }
+}
+
+fn local_manifest_counts() -> (usize, usize, usize) {
+    let commands = [
+        "/accept-all",
+        "/budget",
+        "/clear",
+        "/compact",
+        "/connect",
+        "/cost",
+        "/diff",
+        "/doctor",
+        "/exit",
+        "/help",
+        "/init",
+        "/load",
+        "/mcp",
+        "/memory",
+        "/model",
+        "/permissions",
+        "/plan",
+        "/rollback",
+        "/save",
+        "/sessions",
+        "/status",
+        "/ultra-plan",
+    ];
+    (
+        commands.len(),
+        mvp_tool_specs().len(),
+        runtime::BootstrapPlan::claude_code_default().phases().len(),
+    )
 }
 
 fn print_bootstrap_plan() {
@@ -4098,7 +4130,7 @@ fn run_subagent(
 
 #[cfg(test)]
 mod tests {
-    use super::{default_model, parse_args, CliAction};
+    use super::{default_model, local_manifest_counts, parse_args, CliAction};
     use runtime::{ContentBlock, ConversationMessage, MessageRole};
     use std::path::PathBuf;
 
@@ -4123,6 +4155,14 @@ mod tests {
                 auto_accept: true,
             }
         );
+    }
+
+    #[test]
+    fn local_manifest_counts_are_non_empty() {
+        let (commands, tools, phases) = local_manifest_counts();
+        assert!(commands > 0);
+        assert!(tools > 0);
+        assert!(phases > 0);
     }
 
     #[test]
