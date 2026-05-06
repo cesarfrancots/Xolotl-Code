@@ -3860,6 +3860,49 @@ struct OpenAiRuntimeClient {
     model_hints: Option<runtime::ModelHints>,
 }
 
+#[derive(Debug, Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct OpenAiProviderFlags {
+    is_kimi: bool,
+    is_kimi_coding: bool,
+    is_minimax: bool,
+    is_glm: bool,
+    is_qwen: bool,
+}
+
+fn provider_flags_for_openai_runtime(
+    model_spec: &str,
+    config: &openai::ProviderConfig,
+) -> OpenAiProviderFlags {
+    let model_lower = model_spec.to_lowercase();
+    let base_url_lower = config.base_url.to_lowercase();
+    let kind = config.kind;
+
+    let is_kimi = matches!(kind, openai::ProviderKind::Kimi)
+        || model_lower.contains("kimi")
+        || model_lower.contains("moonshot");
+    let is_minimax =
+        matches!(kind, openai::ProviderKind::MiniMax) || model_lower.contains("minimax");
+    let is_glm = matches!(kind, openai::ProviderKind::Glm)
+        || model_lower.contains("glm")
+        || model_lower.contains("zhipu");
+    let is_qwen = matches!(kind, openai::ProviderKind::Qwen)
+        || model_lower.contains("qwen")
+        || model_lower.contains("dashscope");
+    let is_kimi_coding = is_kimi
+        && (model_lower.contains("kimi-coding")
+            || base_url_lower.contains("/coding/")
+            || base_url_lower.contains("api.kimi.com/coding"));
+
+    OpenAiProviderFlags {
+        is_kimi,
+        is_kimi_coding,
+        is_minimax,
+        is_glm,
+        is_qwen,
+    }
+}
+
 impl OpenAiRuntimeClient {
     fn new(
         model_spec: String,
@@ -3871,12 +3914,7 @@ impl OpenAiRuntimeClient {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config =
             openai::resolve_provider(&model_spec).map_err(Box::<dyn std::error::Error>::from)?;
-        let model_lower = model_spec.to_lowercase();
-        let is_kimi = model_lower.contains("kimi") || model_lower.contains("moonshot");
-        let is_kimi_coding = model_lower.contains("kimi-coding");
-        let is_minimax = model_lower.contains("minimax");
-        let is_glm = model_lower.contains("glm") || model_lower.contains("zhipu");
-        let is_qwen = model_lower.contains("qwen") || model_lower.contains("dashscope");
+        let flags = provider_flags_for_openai_runtime(&model_spec, &config);
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             http: reqwest::Client::new(),
@@ -3885,11 +3923,11 @@ impl OpenAiRuntimeClient {
             max_tokens,
             enable_tools,
             cache_key,
-            is_kimi,
-            is_kimi_coding,
-            is_minimax,
-            is_glm,
-            is_qwen,
+            is_kimi: flags.is_kimi,
+            is_kimi_coding: flags.is_kimi_coding,
+            is_minimax: flags.is_minimax,
+            is_glm: flags.is_glm,
+            is_qwen: flags.is_qwen,
             model_hints,
         })
     }
@@ -4331,5 +4369,31 @@ mod tests {
     fn prompt_cache_key_is_scope_and_model_scoped() {
         let key = super::build_prompt_cache_key("kimi-coding/kimi-for-coding", "pid7-123456");
         assert_eq!(key, "xolotl-pid7-123456-kimi-coding-kimi-for-coding");
+    }
+
+    #[test]
+    fn provider_flags_use_resolved_kind_for_minimax_plain_model() {
+        let config = super::openai::ProviderConfig {
+            base_url: "https://api.minimax.chat/v1".to_string(),
+            api_key: "test-key".to_string(),
+            model: "MiniMax-Text-01".to_string(),
+            kind: super::openai::ProviderKind::MiniMax,
+        };
+        let flags = super::provider_flags_for_openai_runtime("MiniMax-Text-01", &config);
+        assert!(flags.is_minimax);
+        assert!(!flags.is_kimi);
+    }
+
+    #[test]
+    fn provider_flags_detect_kimi_coding_from_endpoint_without_prefix() {
+        let config = super::openai::ProviderConfig {
+            base_url: "https://api.kimi.com/coding/v1".to_string(),
+            api_key: "test-key".to_string(),
+            model: "kimi-for-coding".to_string(),
+            kind: super::openai::ProviderKind::Kimi,
+        };
+        let flags = super::provider_flags_for_openai_runtime("kimi-for-coding", &config);
+        assert!(flags.is_kimi);
+        assert!(flags.is_kimi_coding);
     }
 }
