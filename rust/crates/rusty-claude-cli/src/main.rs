@@ -2931,6 +2931,7 @@ fn build_single_client(
     tool_specs: Vec<DynamicToolSpec>,
     enable_tools: bool,
     hints: &runtime::ModelHints,
+    cache_scope: &str,
 ) -> Result<AnyApiClient, Box<dyn std::error::Error>> {
     if bedrock::is_bedrock_model(model) {
         Ok(AnyApiClient::Bedrock(bedrock::BedrockRuntimeClient::new(
@@ -2949,8 +2950,7 @@ fn build_single_client(
         )?))
     } else {
         let cache_key = if hints.supports_prompt_cache {
-            // Stable per-model cache key. In production this should be session-scoped.
-            Some(format!("xolotl-{}", model.replace(['/', ' ', ':'], "-")))
+            Some(build_prompt_cache_key(model, cache_scope))
         } else {
             None
         };
@@ -2965,6 +2965,21 @@ fn build_single_client(
     }
 }
 
+fn build_prompt_cache_scope() -> String {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    format!("pid{}-{millis}", std::process::id())
+}
+
+fn build_prompt_cache_key(model: &str, scope: &str) -> String {
+    format!(
+        "xolotl-{scope}-{}",
+        model.replace(['/', ' ', ':'], "-").to_lowercase()
+    )
+}
+
 fn build_runtime(
     session: Session,
     model: String,
@@ -2973,6 +2988,7 @@ fn build_runtime(
     enable_tools: bool,
 ) -> Result<ConversationRuntime<AnyApiClient, CliToolExecutor>, Box<dyn std::error::Error>> {
     let model = expand_model_spec(&model);
+    let cache_scope = build_prompt_cache_scope();
 
     // Build the combined tool spec list (builtin + MCP) to send to the model
     let tool_executor = CliToolExecutor::new(
@@ -2999,16 +3015,18 @@ fn build_runtime(
                 tool_specs.clone(),
                 enable_tools,
                 &planner_hints,
+                &cache_scope,
             )?),
             executor: Box::new(build_single_client(
                 executor_spec,
                 tool_specs,
                 enable_tools,
                 &executor_hints,
+                &cache_scope,
             )?),
         }
     } else {
-        build_single_client(&model, tool_specs, enable_tools, &hints)?
+        build_single_client(&model, tool_specs, enable_tools, &hints, &cache_scope)?
     };
 
     Ok(ConversationRuntime::new(
@@ -3035,6 +3053,7 @@ fn build_subagent_runtime(
     system_prompt: Vec<String>,
     mcp: Arc<Mutex<McpManager>>,
 ) -> Result<ConversationRuntime<AnyApiClient, CliToolExecutor>, Box<dyn std::error::Error>> {
+    let cache_scope = build_prompt_cache_scope();
     let tool_executor =
         CliToolExecutor::new(Arc::clone(&mcp), model.clone(), true, system_prompt.clone());
     let mut tool_specs = tool_executor.all_tool_specs();
@@ -3052,16 +3071,18 @@ fn build_subagent_runtime(
                 tool_specs.clone(),
                 true,
                 &planner_hints,
+                &cache_scope,
             )?),
             executor: Box::new(build_single_client(
                 executor_spec,
                 tool_specs,
                 true,
                 &executor_hints,
+                &cache_scope,
             )?),
         }
     } else {
-        build_single_client(&model, tool_specs, true, &hints)?
+        build_single_client(&model, tool_specs, true, &hints, &cache_scope)?
     };
 
     Ok(ConversationRuntime::new(
@@ -4276,5 +4297,11 @@ mod tests {
             super::expand_model_spec("opus+sonnet"),
             "bedrock/us.anthropic.claude-opus-4-6-v1+bedrock/us.anthropic.claude-sonnet-4-6"
         );
+    }
+
+    #[test]
+    fn prompt_cache_key_is_scope_and_model_scoped() {
+        let key = super::build_prompt_cache_key("kimi-coding/kimi-for-coding", "pid7-123456");
+        assert_eq!(key, "xolotl-pid7-123456-kimi-coding-kimi-for-coding");
     }
 }
