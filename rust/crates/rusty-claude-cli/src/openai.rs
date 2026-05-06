@@ -19,6 +19,58 @@ pub struct ProviderConfig {
     pub base_url: String,
     pub api_key: String,
     pub model: String,
+    pub kind: ProviderKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderKind {
+    Kimi,
+    MiniMax,
+    Glm,
+    Qwen,
+    OpenAi,
+    Generic,
+}
+
+impl ProviderKind {
+    fn from_prefix(prefix: &str) -> Self {
+        match prefix {
+            "kimi-coding" | "kimi" | "moonshot" => Self::Kimi,
+            "minimax" => Self::MiniMax,
+            "glm" | "zhipu" => Self::Glm,
+            "qwen" => Self::Qwen,
+            "openai" | "" => Self::OpenAi,
+            _ => Self::Generic,
+        }
+    }
+
+    fn detect_from_base_url(base_url: &str) -> Self {
+        let url_lower = base_url.to_lowercase();
+        if url_lower.contains("minimax") {
+            Self::MiniMax
+        } else if url_lower.contains("moonshot") || url_lower.contains("kimi") {
+            Self::Kimi
+        } else if url_lower.contains("bigmodel") || url_lower.contains("zhipu") {
+            Self::Glm
+        } else if url_lower.contains("dashscope") || url_lower.contains("qwen") {
+            Self::Qwen
+        } else if url_lower.contains("openai") {
+            Self::OpenAi
+        } else {
+            Self::Generic
+        }
+    }
+
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::MiniMax => "MiniMax",
+            Self::Kimi => "Kimi",
+            Self::Glm => "GLM",
+            Self::Qwen => "Qwen",
+            Self::OpenAi => "OpenAI",
+            Self::Generic => "Provider",
+        }
+    }
 }
 
 /// Resolve provider base URL, API key env var, and actual model name from a
@@ -69,10 +121,20 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
             format!("Missing API key for model '{model_spec}'. Set {key_var} (or OPENAI_API_KEY).")
         })?;
 
+    let kind = {
+        let prefix_kind = ProviderKind::from_prefix(prefix);
+        if prefix_kind == ProviderKind::Generic {
+            ProviderKind::detect_from_base_url(&base_url)
+        } else {
+            prefix_kind
+        }
+    };
+
     Ok(ProviderConfig {
         base_url,
         api_key,
         model: model.to_string(),
+        kind,
     })
 }
 
@@ -456,12 +518,12 @@ pub async fn stream_completion(
         .header("Content-Type", "application/json");
 
     // Add provider-specific headers for better compatibility
-    let provider_name = detect_provider_name(&config.base_url);
-    match provider_name {
-        "MiniMax" | "GLM" | "Qwen" => {
+    let provider_name = config.kind.display_name();
+    match config.kind {
+        ProviderKind::MiniMax | ProviderKind::Glm | ProviderKind::Qwen => {
             request_builder = request_builder.header("Accept", "application/json");
         }
-        "Kimi" => {
+        ProviderKind::Kimi => {
             // Kimi Coding endpoint requires identification as an approved coding agent.
             // We mimic the headers that Claude Code and other approved agents send.
             request_builder = request_builder
@@ -471,7 +533,7 @@ pub async fn stream_completion(
                 .header("X-Client-Version", "1.0.0")
                 .header("X-Source", "claude-code");
         }
-        _ => {}
+        ProviderKind::OpenAi | ProviderKind::Generic => {}
     }
 
     let resp = request_builder
@@ -489,24 +551,6 @@ pub async fn stream_completion(
     }
 
     stream_sse_response(resp).await
-}
-
-/// Detect provider name from base URL for better error messages.
-fn detect_provider_name(base_url: &str) -> &'static str {
-    let url_lower = base_url.to_lowercase();
-    if url_lower.contains("minimax") {
-        "MiniMax"
-    } else if url_lower.contains("moonshot") || url_lower.contains("kimi") {
-        "Kimi"
-    } else if url_lower.contains("bigmodel") || url_lower.contains("zhipu") {
-        "GLM"
-    } else if url_lower.contains("dashscope") || url_lower.contains("qwen") {
-        "Qwen"
-    } else if url_lower.contains("openai") {
-        "OpenAI"
-    } else {
-        "Provider"
-    }
 }
 
 /// Read the SSE response chunk-by-chunk, printing text deltas immediately.
@@ -694,6 +738,7 @@ mod tests {
         let config = resolve_provider("kimi-coding/kimi-for-coding").unwrap();
         assert_eq!(config.base_url, "https://api.kimi.com/coding/v1");
         assert_eq!(config.model, "kimi-for-coding");
+        assert_eq!(config.kind, ProviderKind::Kimi);
     }
 
     #[test]
@@ -703,6 +748,7 @@ mod tests {
         let config = resolve_provider("kimi/moonshot-v1-32k").unwrap();
         assert_eq!(config.base_url, "https://api.moonshot.cn/v1");
         assert_eq!(config.model, "moonshot-v1-32k");
+        assert_eq!(config.kind, ProviderKind::Kimi);
     }
 
     #[test]
@@ -712,6 +758,7 @@ mod tests {
         let config = resolve_provider("minimax/MiniMax-Text-01").unwrap();
         assert_eq!(config.base_url, "https://api.minimax.chat/v1");
         assert_eq!(config.model, "MiniMax-Text-01");
+        assert_eq!(config.kind, ProviderKind::MiniMax);
     }
 
     #[test]
@@ -721,6 +768,7 @@ mod tests {
         let config = resolve_provider("glm/glm-5.1").unwrap();
         assert_eq!(config.base_url, "https://open.bigmodel.cn/api/paas/v4");
         assert_eq!(config.model, "glm-5.1");
+        assert_eq!(config.kind, ProviderKind::Glm);
     }
 
     #[test]
@@ -731,7 +779,19 @@ mod tests {
         let config = resolve_provider("kimi-coding/kimi-for-coding").unwrap();
         assert_eq!(config.base_url, "https://custom.kimi.com/v1");
         assert_eq!(config.model, "kimi-for-coding");
+        assert_eq!(config.kind, ProviderKind::Kimi);
         // clean up so it doesn't affect other tests
+        std::env::remove_var("KIMI_CODING_BASE_URL");
+    }
+
+    #[test]
+    fn keeps_provider_kind_when_override_host_is_generic() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("KIMI_CODING_API_KEY", "test-key");
+        std::env::set_var("KIMI_CODING_BASE_URL", "https://gateway.internal/v1");
+        let config = resolve_provider("kimi-coding/kimi-for-coding").unwrap();
+        assert_eq!(config.base_url, "https://gateway.internal/v1");
+        assert_eq!(config.kind, ProviderKind::Kimi);
         std::env::remove_var("KIMI_CODING_BASE_URL");
     }
 
