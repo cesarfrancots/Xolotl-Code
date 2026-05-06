@@ -332,25 +332,28 @@ impl Default for ComplexityDetector {
 pub struct ModelAwareComplexityDetector {
     base_detector: ComplexityDetector,
     hints: ModelHints,
+    is_planning_mode: bool,
 }
 
 #[allow(dead_code)]
 impl ModelAwareComplexityDetector {
     #[must_use]
     pub fn new(hints: ModelHints) -> Self {
-        let threshold = hints.aggressive_read_threshold;
+        let threshold = hints.aggressive_read_threshold_for_mode(false);
         Self {
             base_detector: ComplexityDetector::new().with_aggressive_threshold(threshold),
             hints,
+            is_planning_mode: false,
         }
     }
 
     #[must_use]
     pub fn for_planning(hints: ModelHints) -> Self {
-        let threshold = hints.plan_aggressive_read_threshold;
+        let threshold = hints.aggressive_read_threshold_for_mode(true);
         Self {
             base_detector: ComplexityDetector::new().with_aggressive_threshold(threshold),
             hints,
+            is_planning_mode: true,
         }
     }
 
@@ -424,7 +427,9 @@ impl ModelAwareComplexityDetector {
     /// Get the recommended number of files to read before implementing.
     #[must_use]
     pub fn recommended_read_count(&self, detected_files: &[PathBuf]) -> usize {
-        let max_read = self.hints.aggressive_read_threshold_for_mode(false);
+        let max_read = self
+            .hints
+            .aggressive_read_threshold_for_mode(self.is_planning_mode);
         detected_files.len().min(max_read)
     }
 
@@ -567,7 +572,16 @@ mod tests {
         let detector = ModelAwareComplexityDetector::new(hints.clone());
         let files = vec![PathBuf::from("a.rs"); 20];
         let count = detector.recommended_read_count(&files);
-        assert_eq!(count, hints.aggressive_read_threshold);
+        assert_eq!(count, hints.aggressive_read_threshold_for_mode(false));
+    }
+
+    #[test]
+    fn test_recommended_read_count_for_planning_mode() {
+        let hints = ModelHints::for_model("kimi-coding/k2.6");
+        let detector = ModelAwareComplexityDetector::for_planning(hints.clone());
+        let files = vec![PathBuf::from("a.rs"); 20];
+        let count = detector.recommended_read_count(&files);
+        assert_eq!(count, hints.aggressive_read_threshold_for_mode(true));
     }
 
     #[test]

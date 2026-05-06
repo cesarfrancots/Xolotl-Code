@@ -491,7 +491,7 @@ fn get_model_capabilities_section(hints: &ModelHints) -> String {
     if hints.should_use_thinking() {
         lines.push(format!(
             "- Thinking budget: {} tokens (use for complex reasoning before acting)",
-            hints.thinking_budget
+            hints.thinking_budget_for_mode(false)
         ));
     }
 
@@ -499,7 +499,7 @@ fn get_model_capabilities_section(hints: &ModelHints) -> String {
     if hints.aggressive_read {
         lines.push(format!(
             "- Aggressive reading: Read up to {} files before implementing to ensure full understanding",
-            hints.aggressive_read_threshold
+            hints.aggressive_read_threshold_for_mode(false)
         ));
     }
 

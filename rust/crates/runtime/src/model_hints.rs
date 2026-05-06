@@ -135,8 +135,7 @@ impl ModelHints {
         clippy::cast_precision_loss
     )]
     pub fn effective_read_threshold(&self) -> usize {
-        (self.aggressive_read_threshold as f32 * self.effort_level.read_threshold_multiplier())
-            as usize
+        self.aggressive_read_threshold_for_mode(false)
     }
 
     /// Returns the effective max iterations adjusted for effort level.
@@ -532,12 +531,19 @@ impl ModelHints {
 
     /// Returns the appropriate aggressive read threshold based on whether we're in plan mode.
     #[must_use]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     pub fn aggressive_read_threshold_for_mode(&self, is_planning: bool) -> usize {
-        if is_planning {
+        let base = if is_planning {
             self.plan_aggressive_read_threshold
         } else {
             self.aggressive_read_threshold
-        }
+        };
+        let scaled = (base as f32 * self.effort_level.read_threshold_multiplier()) as usize;
+        scaled.max(1)
     }
 
     /// Returns the appropriate system prompt addition based on whether we're in plan mode.
@@ -717,6 +723,21 @@ mod tests {
         let glm = ModelHints::for_model("glm5.1");
         assert_eq!(glm.aggressive_read_threshold_for_mode(false), 5);
         assert_eq!(glm.aggressive_read_threshold_for_mode(true), 6);
+    }
+
+    #[test]
+    fn test_aggressive_read_threshold_for_mode_with_effort() {
+        let mut hints = ModelHints::for_model("minimax2.7");
+        assert_eq!(hints.aggressive_read_threshold_for_mode(false), 10);
+        assert_eq!(hints.aggressive_read_threshold_for_mode(true), 15);
+
+        hints.effort_level = EffortLevel::High;
+        assert_eq!(hints.aggressive_read_threshold_for_mode(false), 7);
+        assert_eq!(hints.aggressive_read_threshold_for_mode(true), 11);
+
+        hints.effort_level = EffortLevel::Minimal;
+        assert_eq!(hints.aggressive_read_threshold_for_mode(false), 20);
+        assert_eq!(hints.aggressive_read_threshold_for_mode(true), 30);
     }
 
     #[test]
