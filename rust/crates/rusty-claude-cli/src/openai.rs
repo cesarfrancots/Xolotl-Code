@@ -1,6 +1,6 @@
 /// OpenAI-compatible API client for Kimi, `MiniMax`, GLM, `OpenAI`, and any
 /// provider that implements the `/v1/chat/completions` + SSE streaming interface.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 
 use reqwest::Client;
@@ -73,6 +73,24 @@ impl ProviderKind {
     }
 }
 
+fn inferred_api_key_candidates(kind: ProviderKind, base_url: &str) -> Vec<&'static str> {
+    match kind {
+        ProviderKind::Kimi => {
+            let url_lower = base_url.to_lowercase();
+            if url_lower.contains("/coding") || url_lower.contains("kimi.com/coding") {
+                vec!["KIMI_CODING_API_KEY", "KIMI_API_KEY"]
+            } else {
+                vec!["KIMI_API_KEY", "KIMI_CODING_API_KEY"]
+            }
+        }
+        ProviderKind::MiniMax => vec!["MINIMAX_API_KEY"],
+        ProviderKind::Glm => vec!["GLM_API_KEY"],
+        ProviderKind::Qwen => vec!["DASHSCOPE_API_KEY"],
+        ProviderKind::OpenAi => vec!["OPENAI_API_KEY"],
+        ProviderKind::Generic => Vec::new(),
+    }
+}
+
 /// Resolve provider base URL, API key env var, and actual model name from a
 /// model spec like `"kimi/moonshot-v1-32k"` or plain `"moonshot-v1-32k"`.
 pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
@@ -115,12 +133,6 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
             })
     };
 
-    let api_key = std::env::var(key_var)
-        .or_else(|_| std::env::var("OPENAI_API_KEY"))
-        .map_err(|_| {
-            format!("Missing API key for model '{model_spec}'. Set {key_var} (or OPENAI_API_KEY).")
-        })?;
-
     let kind = {
         let prefix_kind = ProviderKind::from_prefix(prefix);
         if prefix_kind == ProviderKind::Generic {
@@ -129,6 +141,30 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
             prefix_kind
         }
     };
+
+    let mut key_candidates: Vec<&str> = if prefix.is_empty() {
+        let mut candidates = inferred_api_key_candidates(kind, &base_url);
+        candidates.push("OPENAI_API_KEY");
+        candidates
+    } else {
+        let mut candidates = vec![key_var];
+        if key_var != "OPENAI_API_KEY" {
+            candidates.push("OPENAI_API_KEY");
+        }
+        candidates
+    };
+    let mut seen = HashSet::new();
+    key_candidates.retain(|var| seen.insert(*var));
+
+    let api_key = key_candidates
+        .iter()
+        .find_map(|var| std::env::var(var).ok())
+        .ok_or_else(|| {
+            format!(
+                "Missing API key for model '{model_spec}'. Set one of: {}.",
+                key_candidates.join(", ")
+            )
+        })?;
 
     Ok(ProviderConfig {
         base_url,
@@ -798,23 +834,29 @@ mod tests {
     #[test]
     fn infers_provider_kind_from_openai_base_url_without_prefix() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::set_var("OPENAI_API_KEY", "test-key");
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::set_var("MINIMAX_API_KEY", "test-minimax-key");
         std::env::set_var("OPENAI_BASE_URL", "https://api.minimax.chat/v1");
         let config = resolve_provider("abab6.5s-chat").unwrap();
         assert_eq!(config.base_url, "https://api.minimax.chat/v1");
         assert_eq!(config.kind, ProviderKind::MiniMax);
+        assert_eq!(config.api_key, "test-minimax-key");
         std::env::remove_var("OPENAI_BASE_URL");
+        std::env::remove_var("MINIMAX_API_KEY");
     }
 
     #[test]
     fn infers_kimi_kind_from_openai_base_url_without_prefix() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::set_var("OPENAI_API_KEY", "test-key");
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::set_var("KIMI_CODING_API_KEY", "test-kimi-coding-key");
         std::env::set_var("OPENAI_BASE_URL", "https://api.kimi.com/coding/v1");
         let config = resolve_provider("kimi-for-coding").unwrap();
         assert_eq!(config.base_url, "https://api.kimi.com/coding/v1");
         assert_eq!(config.kind, ProviderKind::Kimi);
+        assert_eq!(config.api_key, "test-kimi-coding-key");
         std::env::remove_var("OPENAI_BASE_URL");
+        std::env::remove_var("KIMI_CODING_API_KEY");
     }
 
     #[test]
