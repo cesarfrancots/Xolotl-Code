@@ -39,7 +39,7 @@ impl ProviderKind {
             "minimax" => Self::MiniMax,
             "glm" | "zhipu" => Self::Glm,
             "qwen" => Self::Qwen,
-            "openai" | "" => Self::OpenAi,
+            "openai" => Self::OpenAi,
             _ => Self::Generic,
         }
     }
@@ -793,6 +793,28 @@ mod tests {
         assert_eq!(config.base_url, "https://gateway.internal/v1");
         assert_eq!(config.kind, ProviderKind::Kimi);
         std::env::remove_var("KIMI_CODING_BASE_URL");
+    }
+
+    #[test]
+    fn infers_provider_kind_from_openai_base_url_without_prefix() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("OPENAI_API_KEY", "test-key");
+        std::env::set_var("OPENAI_BASE_URL", "https://api.minimax.chat/v1");
+        let config = resolve_provider("abab6.5s-chat").unwrap();
+        assert_eq!(config.base_url, "https://api.minimax.chat/v1");
+        assert_eq!(config.kind, ProviderKind::MiniMax);
+        std::env::remove_var("OPENAI_BASE_URL");
+    }
+
+    #[test]
+    fn infers_kimi_kind_from_openai_base_url_without_prefix() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("OPENAI_API_KEY", "test-key");
+        std::env::set_var("OPENAI_BASE_URL", "https://api.kimi.com/coding/v1");
+        let config = resolve_provider("kimi-for-coding").unwrap();
+        assert_eq!(config.base_url, "https://api.kimi.com/coding/v1");
+        assert_eq!(config.kind, ProviderKind::Kimi);
+        std::env::remove_var("OPENAI_BASE_URL");
     }
 
     #[test]
