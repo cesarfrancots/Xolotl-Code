@@ -91,6 +91,17 @@ fn inferred_api_key_candidates(kind: ProviderKind, base_url: &str) -> Vec<&'stat
     }
 }
 
+fn generic_openai_compatible_key_candidates() -> Vec<&'static str> {
+    vec![
+        "OPENAI_API_KEY",
+        "KIMI_CODING_API_KEY",
+        "KIMI_API_KEY",
+        "MINIMAX_API_KEY",
+        "GLM_API_KEY",
+        "DASHSCOPE_API_KEY",
+    ]
+}
+
 /// Resolve provider base URL, API key env var, and actual model name from a
 /// model spec like `"kimi/moonshot-v1-32k"` or plain `"moonshot-v1-32k"`.
 pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
@@ -144,7 +155,11 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
 
     let mut key_candidates: Vec<&str> = if prefix.is_empty() {
         let mut candidates = inferred_api_key_candidates(kind, &base_url);
-        candidates.push("OPENAI_API_KEY");
+        if matches!(kind, ProviderKind::Generic) {
+            candidates.extend(generic_openai_compatible_key_candidates());
+        } else {
+            candidates.push("OPENAI_API_KEY");
+        }
         candidates
     } else {
         let mut candidates = vec![key_var];
@@ -766,9 +781,25 @@ mod tests {
     // Tests that modify environment variables must run serially
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
+    fn clear_provider_env() {
+        for var in [
+            "OPENAI_BASE_URL",
+            "OPENAI_API_KEY",
+            "KIMI_CODING_API_KEY",
+            "KIMI_API_KEY",
+            "MINIMAX_API_KEY",
+            "GLM_API_KEY",
+            "DASHSCOPE_API_KEY",
+            "KIMI_CODING_BASE_URL",
+        ] {
+            std::env::remove_var(var);
+        }
+    }
+
     #[test]
     fn resolves_kimi_coding_provider() {
         let _guard = ENV_MUTEX.lock().unwrap();
+        clear_provider_env();
         // Temporarily set a dummy API key for testing
         std::env::set_var("KIMI_CODING_API_KEY", "test-key");
         let config = resolve_provider("kimi-coding/kimi-for-coding").unwrap();
@@ -780,6 +811,7 @@ mod tests {
     #[test]
     fn resolves_standard_kimi_provider() {
         let _guard = ENV_MUTEX.lock().unwrap();
+        clear_provider_env();
         std::env::set_var("KIMI_API_KEY", "test-key");
         let config = resolve_provider("kimi/moonshot-v1-32k").unwrap();
         assert_eq!(config.base_url, "https://api.moonshot.cn/v1");
@@ -790,6 +822,7 @@ mod tests {
     #[test]
     fn resolves_minimax_provider() {
         let _guard = ENV_MUTEX.lock().unwrap();
+        clear_provider_env();
         std::env::set_var("MINIMAX_API_KEY", "test-key");
         let config = resolve_provider("minimax/MiniMax-Text-01").unwrap();
         assert_eq!(config.base_url, "https://api.minimax.chat/v1");
@@ -800,6 +833,7 @@ mod tests {
     #[test]
     fn resolves_glm_provider() {
         let _guard = ENV_MUTEX.lock().unwrap();
+        clear_provider_env();
         std::env::set_var("GLM_API_KEY", "test-key");
         let config = resolve_provider("glm/glm-5.1").unwrap();
         assert_eq!(config.base_url, "https://open.bigmodel.cn/api/paas/v4");
@@ -810,6 +844,7 @@ mod tests {
     #[test]
     fn respects_provider_base_url_override() {
         let _guard = ENV_MUTEX.lock().unwrap();
+        clear_provider_env();
         std::env::set_var("KIMI_CODING_API_KEY", "test-key");
         std::env::set_var("KIMI_CODING_BASE_URL", "https://custom.kimi.com/v1");
         let config = resolve_provider("kimi-coding/kimi-for-coding").unwrap();
@@ -823,6 +858,7 @@ mod tests {
     #[test]
     fn keeps_provider_kind_when_override_host_is_generic() {
         let _guard = ENV_MUTEX.lock().unwrap();
+        clear_provider_env();
         std::env::set_var("KIMI_CODING_API_KEY", "test-key");
         std::env::set_var("KIMI_CODING_BASE_URL", "https://gateway.internal/v1");
         let config = resolve_provider("kimi-coding/kimi-for-coding").unwrap();
@@ -834,7 +870,7 @@ mod tests {
     #[test]
     fn infers_provider_kind_from_openai_base_url_without_prefix() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::remove_var("OPENAI_API_KEY");
+        clear_provider_env();
         std::env::set_var("MINIMAX_API_KEY", "test-minimax-key");
         std::env::set_var("OPENAI_BASE_URL", "https://api.minimax.chat/v1");
         let config = resolve_provider("abab6.5s-chat").unwrap();
@@ -848,7 +884,7 @@ mod tests {
     #[test]
     fn infers_kimi_kind_from_openai_base_url_without_prefix() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::remove_var("OPENAI_API_KEY");
+        clear_provider_env();
         std::env::set_var("KIMI_CODING_API_KEY", "test-kimi-coding-key");
         std::env::set_var("OPENAI_BASE_URL", "https://api.kimi.com/coding/v1");
         let config = resolve_provider("kimi-for-coding").unwrap();
@@ -860,9 +896,37 @@ mod tests {
     }
 
     #[test]
+    fn falls_back_to_provider_keys_for_generic_openai_base_url() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        clear_provider_env();
+        std::env::set_var("MINIMAX_API_KEY", "test-minimax-key");
+        std::env::set_var("OPENAI_BASE_URL", "https://gateway.internal/v1");
+        let config = resolve_provider("abab6.5s-chat").unwrap();
+        assert_eq!(config.base_url, "https://gateway.internal/v1");
+        assert_eq!(config.kind, ProviderKind::Generic);
+        assert_eq!(config.api_key, "test-minimax-key");
+        std::env::remove_var("OPENAI_BASE_URL");
+        std::env::remove_var("MINIMAX_API_KEY");
+    }
+
+    #[test]
+    fn prefers_openai_key_for_generic_openai_base_url_when_available() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        clear_provider_env();
+        std::env::set_var("OPENAI_API_KEY", "test-openai-key");
+        std::env::set_var("MINIMAX_API_KEY", "test-minimax-key");
+        std::env::set_var("OPENAI_BASE_URL", "https://gateway.internal/v1");
+        let config = resolve_provider("abab6.5s-chat").unwrap();
+        assert_eq!(config.api_key, "test-openai-key");
+        std::env::remove_var("OPENAI_BASE_URL");
+        std::env::remove_var("MINIMAX_API_KEY");
+        std::env::remove_var("OPENAI_API_KEY");
+    }
+
+    #[test]
     fn defaults_plain_openai_model_to_v1_base_url() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::remove_var("OPENAI_BASE_URL");
+        clear_provider_env();
         std::env::set_var("OPENAI_API_KEY", "test-openai-key");
         let config = resolve_provider("gpt-5.1-mini").unwrap();
         assert_eq!(config.base_url, "https://api.openai.com/v1");
@@ -872,7 +936,7 @@ mod tests {
     #[test]
     fn defaults_prefixed_openai_model_to_v1_base_url() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::remove_var("OPENAI_BASE_URL");
+        clear_provider_env();
         std::env::set_var("OPENAI_API_KEY", "test-openai-key");
         let config = resolve_provider("openai/gpt-5.1-mini").unwrap();
         assert_eq!(config.base_url, "https://api.openai.com/v1");
