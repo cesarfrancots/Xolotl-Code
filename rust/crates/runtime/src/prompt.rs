@@ -49,6 +49,7 @@ pub struct ProjectContext {
     pub current_date: String,
     pub git_status: Option<String>,
     pub instruction_files: Vec<ContextFile>,
+    pub design_file: Option<ContextFile>,
 }
 
 impl ProjectContext {
@@ -58,11 +59,13 @@ impl ProjectContext {
     ) -> std::io::Result<Self> {
         let cwd = cwd.into();
         let instruction_files = discover_instruction_files(&cwd)?;
+        let design_file = discover_design_file(&cwd)?;
         Ok(Self {
             cwd,
             current_date: current_date.into(),
             git_status: None,
             instruction_files,
+            design_file,
         })
     }
 
@@ -158,6 +161,9 @@ impl SystemPromptBuilder {
             if !project_context.instruction_files.is_empty() {
                 sections.push(render_instruction_files(&project_context.instruction_files));
             }
+            if let Some(design_file) = &project_context.design_file {
+                sections.push(render_design_file(design_file));
+            }
         }
         if let Some(config) = &self.config {
             sections.push(render_config_section(config));
@@ -211,10 +217,7 @@ fn discover_instruction_files(cwd: &Path) -> std::io::Result<Vec<ContextFile>> {
     discover_instruction_files_with_home(cwd, home_dir.as_deref())
 }
 
-fn discover_instruction_files_with_home(
-    cwd: &Path,
-    home_dir: Option<&Path>,
-) -> std::io::Result<Vec<ContextFile>> {
+fn ancestor_directories_until_home(cwd: &Path, home_dir: Option<&Path>) -> Vec<PathBuf> {
     let mut directories = Vec::new();
     let mut cursor = Some(cwd);
     while let Some(dir) = cursor {
@@ -225,9 +228,15 @@ fn discover_instruction_files_with_home(
         cursor = dir.parent();
     }
     directories.reverse();
+    directories
+}
 
+fn discover_instruction_files_with_home(
+    cwd: &Path,
+    home_dir: Option<&Path>,
+) -> std::io::Result<Vec<ContextFile>> {
     let mut files = Vec::new();
-    for dir in directories {
+    for dir in ancestor_directories_until_home(cwd, home_dir) {
         for candidate in [
             dir.join("CLAUDE.md"),
             dir.join("CLAUDE.local.md"),
@@ -239,16 +248,52 @@ fn discover_instruction_files_with_home(
     Ok(files)
 }
 
-fn push_context_file(files: &mut Vec<ContextFile>, path: PathBuf) -> std::io::Result<()> {
-    match fs::read_to_string(&path) {
-        Ok(content) if !content.trim().is_empty() => {
-            files.push(ContextFile { path, content });
-            Ok(())
+fn discover_design_file(cwd: &Path) -> std::io::Result<Option<ContextFile>> {
+    let home_dir = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from);
+    discover_design_file_with_home(cwd, home_dir.as_deref())
+}
+
+fn discover_design_file_with_home(
+    cwd: &Path,
+    home_dir: Option<&Path>,
+) -> std::io::Result<Option<ContextFile>> {
+    let mut design_file = None;
+    for dir in ancestor_directories_until_home(cwd, home_dir) {
+        for candidate in [dir.join("DESIGN.md"), dir.join("design.md")] {
+            if let Some(file) = read_context_file(candidate)? {
+                design_file = Some(file);
+            }
         }
-        Ok(_) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    }
+    Ok(design_file)
+}
+
+fn push_context_file(files: &mut Vec<ContextFile>, path: PathBuf) -> std::io::Result<()> {
+    if let Some(file) = read_context_file(path)? {
+        files.push(file);
+    }
+    Ok(())
+}
+
+fn read_context_file(path: PathBuf) -> std::io::Result<Option<ContextFile>> {
+    match fs::read_to_string(&path) {
+        Ok(content) if !content.trim().is_empty() => Ok(Some(ContextFile { path, content })),
+        Ok(_) => Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+fn render_design_file(file: &ContextFile) -> String {
+    [
+        "# Design system".to_string(),
+        "The project includes a DESIGN.md file. Treat it as native, first-class design context. Its YAML tokens are normative values; its prose explains how to apply them. Use it before inventing colors, typography, spacing, shape, or component styling.".to_string(),
+        format!("## {}", file.path.display()),
+        file.content.trim().to_string(),
+    ]
+    .join("\n\n")
 }
 
 fn read_git_status(cwd: &Path) -> Option<String> {
@@ -645,6 +690,43 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(contents, vec!["project rules"]);
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn discovers_nearest_design_file_from_ancestor_chain() {
+        let root = temp_dir();
+        let nested = root.join("apps").join("landing-experiment");
+        fs::create_dir_all(&nested).expect("nested dir");
+        fs::write(root.join("DESIGN.md"), "root design").expect("write root design");
+        fs::write(nested.join("design.md"), "nested design").expect("write nested design");
+
+        let context = ProjectContext::discover(&nested, "2026-03-31").expect("context should load");
+
+        let design_file = context.design_file.expect("design file should be loaded");
+        assert_eq!(design_file.content, "nested design");
+        assert_eq!(design_file.path, nested.join("design.md"));
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn system_prompt_includes_native_design_file_context() {
+        let root = temp_dir();
+        fs::create_dir_all(&root).expect("root dir");
+        fs::write(root.join("DESIGN.md"), "brand color: xolotl green").expect("write design file");
+
+        let project_context =
+            ProjectContext::discover(&root, "2026-03-31").expect("context should load");
+        let prompt = SystemPromptBuilder::new()
+            .with_os("linux", "6.8")
+            .with_project_context(project_context)
+            .render();
+
+        assert!(prompt.contains("# Design system"));
+        assert!(prompt.contains("first-class design context"));
+        assert!(prompt.contains("brand color: xolotl green"));
+
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }
 
