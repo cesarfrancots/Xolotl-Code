@@ -8,7 +8,6 @@ rust/Cargo.lock
 
 # Claude Code settings and sessions
 .claude/
-.planning/
 .port_sessions/
 
 # Claw harness artifacts
@@ -21,3 +20,4 @@ graphify-out/
 .env*
 config.json
 !rust/**/config.json
+!.planning/config.json
