@@ -15,9 +15,9 @@
 
 - **Milestone:** v1
 - **Phase:** 1 — CLI Completion
-- **Plan:** 01-02 (Wave 2 next; 01-01 complete)
+- **Plan:** 01-03 (Wave 3 next; 01-01, 01-02 complete)
 - **Status:** Executing
-- **Progress:** Phase 1 of 6 (25% complete — 1/4 plans done)
+- **Progress:** Phase 1 of 6 (50% complete — 2/4 plans done)
 
 ```
 [ ][ ][ ][ ][ ][ ]
