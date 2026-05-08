@@ -8,11 +8,12 @@ mod context_store;
 mod git_queue;
 mod worktree;
 
-// Wave 3 modules (created in Plan 04):
-// mod handle;
+mod handle;
+// Wave 3 (supervisor.rs added in T02):
 // mod supervisor;
 
 pub use agent_state::{AgentControl, AgentEvent, AgentId, AgentState};
 pub use context_store::{ContextError, SharedContextStore};
 pub use git_queue::GitOpQueue;
+pub use handle::AgentHandle;
 pub use worktree::{WorktreeError, WorktreeManager};
