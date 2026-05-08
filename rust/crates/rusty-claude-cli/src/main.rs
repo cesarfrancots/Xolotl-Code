@@ -464,7 +464,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         CliAction::ResumeSession {
             session_path,
             command,
-        } => resume_session(&session_path, command),
+            model,
+            auto_accept,
+            budget,
+        } => {
+            if command.is_some() {
+                resume_session(&session_path, command);
+            } else {
+                run_repl_resumed(&session_path, model, auto_accept, budget)?;
+            }
+        }
         CliAction::Prompt {
             prompt,
             model,
@@ -496,6 +505,9 @@ enum CliAction {
     ResumeSession {
         session_path: PathBuf,
         command: Option<String>,
+        model: String,
+        auto_accept: bool,
+        budget: Option<f64>,
     },
     Prompt {
         prompt: String,
@@ -633,7 +645,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         return Ok(CliAction::Help);
     }
     if rest.first().map(String::as_str) == Some("--resume") {
-        return parse_resume_args(&rest[1..]);
+        return parse_resume_args(&rest[1..], model, auto_accept, budget);
     }
 
     match rest[0].as_str() {
@@ -684,7 +696,12 @@ fn parse_system_prompt_args(args: &[String], model: String) -> Result<CliAction,
     Ok(CliAction::PrintSystemPrompt { cwd, date, model })
 }
 
-fn parse_resume_args(args: &[String]) -> Result<CliAction, String> {
+fn parse_resume_args(
+    args: &[String],
+    model: String,
+    auto_accept: bool,
+    budget: Option<f64>,
+) -> Result<CliAction, String> {
     let session_path = args
         .first()
         .ok_or_else(|| "missing session path for --resume".to_string())
@@ -696,6 +713,9 @@ fn parse_resume_args(args: &[String]) -> Result<CliAction, String> {
     Ok(CliAction::ResumeSession {
         session_path,
         command,
+        model,
+        auto_accept,
+        budget,
     })
 }
 
@@ -806,14 +826,83 @@ fn resume_session(session_path: &Path, command: Option<String>) {
     }
 }
 
+/// Resolves a session path argument to an absolute path on disk.
+///
+/// - Absolute paths are returned as-is.
+/// - Relative paths ending in `.json` are joined under `sessions_dir()`.
+/// - Bare IDs (no `.json`) are joined under `sessions_dir()` with `.json` appended.
+fn resolve_session_path(session_arg: &Path) -> PathBuf {
+    if session_arg.is_absolute() {
+        session_arg.to_path_buf()
+    } else {
+        let sessions = sessions_dir();
+        let s = session_arg.to_string_lossy();
+        if s.ends_with(".json") {
+            sessions.join(session_arg)
+        } else {
+            sessions.join(format!("{s}.json"))
+        }
+    }
+}
+
 fn run_repl(model: String, auto_accept: bool, budget: Option<f64>) -> Result<(), Box<dyn std::error::Error>> {
     let mut cli = LiveCli::new(model, true, auto_accept)?;
     if let Some(b) = budget {
         cli.set_budget(b);
     }
-    let mut editor = input::LineEditor::new("› ");
+    let editor = input::LineEditor::new("› ");
 
     print_startup_banner(&cli);
+    run_repl_loop(cli, editor)
+}
+
+fn run_repl_resumed(
+    session_arg: &Path,
+    model: String,
+    auto_accept: bool,
+    budget: Option<f64>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved_path = resolve_session_path(session_arg);
+
+    if !resolved_path.exists() {
+        return Err(format!("session not found: {}", resolved_path.display()).into());
+    }
+
+    let mut cli = LiveCli::new(model, true, auto_accept)?;
+    if let Some(b) = budget {
+        cli.set_budget(b);
+    }
+
+    // Load session into the fresh LiveCli, rebuilding runtime with session history.
+    // We replicate load_session() inline so we can read msg_count before the move.
+    let session = Session::load_from_path(&resolved_path)?;
+    let msg_count = session.messages.len();
+    cli.auto_save_path = resolved_path.clone();
+    cli.cache_scope = build_prompt_cache_scope_for_session_path(&cli.auto_save_path);
+    cli.runtime = build_runtime(
+        session,
+        cli.model.clone(),
+        cli.system_prompt.clone(),
+        Arc::clone(&cli.mcp),
+        true,
+        &cli.cache_scope,
+    )?;
+    style::print_ok(&format!(
+        "Resumed session {} {} ({} messages)",
+        style::ARROW_RIGHT,
+        style::shorten_path(&resolved_path),
+        msg_count
+    ));
+
+    let editor = input::LineEditor::new("› ");
+    print_startup_banner(&cli);
+    run_repl_loop(cli, editor)
+}
+
+fn run_repl_loop(
+    mut cli: LiveCli,
+    mut editor: input::LineEditor,
+) -> Result<(), Box<dyn std::error::Error>> {
 
     while let (Some(input), action) = editor.read_line_with_actions()? {
         // Handle keyboard shortcut actions first
@@ -4341,7 +4430,7 @@ fn run_subagent(
 
 #[cfg(test)]
 mod tests {
-    use super::{default_model, local_manifest_counts, parse_args, CliAction};
+    use super::{default_model, local_manifest_counts, parse_args, resolve_session_path, sessions_dir, CliAction};
     use runtime::{ContentBlock, ConversationMessage, MessageRole};
     use std::path::PathBuf;
 
