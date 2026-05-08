@@ -4545,4 +4545,39 @@ mod tests {
         assert_eq!(hints.max_context, 128_000);
         assert!(!hints.supports_prompt_cache);
     }
+
+    #[test]
+    fn permission_preview_truncated_at_120_chars() {
+        // Input of 200 'x' chars must be truncated to exactly 120 chars
+        let input: String = "x".repeat(200);
+        let preview = super::truncate_preview(&input);
+        assert_eq!(
+            preview.chars().count(),
+            120,
+            "preview should be exactly 120 chars, got {}",
+            preview.chars().count()
+        );
+        assert!(
+            preview.chars().all(|c| c == 'x'),
+            "preview should consist of 'x' chars only"
+        );
+    }
+
+    #[test]
+    fn permission_prompt_choices_line_has_no_bang() {
+        // PERMISSION_CHOICES must not contain "[!]" or "Accept all"
+        let choices = super::PERMISSION_CHOICES;
+        assert!(
+            !choices.contains("[!]"),
+            "choices line must not contain '[!]'"
+        );
+        assert!(
+            !choices.contains("Accept all"),
+            "choices line must not contain 'Accept all'"
+        );
+        assert!(
+            choices.contains("Always allow"),
+            "choices line must contain 'Always allow'"
+        );
+    }
 }
