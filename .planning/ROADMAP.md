@@ -35,7 +35,7 @@
 Plans:
 **Wave 1:** - [x] 01-01-PLAN.md — Permission prompt: 120-char preview + [y]/[n]/[a] choices (CLI-01) *(complete 2026-05-08)*
 **Wave 2** *(blocked on Wave 1)*: - [x] 01-02-PLAN.md — Cost footer D-05 format + --budget flag + D-10 error message (CLI-03, CLI-06) *(complete 2026-05-08)*
-**Wave 3** *(blocked on Wave 2)*: - [ ] 01-03-PLAN.md — --resume opens interactive REPL with loaded session (CLI-04)
+**Wave 3** *(blocked on Wave 2)*: - [x] 01-03-PLAN.md — --resume opens interactive REPL with loaded session (CLI-04) *(complete 2026-05-08)*
 **Wave 4** *(blocked on Wave 3)*: - [ ] 01-04-PLAN.md — Slash command verification + Kimi/MiniMax live endpoint validation (CLI-02, CLI-05)
 
 Cross-cutting constraint: All plans target `main.rs` / `LiveCli` exclusively — `app.rs` is dead code.
