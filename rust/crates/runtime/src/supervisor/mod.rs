@@ -6,9 +6,7 @@
 mod agent_state;
 mod context_store;
 mod git_queue;
-
-// Wave 2 modules (Plan 03):
-// mod worktree;
+mod worktree;
 
 // Wave 3 modules (created in Plan 04):
 // mod handle;
@@ -17,3 +15,4 @@ mod git_queue;
 pub use agent_state::{AgentControl, AgentEvent, AgentId, AgentState};
 pub use context_store::{ContextError, SharedContextStore};
 pub use git_queue::GitOpQueue;
+pub use worktree::{WorktreeError, WorktreeManager};
