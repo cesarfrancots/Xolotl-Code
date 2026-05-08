@@ -294,6 +294,13 @@ struct ReplPermissionPrompter {
     auto_accept: bool,
 }
 
+/// Returns the truncated preview string used in the permission prompt (exported for tests).
+fn truncate_preview(input: &str) -> String {
+    input.chars().take(120).collect()
+}
+
+const PERMISSION_CHOICES: &str = "[y] Allow  [n] Deny  [a] Always allow";
+
 impl ReplPermissionPrompter {
     fn new(auto_accept: bool) -> Self {
         Self {
@@ -318,7 +325,7 @@ impl PermissionPrompter for ReplPermissionPrompter {
         }
 
         // ── Styled permission prompt ──────────────────────────────────────────
-        let preview: String = request.input.chars().take(200).collect();
+        let preview: String = truncate_preview(&request.input);
         let display_name = request
             .tool_name
             .strip_prefix("mcp__")
@@ -381,7 +388,7 @@ impl PermissionPrompter for ReplPermissionPrompter {
         );
         eprintln!("  {}{}{}", style::YELLOW, style::BOX_V, style::RESET);
         eprintln!(
-            "  {}{}{}  {}[y]{} Allow  {}[n]{} Deny  {}[a]{} Always  {}[!]{} Accept all",
+            "  {}{}{}  {}[y]{} Allow  {}[n]{} Deny  {}[a]{} Always allow",
             style::YELLOW,
             style::BOX_V,
             style::RESET,
@@ -390,8 +397,6 @@ impl PermissionPrompter for ReplPermissionPrompter {
             style::RED,
             style::RESET,
             style::CYAN,
-            style::RESET,
-            style::ACCENT,
             style::RESET
         );
         eprintln!(
@@ -4544,5 +4549,40 @@ mod tests {
         assert_eq!(hints.thinking_budget, 8_000);
         assert_eq!(hints.max_context, 128_000);
         assert!(!hints.supports_prompt_cache);
+    }
+
+    #[test]
+    fn permission_preview_truncated_at_120_chars() {
+        // Input of 200 'x' chars must be truncated to exactly 120 chars
+        let input: String = "x".repeat(200);
+        let preview = super::truncate_preview(&input);
+        assert_eq!(
+            preview.chars().count(),
+            120,
+            "preview should be exactly 120 chars, got {}",
+            preview.chars().count()
+        );
+        assert!(
+            preview.chars().all(|c| c == 'x'),
+            "preview should consist of 'x' chars only"
+        );
+    }
+
+    #[test]
+    fn permission_prompt_choices_line_has_no_bang() {
+        // PERMISSION_CHOICES must not contain "[!]" or "Accept all"
+        let choices = super::PERMISSION_CHOICES;
+        assert!(
+            !choices.contains("[!]"),
+            "choices line must not contain '[!]'"
+        );
+        assert!(
+            !choices.contains("Accept all"),
+            "choices line must not contain 'Accept all'"
+        );
+        assert!(
+            choices.contains("Always allow"),
+            "choices line must contain 'Always allow'"
+        );
     }
 }
