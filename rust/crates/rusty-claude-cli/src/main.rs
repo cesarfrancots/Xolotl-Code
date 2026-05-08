@@ -4484,8 +4484,47 @@ mod tests {
             CliAction::ResumeSession {
                 session_path: PathBuf::from("session.json"),
                 command: Some("/compact".to_string()),
+                model: default_model(),
+                auto_accept: false,
+                budget: None,
             }
         );
+    }
+
+    #[test]
+    fn parses_resume_flag_bare_id() {
+        let args = vec![
+            "--resume".to_string(),
+            "session-123".to_string(),
+        ];
+        assert_eq!(
+            parse_args(&args).expect("args should parse"),
+            CliAction::ResumeSession {
+                session_path: PathBuf::from("session-123"),
+                command: None,
+                model: default_model(),
+                auto_accept: false,
+                budget: None,
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_resume_path_with_dot_json() {
+        let sessions = sessions_dir();
+
+        // Bare ID without .json — should be joined with sessions_dir and .json appended
+        let resolved_bare = resolve_session_path(&PathBuf::from("session-123456789"));
+        assert_eq!(resolved_bare, sessions.join("session-123456789.json"));
+
+        // ID with .json — should be joined with sessions_dir but no double extension
+        let resolved_json = resolve_session_path(&PathBuf::from("session-123456789.json"));
+        assert_eq!(resolved_json, sessions.join("session-123456789.json"));
+
+        // Absolute path — should be used as-is
+        let abs = sessions.join("abs-session.json");
+        let resolved_abs = resolve_session_path(&abs);
+        assert_eq!(resolved_abs, abs);
     }
 
     #[test]
