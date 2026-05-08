@@ -9,18 +9,18 @@
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** Close the remaining CLI gaps (interactive permissions, slash commands, cost display, session resume, open-model schema validation, cost guard) so the headless agent is production-ready before any UI or orchestration work.
+- **Current Focus:** Rust orchestration layer complete — AgentSupervisor, WorktreeManager, SharedContextStore, GitOpQueue, and NDJSON spawner all verified headlessly. Next: Tauri 2.x desktop shell with typed IPC.
 
 ## Current Position
 
 - **Milestone:** v1
-- **Phase:** 2 — Orchestration Layer
-- **Plan:** 02-03 complete; next: 02-04 (AgentHandle + AgentSupervisor)
-- **Status:** Phase 2 in progress; 3/6 plans executed
-- **Progress:** Phase 1 of 6 complete; Phase 2 in progress (3/6 plans executed)
+- **Phase:** 3 — Tauri Shell
+- **Plan:** — (Phase 2 complete; Phase 3 not yet planned)
+- **Status:** Phase 2 complete; all 6 plans executed and verified
+- **Progress:** Phase 2 of 6 complete; Phase 3 not yet planned
 
 ```
-[x][ ][ ][ ][ ][ ]
+[x][x][ ][ ][ ][ ]
  1  2  3  4  5  6
 ```
 
@@ -28,10 +28,10 @@
 
 | Metric | Value |
 |--------|-------|
-| Phases completed | 1 / 6 |
+| Phases completed | 2 / 6 |
 | v1 requirements mapped | 40 / 40 |
-| v1 requirements completed | 9 / 40 |
-| Plans completed | 7 |
+| v1 requirements completed | 13 / 40 |
+| Plans completed | 10 |
 | Active blockers | 0 |
 
 ## Accumulated Context
@@ -68,8 +68,8 @@
 
 ## Session Continuity
 
-- **Last action:** Executed 02-03 — WorktreeManager with add/remove/list/prune lifecycle. 6 new tests pass (120 total). Wired into supervisor/mod.rs.
-- **Next action:** Execute 02-04 (AgentHandle + AgentSupervisor registry — Wave 3).
+- **Last action:** Phase 2 complete — 6 plans executed across 5 waves, verification passed (10/10 must-haves, 7/7 ORC requirements, 151 tests green). Code review found 4 critical issues (CR-01 through CR-04) to fix before Phase 3.
+- **Next action:** /gsd-discuss-phase 3 or /gsd-plan-phase 3 to begin Tauri Shell. Consider /gsd-code-review-fix 2 first to resolve CR-01–CR-04.
 - **Last updated:** 2026-05-08
 
 ---

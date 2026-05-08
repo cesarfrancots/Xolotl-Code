@@ -10,7 +10,7 @@
 ## Phases
 
 - [x] **Phase 1: CLI Completion** — Finish CLI gaps and lock down open-model tool-calling so the headless agent is production-ready before any UI work. *(complete 2026-05-08)*
-- [ ] **Phase 2: Orchestration Layer** — Build the Rust-only actor model (supervisor, worktrees, shared context, git serialization) and validate headlessly.
+- [x] **Phase 2: Orchestration Layer** — Build the Rust-only actor model (supervisor, worktrees, shared context, git serialization) and validate headlessly. *(complete 2026-05-08)*
 - [ ] **Phase 3: Tauri Shell** — Stand up the Tauri 2.x desktop shell with capability config, managed state, and TypeScript-typed IPC to the Rust core.
 - [ ] **Phase 4: Chat UI** — Deliver the table-stakes chat experience: streaming, tool blocks, diffs, sessions, permissions, model selector, slash commands.
 - [ ] **Phase 5: Agent Dashboard** — Make multi-agent orchestration visible: spawn, monitor, budget, and notify across multiple concurrent agents.
@@ -61,13 +61,13 @@ Plans:
 - [x] 02-03-PLAN.md — WorktreeManager: add/list/remove/prune via git CLI (ORC-05) *(complete 2026-05-08)*
 
 **Wave 3** *(blocked on Wave 2)*:
-- [ ] 02-04-PLAN.md — AgentHandle (subscribe/stop/pause) + AgentSupervisor registry (ORC-02, ORC-03)
+- [x] 02-04-PLAN.md — AgentHandle (subscribe/stop/pause) + AgentSupervisor registry (ORC-02, ORC-03) *(complete 2026-05-08)*
 
 **Wave 4** *(blocked on Wave 3)*:
-- [ ] 02-05-PLAN.md — SubAgentSpawner extended: --working-dir + NDJSON stdout streaming (ORC-06)
+- [x] 02-05-PLAN.md — SubAgentSpawner extended: --working-dir + NDJSON stdout streaming (ORC-06) *(complete 2026-05-08)*
 
 **Wave 5** *(blocked on Wave 4)*:
-- [ ] 02-06-PLAN.md — ORC integration tests + spawn_blocking load test with MockApiClient (ORC-01 through ORC-07)
+- [x] 02-06-PLAN.md — ORC integration tests + spawn_blocking load test with MockApiClient (ORC-01 through ORC-07) *(complete 2026-05-08)*
 
 Cross-cutting constraints: All new code lives in `runtime/src/supervisor/`; `AgentSupervisor` must be `Send + Sync` (Phase 3 Tauri managed state); `run_turn()` always in `tokio::task::spawn_blocking` (D-10 invariant enforced by ORC-03 load test with `max_blocking_threads(16)`).
 
