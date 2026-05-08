@@ -472,7 +472,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             LiveCli::new(model, true, auto_accept)?.run_turn(&prompt)?;
         }
-        CliAction::Repl { model, auto_accept } => run_repl(model, auto_accept)?,
+        CliAction::Repl { model, auto_accept, budget } => run_repl(model, auto_accept, budget)?,
         CliAction::Setup => run_setup()?,
         CliAction::Help => print_help(),
         CliAction::SubAgent {
@@ -484,7 +484,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum CliAction {
     DumpManifests,
     BootstrapPlan,
@@ -505,6 +505,7 @@ enum CliAction {
     Repl {
         model: String,
         auto_accept: bool,
+        budget: Option<f64>,
     },
     Setup,
     Help,
@@ -518,6 +519,7 @@ enum CliAction {
 fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut model = default_model();
     let mut auto_accept = false;
+    let mut budget: Option<f64> = None;
     let mut max_parallel = None;
     let mut sub_agent_prompt = None;
     let mut sub_agent_output_path = None;
@@ -578,6 +580,25 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 // Flag only, no value — signals sub-agent mode
                 index += 1;
             }
+            "--budget" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --budget".to_string())?;
+                budget = Some(
+                    value
+                        .parse::<f64>()
+                        .map_err(|_| format!("invalid --budget value: {value}"))?,
+                );
+                index += 2;
+            }
+            flag if flag.starts_with("--budget=") => {
+                let v = &flag[9..];
+                budget = Some(
+                    v.parse::<f64>()
+                        .map_err(|_| format!("invalid --budget value: {v}"))?,
+                );
+                index += 1;
+            }
             // Auto-accept flags (all equivalent)
             "--yes" | "-y" | "--dangerously-skip-permissions" | "-Y" => {
                 auto_accept = true;
@@ -606,7 +627,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     if rest.is_empty() {
-        return Ok(CliAction::Repl { model, auto_accept });
+        return Ok(CliAction::Repl { model, auto_accept, budget });
     }
     if matches!(rest.first().map(String::as_str), Some("--help" | "-h")) {
         return Ok(CliAction::Help);
@@ -785,8 +806,11 @@ fn resume_session(session_path: &Path, command: Option<String>) {
     }
 }
 
-fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn run_repl(model: String, auto_accept: bool, budget: Option<f64>) -> Result<(), Box<dyn std::error::Error>> {
     let mut cli = LiveCli::new(model, true, auto_accept)?;
+    if let Some(b) = budget {
+        cli.set_budget(b);
+    }
     let mut editor = input::LineEditor::new("› ");
 
     print_startup_banner(&cli);
@@ -4302,6 +4326,7 @@ mod tests {
             CliAction::Repl {
                 model: default_model(),
                 auto_accept: false,
+                budget: None,
             }
         );
     }
@@ -4314,6 +4339,7 @@ mod tests {
             CliAction::Repl {
                 model: default_model(),
                 auto_accept: true,
+                budget: None,
             }
         );
     }
