@@ -101,56 +101,54 @@
 
 ## Traceability
 
-Populated by roadmapper.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CLI-01 | — | Pending |
-| CLI-02 | — | Pending |
-| CLI-03 | — | Pending |
-| CLI-04 | — | Pending |
-| CLI-05 | — | Pending |
-| CLI-06 | — | Pending |
-| ORC-01 | — | Pending |
-| ORC-02 | — | Pending |
-| ORC-03 | — | Pending |
-| ORC-04 | — | Pending |
-| ORC-05 | — | Pending |
-| ORC-06 | — | Pending |
-| ORC-07 | — | Pending |
-| TAU-01 | — | Pending |
-| TAU-02 | — | Pending |
-| TAU-03 | — | Pending |
-| TAU-04 | — | Pending |
-| TAU-05 | — | Pending |
-| UI-01 | — | Pending |
-| UI-02 | — | Pending |
-| UI-03 | — | Pending |
-| UI-04 | — | Pending |
-| UI-05 | — | Pending |
-| UI-06 | — | Pending |
-| UI-07 | — | Pending |
-| UI-08 | — | Pending |
-| UI-09 | — | Pending |
-| UI-10 | — | Pending |
-| UI-11 | — | Pending |
-| AGT-01 | — | Pending |
-| AGT-02 | — | Pending |
-| AGT-03 | — | Pending |
-| AGT-04 | — | Pending |
-| AGT-05 | — | Pending |
-| AGT-06 | — | Pending |
-| WRK-01 | — | Pending |
-| WRK-02 | — | Pending |
-| WRK-03 | — | Pending |
-| WRK-04 | — | Pending |
-| WRK-05 | — | Pending |
+| CLI-01 | Phase 1 | Pending |
+| CLI-02 | Phase 1 | Pending |
+| CLI-03 | Phase 1 | Pending |
+| CLI-04 | Phase 1 | Pending |
+| CLI-05 | Phase 1 | Pending |
+| CLI-06 | Phase 1 | Pending |
+| ORC-01 | Phase 2 | Pending |
+| ORC-02 | Phase 2 | Pending |
+| ORC-03 | Phase 2 | Pending |
+| ORC-04 | Phase 2 | Pending |
+| ORC-05 | Phase 2 | Pending |
+| ORC-06 | Phase 2 | Pending |
+| ORC-07 | Phase 2 | Pending |
+| TAU-01 | Phase 3 | Pending |
+| TAU-02 | Phase 3 | Pending |
+| TAU-03 | Phase 3 | Pending |
+| TAU-04 | Phase 3 | Pending |
+| TAU-05 | Phase 3 | Pending |
+| UI-01 | Phase 4 | Pending |
+| UI-02 | Phase 4 | Pending |
+| UI-03 | Phase 4 | Pending |
+| UI-04 | Phase 4 | Pending |
+| UI-05 | Phase 4 | Pending |
+| UI-06 | Phase 4 | Pending |
+| UI-07 | Phase 4 | Pending |
+| UI-08 | Phase 4 | Pending |
+| UI-09 | Phase 4 | Pending |
+| UI-10 | Phase 4 | Pending |
+| UI-11 | Phase 4 | Pending |
+| AGT-01 | Phase 5 | Pending |
+| AGT-02 | Phase 5 | Pending |
+| AGT-03 | Phase 5 | Pending |
+| AGT-04 | Phase 5 | Pending |
+| AGT-05 | Phase 5 | Pending |
+| AGT-06 | Phase 5 | Pending |
+| WRK-01 | Phase 6 | Pending |
+| WRK-02 | Phase 6 | Pending |
+| WRK-03 | Phase 6 | Pending |
+| WRK-04 | Phase 6 | Pending |
+| WRK-05 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 40 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 40 ⚠️
+- Mapped to phases: 40
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-07*
-*Last updated: 2026-05-07 after initial definition*
+*Last updated: 2026-05-07 — traceability populated by roadmapper*
