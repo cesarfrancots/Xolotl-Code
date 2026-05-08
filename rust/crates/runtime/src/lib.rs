@@ -14,6 +14,7 @@ mod prompt;
 mod sdd;
 mod session;
 mod subagent;
+mod supervisor;
 mod todo;
 mod tokenizer;
 mod usage;
@@ -66,6 +67,7 @@ pub use subagent::{
     SubAgentConfig, SubAgentInfo, SubAgentResult, SubAgentSpawner, SubAgentStatus, TaskRegistry,
     TaskStatus,
 };
+pub use supervisor::{AgentControl, AgentEvent, AgentId, AgentState};
 pub use todo::{
     todo_read, todo_write, TodoItem, TodoOutput, TodoPriority, TodoStatus, TodoWriteInput,
 };
