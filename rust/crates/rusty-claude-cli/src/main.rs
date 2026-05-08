@@ -472,7 +472,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             LiveCli::new(model, true, auto_accept)?.run_turn(&prompt)?;
         }
-        CliAction::Repl { model, auto_accept } => run_repl(model, auto_accept)?,
+        CliAction::Repl { model, auto_accept, budget } => run_repl(model, auto_accept, budget)?,
         CliAction::Setup => run_setup()?,
         CliAction::Help => print_help(),
         CliAction::SubAgent {
@@ -484,7 +484,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum CliAction {
     DumpManifests,
     BootstrapPlan,
@@ -505,6 +505,7 @@ enum CliAction {
     Repl {
         model: String,
         auto_accept: bool,
+        budget: Option<f64>,
     },
     Setup,
     Help,
@@ -518,6 +519,7 @@ enum CliAction {
 fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut model = default_model();
     let mut auto_accept = false;
+    let mut budget: Option<f64> = None;
     let mut max_parallel = None;
     let mut sub_agent_prompt = None;
     let mut sub_agent_output_path = None;
@@ -578,6 +580,25 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 // Flag only, no value — signals sub-agent mode
                 index += 1;
             }
+            "--budget" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --budget".to_string())?;
+                budget = Some(
+                    value
+                        .parse::<f64>()
+                        .map_err(|_| format!("invalid --budget value: {value}"))?,
+                );
+                index += 2;
+            }
+            flag if flag.starts_with("--budget=") => {
+                let v = &flag[9..];
+                budget = Some(
+                    v.parse::<f64>()
+                        .map_err(|_| format!("invalid --budget value: {v}"))?,
+                );
+                index += 1;
+            }
             // Auto-accept flags (all equivalent)
             "--yes" | "-y" | "--dangerously-skip-permissions" | "-Y" => {
                 auto_accept = true;
@@ -606,7 +627,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     if rest.is_empty() {
-        return Ok(CliAction::Repl { model, auto_accept });
+        return Ok(CliAction::Repl { model, auto_accept, budget });
     }
     if matches!(rest.first().map(String::as_str), Some("--help" | "-h")) {
         return Ok(CliAction::Help);
@@ -785,8 +806,11 @@ fn resume_session(session_path: &Path, command: Option<String>) {
     }
 }
 
-fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn run_repl(model: String, auto_accept: bool, budget: Option<f64>) -> Result<(), Box<dyn std::error::Error>> {
     let mut cli = LiveCli::new(model, true, auto_accept)?;
+    if let Some(b) = budget {
+        cli.set_budget(b);
+    }
     let mut editor = input::LineEditor::new("› ");
 
     print_startup_banner(&cli);
@@ -1063,9 +1087,9 @@ fn run_repl(model: String, auto_accept: bool) -> Result<(), Box<dyn std::error::
 
         // Check cost budget before running a turn
         if cli.is_over_budget() {
-            style::print_err(&format!(
-                "Cost budget exceeded (${:.2}). Use /budget <amount> to increase.",
-                cli.budget_limit.unwrap_or(0.0)
+            style::print_err(&format_budget_error(
+                cli.budget_limit.unwrap_or(0.0),
+                cli.runtime.usage().cost_usd(primary_model_name(&cli.model)),
             ));
             continue;
         }
@@ -1384,42 +1408,47 @@ impl LiveCli {
     }
 
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
-        use style::fmt_num;
         println!(); // breathing room before response
         self.inject_memory_context(input);
         self.turn_start = Some(std::time::Instant::now());
         let result = self.runtime.run_turn(input, Some(&mut self.prompter));
-        let elapsed = self
-            .turn_start
-            .take()
-            .map(|s| s.elapsed())
-            .unwrap_or_default();
+        self.turn_start.take(); // discard elapsed (no longer shown in footer)
         match result {
             Ok(_) => {
-                let cost = self
+                let turn_usage = self.runtime.usage().current_turn_usage();
+                let session_cost = self
                     .runtime
                     .usage()
                     .cost_usd(primary_model_name(&self.model));
-                let usage = self.runtime.usage().cumulative_usage();
-                let secs = elapsed.as_secs_f64();
-                let dur_str = if secs < 60.0 {
-                    format!("{secs:.1}s")
-                } else {
-                    format!("{:.0}m{:.0}s", secs / 60.0, secs % 60.0)
+                // Compute per-turn cost using the same rate table as UsageTracker::cost_usd
+                let turn_cost = {
+                    let m = 1_000_000.0_f64;
+                    let model_name = primary_model_name(&self.model);
+                    let (in_rate, out_rate, cw_rate, cr_rate): (f64, f64, f64, f64) =
+                        if model_name.contains("opus") {
+                            (15.0, 75.0, 18.75, 1.50)
+                        } else if model_name.contains("sonnet") {
+                            (3.0, 15.0, 3.75, 0.30)
+                        } else if model_name.contains("haiku") {
+                            (0.80, 4.0, 1.0, 0.08)
+                        } else {
+                            (15.0, 75.0, 18.75, 1.50)
+                        };
+                    f64::from(turn_usage.input_tokens) / m * in_rate
+                        + f64::from(turn_usage.output_tokens) / m * out_rate
+                        + f64::from(turn_usage.cache_creation_input_tokens) / m * cw_rate
+                        + f64::from(turn_usage.cache_read_input_tokens) / m * cr_rate
                 };
                 println!(
-                    "\n  {muted}{up}{in_tok} in · {down}{out_tok} out{cache_str}  ·  ${cost:.4}  ·  {dur}{reset}",
-                    muted  = style::MUTED,
-                    up     = style::ARROW_UP,
-                    in_tok = fmt_num(usage.input_tokens),
-                    down   = style::ARROW_DOWN,
-                    out_tok= fmt_num(usage.output_tokens),
-                    cache_str = if usage.cache_read_input_tokens > 0 {
-                        format!(" · {}✦ {} cached{}", style::ACCENT, fmt_num(usage.cache_read_input_tokens), style::MUTED)
-                    } else { String::new() },
-                    cost   = cost,
-                    dur    = dur_str,
-                    reset  = style::RESET,
+                    "\n  {}{}{}",
+                    style::MUTED,
+                    format_cost_footer(
+                        turn_usage.input_tokens,
+                        turn_usage.output_tokens,
+                        turn_cost,
+                        session_cost,
+                    ),
+                    style::RESET,
                 );
                 // Auto-save after every successful turn
                 if let Err(e) = self.runtime.session().save_to_path(&self.auto_save_path) {
@@ -3862,6 +3891,27 @@ fn extract_tool_preview(tool_name: &str, input: &str) -> String {
     }
 }
 
+/// Format the D-05 cost footer line (without ANSI color codes — those are added by the caller).
+pub(crate) fn format_cost_footer(
+    in_tokens: u32,
+    out_tokens: u32,
+    turn_cost: f64,
+    session_cost: f64,
+) -> String {
+    format!(
+        "in: {} | out: {} | ${:.4}  [session: ${:.4}]",
+        in_tokens, out_tokens, turn_cost, session_cost
+    )
+}
+
+/// Format the D-10 budget exceeded error message.
+pub(crate) fn format_budget_error(budget: f64, session_cost: f64) -> String {
+    format!(
+        "Budget ${:.2} exceeded (session: ${:.4}). Use --budget to raise the limit.",
+        budget, session_cost
+    )
+}
+
 fn format_tool_output_box(output: &str, inner: usize) -> Vec<String> {
     let lines: Vec<&str> = output.lines().collect();
     let max_lines = 8usize;
@@ -4302,6 +4352,7 @@ mod tests {
             CliAction::Repl {
                 model: default_model(),
                 auto_accept: false,
+                budget: None,
             }
         );
     }
@@ -4314,6 +4365,7 @@ mod tests {
             CliAction::Repl {
                 model: default_model(),
                 auto_accept: true,
+                budget: None,
             }
         );
     }
@@ -4378,6 +4430,46 @@ mod tests {
                 model: default_model(),
             }
         );
+    }
+
+    #[test]
+    fn parses_budget_flag() {
+        let args = vec!["--budget".to_string(), "1.50".to_string()];
+        assert_eq!(
+            parse_args(&args).expect("args should parse"),
+            CliAction::Repl {
+                model: default_model(),
+                auto_accept: false,
+                budget: Some(1.50),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_budget_equals_form() {
+        let args = vec!["--budget=2.00".to_string()];
+        assert_eq!(
+            parse_args(&args).expect("args should parse"),
+            CliAction::Repl {
+                model: default_model(),
+                auto_accept: false,
+                budget: Some(2.0),
+            }
+        );
+    }
+
+    #[test]
+    fn budget_flag_invalid_value_errors() {
+        let args = vec!["--budget".to_string(), "notanumber".to_string()];
+        assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
+    fn budget_flag_missing_value_errors() {
+        let args = vec!["--budget".to_string()];
+        let result = parse_args(&args);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "missing value for --budget");
     }
 
     #[test]
@@ -4583,6 +4675,22 @@ mod tests {
         assert!(
             choices.contains("Always allow"),
             "choices line must contain 'Always allow'"
+        );
+    }
+
+    #[test]
+    fn cost_footer_format_matches_d05() {
+        let footer = super::format_cost_footer(100, 50, 0.0015, 0.0030);
+        // Must match: "in: X | out: Y | $Z.ZZZZ  [session: $N.NNNN]"
+        assert_eq!(footer, "in: 100 | out: 50 | $0.0015  [session: $0.0030]");
+    }
+
+    #[test]
+    fn budget_error_message_format_d10() {
+        let msg = super::format_budget_error(1.0, 0.75);
+        assert_eq!(
+            msg,
+            "Budget $1.00 exceeded (session: $0.7500). Use --budget to raise the limit."
         );
     }
 }
