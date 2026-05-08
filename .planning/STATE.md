@@ -68,8 +68,8 @@
 
 ## Session Continuity
 
-- **Last action:** Phase 2 complete — 6 plans executed across 5 waves, verification passed (10/10 must-haves, 7/7 ORC requirements, 151 tests green). Code review found 4 critical issues (CR-01 through CR-04) to fix before Phase 3.
-- **Next action:** /gsd-discuss-phase 3 or /gsd-plan-phase 3 to begin Tauri Shell. Consider /gsd-code-review-fix 2 first to resolve CR-01–CR-04.
+- **Last action:** Phase 3 context gathered — 4 areas discussed (toolchain, project layout, event streaming, permission round-trip). CR-01–CR-04 fixes applied (151 tests still green).
+- **Next action:** /gsd-plan-phase 3 to plan the Tauri Shell phase.
 - **Last updated:** 2026-05-08
 
 ---
