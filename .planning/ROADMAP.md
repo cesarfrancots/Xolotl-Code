@@ -58,7 +58,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 — parallel execution within wave)*:
 - [x] 02-02-PLAN.md — SharedContextStore (ORC-04) + GitOpQueue (ORC-07); tempfile dev-dep added *(complete 2026-05-08)*
-- [ ] 02-03-PLAN.md — WorktreeManager: add/list/remove/prune via git CLI (ORC-05)
+- [x] 02-03-PLAN.md — WorktreeManager: add/list/remove/prune via git CLI (ORC-05) *(complete 2026-05-08)*
 
 **Wave 3** *(blocked on Wave 2)*:
 - [ ] 02-04-PLAN.md — AgentHandle (subscribe/stop/pause) + AgentSupervisor registry (ORC-02, ORC-03)
@@ -130,7 +130,7 @@ Cross-cutting constraints: All new code lives in `runtime/src/supervisor/`; `Age
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. CLI Completion | 4/4 | Complete | 2026-05-08 |
-| 2. Orchestration Layer | 2/6 | In progress | — |
+| 2. Orchestration Layer | 3/6 | In progress | — |
 | 3. Tauri Shell | 0/0 | Not started | — |
 | 4. Chat UI | 0/0 | Not started | — |
 | 5. Agent Dashboard | 0/0 | Not started | — |

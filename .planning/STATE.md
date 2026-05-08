@@ -15,9 +15,9 @@
 
 - **Milestone:** v1
 - **Phase:** 2 — Orchestration Layer
-- **Plan:** 02-02 complete; next: 02-03 (WorktreeManager)
-- **Status:** Phase 2 in progress; 2/6 plans executed
-- **Progress:** Phase 1 of 6 complete; Phase 2 in progress (2/6 plans executed)
+- **Plan:** 02-03 complete; next: 02-04 (AgentHandle + AgentSupervisor)
+- **Status:** Phase 2 in progress; 3/6 plans executed
+- **Progress:** Phase 1 of 6 complete; Phase 2 in progress (3/6 plans executed)
 
 ```
 [x][ ][ ][ ][ ][ ]
@@ -30,8 +30,8 @@
 |--------|-------|
 | Phases completed | 1 / 6 |
 | v1 requirements mapped | 40 / 40 |
-| v1 requirements completed | 8 / 40 |
-| Plans completed | 6 |
+| v1 requirements completed | 9 / 40 |
+| Plans completed | 7 |
 | Active blockers | 0 |
 
 ## Accumulated Context
@@ -47,6 +47,7 @@
 - SharedContextStore uses `Arc<RwLock<HashMap>>` (vs Mutex) for read-heavy concurrent workload.
 - GitOpQueue uses `spawn_blocking` inside `tokio::spawn` to avoid blocking tokio worker threads on `std::process::Command`.
 - `thiserror` added to runtime `[dependencies]` (was workspace-only); resolves compile blocker for ContextError derive.
+- WorktreeManager uses Arc<Mutex<HashMap>> (not RwLock) — write-heavy add/remove vs SharedContextStore's read-heavy pull workload.
 
 ### Open Todos
 
@@ -67,8 +68,8 @@
 
 ## Session Continuity
 
-- **Last action:** Executed 02-02 — SharedContextStore + GitOpQueue + supervisor/mod.rs wiring. 9 tests pass. thiserror added to runtime deps.
-- **Next action:** Execute 02-03 (WorktreeManager) — can run in parallel with 02-02 (Wave 2).
+- **Last action:** Executed 02-03 — WorktreeManager with add/remove/list/prune lifecycle. 6 new tests pass (120 total). Wired into supervisor/mod.rs.
+- **Next action:** Execute 02-04 (AgentHandle + AgentSupervisor registry — Wave 3).
 - **Last updated:** 2026-05-08
 
 ---
