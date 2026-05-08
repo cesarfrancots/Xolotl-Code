@@ -13,3 +13,6 @@ pub use git_queue::GitOpQueue;
 pub use handle::AgentHandle;
 pub use supervisor::{AgentSupervisor, SupervisorError};
 pub use worktree::{WorktreeError, WorktreeManager};
+
+#[cfg(test)]
+mod tests;
