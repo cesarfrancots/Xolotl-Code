@@ -54,10 +54,10 @@ Cross-cutting constraint: All plans target `main.rs` / `LiveCli` exclusively —
 
 Plans:
 **Wave 1:**
-- [ ] 02-01-PLAN.md — Core types: AgentId, AgentState, AgentEvent, AgentControl; supervisor module scaffold (ORC-01)
+- [x] 02-01-PLAN.md — Core types: AgentId, AgentState, AgentEvent, AgentControl; supervisor module scaffold (ORC-01) *(complete 2026-05-08)*
 
 **Wave 2** *(blocked on Wave 1 — parallel execution within wave)*:
-- [ ] 02-02-PLAN.md — SharedContextStore (ORC-04) + GitOpQueue (ORC-07); tempfile dev-dep added
+- [x] 02-02-PLAN.md — SharedContextStore (ORC-04) + GitOpQueue (ORC-07); tempfile dev-dep added *(complete 2026-05-08)*
 - [ ] 02-03-PLAN.md — WorktreeManager: add/list/remove/prune via git CLI (ORC-05)
 
 **Wave 3** *(blocked on Wave 2)*:
@@ -130,7 +130,7 @@ Cross-cutting constraints: All new code lives in `runtime/src/supervisor/`; `Age
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. CLI Completion | 4/4 | Complete | 2026-05-08 |
-| 2. Orchestration Layer | 0/6 | Not started | — |
+| 2. Orchestration Layer | 2/6 | In progress | — |
 | 3. Tauri Shell | 0/0 | Not started | — |
 | 4. Chat UI | 0/0 | Not started | — |
 | 5. Agent Dashboard | 0/0 | Not started | — |

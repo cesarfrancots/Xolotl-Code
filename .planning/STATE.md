@@ -15,9 +15,9 @@
 
 - **Milestone:** v1
 - **Phase:** 2 — Orchestration Layer
-- **Plan:** — (Phase 2 planned, ready to execute)
-- **Status:** Phase 2 planned; 6 plans in 5 waves ready for execution
-- **Progress:** Phase 1 of 6 complete; Phase 2 planned (0/6 plans executed)
+- **Plan:** 02-02 complete; next: 02-03 (WorktreeManager)
+- **Status:** Phase 2 in progress; 2/6 plans executed
+- **Progress:** Phase 1 of 6 complete; Phase 2 in progress (2/6 plans executed)
 
 ```
 [x][ ][ ][ ][ ][ ]
@@ -30,8 +30,8 @@
 |--------|-------|
 | Phases completed | 1 / 6 |
 | v1 requirements mapped | 40 / 40 |
-| v1 requirements completed | 6 / 40 |
-| Plans completed | 4 |
+| v1 requirements completed | 8 / 40 |
+| Plans completed | 6 |
 | Active blockers | 0 |
 
 ## Accumulated Context
@@ -44,6 +44,9 @@
 - `ConversationRuntime::run_turn()` must always run inside `tokio::task::spawn_blocking` (day-one architectural invariant).
 - Frontend stack: React 19 + TypeScript + Zustand + Tailwind 4 + shadcn/Radix + `@tanstack/react-virtual`.
 - Type pipeline: `specta` + `tauri-specta` to generate TypeScript from Rust IPC types.
+- SharedContextStore uses `Arc<RwLock<HashMap>>` (vs Mutex) for read-heavy concurrent workload.
+- GitOpQueue uses `spawn_blocking` inside `tokio::spawn` to avoid blocking tokio worker threads on `std::process::Command`.
+- `thiserror` added to runtime `[dependencies]` (was workspace-only); resolves compile blocker for ContextError derive.
 
 ### Open Todos
 
@@ -64,8 +67,8 @@
 
 ## Session Continuity
 
-- **Last action:** Phase 2 planned — 6 plans in 5 waves (02-01 through 02-06). All 7 ORC requirements covered. All 11 CONTEXT.md decisions implemented. Verification passed (2 blockers fixed: event_tx channel wiring, bounded ORC-03 load test).
-- **Next action:** /gsd-execute-phase 2 to run the Orchestration Layer plans.
+- **Last action:** Executed 02-02 — SharedContextStore + GitOpQueue + supervisor/mod.rs wiring. 9 tests pass. thiserror added to runtime deps.
+- **Next action:** Execute 02-03 (WorktreeManager) — can run in parallel with 02-02 (Wave 2).
 - **Last updated:** 2026-05-08
 
 ---
