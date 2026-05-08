@@ -41,6 +41,17 @@ These capabilities are already implemented in the Rust codebase (`rust/` folder)
 - ✓ `--resume <id>` opens interactive REPL with loaded session — `run_repl_resumed()` + `run_repl_loop()`
 - ✓ Kimi K2 and MiniMax M1 tool-call round-trips verified against live endpoints
 
+### Validated in Phase 2: Orchestration Layer *(2026-05-08)*
+
+- ✓ `AgentId` newtype + `AgentState` (6-variant state machine) + `AgentEvent` (5 variants, serde-safe) — `supervisor/agent_state.rs`
+- ✓ `AgentHandle` dual-channel design: mpsc inbound + broadcast outbound, `paused: Arc<AtomicBool>` — `supervisor/handle.rs`
+- ✓ `AgentSupervisor` registry: `spawn_agent()` / `list()` / `stop_agent()` / `stop_all()` — `supervisor/supervisor.rs`
+- ✓ `SharedContextStore` (Arc<RwLock<HashMap>>, 1000-token TooLarge limit, no silent truncation) — `supervisor/context_store.rs`
+- ✓ `GitOpQueue` (serialized git writes via tokio mpsc + spawn_blocking) — `supervisor/git_queue.rs`
+- ✓ `WorktreeManager` (add/remove/list/prune at `.xolotl-worktrees/`, per-element args, Windows-safe) — `supervisor/worktree.rs`
+- ✓ `SubAgentConfig` extended with `working_dir` + `ndjson_stdout` + `spawn_ndjson_reader()` — `subagent/spawner.rs`
+- ✓ 151 runtime tests green; ORC-03 bounded-runtime load test (8 agents, max_blocking_threads=16) passes
+
 ### Active
 
 Tauri desktop app:
@@ -66,7 +77,9 @@ Tauri desktop app:
 
 ## Context
 
-The Rust codebase (`rust/crates/`) is production-ready as a headless CLI agent (Phase 1 complete). The agentic loop, streaming API, session management, file tools, permissions, MCP support, cost tracking, session resume, and open-model tool-calling (Kimi/MiniMax) are all verified. Phase 2 builds the Rust actor model for multi-agent orchestration before any UI work.
+The Rust codebase (`rust/crates/`) is production-ready as a headless CLI agent with a full orchestration layer (Phases 1–2 complete). The actor model (AgentSupervisor, WorktreeManager, SharedContextStore, GitOpQueue, NDJSON spawner) is verified headlessly with 151 passing tests. Phase 3 builds the Tauri 2.x desktop shell with typed IPC to surface this Rust core to a UI.
+
+Last updated: 2026-05-08
 
 **Last updated:** 2026-05-08
 
