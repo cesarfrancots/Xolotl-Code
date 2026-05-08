@@ -294,6 +294,13 @@ struct ReplPermissionPrompter {
     auto_accept: bool,
 }
 
+/// Returns the truncated preview string used in the permission prompt (exported for tests).
+fn truncate_preview(input: &str) -> String {
+    input.chars().take(120).collect()
+}
+
+const PERMISSION_CHOICES: &str = "[y] Allow  [n] Deny  [a] Always allow";
+
 impl ReplPermissionPrompter {
     fn new(auto_accept: bool) -> Self {
         Self {
@@ -318,7 +325,7 @@ impl PermissionPrompter for ReplPermissionPrompter {
         }
 
         // ── Styled permission prompt ──────────────────────────────────────────
-        let preview: String = request.input.chars().take(200).collect();
+        let preview: String = truncate_preview(&request.input);
         let display_name = request
             .tool_name
             .strip_prefix("mcp__")
@@ -381,7 +388,7 @@ impl PermissionPrompter for ReplPermissionPrompter {
         );
         eprintln!("  {}{}{}", style::YELLOW, style::BOX_V, style::RESET);
         eprintln!(
-            "  {}{}{}  {}[y]{} Allow  {}[n]{} Deny  {}[a]{} Always  {}[!]{} Accept all",
+            "  {}{}{}  {}[y]{} Allow  {}[n]{} Deny  {}[a]{} Always allow",
             style::YELLOW,
             style::BOX_V,
             style::RESET,
@@ -390,8 +397,6 @@ impl PermissionPrompter for ReplPermissionPrompter {
             style::RED,
             style::RESET,
             style::CYAN,
-            style::RESET,
-            style::ACCENT,
             style::RESET
         );
         eprintln!(
