@@ -4381,6 +4381,46 @@ mod tests {
     }
 
     #[test]
+    fn parses_budget_flag() {
+        let args = vec!["--budget".to_string(), "1.50".to_string()];
+        assert_eq!(
+            parse_args(&args).expect("args should parse"),
+            CliAction::Repl {
+                model: default_model(),
+                auto_accept: false,
+                budget: Some(1.50),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_budget_equals_form() {
+        let args = vec!["--budget=2.00".to_string()];
+        assert_eq!(
+            parse_args(&args).expect("args should parse"),
+            CliAction::Repl {
+                model: default_model(),
+                auto_accept: false,
+                budget: Some(2.0),
+            }
+        );
+    }
+
+    #[test]
+    fn budget_flag_invalid_value_errors() {
+        let args = vec!["--budget".to_string(), "notanumber".to_string()];
+        assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
+    fn budget_flag_missing_value_errors() {
+        let args = vec!["--budget".to_string()];
+        let result = parse_args(&args);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "missing value for --budget");
+    }
+
+    #[test]
     fn parses_resume_flag_with_slash_command() {
         let args = vec![
             "--resume".to_string(),
