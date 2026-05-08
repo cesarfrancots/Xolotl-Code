@@ -4651,4 +4651,20 @@ mod tests {
             "choices line must contain 'Always allow'"
         );
     }
+
+    #[test]
+    fn cost_footer_format_matches_d05() {
+        let footer = super::format_cost_footer(100, 50, 0.0015, 0.0030);
+        // Must match: "in: X | out: Y | $Z.ZZZZ  [session: $N.NNNN]"
+        assert_eq!(footer, "in: 100 | out: 50 | $0.0015  [session: $0.0030]");
+    }
+
+    #[test]
+    fn budget_error_message_format_d10() {
+        let msg = super::format_budget_error(1.0, 0.75);
+        assert_eq!(
+            msg,
+            "Budget $1.00 exceeded (session: $0.7500). Use --budget to raise the limit."
+        );
+    }
 }
