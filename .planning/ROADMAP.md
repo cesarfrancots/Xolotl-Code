@@ -50,7 +50,26 @@ Cross-cutting constraint: All plans target `main.rs` / `LiveCli` exclusively —
   3. `WorktreeManager` creates, lists, and deletes git worktrees on demand, and each spawned agent runs against exactly one assigned worktree.
   4. Two or more agents writing to the same repo through the git operation queue complete without `index.lock` corruption, and the existing `SubAgentSpawner` CLI behavior still works while also streaming NDJSON events to the supervisor.
   5. Agents can publish and pull bounded (500–1000 token) snapshots through `SharedContextStore` without sharing mutable session objects.
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+**Wave 1:**
+- [ ] 02-01-PLAN.md — Core types: AgentId, AgentState, AgentEvent, AgentControl; supervisor module scaffold (ORC-01)
+
+**Wave 2** *(blocked on Wave 1 — parallel execution within wave)*:
+- [ ] 02-02-PLAN.md — SharedContextStore (ORC-04) + GitOpQueue (ORC-07); tempfile dev-dep added
+- [ ] 02-03-PLAN.md — WorktreeManager: add/list/remove/prune via git CLI (ORC-05)
+
+**Wave 3** *(blocked on Wave 2)*:
+- [ ] 02-04-PLAN.md — AgentHandle (subscribe/stop/pause) + AgentSupervisor registry (ORC-02, ORC-03)
+
+**Wave 4** *(blocked on Wave 3)*:
+- [ ] 02-05-PLAN.md — SubAgentSpawner extended: --working-dir + NDJSON stdout streaming (ORC-06)
+
+**Wave 5** *(blocked on Wave 4)*:
+- [ ] 02-06-PLAN.md — ORC integration tests + spawn_blocking load test with MockApiClient (ORC-01 through ORC-07)
+
+Cross-cutting constraints: All new code lives in `runtime/src/supervisor/`; `AgentSupervisor` must be `Send + Sync` (Phase 3 Tauri managed state); `run_turn()` always in `tokio::task::spawn_blocking` (D-10 invariant enforced by ORC-03 load test with `max_blocking_threads(16)`).
 
 ### Phase 3: Tauri Shell
 **Goal**: A Tauri 2.x desktop app launches and can drive the Rust orchestrator end-to-end through typed IPC, with permission prompts surfacing as UI events.
@@ -110,8 +129,8 @@ Cross-cutting constraint: All plans target `main.rs` / `LiveCli` exclusively —
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. CLI Completion | 0/4 | In progress | — |
-| 2. Orchestration Layer | 0/0 | Not started | — |
+| 1. CLI Completion | 4/4 | Complete | 2026-05-08 |
+| 2. Orchestration Layer | 0/6 | Not started | — |
 | 3. Tauri Shell | 0/0 | Not started | — |
 | 4. Chat UI | 0/0 | Not started | — |
 | 5. Agent Dashboard | 0/0 | Not started | — |

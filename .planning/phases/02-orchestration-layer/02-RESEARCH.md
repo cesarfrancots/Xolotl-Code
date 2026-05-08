@@ -22,13 +22,13 @@ The existing `TaskRegistry` (Arc<Mutex<HashMap>>) and `SubAgentSpawner` (std::pr
 ### Locked Decisions
 - **D-01:** Workers stream events to `AgentSupervisor` via tokio broadcast/mpsc channel — supervisor owns the Sender side, workers hold Sender clones. No NDJSON parsing in-process; channels are the in-process event bus.
 - **D-02:** `AgentEvent` enum variants: `StateChanged(AgentState)`, `ToolCallStarted { tool: String, input: String }`, `ToolCallCompleted { tool: String, output: String }`, `TurnCompleted { usage: TokenUsage }`, `Error { message: String }`. This set is the contract Phase 3 (Tauri) subscribes to.
-- **D-03:** `AgentHandle` exposes both: `subscribe() -> broadcast::Receiver<AgentEvent>` for consumers (Phase 3 Tauri layer will use this), plus `stop()` / `pause()` control methods. Supervisor holds the corresponding Sender.
-- **D-04:** NDJSON lines emitted by child-process workers are serde-serialized `AgentEvent` JSON — same enum as in-process events. Supervisor deserializes directly into `AgentEvent` variants. One schema for both transports.
-- **D-05:** Extend the existing `SubAgentSpawner` struct (do not wrap it). Add `--working-dir` flag and NDJSON stdout streaming to `SubAgentSpawner`. Existing CLI behavior preserved via the same struct; new fields are opt-in.
-- **D-06:** Keyed pull-on-demand — agents call `publish(key: &str, snapshot: &str)` to write named snapshots. Any agent calls `pull(key: &str) -> Option<String>` to read. Internally a `HashMap<String, String>` behind an `Arc<RwLock<...>>`.
-- **D-07:** `publish()` returns `Err(TooLarge)` if the snapshot exceeds 1000 tokens. Token counting uses a simple whitespace tokenizer (no tiktoken dependency). Callers must trim before publishing — no silent truncation.
-- **D-08:** `WorktreeManager` is owned by `AgentSupervisor`. Supervisor assigns a worktree at agent spawn time and releases it when the agent stops.
-- **D-09:** Phase 2 headless verification uses `cargo test` with a stub/mock runtime — `MockRuntime` returns instant canned responses, no real API calls. Load test spawns N concurrent agents and asserts tokio thread pool stays bounded (no starvation). Fast, deterministic, no API key dependency.
+- **D-03:** `AgentHandle` exposes **both**: `subscribe() -> broadcast::Receiver<AgentEvent>` for consumers (Phase 3 Tauri layer will use this), plus `stop()` / `pause()` control methods. Supervisor holds the corresponding Sender.
+- **D-04:** NDJSON lines emitted by child-process workers are **serde-serialized `AgentEvent` JSON** — same enum as in-process events. Supervisor deserializes directly into `AgentEvent` variants. One schema for both transports.
+- **D-05:** **Extend the existing `SubAgentSpawner` struct** (do not wrap it). Add `--working-dir` flag and NDJSON stdout streaming to `SubAgentSpawner`. Existing CLI behavior preserved via the same struct; new fields are opt-in.
+- **D-06:** **Keyed pull-on-demand** — agents call `publish(key: &str, snapshot: &str)` to write named snapshots. Any agent calls `pull(key: &str) -> Option<String>` to read. Internally a `HashMap<String, String>` behind an `Arc<RwLock<...>>`.
+- **D-07:** `publish()` **returns `Err(TooLarge)`** if the snapshot exceeds 1000 tokens. Token counting uses a simple whitespace tokenizer (no tiktoken dependency). Callers must trim before publishing — no silent truncation.
+- **D-08:** `WorktreeManager` is **owned by `AgentSupervisor`**. Supervisor assigns a worktree at agent spawn time and releases it when the agent stops.
+- **D-09:** Phase 2 headless verification uses **`cargo test` with a stub/mock runtime** — `MockRuntime` returns instant canned responses, no real API calls. Load test spawns N concurrent agents and asserts tokio thread pool stays bounded (no starvation). Fast, deterministic, no API key dependency.
 - **D-10:** `ConversationRuntime::run_turn()` MUST always execute inside `tokio::task::spawn_blocking`. This is a day-one invariant — the ORC-03 load test validates it is not violated.
 - **D-11:** Orchestrator runs in-process. Worker sub-agents continue to use child-process `SubAgentSpawner` (D-05 extends it, does not replace it).
 
@@ -116,10 +116,12 @@ The decision to use a whitespace tokenizer (D-07) instead of tiktoken for `Share
     │AgentHandle │         │AgentHandle │         │AgentHandle │
     │  agent-1   │         │  agent-2   │         │  agent-N   │
     │            │         │            │         │            │
+    │event_tx    │         │event_tx    │         │event_tx    │
+    │(mpsc::Sndr)│         │(mpsc::Sndr)│         │(mpsc::Sndr)│
     │broadcast   │         │broadcast   │         │broadcast   │
     │::Sender    │         │::Sender    │         │::Sender    │
     └──────┬─────┘         └──────┬─────┘         └──────┬─────┘
-           │ mpsc::Sender          │                      │
+           │ event_tx clone        │                      │
            │ (events up)           │                      │
     ┌──────▼─────┐                 │                      │
     │spawn_block │                 │                      │
@@ -135,8 +137,8 @@ The decision to use a whitespace tokenizer (D-07) instead of tiktoken for `Share
 
 **Data flow for in-process agent:**
 1. Supervisor calls `spawn_blocking(|| runtime.run_turn(...))` in a tokio task
-2. Worker task sends `AgentEvent` via `mpsc::Sender` to supervisor
-3. Supervisor re-broadcasts via `broadcast::Sender` on the `AgentHandle`
+2. Worker task sends `AgentEvent` via `handle.event_tx.clone()` to supervisor's re-broadcast loop
+3. Re-broadcast loop forwards via `broadcast::Sender` on the `AgentHandle`
 4. Phase 3 Tauri layer calls `handle.subscribe()` to get a `broadcast::Receiver`
 
 **Data flow for child-process agent (D-05/D-11):**
@@ -184,7 +186,9 @@ runtime/src/
 
 pub struct AgentHandle {
     /// Workers send AgentEvent into this; supervisor reads it.
-    event_tx: mpsc::Sender<AgentEvent>,
+    /// MUST be stored as a field — dropping it closes the mpsc channel
+    /// and the re-broadcast loop exits immediately (no events flow).
+    pub event_tx: mpsc::Sender<AgentEvent>,
     /// Supervisor broadcasts via this; Phase 3 subscribes via receiver.
     broadcast_tx: broadcast::Sender<AgentEvent>,
     /// Cancel token for stop() control.
@@ -276,7 +280,7 @@ where
 
 **Thread pool behavior:** tokio's blocking pool expands dynamically. Default max is 512 threads. For N concurrent agents, each occupying one blocking thread during a turn, this is not a problem at any realistic N. [CITED: https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html]
 
-**ORC-03 test strategy:** The load test validates that `run_turn()` is never called outside `spawn_blocking` by using `tokio::runtime::Builder::new_multi_thread().max_blocking_threads(N)` and asserting no deadlocks at N concurrent agents.
+**ORC-03 test strategy:** The load test uses `tokio::runtime::Builder::new_multi_thread().max_blocking_threads(16)` to bound the blocking pool at a known value and confirm 8 concurrent agents fit without exhaustion. `MockApiClient` returns instantly with canned response (no real API). [ASSUMED — tokio Builder API; test pattern from D-09]
 
 ### Pattern 4: SharedContextStore (ORC-04, D-06, D-07)
 
@@ -461,6 +465,7 @@ if config.ndjson_stdout {
 
 - **Calling `run_turn()` from an async context without `spawn_blocking`:** This blocks a tokio worker thread. The existing code uses `std::thread::sleep` inside `run_turn()`. Confirmed by reading conversation.rs lines 424-430. [VERIFIED]
 - **Using `broadcast` for worker→supervisor event reporting:** broadcast has no backpressure; a slow supervisor would silently drop events. Use `mpsc` for the worker→supervisor path (guaranteed delivery) and `broadcast` only for supervisor→UI fan-out.
+- **Naming event_tx as `_event_tx` in spawn_agent():** Prefixing with `_` causes immediate drop, closing the mpsc channel. The re-broadcast loop exits immediately (event_rx returns None). event_tx MUST be stored in AgentHandle as a named field.
 - **Global git queue (single queue for all repos):** Serializes operations across unrelated repos. Key by repo root.
 - **Sharing `TaskRegistry` between supervisor and subagent module:** The existing `TaskRegistry` uses `Arc<Mutex<HashMap>>`. The new `AgentSupervisor` needs a similar structure but with `broadcast::Sender` per entry — don't reuse `TaskRegistry` directly, model after it.
 - **`unwrap()` on broadcast send when no subscribers exist:** `broadcast::Sender::send()` returns `Err` when there are no receivers. This is normal (Phase 3 not yet subscribed). Use `let _ = tx.send(event)` to silently discard when no subscribers.
@@ -541,21 +546,21 @@ pub enum AgentEvent {
 ### Supervisor spawn_agent skeleton
 ```rust
 // Source: [ASSUMED] — synthesized from D-01 through D-11 decisions
-pub async fn spawn_agent(
+pub fn spawn_agent(
     &self,
-    config: SubAgentConfig,
     branch: &str,
 ) -> Result<AgentId, SupervisorError> {
     let agent_id = AgentId::new();
     let worktree_path = self.worktrees.add(&agent_id, branch)?;
 
+    // event_tx stored in AgentHandle — NOT dropped here
     let (event_tx, mut event_rx) = mpsc::channel::<AgentEvent>(64);
     let (broadcast_tx, _) = broadcast::channel::<AgentEvent>(64);
-    let (control_tx, control_rx) = mpsc::channel::<AgentControl>(8);
+    let (control_tx, _control_rx) = mpsc::channel::<AgentControl>(8);
 
     let handle = AgentHandle {
         agent_id: agent_id.clone(),
-        event_tx: event_tx.clone(),
+        event_tx,              // stored in handle — keeps channel open
         broadcast_tx: broadcast_tx.clone(),
         cancel_tx: control_tx,
         worktree_path,
@@ -567,6 +572,7 @@ pub async fn spawn_agent(
         while let Some(event) = event_rx.recv().await {
             let _ = broadcast_tx_clone.send(event);
         }
+        // Loop exits only when all event_tx senders are dropped (agent stopped)
     });
 
     // Register before spawning so handle is available immediately
@@ -575,7 +581,7 @@ pub async fn spawn_agent(
     drop(registry);
 
     // Actual agent task launched separately
-    // (run_turn via spawn_blocking, event_tx for reporting)
+    // (run_turn via spawn_blocking, handle.event_tx.clone() for reporting)
     Ok(agent_id)
 }
 ```
@@ -598,26 +604,35 @@ impl ApiClient for MockApiClient {
     }
 }
 
-#[tokio::test]
-async fn load_test_n_concurrent_agents_stay_bounded() {
-    const N: usize = 8;
-    let mut handles = Vec::new();
-    for _ in 0..N {
-        let handle = tokio::task::spawn_blocking(|| {
-            let mut runtime = ConversationRuntime::new(
-                Session::new(),
-                MockApiClient { delay: Duration::from_millis(10) },
-                StaticToolExecutor::new(),
-                PermissionPolicy::new(PermissionMode::Allow),
-                vec!["system".to_string()],
-            );
-            runtime.run_turn("test", None)
-        });
-        handles.push(handle);
-    }
-    for h in handles {
-        h.await.expect("no panic").expect("turn ok");
-    }
+// ORC-03 load test uses a bounded runtime — NOT #[tokio::test(flavor = "multi_thread")]
+// Bounded pool makes thread exhaustion detectable.
+#[test]
+fn orc03_run_turn_inside_spawn_blocking_8_concurrent_agents() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .max_blocking_threads(16)
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        const N: usize = 8;
+        let mut handles = Vec::new();
+        for _ in 0..N {
+            let handle = tokio::task::spawn_blocking(|| {
+                let mut runtime = ConversationRuntime::new(
+                    Session::new(),
+                    MockApiClient { delay: Duration::from_millis(10) },
+                    StaticToolExecutor::new(),
+                    PermissionPolicy::new(PermissionMode::Allow),
+                    vec!["system".to_string()],
+                );
+                runtime.run_turn("test", None)
+            });
+            handles.push(handle);
+        }
+        for h in handles {
+            h.await.expect("no panic").ok(); // mock may return error — that's fine
+        }
+    });
 }
 ```
 
@@ -640,8 +655,8 @@ async fn load_test_n_concurrent_agents_stay_bounded() {
 | ORC-01 | AgentState transitions: valid and invalid paths | unit | `cargo test -p runtime agent_state` | ❌ Wave 0 |
 | ORC-01 | AgentEvent serde round-trip (serialize → deserialize → same value) | unit | `cargo test -p runtime agent_event_serde` | ❌ Wave 0 |
 | ORC-02 | AgentSupervisor: spawn N agents, list returns N entries, stop removes entry | unit | `cargo test -p runtime supervisor_registry` | ❌ Wave 0 |
-| ORC-02 | AgentHandle::subscribe() returns receiver that sees events | unit | `cargo test -p runtime agent_handle_subscribe` | ❌ Wave 0 |
-| ORC-03 | run_turn() inside spawn_blocking: 8 concurrent agents complete without deadlock | load test | `cargo test -p runtime load_test_spawn_blocking` | ❌ Wave 0 |
+| ORC-02 | AgentHandle::subscribe() returns receiver that sees events (via event_tx→broadcast path) | unit | `cargo test -p runtime agent_handle_subscribe` | ❌ Wave 0 |
+| ORC-03 | run_turn() inside spawn_blocking: 8 concurrent agents complete without deadlock; bounded pool (max_blocking_threads=16) | load test | `cargo test -p runtime orc03_` | ❌ Wave 0 |
 | ORC-04 | publish() accepts ≤1000 token snapshot, returns Ok | unit | `cargo test -p runtime context_store_publish_ok` | ❌ Wave 0 |
 | ORC-04 | publish() rejects >1000 token snapshot, returns Err(TooLarge) | unit | `cargo test -p runtime context_store_too_large` | ❌ Wave 0 |
 | ORC-04 | pull() returns None for missing key, Some for existing key | unit | `cargo test -p runtime context_store_pull` | ❌ Wave 0 |
@@ -738,22 +753,25 @@ async fn load_test_n_concurrent_agents_stay_bounded() {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **AgentId type definition**
    - What we know: The supervisor needs a stable identifier per agent; `String` or a newtype wrapping UUID.
    - What's unclear: Whether `AgentId` should be a newtype (`struct AgentId(Uuid)`) or a plain `String` alias.
    - Recommendation: Use `struct AgentId(String)` with a `Display` impl — avoids pulling in uuid unless already present. UUID is already in workspace deps, so `struct AgentId(Uuid)` is equally viable. Planner decides.
+   - **RESOLVED (02-01):** Uses `struct AgentId(String)` with counter-based ID generation.
 
 2. **WorktreeManager: base directory location**
    - What we know: Worktrees should be sibling directories to the repo root.
    - What's unclear: Should the base dir be `.xolotl-worktrees/` inside the repo, or a temp dir, or configurable?
    - Recommendation: Use `<repo_root>/.xolotl-worktrees/` as default, add to `.gitignore`. This keeps worktrees near the repo for editor tools that respect relative paths.
+   - **RESOLVED (02-03):** Uses `<repo_root>/.xolotl-worktrees/` as the base directory.
 
 3. **Pause semantics for AgentHandle::pause()**
    - What we know: D-03 specifies `pause()` control method.
    - What's unclear: What does pause mean for a synchronous `run_turn()` call already in-flight inside `spawn_blocking`? You cannot interrupt it mid-turn.
    - Recommendation: Implement pause as "don't start the next turn" — a `paused: Arc<AtomicBool>` flag checked before each `spawn_blocking` call. Document that pause takes effect at turn boundaries, not mid-turn.
+   - **RESOLVED (02-04):** Uses `Arc<AtomicBool>` checked before each `spawn_blocking` call — turn-boundary pause only.
 
 ---
 
