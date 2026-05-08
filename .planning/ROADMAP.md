@@ -30,7 +30,13 @@
   3. User sees per-turn and session-total token counts and dollar cost printed after each turn.
   4. User can resume a previous session via `--resume <id>` and continues with full prior context.
   5. Kimi K2 and MiniMax M1 complete a tool-call round-trip against real endpoints without falling back to text-only output, and the agent loop refuses a new turn when the configured cost budget is exceeded.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Permission prompt: 120-char preview + [y]/[n]/[a] choices (CLI-01)
+- [ ] 01-02-PLAN.md — Cost footer D-05 format + --budget flag + D-10 error message (CLI-03, CLI-06)
+- [ ] 01-03-PLAN.md — --resume opens interactive REPL with loaded session (CLI-04)
+- [ ] 01-04-PLAN.md — Slash command verification + Kimi/MiniMax live endpoint validation (CLI-02, CLI-05)
 
 ### Phase 2: Orchestration Layer
 **Goal**: The Rust core can supervise multiple isolated agents running in parallel on separate git worktrees with safe blocking semantics and serialized git writes — verifiable headlessly.
@@ -102,7 +108,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. CLI Completion | 0/0 | Not started | — |
+| 1. CLI Completion | 0/4 | In progress | — |
 | 2. Orchestration Layer | 0/0 | Not started | — |
 | 3. Tauri Shell | 0/0 | Not started | — |
 | 4. Chat UI | 0/0 | Not started | — |
