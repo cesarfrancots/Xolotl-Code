@@ -32,15 +32,16 @@ These capabilities are already implemented in the Rust codebase (`rust/` folder)
 - ✓ SDD (Spec-Driven Development) state machine — existing (`runtime/src/sdd/`)
 - ✓ Web fetch + web search tools — existing (`runtime/src/web_fetch.rs`)
 
+### Validated in Phase 1: CLI Completion *(2026-05-08)*
+
+- ✓ Permission prompt: 120-char preview, `[y] Allow  [n] Deny  [a] Always allow` choices — `main.rs:ReplPermissionPrompter`
+- ✓ `/help`, `/clear`, `/model`, `/cost`, `/save`, `/load` slash commands — `run_repl_loop()`
+- ✓ Per-turn + session cost footer: `in: X | out: Y | $Z.ZZZZ  [session: $N.NNNN]` — `format_cost_footer()`
+- ✓ `--budget <dollars>` startup flag with D-10 budget-exceeded error — `parse_args()` + `LiveCli::set_budget()`
+- ✓ `--resume <id>` opens interactive REPL with loaded session — `run_repl_resumed()` + `run_repl_loop()`
+- ✓ Kimi K2 and MiniMax M1 tool-call round-trips verified against live endpoints
+
 ### Active
-
-Gaps in the CLI (pre-UI work needed):
-
-- [ ] Interactive permission prompting wired to REPL (`permissions.rs` + `main.rs`)
-- [ ] `/help`, `/clear`, `/model`, `/cost`, `/save`, `/load` slash commands
-- [ ] Dollar cost calculation per turn and session
-- [ ] Session resumption via `--resume` flag
-- [ ] Kimi K2 / MiniMax M1 tool-call validation and schema fixes
 
 Tauri desktop app:
 
@@ -65,7 +66,9 @@ Tauri desktop app:
 
 ## Context
 
-The Rust codebase (`rust/crates/`) is ~70% complete as a CLI agent. The agentic loop, streaming API, session management, file tools, permissions, and MCP support are all production-quality. The remaining CLI gaps (slash commands, permission prompting, cost display) are straightforward wiring work.
+The Rust codebase (`rust/crates/`) is production-ready as a headless CLI agent (Phase 1 complete). The agentic loop, streaming API, session management, file tools, permissions, MCP support, cost tracking, session resume, and open-model tool-calling (Kimi/MiniMax) are all verified. Phase 2 builds the Rust actor model for multi-agent orchestration before any UI work.
+
+**Last updated:** 2026-05-08
 
 The Tauri layer needs to be added on top — the Rust core becomes the backend, and a React/Svelte frontend communicates via Tauri's command/event IPC. This is the same architecture used by Codex (Electron) and OpenCode (Tauri-like).
 
