@@ -1,6 +1,7 @@
 //! Sub-agent spawning logic with retry support.
 
 use super::SubAgentResult;
+use crate::supervisor::AgentEvent;
 use crate::usage::TokenUsage;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -20,6 +21,11 @@ pub struct SubAgentConfig {
     pub max_retries: u32,
     /// Initial backoff duration between retries.
     pub retry_backoff: Duration,
+    /// Optional working directory for the child process (D-05: --working-dir flag).
+    pub working_dir: Option<PathBuf>,
+    /// When true, supervisor reads NDJSON AgentEvent lines from child stdout (D-05).
+    /// When false (default), stdout is suppressed — existing behavior preserved.
+    pub ndjson_stdout: bool,
 }
 
 impl Default for SubAgentConfig {
@@ -33,6 +39,8 @@ impl Default for SubAgentConfig {
             timeout: Duration::from_mins(5),
             max_retries: 2,
             retry_backoff: Duration::from_secs(1),
+            working_dir: None,
+            ndjson_stdout: false,
         }
     }
 }
@@ -79,6 +87,18 @@ impl SubAgentConfig {
     #[must_use]
     pub fn with_retry_backoff(mut self, backoff: Duration) -> Self {
         self.retry_backoff = backoff;
+        self
+    }
+
+    #[must_use]
+    pub fn with_working_dir(mut self, working_dir: impl Into<PathBuf>) -> Self {
+        self.working_dir = Some(working_dir.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_ndjson_stdout(mut self) -> Self {
+        self.ndjson_stdout = true;
         self
     }
 
@@ -179,9 +199,21 @@ impl SubAgentSpawner {
             }
         }
 
-        cmd.stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
+        // Pass --working-dir flag when set (D-05)
+        if let Some(ref wd) = config.working_dir {
+            cmd.arg("--working-dir").arg(wd);
+        }
+
+        cmd.stdin(std::process::Stdio::null());
+
+        // Conditional stdout: piped for NDJSON supervisor reading, null for silent mode (D-05)
+        if config.ndjson_stdout {
+            cmd.stdout(std::process::Stdio::piped());
+        } else {
+            cmd.stdout(std::process::Stdio::null());
+        }
+
+        cmd.stderr(std::process::Stdio::null());
 
         let mut child = match cmd.spawn() {
             Ok(child) => child,
@@ -247,6 +279,61 @@ impl SubAgentSpawner {
             started.elapsed(),
             budget_tokens.unwrap_or(0),
         )
+    }
+
+    /// Spawn a child process with ndjson_stdout enabled and return an async stream of AgentEvents.
+    ///
+    /// The child process emits one serde-serialized AgentEvent JSON per line on stdout.
+    /// This method spawns the child, then reads stdout line-by-line until the child exits.
+    ///
+    /// Used by AgentSupervisor to bridge child-process events into the in-process channel (D-04, D-11).
+    pub async fn spawn_ndjson_reader(
+        &self,
+        config: &SubAgentConfig,
+    ) -> Result<Vec<AgentEvent>, String> {
+        let task_id = config.generate_task_id();
+
+        let exe = std::env::current_exe().map_err(|e| format!("exe not found: {e}"))?;
+
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.arg("--print-output")
+            .arg("--task-prompt")
+            .arg(&config.prompt)
+            .arg("--task-id")
+            .arg(&task_id);
+
+        if let Some(model) = &config.model {
+            cmd.arg("--model").arg(model);
+        }
+        if let Some(ref wd) = config.working_dir {
+            cmd.arg("--working-dir").arg(wd);
+        }
+
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+
+        let mut child = cmd.spawn().map_err(|e| format!("spawn failed: {e}"))?;
+        let stdout = child.stdout.take().ok_or("no stdout")?;
+
+        let mut events = Vec::new();
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(stdout);
+        for line in reader.lines() {
+            match line {
+                Ok(line) if !line.trim().is_empty() => {
+                    if let Ok(event) = serde_json::from_str::<AgentEvent>(&line) {
+                        events.push(event);
+                    }
+                    // Lines that do not parse as AgentEvent are silently skipped
+                    // (regular text output from the CLI that is not NDJSON)
+                }
+                _ => break,
+            }
+        }
+
+        let _ = child.wait();
+        Ok(events)
     }
 
     fn parse_token_usage_from_output(output: &str) -> Option<TokenUsage> {
@@ -326,5 +413,28 @@ mod tests {
         let config = SubAgentConfig::default();
         assert_eq!(config.max_retries, 2);
         assert_eq!(config.retry_backoff, Duration::from_secs(1));
+    }
+
+    #[test]
+    fn sub_agent_config_with_working_dir() {
+        let config = SubAgentConfig::new("test", "prompt")
+            .with_working_dir("/tmp/worktree-1");
+        assert_eq!(
+            config.working_dir,
+            Some(std::path::PathBuf::from("/tmp/worktree-1"))
+        );
+    }
+
+    #[test]
+    fn sub_agent_config_with_ndjson_stdout() {
+        let config = SubAgentConfig::new("test", "prompt").with_ndjson_stdout();
+        assert!(config.ndjson_stdout);
+    }
+
+    #[test]
+    fn sub_agent_config_defaults_no_ndjson() {
+        let config = SubAgentConfig::default();
+        assert!(!config.ndjson_stdout);
+        assert!(config.working_dir.is_none());
     }
 }
