@@ -4,10 +4,10 @@
 //! Phase 3 (Tauri) imports from `runtime::supervisor::*`.
 
 mod agent_state;
+mod context_store;
+mod git_queue;
 
-// Wave 2 modules (created in Plan 02 and Plan 03):
-// mod context_store;
-// mod git_queue;
+// Wave 2 modules (Plan 03):
 // mod worktree;
 
 // Wave 3 modules (created in Plan 04):
@@ -15,3 +15,5 @@ mod agent_state;
 // mod supervisor;
 
 pub use agent_state::{AgentControl, AgentEvent, AgentId, AgentState};
+pub use context_store::{ContextError, SharedContextStore};
+pub use git_queue::GitOpQueue;
