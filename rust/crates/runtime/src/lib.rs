@@ -67,7 +67,11 @@ pub use subagent::{
     SubAgentConfig, SubAgentInfo, SubAgentResult, SubAgentSpawner, SubAgentStatus, TaskRegistry,
     TaskStatus,
 };
-pub use supervisor::{AgentControl, AgentEvent, AgentId, AgentState};
+pub use supervisor::{
+    AgentControl, AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor,
+    ContextError, GitOpQueue, SharedContextStore, SupervisorError,
+    WorktreeError, WorktreeManager,
+};
 pub use todo::{
     todo_read, todo_write, TodoItem, TodoOutput, TodoPriority, TodoStatus, TodoWriteInput,
 };
