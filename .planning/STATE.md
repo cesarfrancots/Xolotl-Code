@@ -9,18 +9,18 @@
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** Rust orchestration layer complete — AgentSupervisor, WorktreeManager, SharedContextStore, GitOpQueue, and NDJSON spawner all verified headlessly. Next: Tauri 2.x desktop shell with typed IPC.
+- **Current Focus:** Tauri shell complete — typed IPC, permission prompter, plugin bundle, all TAU requirements verified in live window. Next: Phase 4 Chat UI (streaming, tool blocks, sessions, model selector, slash commands).
 
 ## Current Position
 
 - **Milestone:** v1
-- **Phase:** 3 — Tauri Shell
-- **Plan:** 03-03 complete; executing 03-04 (Wave 4)
-- **Status:** Executing Phase 3
-- **Progress:** Phase 2 of 6 complete; Phase 3 in progress (3/5 plans done)
+- **Phase:** 4 — Chat UI (next)
+- **Plan:** Phase 3 complete (5/5 plans)
+- **Status:** Phase 3 complete; Phase 4 not started
+- **Progress:** Phase 3 of 6 complete
 
 ```
-[x][x][ ][ ][ ][ ]
+[x][x][x][ ][ ][ ]
  1  2  3  4  5  6
 ```
 
@@ -28,10 +28,10 @@
 
 | Metric | Value |
 |--------|-------|
-| Phases completed | 2 / 6 |
+| Phases completed | 3 / 6 |
 | v1 requirements mapped | 40 / 40 |
-| v1 requirements completed | 13 / 40 |
-| Plans completed | 10 |
+| v1 requirements completed | 18 / 40 |
+| Plans completed | 15 |
 | Active blockers | 0 |
 
 ## Accumulated Context
@@ -48,29 +48,33 @@
 - GitOpQueue uses `spawn_blocking` inside `tokio::spawn` to avoid blocking tokio worker threads on `std::process::Command`.
 - `thiserror` added to runtime `[dependencies]` (was workspace-only); resolves compile blocker for ContextError derive.
 - WorktreeManager uses Arc<Mutex<HashMap>> (not RwLock) — write-heavy add/remove vs SharedContextStore's read-heavy pull workload.
+- MSVC toolchain required for Tauri on Windows (GNU toolchain incompatible); resolved in Phase 3.
+- `std::sync::mpsc` (not tokio::oneshot) for TauriPermissionPrompter — enables recv_timeout(60s) without async complexity.
+- AlwaysAllow emits policy-update-requested and returns Allow — Phase 3 authorized scope; full session persistence deferred to Phase 4.
+- `bindings.ts` is committed to repo (D-13); partially hand-updated due to WebView2 DLL issue preventing binary execution.
+- `fs:default` (not `fs:allow-*`) for Phase 3 — path scoping deferred to Phase 4 when UI file ops are defined.
 
 ### Open Todos
 
-- None — initial roadmap just defined; first action is to plan Phase 1.
+- CR-01 (medium priority): permission_prompter.rs — use `.lock().map_err()` instead of `.unwrap()` to avoid process crash on poisoned mutex.
+- CR-02 (medium priority): respond_to_permission — use `HashMap::remove` not `.get()` to prevent double-resolve race.
+- CR-03 (low priority): lib.rs — validate git rev-parse repo root is ancestor of cwd.
+- CR-04 (low priority for Phase 3, revisit in Phase 4): capabilities/default.json — add path scope to `fs:default`.
 
 ### Blockers
 
-- None at initialization. Note: Windows build fix (WinLibs + `rustup override set stable-x86_64-pc-windows-gnu`) must be in place locally before Phase 1 work; Tauri/GNU compatibility revisited at Phase 3.
+- None.
 
 ### Open Questions (carried from research)
 
-1. GNU toolchain + Tauri 2.x compatibility on Windows (Phase 3 blocker).
-2. Kimi K2 / MiniMax M1 tool-call schema edge cases against real endpoints (Phase 1 deliverable).
-3. `specta` + `tauri-specta` maintenance status and Tauri 2.1.x compatibility (Phase 3 decision).
-4. Tailwind 4 stable release status (Phase 4 decision).
-5. `SubAgentResult` structured contract (Phase 2 deliverable).
-6. Orchestrator prompt design for worker models (Phase 5).
+1. Tailwind 4 stable release status (Phase 4 decision).
+2. Orchestrator prompt design for worker models (Phase 5).
 
 ## Session Continuity
 
-- **Last action:** 03-03 complete — AgentSupervisor wired as managed state, spawn/list/stop commands with event relay (Lagged handled), bindings.ts regenerated, tsc passes.
-- **Next action:** Execute 03-04 (TauriPermissionPrompter + respond_to_permission + PendingPrompts managed state).
-- **Last updated:** 2026-05-08
+- **Last action:** Phase 3 complete — all 5 plans executed, 22/22 must-haves verified in live Tauri window. TAU-01 through TAU-05 all pass. REVIEW.md has 4 critical findings (none blocking for Phase 4 start).
+- **Next action:** Discuss or plan Phase 4 (Chat UI).
+- **Last updated:** 2026-05-09
 
 ---
 *State initialized: 2026-05-07*

@@ -11,7 +11,7 @@
 
 - [x] **Phase 1: CLI Completion** — Finish CLI gaps and lock down open-model tool-calling so the headless agent is production-ready before any UI work. *(complete 2026-05-08)*
 - [x] **Phase 2: Orchestration Layer** — Build the Rust-only actor model (supervisor, worktrees, shared context, git serialization) and validate headlessly. *(complete 2026-05-08)*
-- [ ] **Phase 3: Tauri Shell** — Stand up the Tauri 2.x desktop shell with capability config, managed state, and TypeScript-typed IPC to the Rust core.
+- [x] **Phase 3: Tauri Shell** — Stand up the Tauri 2.x desktop shell with capability config, managed state, and TypeScript-typed IPC to the Rust core. *(complete 2026-05-09)*
 - [ ] **Phase 4: Chat UI** — Deliver the table-stakes chat experience: streaming, tool blocks, diffs, sessions, permissions, model selector, slash commands.
 - [ ] **Phase 5: Agent Dashboard** — Make multi-agent orchestration visible: spawn, monitor, budget, and notify across multiple concurrent agents.
 - [ ] **Phase 6: Parallel Worktrees + Team Orchestration** — Enable parallel agents on isolated worktrees with role-based teams, swarm strategies, and merge checkpoints.
@@ -97,7 +97,7 @@ Plans:
 - [x] 03-04-PLAN.md — TauriPermissionPrompter + respond_to_permission + PendingPrompts managed state (TAU-03) *(complete 2026-05-09)*
 
 **Wave 5** *(blocked on Wave 4)*:
-- [ ] 03-05-PLAN.md — Plugins registered + capability grants + final tsc check + human smoke test checkpoint (TAU-04, TAU-05)
+- [x] 03-05-PLAN.md — Plugins registered + capability grants + final tsc check + human smoke test checkpoint (TAU-04, TAU-05) *(complete 2026-05-09)*
 
 Cross-cutting constraints: tauri-app/src-tauri/ is a separate Cargo workspace from rust/ (D-04); specta pinned at "=2.0.0-rc.25" in both Cargo.toml files; TauriPermissionPrompter lives in tauri-app/src-tauri/src/ only — runtime crate must not import tauri.
 
@@ -148,7 +148,7 @@ Cross-cutting constraints: tauri-app/src-tauri/ is a separate Cargo workspace fr
 |-------|----------------|--------|-----------|
 | 1. CLI Completion | 4/4 | Complete | 2026-05-08 |
 | 2. Orchestration Layer | 6/6 | Complete | 2026-05-08 |
-| 3. Tauri Shell | 4/5 | In Progress | — |
+| 3. Tauri Shell | 5/5 | Complete | 2026-05-09 |
 | 4. Chat UI | 0/0 | Not started | — |
 | 5. Agent Dashboard | 0/0 | Not started | — |
 | 6. Parallel Worktrees + Team Orchestration | 0/0 | Not started | — |
@@ -173,4 +173,4 @@ Cross-cutting constraints: tauri-app/src-tauri/ is a separate Cargo workspace fr
 
 ---
 *Roadmap created: 2026-05-07*
-*Last updated: 2026-05-08 — Phase 3 planned (5 plans, 5 sequential waves)*
+*Last updated: 2026-05-09 — Phase 3 complete (5/5 plans, 22/22 must-haves verified)*
