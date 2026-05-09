@@ -81,8 +81,25 @@ Cross-cutting constraints: All new code lives in `runtime/src/supervisor/`; `Age
   3. A tool-call permission request originating in the Rust runtime surfaces in the frontend as a typed `AgentEvent` via `TauriPermissionPrompter`, and the user's response flows back to unblock the agent.
   4. `specta` + `tauri-specta` regenerate TypeScript definitions for every `AgentEvent`, `AgentState`, and command on build, and the frontend imports them without hand-written types.
   5. `window-state`, `clipboard-manager`, and `fs` plugins are installed and capability-granted, and a smoke test exercises each from the frontend.
-**Plans**: TBD
-**UI hint**: yes
+**Plans**: 5 plans
+
+Plans:
+**Wave 1:**
+- [x] 03-01-PLAN.md — MSVC toolchain switch + tauri-app scaffold + runtime path dep (TAU-01 partial) *(complete 2026-05-08)*
+
+**Wave 2** *(blocked on Wave 1)*:
+- [ ] 03-02-PLAN.md — specta::Type derives on runtime types + AlwaysAllow + minimal lib.rs + bindings.ts generation (TAU-01, TAU-04)
+
+**Wave 3** *(blocked on Wave 2)*:
+- [ ] 03-03-PLAN.md — AgentSupervisor managed state + lifecycle commands + event relay with Lagged handling (TAU-02)
+
+**Wave 4** *(blocked on Wave 3)*:
+- [ ] 03-04-PLAN.md — TauriPermissionPrompter + respond_to_permission + PendingPrompts managed state (TAU-03)
+
+**Wave 5** *(blocked on Wave 4)*:
+- [ ] 03-05-PLAN.md — Plugins registered + capability grants + final tsc check + human smoke test checkpoint (TAU-04, TAU-05)
+
+Cross-cutting constraints: tauri-app/src-tauri/ is a separate Cargo workspace from rust/ (D-04); specta pinned at "=2.0.0-rc.25" in both Cargo.toml files; TauriPermissionPrompter lives in tauri-app/src-tauri/src/ only — runtime crate must not import tauri.
 
 ### Phase 4: Chat UI
 **Goal**: A user can run a complete streamed chat session in the Tauri app with every table-stakes coding-assistant feature working.
@@ -130,8 +147,8 @@ Cross-cutting constraints: All new code lives in `runtime/src/supervisor/`; `Age
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. CLI Completion | 4/4 | Complete | 2026-05-08 |
-| 2. Orchestration Layer | 3/6 | In progress | — |
-| 3. Tauri Shell | 0/0 | Not started | — |
+| 2. Orchestration Layer | 6/6 | Complete | 2026-05-08 |
+| 3. Tauri Shell | 0/5 | Not started | — |
 | 4. Chat UI | 0/0 | Not started | — |
 | 5. Agent Dashboard | 0/0 | Not started | — |
 | 6. Parallel Worktrees + Team Orchestration | 0/0 | Not started | — |
@@ -156,3 +173,4 @@ Cross-cutting constraints: All new code lives in `runtime/src/supervisor/`; `Age
 
 ---
 *Roadmap created: 2026-05-07*
+*Last updated: 2026-05-08 — Phase 3 planned (5 plans, 5 sequential waves)*

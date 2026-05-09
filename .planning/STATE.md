@@ -15,9 +15,9 @@
 
 - **Milestone:** v1
 - **Phase:** 3 — Tauri Shell
-- **Plan:** — (Phase 2 complete; Phase 3 not yet planned)
-- **Status:** Phase 2 complete; all 6 plans executed and verified
-- **Progress:** Phase 2 of 6 complete; Phase 3 not yet planned
+- **Plan:** 03-01 complete; executing 03-02 (Wave 2)
+- **Status:** Executing Phase 3
+- **Progress:** Phase 2 of 6 complete; Phase 3 in progress (1/5 plans done)
 
 ```
 [x][x][ ][ ][ ][ ]
@@ -68,8 +68,8 @@
 
 ## Session Continuity
 
-- **Last action:** Phase 3 context gathered — 4 areas discussed (toolchain, project layout, event streaming, permission round-trip). CR-01–CR-04 fixes applied (151 tests still green).
-- **Next action:** /gsd-plan-phase 3 to plan the Tauri Shell phase.
+- **Last action:** 03-01 complete — MSVC toolchain switched, tauri-app/ scaffolded, runtime path dep wired, cargo build passes both workspaces.
+- **Next action:** Execute 03-02 (specta types + type pipeline + minimal lib.rs).
 - **Last updated:** 2026-05-08
 
 ---
