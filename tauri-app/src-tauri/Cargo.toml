@@ -1,0 +1,36 @@
+[package]
+name = "xolotl"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "xolotl_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "xolotl"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1.6", features = ["v4"] }
+# Runtime path dependency (D-04) — path relative to this Cargo.toml
+runtime = { path = "../../rust/crates/runtime" }
+# specta + tauri-specta (D-13) — pin exact rc version
+specta = { version = "=2.0.0-rc.25", features = [] }
+specta-typescript = "0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+# Plugins (TAU-05)
+tauri-plugin-window-state = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-fs = "2"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+default = ["custom-protocol"]
