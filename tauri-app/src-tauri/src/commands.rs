@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use runtime::{AgentHandle, AgentId, AgentSupervisor};
 use tokio::sync::broadcast::error::RecvError;
+use crate::permission_prompter::{PendingPrompts, PermissionDecision, PermissionRequestPayload};
 
 #[tauri::command]
 #[specta::specta]
@@ -44,6 +45,74 @@ pub async fn stop_agent(
 ) -> Result<(), String> {
     let id = AgentId(agent_id);
     supervisor.stop_agent(&id).await.map_err(|e| e.to_string())
+}
+
+/// respond_to_permission: resolves a pending permission prompt (D-10 / D-11).
+/// Called from the frontend after the user makes a decision in the UI.
+#[tauri::command]
+#[specta::specta]
+pub fn respond_to_permission(
+    pending_prompts: tauri::State<'_, PendingPrompts>,
+    prompt_id: String,
+    decision: PermissionDecision,
+) -> Result<(), String> {
+    let prompts = pending_prompts.lock().map_err(|e| e.to_string())?;
+    match prompts.get(&prompt_id) {
+        Some(tx) => tx.send(decision).map_err(|e| e.to_string()),
+        None => Err(format!(
+            "prompt_id {prompt_id} not found (may have timed out or already resolved)"
+        )),
+    }
+}
+
+/// test_permission_prompt: emits a synthetic permission-request event for smoke testing.
+/// Allows verifying the full permission round-trip from DevTools without a running agent.
+/// The receiver is held alive in a background thread for 10 seconds so that
+/// respond_to_permission can complete the round-trip.
+#[tauri::command]
+#[specta::specta]
+pub fn test_permission_prompt(
+    app_handle: AppHandle,
+    pending_prompts: tauri::State<'_, PendingPrompts>,
+) -> Result<String, String> {
+    let prompt_id = uuid::Uuid::new_v4().to_string();
+    let (tx, rx) = std::sync::mpsc::channel::<PermissionDecision>();
+
+    pending_prompts
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(prompt_id.clone(), tx);
+
+    app_handle
+        .emit(
+            "permission-request",
+            PermissionRequestPayload {
+                prompt_id: prompt_id.clone(),
+                tool_name: "test_tool".to_string(),
+                preview: "This is a smoke-test permission prompt".to_string(),
+            },
+        )
+        .map_err(|e| e.to_string())?;
+
+    // Hold the receiver alive in a background thread for 10 seconds so that
+    // respond_to_permission can complete the round-trip. If no response arrives,
+    // clean up the pending entry automatically.
+    let pending = pending_prompts.inner().clone();
+    let id_clone = prompt_id.clone();
+    std::thread::spawn(move || {
+        match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(decision) => {
+                println!("[smoke-test] permission response received: {:?}", decision);
+            }
+            Err(_) => {
+                // Timed out — clean up so the HashMap does not grow unboundedly
+                let _ = pending.lock().map(|mut p| p.remove(&id_clone));
+                println!("[smoke-test] permission prompt timed out");
+            }
+        }
+    });
+
+    Ok(prompt_id)
 }
 
 /// spawn_event_relay: dedicated tokio task per agent (D-07 / D-08).

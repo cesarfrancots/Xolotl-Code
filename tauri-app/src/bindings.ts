@@ -14,6 +14,10 @@ export const commands = {
 	listAgents: () => __TAURI_INVOKE<string[]>("list_agents"),
 	/**  stop_agent: sends stop signal to the named agent (async because stop_agent() is async). */
 	stopAgent: (agentId: string) => typedError<null, string>(__TAURI_INVOKE("stop_agent", { agentId })),
+	/** respond_to_permission: resolves a pending permission prompt (D-10 / D-11). */
+	respondToPermission: (promptId: string, decision: PermissionDecision) => typedError<null, string>(__TAURI_INVOKE("respond_to_permission", { promptId, decision })),
+	/** test_permission_prompt: emits a synthetic permission-request event for smoke testing. */
+	testPermissionPrompt: () => typedError<string, string>(__TAURI_INVOKE("test_permission_prompt")),
 };
 
 /* Types */
@@ -56,6 +60,9 @@ export type AgentId = string;
 export type AgentState = "Idle" | "Planning" | "Executing" | 
 /**  Blocked on a permission prompt or context pull. */
 "Waiting" | "Done" | "Failed";
+
+/** Frontend-facing decision type with three options (D-12). */
+export type PermissionDecision = "Allow" | "Deny" | "AlwaysAllow";
 
 export type TokenUsage = {
 	input_tokens: number,

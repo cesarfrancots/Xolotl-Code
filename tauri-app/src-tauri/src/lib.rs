@@ -3,9 +3,11 @@ use specta_typescript::Typescript;
 use tauri_specta::{collect_commands, Builder};
 
 use runtime::{AgentEvent, AgentId, AgentState, AgentSupervisor};
-use crate::commands::{list_agents, smoke_test, spawn_agent, stop_agent};
+use crate::commands::{list_agents, respond_to_permission, smoke_test, spawn_agent, stop_agent, test_permission_prompt};
+use crate::permission_prompter::{PermissionDecision, PendingPrompts};
 
 mod commands;
+mod permission_prompter;
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
@@ -14,11 +16,13 @@ fn make_builder() -> Builder<tauri::Wry> {
             spawn_agent,
             list_agents,
             stop_agent,
+            respond_to_permission,
+            test_permission_prompt,
         ])
         .typ::<AgentId>()
         .typ::<AgentState>()
         .typ::<AgentEvent>()
-    // PermissionRequestPayload added in Plan 03-04 (D-14).
+        .typ::<PermissionDecision>()
     // AgentControl excluded per D-14 — lifecycle commands abstract over it.
 }
 
@@ -50,6 +54,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(Arc::new(AgentSupervisor::new(repo_root)))
+        .manage(PendingPrompts::default())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
