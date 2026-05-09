@@ -53,6 +53,9 @@ pub fn run() {
         .unwrap_or_else(|| std::env::current_dir().expect("cwd must be accessible"));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_fs::init())
         .manage(Arc::new(AgentSupervisor::new(repo_root)))
         .manage(PendingPrompts::default())
         .invoke_handler(builder.invoke_handler())
