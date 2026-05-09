@@ -58,10 +58,19 @@ impl WorktreeManager {
     /// Runs: `git worktree add -b <branch> <path>`
     ///
     /// # Errors
-    /// Returns `WorktreeError::GitFailed` if git exits non-zero.
+    /// Returns `WorktreeError::GitFailed` if git exits non-zero or branch name is invalid.
     pub fn add(&self, agent_id: &AgentId, branch: &str) -> Result<PathBuf, WorktreeError> {
+        // Reject branch names starting with '-' to prevent git flag injection (CR-02)
+        if branch.starts_with('-') {
+            return Err(WorktreeError::GitFailed(format!(
+                "invalid branch name (starts with '-'): {branch}"
+            )));
+        }
+
         let path = self.worktrees_base.join(agent_id.to_string());
-        let path_str = path.to_str().unwrap_or_default();
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| WorktreeError::GitFailed(format!("worktree path is not valid UTF-8: {path:?}")))?;
 
         let output = std::process::Command::new("git")
             .args(["worktree", "add", "-b", branch, path_str])
@@ -81,19 +90,24 @@ impl WorktreeManager {
     /// Remove the worktree assigned to `agent_id`.
     ///
     /// Runs: `git worktree remove --force <path>`
-    /// Removes the entry from the active map even if git fails (best-effort cleanup).
+    /// Only removes the map entry after git succeeds to keep in-memory state consistent (CR-03).
     ///
     /// # Errors
     /// Returns `WorktreeError::NotAssigned` if `agent_id` has no active worktree.
     pub fn remove(&self, agent_id: &AgentId) -> Result<(), WorktreeError> {
+        // Peek the path without removing from the map yet (CR-03: remove only on git success)
         let path = {
-            let mut active = self.active.lock().unwrap();
+            let active = self.active.lock().unwrap();
             active
-                .remove(agent_id)
+                .get(agent_id)
+                .cloned()
                 .ok_or_else(|| WorktreeError::NotAssigned(agent_id.clone()))?
         };
 
-        let path_str = path.to_str().unwrap_or_default();
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| WorktreeError::GitFailed(format!("worktree path is not valid UTF-8: {path:?}")))?;
+
         let output = std::process::Command::new("git")
             .args(["worktree", "remove", "--force", path_str])
             .current_dir(&self.repo_root)
@@ -104,6 +118,9 @@ impl WorktreeManager {
             return Err(WorktreeError::GitFailed(stderr));
         }
 
+        // Remove from map only after git succeeds (CR-03)
+        let mut active = self.active.lock().unwrap();
+        active.remove(agent_id);
         Ok(())
     }
 

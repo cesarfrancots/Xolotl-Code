@@ -13,7 +13,7 @@
 
 **Windows Toolchain**
 - D-01: Switch the entire project to `stable-x86_64-pc-windows-msvc`. Remove the WinLibs/GNU override from `rust/.cargo/config.toml`.
-- D-02: Visual Studio Build Tools are NOT yet installed. The first plan step must document the install command and verify `cargo build` succeeds before any Tauri work.
+- D-02: Visual Studio Build Tools 2026 (version 18.4) ARE installed at `C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools`. The first plan step must update stable-msvc to 1.95.0 (`rustup update stable-x86_64-pc-windows-msvc`) and verify `cargo build` succeeds.
 - D-03: Single toolchain for both the existing Rust workspace and the new Tauri crate.
 
 **Project Layout**
@@ -33,7 +33,7 @@
 
 **Type Generation**
 - D-13: `tauri-specta` 2.x. Generated types to `tauri-app/src/bindings.ts`. Committed to repo.
-- D-14: Types to export: `AgentId`, `AgentState`, `AgentEvent`, `AgentControl`, `PermissionRequest`, `PermissionDecision`, and all `#[tauri::command]` signatures.
+- D-14: Types to export: `AgentId`, `AgentState`, `AgentEvent`, `PermissionRequestPayload`, `PermissionDecision`, and all `#[tauri::command]` signatures. (`AgentControl` excluded — lifecycle commands abstract over it; `PermissionRequest` replaced by `PermissionRequestPayload` for the Tauri event layer.)
 
 ### Claude's Discretion
 - Tauri capability manifest format and permission scoping
@@ -793,22 +793,16 @@ linker = "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools\\VC\\
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED 2026-05-08)
 
 1. **Does Rust 1.95 cc crate auto-detect VS Build Tools 2026 (version 18)?**
-   - What we know: vswhere is present and returns the VS 18 installation. The cc crate uses vswhere.
-   - What's unclear: Whether the cc crate in Rust 1.95 has an allowlist of recognized VS major versions (15, 16, 17) that excludes 18.
-   - Recommendation: Wave 0-B build test answers this immediately. If it fails, the explicit linker path workaround is documented in Risk 1.
+   - **RESOLVED:** Unknown until Wave 0-B build test runs. Risk 1 documents the explicit linker path workaround (`[target.x86_64-pc-windows-msvc] linker = "..."`) if auto-detection fails. Plan 03-01 includes this fallback.
 
 2. **Should `AgentControl` derive `specta::Type` and be exported in D-14?**
-   - What we know: D-14 lists AgentControl for export, but it currently has no Serialize/Deserialize derives.
-   - What's unclear: Does the frontend actually need to send AgentControl values directly, or do the lifecycle commands (stop_agent, pause_agent) abstract over it?
-   - Recommendation: Since lifecycle commands abstract over AgentControl, it does NOT need TypeScript export. Add Serialize/Deserialize + Type only if the frontend needs to construct it directly. For Phase 3, omit from export.
+   - **RESOLVED (user decision 2026-05-08):** AgentControl is EXCLUDED from TypeScript export. D-14 updated in CONTEXT.md. Rationale: lifecycle commands (spawn_agent, stop_agent) abstract over it; the frontend never constructs AgentControl directly.
 
 3. **How does AlwaysAllow update the per-session PermissionPolicy in Phase 3?**
-   - What we know: The agent's PermissionPolicy is owned by the conversation context inside spawn_blocking. It's not accessible as Tauri managed state.
-   - What's unclear: Whether Phase 3 needs real AlwaysAllow persistence or just needs to recognize the decision and document the limitation.
-   - Recommendation: Phase 3 implements AlwaysAllow as Allow (current call succeeds) and emits a "policy-update-requested" event. Full persistence deferred to Phase 4 when the full agent loop is wired into Tauri. Document as known limitation.
+   - **RESOLVED (user decision 2026-05-08):** Phase 3 implements AlwaysAllow as Allow for the current call only, emits "policy-update-requested" event. Full PermissionPolicy mutation deferred to Phase 4. D-12 updated in CONTEXT.md to reflect this authorized scope split.
 
 ---
 

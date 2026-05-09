@@ -20,8 +20,11 @@ Stand up the Tauri 2.x desktop app with typed IPC wiring to the existing Rust or
 ### Windows Toolchain
 - **D-01:** Switch the entire project to `stable-x86_64-pc-windows-msvc`. Remove the WinLibs/GNU
   override from `rust/.cargo/config.toml`. The `ring` crate (Bedrock SigV4) compiles on MSVC.
-- **D-02:** Visual Studio Build Tools are NOT yet installed. The first plan step must document the
-  install command (winget or VS installer) and verify `cargo build` succeeds before any Tauri work.
+- **D-02:** ~~Visual Studio Build Tools are NOT yet installed.~~ **UPDATED 2026-05-08:** VS Build
+  Tools 2026 (version 18.4) is already installed at `C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools`
+  with the C++ workload, `link.exe`, and `cl.exe` present. The first plan step is: update
+  `stable-x86_64-pc-windows-msvc` to 1.95.0, remove the GNU override from `rust/.cargo/config.toml`,
+  verify `cargo test` green. No winget install step needed.
 - **D-03:** Single toolchain for both the existing Rust workspace and the new Tauri crate. No
   dual-toolchain split.
 
@@ -56,15 +59,22 @@ Stand up the Tauri 2.x desktop app with typed IPC wiring to the existing Rust or
      up the sender and resolves it.
 - **D-11:** Timeout: 60 seconds. On timeout, return `PermissionDecision::Deny` and emit a
   `"permission-timeout"` event so the frontend can display feedback.
-- **D-12:** Three decision values: `Allow`, `Deny`, `AlwaysAllow`. `AlwaysAllow` updates the
-  agent's `PermissionPolicy` for the rest of the session, matching CLI `[a]` behavior.
+- **D-12:** Three decision values: `Allow`, `Deny`, `AlwaysAllow`. **Phase 3 scope (UPDATED
+  2026-05-08):** `AlwaysAllow` returns `Allow` for the current call only and emits a
+  `"policy-update-requested"` event to the frontend. Full in-session `PermissionPolicy` mutation
+  (matching CLI `[a]` behavior) is deferred to Phase 4 when the full agent loop is wired into
+  Tauri managed state. This is the authorized Phase 3 scope — not a gap.
 
 ### Type Generation
 - **D-13:** `specta` + `tauri-specta` version: use `tauri-specta` 2.x (the Tauri 2.x-compatible
   release). Generated types output to `tauri-app/src/bindings.ts`. Committed to the repo.
   Build step regenerates on change. Frontend imports from `./bindings` — no hand-written types.
-- **D-14:** Types to export: `AgentId`, `AgentState`, `AgentEvent`, `AgentControl`,
-  `PermissionRequest`, `PermissionDecision`, and all `#[tauri::command]` signatures.
+- **D-14:** Types to export: `AgentId`, `AgentState`, `AgentEvent`, `PermissionDecision`,
+  `PermissionRequestPayload` (the IPC wire type — see note), and all `#[tauri::command]`
+  signatures. **UPDATED 2026-05-08:** `AgentControl` excluded — the frontend never constructs it
+  directly; lifecycle commands (`spawn_agent`, `stop_agent`) abstract over it. `PermissionRequest`
+  (runtime type) replaced by `PermissionRequestPayload` (Tauri-layer struct with `prompt_id`,
+  `tool_name`, `preview`) as the IPC-emitted form — the runtime type is internal only.
 
 ### Claude's Discretion
 - Tauri capability manifest (`capabilities/*.json`) — researcher should follow Tauri 2.x

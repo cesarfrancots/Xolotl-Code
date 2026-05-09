@@ -237,7 +237,7 @@ impl SubAgentSpawner {
             }
         }
 
-        if child.try_wait().map_or(true, |w| w.is_none()) {
+        if child.try_wait().map_or(false, |w| w.is_none()) {
             let _ = child.kill();
             return SubAgentResult::failure(
                 task_id.to_string(),
@@ -325,10 +325,9 @@ impl SubAgentSpawner {
                     if let Ok(event) = serde_json::from_str::<AgentEvent>(&line) {
                         events.push(event);
                     }
-                    // Lines that do not parse as AgentEvent are silently skipped
-                    // (regular text output from the CLI that is not NDJSON)
                 }
-                _ => break,
+                Ok(_) => continue,
+                Err(_) => break,
             }
         }
 
