@@ -15,9 +15,9 @@
 
 - **Milestone:** v1
 - **Phase:** 3 — Tauri Shell
-- **Plan:** 03-01 complete; executing 03-02 (Wave 2)
+- **Plan:** 03-02 complete; executing 03-03 (Wave 3)
 - **Status:** Executing Phase 3
-- **Progress:** Phase 2 of 6 complete; Phase 3 in progress (1/5 plans done)
+- **Progress:** Phase 2 of 6 complete; Phase 3 in progress (2/5 plans done)
 
 ```
 [x][x][ ][ ][ ][ ]
@@ -68,8 +68,8 @@
 
 ## Session Continuity
 
-- **Last action:** 03-01 complete — MSVC toolchain switched, tauri-app/ scaffolded, runtime path dep wired, cargo build passes both workspaces.
-- **Next action:** Execute 03-02 (specta types + type pipeline + minimal lib.rs).
+- **Last action:** 03-02 complete — specta::Type derives on runtime types, AlwaysAllow added, minimal lib.rs + smoke_test command, bindings.ts generated, tsc passes.
+- **Next action:** Execute 03-03 (AgentSupervisor managed state + lifecycle commands + event relay).
 - **Last updated:** 2026-05-08
 
 ---

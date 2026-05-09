@@ -88,7 +88,7 @@ Plans:
 - [x] 03-01-PLAN.md — MSVC toolchain switch + tauri-app scaffold + runtime path dep (TAU-01 partial) *(complete 2026-05-08)*
 
 **Wave 2** *(blocked on Wave 1)*:
-- [ ] 03-02-PLAN.md — specta::Type derives on runtime types + AlwaysAllow + minimal lib.rs + bindings.ts generation (TAU-01, TAU-04)
+- [x] 03-02-PLAN.md — specta::Type derives on runtime types + AlwaysAllow + minimal lib.rs + bindings.ts generation (TAU-01, TAU-04) *(complete 2026-05-08)*
 
 **Wave 3** *(blocked on Wave 2)*:
 - [ ] 03-03-PLAN.md — AgentSupervisor managed state + lifecycle commands + event relay with Lagged handling (TAU-02)
