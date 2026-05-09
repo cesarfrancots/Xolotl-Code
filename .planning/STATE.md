@@ -15,9 +15,9 @@
 
 - **Milestone:** v1
 - **Phase:** 3 — Tauri Shell
-- **Plan:** 03-02 complete; executing 03-03 (Wave 3)
+- **Plan:** 03-03 complete; executing 03-04 (Wave 4)
 - **Status:** Executing Phase 3
-- **Progress:** Phase 2 of 6 complete; Phase 3 in progress (2/5 plans done)
+- **Progress:** Phase 2 of 6 complete; Phase 3 in progress (3/5 plans done)
 
 ```
 [x][x][ ][ ][ ][ ]
@@ -68,8 +68,8 @@
 
 ## Session Continuity
 
-- **Last action:** 03-02 complete — specta::Type derives on runtime types, AlwaysAllow added, minimal lib.rs + smoke_test command, bindings.ts generated, tsc passes.
-- **Next action:** Execute 03-03 (AgentSupervisor managed state + lifecycle commands + event relay).
+- **Last action:** 03-03 complete — AgentSupervisor wired as managed state, spawn/list/stop commands with event relay (Lagged handled), bindings.ts regenerated, tsc passes.
+- **Next action:** Execute 03-04 (TauriPermissionPrompter + respond_to_permission + PendingPrompts managed state).
 - **Last updated:** 2026-05-08
 
 ---

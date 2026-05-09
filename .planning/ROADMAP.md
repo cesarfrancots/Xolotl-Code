@@ -91,7 +91,7 @@ Plans:
 - [x] 03-02-PLAN.md — specta::Type derives on runtime types + AlwaysAllow + minimal lib.rs + bindings.ts generation (TAU-01, TAU-04) *(complete 2026-05-08)*
 
 **Wave 3** *(blocked on Wave 2)*:
-- [ ] 03-03-PLAN.md — AgentSupervisor managed state + lifecycle commands + event relay with Lagged handling (TAU-02)
+- [x] 03-03-PLAN.md — AgentSupervisor managed state + lifecycle commands + event relay with Lagged handling (TAU-02) *(complete 2026-05-09)*
 
 **Wave 4** *(blocked on Wave 3)*:
 - [ ] 03-04-PLAN.md — TauriPermissionPrompter + respond_to_permission + PendingPrompts managed state (TAU-03)
