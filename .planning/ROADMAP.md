@@ -94,7 +94,7 @@ Plans:
 - [x] 03-03-PLAN.md — AgentSupervisor managed state + lifecycle commands + event relay with Lagged handling (TAU-02) *(complete 2026-05-09)*
 
 **Wave 4** *(blocked on Wave 3)*:
-- [ ] 03-04-PLAN.md — TauriPermissionPrompter + respond_to_permission + PendingPrompts managed state (TAU-03)
+- [x] 03-04-PLAN.md — TauriPermissionPrompter + respond_to_permission + PendingPrompts managed state (TAU-03) *(complete 2026-05-09)*
 
 **Wave 5** *(blocked on Wave 4)*:
 - [ ] 03-05-PLAN.md — Plugins registered + capability grants + final tsc check + human smoke test checkpoint (TAU-04, TAU-05)
@@ -148,7 +148,7 @@ Cross-cutting constraints: tauri-app/src-tauri/ is a separate Cargo workspace fr
 |-------|----------------|--------|-----------|
 | 1. CLI Completion | 4/4 | Complete | 2026-05-08 |
 | 2. Orchestration Layer | 6/6 | Complete | 2026-05-08 |
-| 3. Tauri Shell | 0/5 | Not started | — |
+| 3. Tauri Shell | 4/5 | In Progress | — |
 | 4. Chat UI | 0/0 | Not started | — |
 | 5. Agent Dashboard | 0/0 | Not started | — |
 | 6. Parallel Worktrees + Team Orchestration | 0/0 | Not started | — |
