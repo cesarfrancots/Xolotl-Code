@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Stable identifier for a supervised agent.
 /// Newtype over String — use AgentId::new() to generate a unique id.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
 pub struct AgentId(pub String);
 
 impl AgentId {
@@ -39,7 +39,7 @@ impl std::fmt::Display for AgentId {
 /// - Waiting → Executing, Failed
 /// - Done → (terminal — no transitions)
 /// - Failed → (terminal — no transitions)
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub enum AgentState {
     Idle,
     Planning,
@@ -83,7 +83,7 @@ impl std::fmt::Display for AgentState {
 /// This enum is the single event schema for both in-process channels (D-01)
 /// and NDJSON stdout serialization from child-process workers (D-04).
 /// All variants must remain serde-compatible — do NOT add non-serializable fields.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(deny_unknown_fields)]
 pub enum AgentEvent {
     StateChanged(AgentState),
