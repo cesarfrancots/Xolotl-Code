@@ -1,6 +1,6 @@
 use crate::session::Session;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct TokenUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,
