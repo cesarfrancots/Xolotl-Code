@@ -52,9 +52,17 @@ These capabilities are already implemented in the Rust codebase (`rust/` folder)
 - ✓ `SubAgentConfig` extended with `working_dir` + `ndjson_stdout` + `spawn_ndjson_reader()` — `subagent/spawner.rs`
 - ✓ 151 runtime tests green; ORC-03 bounded-runtime load test (8 agents, max_blocking_threads=16) passes
 
+### Validated in Phase 3: Tauri Shell *(2026-05-09)*
+
+- ✓ Tauri 2.x app scaffolded with MSVC toolchain; `smoke_test` invoke() returns `"smoke_test_ok"` — `tauri-app/src-tauri/`
+- ✓ `AgentSupervisor` as Tauri managed state; `spawn_agent`/`list_agents`/`stop_agent` IPC commands — `lib.rs`, `commands.rs`
+- ✓ `TauriPermissionPrompter` with `std::sync::mpsc` + 60s `recv_timeout`; `respond_to_permission` round-trip — `permission_prompter.rs`
+- ✓ `specta` + `tauri-specta` type generation to `bindings.ts`; `tsc --noEmit` passes — `bindings.ts`
+- ✓ `window-state`, `clipboard-manager`, `fs` plugins registered + capability-granted; all smoke-tested in live window — `lib.rs`, `capabilities/default.json`
+
 ### Active
 
-Tauri desktop app:
+Tauri desktop app (Phase 4+):
 
 - [ ] Tauri shell wrapping the Rust core via IPC
 - [ ] Chat-first UI: message thread, streaming responses, tool use display, inline diffs
@@ -77,11 +85,9 @@ Tauri desktop app:
 
 ## Context
 
-The Rust codebase (`rust/crates/`) is production-ready as a headless CLI agent with a full orchestration layer (Phases 1–2 complete). The actor model (AgentSupervisor, WorktreeManager, SharedContextStore, GitOpQueue, NDJSON spawner) is verified headlessly with 151 passing tests. Phase 3 builds the Tauri 2.x desktop shell with typed IPC to surface this Rust core to a UI.
+The Rust codebase (`rust/crates/`) is production-ready as a headless CLI agent with a full orchestration layer (Phases 1–3 complete). The Tauri 2.x shell is live on Windows with a fully typed IPC surface: agent lifecycle commands, permission round-trip, and plugin bundle all smoke-tested in a running window. Phase 4 builds the chat UI on top of this foundation.
 
-Last updated: 2026-05-08
-
-**Last updated:** 2026-05-08
+**Last updated:** 2026-05-09
 
 The Tauri layer needs to be added on top — the Rust core becomes the backend, and a React/Svelte frontend communicates via Tauri's command/event IPC. This is the same architecture used by Codex (Electron) and OpenCode (Tauri-like).
 
