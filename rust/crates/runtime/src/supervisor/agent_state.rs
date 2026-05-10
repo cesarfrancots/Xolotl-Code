@@ -91,6 +91,7 @@ pub enum AgentEvent {
     ToolCallCompleted { tool: String, output: String },
     TurnCompleted { usage: TokenUsage },
     Error { message: String },
+    TextDelta(String),
 }
 
 /// Control messages sent to an agent via its handle.
@@ -170,6 +171,7 @@ mod tests {
             AgentEvent::Error {
                 message: "test error".to_string(),
             },
+            AgentEvent::TextDelta("hello".to_string()),
         ];
 
         for event in &events {

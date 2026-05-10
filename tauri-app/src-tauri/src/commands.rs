@@ -1,6 +1,7 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
-use runtime::{AgentHandle, AgentId, AgentSupervisor};
+use runtime::{AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor, TokenUsage};
 use tokio::sync::broadcast::error::RecvError;
 use crate::permission_prompter::{PendingPrompts, PermissionDecision, PermissionRequestPayload};
 
@@ -56,8 +57,9 @@ pub fn respond_to_permission(
     prompt_id: String,
     decision: PermissionDecision,
 ) -> Result<(), String> {
-    let prompts = pending_prompts.lock().map_err(|e| e.to_string())?;
-    match prompts.get(&prompt_id) {
+    let mut prompts = pending_prompts.lock().map_err(|e| e.to_string())?;
+    // CR-02: use remove() not get() to prevent double-resolve race (2026-05-10)
+    match prompts.remove(&prompt_id) {
         Some(tx) => tx.send(decision).map_err(|e| e.to_string()),
         None => Err(format!(
             "prompt_id {prompt_id} not found (may have timed out or already resolved)"
@@ -113,6 +115,147 @@ pub fn test_permission_prompt(
     });
 
     Ok(prompt_id)
+}
+
+/// run_agent_turn: send a user message to a running agent (per D-03, approved 2026-05-10).
+///
+/// Phase 4 stub behavior: does NOT call ConversationRuntime::run_turn().
+/// Emits a single TextDelta echoing the message, then TurnCompleted with zero usage.
+/// The echo streams as one chunk — correct stub behavior for Phase 4.
+/// Real ConversationRuntime wiring is a follow-on task.
+#[tauri::command]
+#[specta::specta]
+pub async fn run_agent_turn(
+    supervisor: tauri::State<'_, Arc<AgentSupervisor>>,
+    agent_id: String,
+    message: String,
+) -> Result<(), String> {
+    let id = AgentId(agent_id);
+    let handle = supervisor
+        .get_handle(&id)
+        .ok_or_else(|| format!("agent {id} not found"))?;
+    // Emit StateChanged(Executing) so frontend knows the turn started
+    handle
+        .event_tx
+        .send(AgentEvent::StateChanged(AgentState::Executing))
+        .await
+        .map_err(|e| e.to_string())?;
+    // Echo stub — approved Phase 4 behavior per D-03 (2026-05-10).
+    // The smoke tester (Plan 07, SC1) expects to see "Echo (stub):" in the chat.
+    // Replace with ConversationRuntime::run_turn() in a follow-on iteration.
+    handle
+        .event_tx
+        .send(AgentEvent::TextDelta(format!(
+            "Echo (stub): {message}\n\n_Real AI streaming requires ConversationRuntime wiring (follow-on)._"
+        )))
+        .await
+        .map_err(|e| e.to_string())?;
+    handle
+        .event_tx
+        .send(AgentEvent::TurnCompleted {
+            usage: TokenUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+            },
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// list_models: returns configured model names.
+/// Powers the model selector dropdown (UI-08, D-05).
+#[tauri::command]
+#[specta::specta]
+pub fn list_models() -> Vec<String> {
+    vec![
+        "claude-opus-4-5".to_string(),
+        "claude-sonnet-4-5".to_string(),
+        "claude-haiku-3-5".to_string(),
+    ]
+}
+
+/// list_sessions: returns saved session metadata from ~/.xolotl-code/sessions/
+/// Each entry: { id, title, created_at (unix timestamp) }
+#[tauri::command]
+#[specta::specta]
+pub fn list_sessions() -> Vec<SessionMeta> {
+    let sessions_dir = home_sessions_dir();
+    let Ok(entries) = std::fs::read_dir(&sessions_dir) else {
+        return Vec::new();
+    };
+    let mut metas: Vec<SessionMeta> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
+        .filter_map(|e| {
+            let id = e.path().file_stem()?.to_str()?.to_string();
+            let meta = std::fs::metadata(e.path()).ok()?;
+            let created_at = meta
+                .created()
+                .ok()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_secs();
+            Some(SessionMeta { id, title: String::new(), created_at })
+        })
+        .collect();
+    metas.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    metas
+}
+
+/// load_session: read a session JSON file by UUID id.
+/// Returns raw JSON string — frontend parses display fields only.
+/// Validates id is alphanumeric + hyphens only (path traversal prevention).
+#[tauri::command]
+#[specta::specta]
+pub fn load_session(id: String) -> Result<String, String> {
+    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err("invalid session id".to_string());
+    }
+    let path = home_sessions_dir().join(format!("{id}.json"));
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+/// delete_session: remove a session JSON file by UUID id.
+/// Validates id is alphanumeric + hyphens only (path traversal prevention).
+#[tauri::command]
+#[specta::specta]
+pub fn delete_session(id: String) -> Result<(), String> {
+    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err("invalid session id".to_string());
+    }
+    let path = home_sessions_dir().join(format!("{id}.json"));
+    std::fs::remove_file(&path).map_err(|e| e.to_string())
+}
+
+/// save_session: write session JSON to ~/.xolotl-code/sessions/{id}.json
+#[tauri::command]
+#[specta::specta]
+pub fn save_session(id: String, json: String) -> Result<(), String> {
+    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err("invalid session id".to_string());
+    }
+    let dir = home_sessions_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{id}.json"));
+    std::fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+/// SessionMeta: lightweight session list item returned by list_sessions.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct SessionMeta {
+    pub id: String,
+    pub title: String,
+    pub created_at: u64,
+}
+
+fn home_sessions_dir() -> PathBuf {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".xolotl-code").join("sessions")
 }
 
 /// spawn_event_relay: dedicated tokio task per agent (D-07 / D-08).

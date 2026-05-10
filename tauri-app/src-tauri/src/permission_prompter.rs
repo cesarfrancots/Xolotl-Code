@@ -40,10 +40,14 @@ impl PermissionPrompter for TauriPermissionPrompter {
 
         // Register sender before emitting event (avoids race where frontend
         // responds before the sender is stored)
-        self.pending_prompts
-            .lock()
-            .unwrap()
-            .insert(prompt_id.clone(), tx);
+        // CR-01: use map_err instead of unwrap to avoid process crash on poisoned mutex
+        let Ok(mut pending) = self.pending_prompts.lock() else {
+            return PermissionPromptDecision::Deny {
+                reason: "Internal error: mutex poisoned".to_string(),
+            };
+        };
+        pending.insert(prompt_id.clone(), tx);
+        drop(pending);
 
         // First 120 chars of input as preview — use .chars().take(120) for correct Unicode handling
         let preview: String = request.input.chars().take(120).collect();
@@ -68,8 +72,10 @@ impl PermissionPrompter for TauriPermissionPrompter {
             }
         };
 
-        // Clean up regardless of outcome
-        self.pending_prompts.lock().unwrap().remove(&prompt_id);
+        // Clean up regardless of outcome (CR-01: use if let to avoid unwrap)
+        if let Ok(mut pending) = self.pending_prompts.lock() {
+            pending.remove(&prompt_id);
+        }
 
         match decision {
             PermissionDecision::Allow => PermissionPromptDecision::Allow,

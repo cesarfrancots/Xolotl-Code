@@ -18,6 +18,18 @@ export const commands = {
 	respondToPermission: (promptId: string, decision: PermissionDecision) => typedError<null, string>(__TAURI_INVOKE("respond_to_permission", { promptId, decision })),
 	/** test_permission_prompt: emits a synthetic permission-request event for smoke testing. */
 	testPermissionPrompt: () => typedError<string, string>(__TAURI_INVOKE("test_permission_prompt")),
+	/** run_agent_turn: send a user message to a running agent (per D-03). */
+	runAgentTurn: (agentId: string, message: string) => typedError<null, string>(__TAURI_INVOKE("run_agent_turn", { agentId, message })),
+	/** list_models: returns configured model names for the model selector (UI-08). */
+	listModels: () => __TAURI_INVOKE<string[]>("list_models"),
+	/** list_sessions: returns saved session metadata sorted newest first (UI-06). */
+	listSessions: () => __TAURI_INVOKE<SessionMeta[]>("list_sessions"),
+	/** load_session: reads session JSON by id; id must be alphanumeric+hyphens only. */
+	loadSession: (id: string) => typedError<string, string>(__TAURI_INVOKE("load_session", { id })),
+	/** delete_session: removes session file by id. */
+	deleteSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_session", { id })),
+	/** save_session: writes session JSON to ~/.xolotl-code/sessions/{id}.json */
+	saveSession: (id: string, json: string) => typedError<null, string>(__TAURI_INVOKE("save_session", { id, json })),
 };
 
 /* Types */
@@ -28,17 +40,17 @@ export const commands = {
  *  and NDJSON stdout serialization from child-process workers (D-04).
  *  All variants must remain serde-compatible — do NOT add non-serializable fields.
  */
-export type AgentEvent = ({ StateChanged: AgentState }) & { Error?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never } | ({ ToolCallStarted: {
+export type AgentEvent = ({ StateChanged: AgentState }) & { Error?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never; TextDelta?: never } | ({ ToolCallStarted: {
 	tool: string,
 	input: string,
-} }) & { Error?: never; StateChanged?: never; ToolCallCompleted?: never; TurnCompleted?: never } | ({ ToolCallCompleted: {
+} }) & { Error?: never; StateChanged?: never; ToolCallCompleted?: never; TurnCompleted?: never; TextDelta?: never } | ({ ToolCallCompleted: {
 	tool: string,
 	output: string,
-} }) & { Error?: never; StateChanged?: never; ToolCallStarted?: never; TurnCompleted?: never } | ({ TurnCompleted: {
+} }) & { Error?: never; StateChanged?: never; ToolCallStarted?: never; TurnCompleted?: never; TextDelta?: never } | ({ TurnCompleted: {
 	usage: TokenUsage,
-} }) & { Error?: never; StateChanged?: never; ToolCallCompleted?: never; ToolCallStarted?: never } | ({ Error: {
+} }) & { Error?: never; StateChanged?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TextDelta?: never } | ({ Error: {
 	message: string,
-} }) & { StateChanged?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never };
+} }) & { StateChanged?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never; TextDelta?: never } | ({ TextDelta: string }) & { Error?: never; StateChanged?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never };
 
 /**
  *  Stable identifier for a supervised agent.
@@ -69,6 +81,12 @@ export type TokenUsage = {
 	output_tokens: number,
 	cache_creation_input_tokens: number,
 	cache_read_input_tokens: number,
+};
+
+export type SessionMeta = {
+	id: string,
+	title: string,
+	created_at: number,
 };
 
 /* Tauri Specta runtime */

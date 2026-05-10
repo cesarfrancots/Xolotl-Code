@@ -3,7 +3,11 @@ use specta_typescript::Typescript;
 use tauri_specta::{collect_commands, Builder};
 
 use runtime::{AgentEvent, AgentId, AgentState, AgentSupervisor};
-use crate::commands::{list_agents, respond_to_permission, smoke_test, spawn_agent, stop_agent, test_permission_prompt};
+use crate::commands::{
+    delete_session, list_agents, list_models, list_sessions, load_session, respond_to_permission,
+    save_session, smoke_test, spawn_agent, stop_agent, test_permission_prompt, run_agent_turn,
+    SessionMeta,
+};
 use crate::permission_prompter::{PermissionDecision, PendingPrompts};
 
 mod commands;
@@ -18,11 +22,18 @@ fn make_builder() -> Builder<tauri::Wry> {
             stop_agent,
             respond_to_permission,
             test_permission_prompt,
+            run_agent_turn,
+            list_models,
+            list_sessions,
+            load_session,
+            delete_session,
+            save_session,
         ])
         .typ::<AgentId>()
         .typ::<AgentState>()
         .typ::<AgentEvent>()
         .typ::<PermissionDecision>()
+        .typ::<SessionMeta>()
     // AgentControl excluded per D-14 — lifecycle commands abstract over it.
 }
 

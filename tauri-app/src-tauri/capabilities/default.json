@@ -9,5 +9,13 @@
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "fs:default"
-  ]
+  ],
+  "scope": {
+    "allow": [
+      "$APPDATA/**",
+      "$APPLOG/**",
+      "$HOME/.xolotl-code/sessions/**",
+      "$APPDATA/.xolotl-code/sessions/**"
+    ]
+  }
 }
