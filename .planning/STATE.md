@@ -9,14 +9,14 @@
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** Phase 4 Chat UI — executing. Waves 1–2 complete (04-01 ✓, 04-02 ✓, 04-03 ✓). At Wave 3 (04-04 + 04-05).
+- **Current Focus:** Phase 4 Chat UI — executing. Waves 1–3 complete (04-01 through 04-05 ✓). At Wave 4 (04-06).
 
 ## Current Position
 
 - **Milestone:** v1
 - **Phase:** 4 — Chat UI
-- **Plan:** Phase 4 executing (3/7 plans complete)
-- **Status:** In progress — executing Wave 3
+- **Plan:** Phase 4 executing (5/7 plans complete)
+- **Status:** In progress — executing Wave 4
 - **Progress:** Phase 3 of 6 complete
 
 ```
@@ -31,7 +31,7 @@
 | Phases completed | 3 / 6 |
 | v1 requirements mapped | 40 / 40 |
 | v1 requirements completed | 18 / 40 |
-| Plans completed | 17 |
+| Plans completed | 19 |
 | Active blockers | 0 |
 
 ## Accumulated Context
@@ -72,9 +72,9 @@
 
 ## Session Continuity
 
-- **Last action:** Phase 4 Wave 2 executed — 04-02 (stores + utilities) and 04-03 (app shell) complete. 15 tests passing.
-- **Next action:** Execute Wave 3 (04-04 MessageList, 04-05 ToolBlock/DiffView/PermissionCard) — sequential due to Message.tsx overlap.
-- **Resume file:** `.planning/phases/04-chat-ui/04-03-SUMMARY.md`
+- **Last action:** Phase 4 Wave 3 executed — 04-04 (virtualized MessageList + MarkdownRenderer) and 04-05 (ToolBlock + DiffView + PermissionCard) complete. 15 tests passing.
+- **Next action:** Execute Wave 4 (04-06 useAgentEvents hook — Tauri event wiring).
+- **Resume file:** `.planning/phases/04-chat-ui/04-05-SUMMARY.md`
 - **Last updated:** 2026-05-10
 
 ---

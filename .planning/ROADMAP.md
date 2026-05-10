@@ -121,9 +121,9 @@ Plans:
 - [x] 04-02-PLAN.md — Zustand stores (chatStore, sessionStore) + utility libs (diff.ts, cost.ts) with unit tests (UI-01, UI-04, UI-09) *(complete 2026-05-10)*
 - [x] 04-03-PLAN.md — App shell layout + SessionSidebar + ChatPane skeleton + MessageInput + slash palette (UI-06, UI-08, UI-10, UI-11) *(complete 2026-05-10)*
 
-**Wave 3** *(parallel — no file overlap between 04-04 and 04-05)*:
-- [ ] 04-04-PLAN.md — MessageList (virtualized) + Message + MarkdownRenderer + streaming cursor (UI-01, UI-02, UI-05, UI-09)
-- [ ] 04-05-PLAN.md — ToolBlock + DiffView + PermissionCard + Message.tsx updates (UI-03, UI-04, UI-07)
+**Wave 3** *(sequential — Message.tsx overlap between 04-04 and 04-05)*:
+- [x] 04-04-PLAN.md — MessageList (virtualized) + Message + MarkdownRenderer + streaming cursor (UI-01, UI-02, UI-05, UI-09) *(complete 2026-05-10)*
+- [x] 04-05-PLAN.md — ToolBlock + DiffView + PermissionCard + Message.tsx updates (UI-03, UI-04, UI-07) *(complete 2026-05-10)*
 
 **Wave 4** *(blocked on Wave 3)*:
 - [ ] 04-06-PLAN.md — useAgentEvents hook: rAF buffer, tool calls, permission events, session auto-save; mount in ChatPane (UI-01 through UI-11)
