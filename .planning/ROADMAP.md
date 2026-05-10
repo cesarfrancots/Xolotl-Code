@@ -151,7 +151,7 @@ Plans:
 - [x] 05-02-PLAN.md — Install tauri-plugin-notification 2.3.3 (Rust + JS) + capability grant + CR-01/CR-04 fixes (AGT-04) *(complete 2026-05-10)*
 
 **Wave 2** *(blocked on Wave 1)*:
-- [ ] 05-03-PLAN.md — Tauri spawn_agent command extended with task/model/budget + spawn_event_relay budget enforcement + bindings.ts manual update (AGT-03, AGT-05, AGT-06)
+- [x] 05-03-PLAN.md — Tauri spawn_agent command extended with task/model/budget + spawn_event_relay budget enforcement + bindings.ts manual update (AGT-03, AGT-05, AGT-06) *(complete 2026-05-10)*
 
 **Wave 3** *(parallel — depends on 05-03)*:
 - [ ] 05-04-PLAN.md — agentStore.ts Zustand store + tests + useAgentPanelEvents hook with rAF buffer and lazy notification permission (AGT-01, AGT-02, AGT-05, AGT-06)
