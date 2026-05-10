@@ -143,7 +143,25 @@ Cross-cutting constraints: bindings.ts is manually maintained (D-13); run_agent_
   3. User can launch an agent in background mode and receive an OS-level notification when it completes.
   4. User can assign a different model per agent so that the orchestrator and workers run on different providers in the same session.
   5. User can set a per-agent dollar budget, and the agent halts and reports its status the moment that budget is exceeded.
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+**Wave 1** *(parallel — no file overlap)*:
+- [ ] 05-01-PLAN.md — Rust AgentHandle extension: task/model/budget fields + accumulate_cost + slugify_task + supervisor.spawn_agent_with_config with budget validation (AGT-03, AGT-05, AGT-06)
+- [ ] 05-02-PLAN.md — Install tauri-plugin-notification 2.3.3 (Rust + JS) + capability grant + CR-01/CR-04 fixes (AGT-04)
+
+**Wave 2** *(blocked on Wave 1)*:
+- [ ] 05-03-PLAN.md — Tauri spawn_agent command extended with task/model/budget + spawn_event_relay budget enforcement + bindings.ts manual update (AGT-03, AGT-05, AGT-06)
+
+**Wave 3** *(parallel — depends on 05-03)*:
+- [ ] 05-04-PLAN.md — agentStore.ts Zustand store + tests + useAgentPanelEvents hook with rAF buffer and lazy notification permission (AGT-01, AGT-02, AGT-05, AGT-06)
+- [ ] 05-05-PLAN.md — AgentPanel + AgentCard + AgentStateBadge + SpawnAgentDialog + AgentCard tests (AGT-01, AGT-03, AGT-05)
+
+**Wave 4** *(blocked on Wave 3)*:
+- [ ] 05-06-PLAN.md — AgentMessageList virtualizer + AgentOutputView read-only + App.tsx 3-column wiring (AGT-01, AGT-02, AGT-04)
+
+**Wave 5** *(blocked on Wave 4)*:
+- [ ] 05-07-PLAN.md — Pre-flight automated check + human smoke test (all AGT requirements)
 **UI hint**: yes
 
 ### Phase 6: Parallel Worktrees + Team Orchestration
@@ -169,7 +187,7 @@ Cross-cutting constraints: bindings.ts is manually maintained (D-13); run_agent_
 | 2. Orchestration Layer | 6/6 | Complete | 2026-05-08 |
 | 3. Tauri Shell | 5/5 | Complete | 2026-05-09 |
 | 4. Chat UI | 0/7 | In progress | — |
-| 5. Agent Dashboard | 0/0 | Not started | — |
+| 5. Agent Dashboard | 0/7 | Planned | — |
 | 6. Parallel Worktrees + Team Orchestration | 0/0 | Not started | — |
 
 ---
@@ -192,4 +210,4 @@ Cross-cutting constraints: bindings.ts is manually maintained (D-13); run_agent_
 
 ---
 *Roadmap created: 2026-05-07*
-*Last updated: 2026-05-10 — Phase 4 planned (7 plans across 5 waves)*
+*Last updated: 2026-05-10 — Phase 5 planned (7 plans across 5 waves)*
