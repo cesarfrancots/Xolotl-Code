@@ -21,7 +21,7 @@ export function MessageInput() {
   const [value, setValue] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { agentId, isStreaming, setAgentId, appendItem, model } = useChatStore();
+  const { agentId, isStreaming, setAgentId } = useChatStore();
   const { activeSessionId } = useSessionStore();
 
   // Slash commands with descriptions per D-11 and 04-UI-SPEC.md
