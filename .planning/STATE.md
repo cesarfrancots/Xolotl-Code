@@ -9,14 +9,14 @@
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** Phase 4 Chat UI — 7 plans created and verified (6 waves). Ready to execute.
+- **Current Focus:** Phase 4 Chat UI — executing. Wave 1 complete (04-01 ✓). Resume at Wave 2 (04-02 + 04-03).
 
 ## Current Position
 
 - **Milestone:** v1
 - **Phase:** 4 — Chat UI
-- **Plan:** Phase 4 planned (7/7 plans, 6 waves)
-- **Status:** Ready to execute
+- **Plan:** Phase 4 executing (1/7 plans complete — 04-01 done)
+- **Status:** In progress — resume at Wave 2
 - **Progress:** Phase 3 of 6 complete
 
 ```
@@ -72,9 +72,9 @@
 
 ## Session Continuity
 
-- **Last action:** Phase 4 context gathered — all 4 gray areas discussed (streaming wire-up, UI shell & layout, rendering stack, slash command scope). 04-CONTEXT.md written.
-- **Next action:** Plan Phase 4 (`/gsd-plan-phase 4`).
-- **Resume file:** `.planning/phases/04-chat-ui/04-CONTEXT.md`
+- **Last action:** Phase 4 Wave 1 executed — 04-01 bootstrap complete. TextDelta variant, 6 Tauri commands, npm deps, shadcn, Tailwind v4, vitest all done. Merged to main.
+- **Next action:** Resume Phase 4 execution at Wave 2: `/clear` then `/gsd-execute-phase 4`
+- **Resume file:** `.planning/phases/04-chat-ui/04-01-SUMMARY.md`
 - **Last updated:** 2026-05-10
 
 ---
