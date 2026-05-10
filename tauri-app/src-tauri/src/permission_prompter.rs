@@ -72,10 +72,12 @@ impl PermissionPrompter for TauriPermissionPrompter {
             }
         };
 
-        // Clean up regardless of outcome (CR-01: use if let to avoid unwrap)
-        if let Ok(mut pending) = self.pending_prompts.lock() {
-            pending.remove(&prompt_id);
-        }
+        // Clean up regardless of outcome (CR-01: use map_err to avoid panic on poisoned mutex)
+        let mut pending = self.pending_prompts.lock().map_err(|poisoned| {
+            eprintln!("warn: PendingPrompts mutex poisoned during cleanup, recovering: {poisoned}");
+            poisoned.into_inner()
+        }).unwrap_or_else(|guard| guard);
+        pending.remove(&prompt_id);
 
         match decision {
             PermissionDecision::Allow => PermissionPromptDecision::Allow,
