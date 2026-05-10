@@ -35,9 +35,14 @@ export function SpawnAgentDialog({
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    void commands.listModels().then((list) => {
-      if (list.length > 0) setModels(list);
-    });
+    commands.listModels()
+      .then((list) => {
+        if (list.length > 0) {
+          setModels(list);
+          setModel(list[0]);
+        }
+      })
+      .catch(() => setError("Failed to load model list."));
   }, []);
 
   function reset() {

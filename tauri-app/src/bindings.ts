@@ -92,8 +92,10 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
     try {
         return { status: "ok", data: await result };
     } catch (e) {
-        if (e instanceof Error) throw e;
-        return { status: "error", error: e as any };
+        // WR-04: treat all caught values as errors — do NOT re-throw Error instances.
+        // Re-throwing causes unhandled promise rejections in callers that only check
+        // result.status and have no surrounding try/catch.
+        return { status: "error", error: e as E };
     }
 }
 

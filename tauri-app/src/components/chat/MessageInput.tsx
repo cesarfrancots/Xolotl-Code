@@ -76,10 +76,16 @@ export function MessageInput() {
       }
       case "/save": {
         const saveId = activeSessionId ?? globalThis.crypto.randomUUID();
-        void commands.saveSession(
+        commands.saveSession(
           saveId,
           serializeSession(saveId, chatStore.model, chatStore.items as Parameters<typeof serializeSession>[2], chatStore.sessionUsage)
-        );
+        )
+          .then((result) => {
+            if (result.status === "error") {
+              console.error("save_session failed:", result.error);
+            }
+          })
+          .catch((err) => console.error("save_session threw:", err));
         break;
       }
       case "/load":

@@ -27,15 +27,21 @@ import {
 export function useAgentPanelEvents(agentId: string): void {
   const deltaBuffer = useRef<string>("");
   const rafId = useRef<number | null>(null);
-  // Maps tool name → client-side toolCallId for pending (loading) tool calls.
-  // Used to resolve ToolCallCompleted (which only provides tool name, not id).
-  const pendingToolIds = useRef<Map<string, string>>(new Map());
+  // Maps tool name → queue of client-side toolCallIds for pending (loading) tool calls.
+  // WR-01: queue (array) per tool name prevents identity collision when the same tool
+  // is called concurrently — FIFO resolution on ToolCallCompleted.
+  const pendingToolIds = useRef<Map<string, string[]>>(new Map());
 
   useEffect(() => {
-    const unlisteners: Array<() => void> = [];
+    // CR-04: cancellation flag + captured unlisten handle to close the timing gap
+    // where the component unmounts before listen() resolves. Without this, the
+    // unlisten function is permanently lost and the Tauri listener leaks for the
+    // lifetime of the app window.
+    let cancelled = false;
+    let unlistenFn: (() => void) | null = null;
     const channel = `agent-event:${agentId}`;
 
-    const promise = listen<AgentEvent>(channel, (event) => {
+    listen<AgentEvent>(channel, (event) => {
       const payload = event.payload;
 
       if ("TextDelta" in payload) {
@@ -57,16 +63,20 @@ export function useAgentPanelEvents(agentId: string): void {
         const { tool, input } = payload.ToolCallStarted;
         // Generate a client-side id — ToolCallStarted does not include one.
         const toolCallId = `tc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        pendingToolIds.current.set(tool, toolCallId);
+        // WR-01: use queue per tool name so concurrent same-tool calls don't overwrite each other
+        const existing = pendingToolIds.current.get(tool) ?? [];
+        pendingToolIds.current.set(tool, [...existing, toolCallId]);
         useAgentStore.getState().startAgentToolCall(agentId, toolCallId, tool, input);
         return;
       }
 
       if ("ToolCallCompleted" in payload && payload.ToolCallCompleted) {
         const { tool, output } = payload.ToolCallCompleted;
-        const toolCallId = pendingToolIds.current.get(tool) ?? tool;
-        pendingToolIds.current.delete(tool);
-        useAgentStore.getState().completeAgentToolCall(agentId, toolCallId, output);
+        // WR-01: dequeue the oldest pending id for this tool name (FIFO)
+        const queue = pendingToolIds.current.get(tool) ?? [];
+        const resolvedId = queue[0] ?? tool;
+        pendingToolIds.current.set(tool, queue.slice(1));
+        useAgentStore.getState().completeAgentToolCall(agentId, resolvedId, output);
         return;
       }
 
@@ -98,25 +108,24 @@ export function useAgentPanelEvents(agentId: string): void {
         useAgentStore.getState().appendAgentError(agentId, payload.Error.message);
         return;
       }
+    }).then((fn) => {
+      if (cancelled) {
+        fn(); // component already unmounted — immediately unlisten
+      } else {
+        unlistenFn = fn;
+      }
+    }).catch((err) => {
+      console.error(`useAgentPanelEvents listen() failed for ${agentId}:`, err);
     });
 
-    promise
-      .then((unlistenFn) => {
-        unlisteners.push(unlistenFn);
-      })
-      .catch((err) => {
-        console.error(`useAgentPanelEvents listen() failed for ${agentId}:`, err);
-      });
-
     return () => {
+      cancelled = true;
       // T-5-07: cancel pending rAF to prevent buffer leak on unmount.
       if (rafId.current !== null) {
         cancelAnimationFrame(rafId.current);
         rafId.current = null;
       }
-      for (const unlisten of unlisteners) {
-        unlisten();
-      }
+      unlistenFn?.();
     };
   }, [agentId]);
 }

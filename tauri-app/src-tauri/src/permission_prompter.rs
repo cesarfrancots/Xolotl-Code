@@ -52,14 +52,22 @@ impl PermissionPrompter for TauriPermissionPrompter {
         // First 120 chars of input as preview — use .chars().take(120) for correct Unicode handling
         let preview: String = request.input.chars().take(120).collect();
 
-        let _ = self.app_handle.emit(
+        // WR-06: check emit result — on failure, immediately remove the pending entry
+        // and return Deny rather than blocking on recv_timeout for 60 seconds with a
+        // zombie entry in the PendingPrompts map.
+        if self.app_handle.emit(
             "permission-request",
             PermissionRequestPayload {
                 prompt_id: prompt_id.clone(),
                 tool_name: request.tool_name.clone(),
                 preview,
             },
-        );
+        ).is_err() {
+            let _ = self.pending_prompts.lock().map(|mut p| p.remove(&prompt_id));
+            return PermissionPromptDecision::Deny {
+                reason: "Failed to emit permission request to frontend".to_string(),
+            };
+        }
 
         // SAFE: decide() is always called from within tokio::task::spawn_blocking
         // (ORC-03 invariant). recv_timeout blocks this OS thread — not an async task.
@@ -82,11 +90,14 @@ impl PermissionPrompter for TauriPermissionPrompter {
         match decision {
             PermissionDecision::Allow => PermissionPromptDecision::Allow,
             PermissionDecision::AlwaysAllow => {
-                // AlwaysAllow: authorized Phase 3 scope — Allow for the current call and
-                // emit "policy-update-requested" so the frontend can show persistent-approval
-                // feedback. Full in-session PermissionPolicy mutation (matching CLI [a]
-                // behavior) is deferred to Phase 4 when the full agent loop is wired (D-12).
-                let _ = self.app_handle.emit("policy-update-requested", &prompt_id);
+                // AlwaysAllow: authorized Phase 3 scope — Allow for the current call only.
+                // WR-05: renamed event from "policy-update-requested" to
+                // "always-allow-acknowledged" to accurately signal that no persistent policy
+                // change was made. The old name was misleading — frontend listeners that
+                // acted on "policy-update-requested" would incorrectly mark the tool as
+                // always-allowed, but the backend will still prompt again on the next call.
+                // Full in-session PermissionPolicy mutation is deferred to a follow-on phase.
+                let _ = self.app_handle.emit("always-allow-acknowledged", &prompt_id);
                 PermissionPromptDecision::Allow
             }
             PermissionDecision::Deny => PermissionPromptDecision::Deny {

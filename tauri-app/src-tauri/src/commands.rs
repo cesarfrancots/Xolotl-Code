@@ -295,12 +295,14 @@ pub(crate) fn spawn_event_relay(
                         if let Some(budget) = handle.budget_dollars {
                             let new_cost = handle.accumulate_cost(usage, &handle.model);
                             if new_cost >= budget {
-                                let _ = handle.event_tx.try_send(
+                                // CR-03: use send().await instead of try_send so budget-exceeded
+                                // events are never silently dropped when the channel is full.
+                                let _ = handle.event_tx.send(
                                     AgentEvent::StateChanged(AgentState::Failed)
-                                );
-                                let _ = handle.event_tx.try_send(AgentEvent::Error {
+                                ).await;
+                                let _ = handle.event_tx.send(AgentEvent::Error {
                                     message: format!("Budget exceeded: ${:.4}", new_cost),
-                                });
+                                }).await;
                             }
                         }
                     }
@@ -340,106 +342,40 @@ pub(crate) fn spawn_event_relay(
 /// - Spawn errors emit StateChanged(Failed) + Error { message } and return.
 ///
 /// SubAgentSpawner reference impl: rust/crates/runtime/src/subagent/spawner.rs:290
-pub(crate) fn spawn_agent_executor(agent_id: AgentId, handle: AgentHandle) {
-    // Clone fields we need for the move into the blocking task — AgentHandle is Clone.
-    let task = handle.task.clone();
-    let model = handle.model.clone();
-    let worktree_path = handle.worktree_path.clone();
+pub(crate) fn spawn_agent_executor(_agent_id: AgentId, handle: AgentHandle) {
+    // Clone fields we need for the move into the async task — AgentHandle is Clone.
+    // _task/_model/_worktree_path are unused by the CR-01 stub; retain them here so the
+    // follow-on sidecar implementation can uncomment without adding new declarations.
+    let _task = handle.task.clone();
+    let _model = handle.model.clone();
+    let _worktree_path = handle.worktree_path.clone();
     let event_tx = handle.event_tx.clone();
 
-    // Use tokio::task::spawn_blocking because std::process::Child::wait + BufRead::lines()
-    // are synchronous. The closure body uses blocking I/O end-to-end; we send events
-    // through the mpsc channel via blocking_send (which is the sync API for tokio mpsc).
-    tokio::task::spawn_blocking(move || {
-        // Announce that the agent has started (Planning is the first non-Idle state).
-        let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Planning));
+    // CR-02: Wrap in an async tokio::spawn so we can sleep before the first event emit.
+    // This gives the IPC response time to return to the frontend and for listen() to be
+    // registered before StateChanged(Planning) fires. This is a heuristic — the robust
+    // fix requires a subscription-acknowledgment protocol.
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Planning)).await;
 
-        // Build the subprocess command. Mirrors SubAgentSpawner::spawn_ndjson_reader
-        // (rust/crates/runtime/src/subagent/spawner.rs lines 290-316) but streams
-        // line-by-line instead of collecting.
-        let exe = match std::env::current_exe() {
-            Ok(e) => e,
-            Err(e) => {
-                let _ = event_tx.blocking_send(AgentEvent::Error {
-                    message: format!("agent executor: current_exe failed: {e}"),
-                });
-                let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Failed));
-                return;
-            }
-        };
-
-        let task_id = format!("agent-{}", agent_id.0);
-        let mut cmd = std::process::Command::new(&exe);
-        cmd.arg("--print-output")
-            .arg("--task-prompt").arg(&task)
-            .arg("--task-id").arg(&task_id)
-            .arg("--model").arg(&model)
-            .arg("--working-dir").arg(&worktree_path)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null());
-
-        let mut child = match cmd.spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = event_tx.blocking_send(AgentEvent::Error {
-                    message: format!("agent executor: spawn failed: {e}"),
-                });
-                let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Failed));
-                return;
-            }
-        };
-
-        // Stream NDJSON stdout: parse each line as AgentEvent, forward through event_tx.
-        // This is the critical difference vs spawn_ndjson_reader — events stream as
-        // they arrive rather than being buffered until child exit.
-        if let Some(stdout) = child.stdout.take() {
-            use std::io::BufRead;
-            let reader = std::io::BufReader::new(stdout);
-            for line_result in reader.lines() {
-                let line = match line_result {
-                    Ok(l) => l,
-                    Err(_) => break, // stdout closed or read error — child likely exited
-                };
-                if line.trim().is_empty() { continue; }
-                match serde_json::from_str::<AgentEvent>(&line) {
-                    Ok(event) => {
-                        // blocking_send returns Err only if the receiver was dropped;
-                        // that means the agent handle was removed and we should stop.
-                        if event_tx.blocking_send(event).is_err() {
-                            let _ = child.kill();
-                            return;
-                        }
-                    }
-                    Err(_) => {
-                        // Non-JSON line — ignore (CLI may emit human-readable preamble
-                        // before NDJSON events). Do NOT treat as fatal.
-                        continue;
-                    }
-                }
-            }
-        }
-
-        // Wait for the child to exit and inspect status.
-        let status = child.wait();
-        match status {
-            Ok(s) if s.success() => {
-                let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Done));
-            }
-            Ok(s) => {
-                let code = s.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string());
-                let _ = event_tx.blocking_send(AgentEvent::Error {
-                    message: format!("agent process exited with code {code}"),
-                });
-                let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Failed));
-            }
-            Err(e) => {
-                let _ = event_tx.blocking_send(AgentEvent::Error {
-                    message: format!("agent executor: wait failed: {e}"),
-                });
-                let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Failed));
-            }
-        }
+        // CR-01: The agent CLI binary is not yet configured as a Tauri sidecar.
+        // Launching current_exe() would re-spawn the Tauri host binary (xolotl.exe),
+        // which does not accept --task-prompt / --model / --working-dir flags and would
+        // exit immediately with a non-zero code, silently failing every agent spawn.
+        //
+        // Until the sidecar is wired in tauri.conf.json ("bundle.externalBin":
+        // ["bin/xolotl-agent"]) and the binary path is plumbed through managed state,
+        // return a clear error rather than spawning the wrong executable.
+        //
+        // Follow-on: replace this stub with:
+        //   app_handle.shell().sidecar("xolotl-agent")?.arg(...).spawn(...)
+        let _ = event_tx.send(AgentEvent::Error {
+            message: "agent CLI binary not yet configured — see CR-01 in 05-REVIEW.md. \
+                      Sidecar wiring (tauri.conf.json externalBin) is required before \
+                      agents can execute tasks.".to_string(),
+        }).await;
+        let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Failed)).await;
     });
 }
 
