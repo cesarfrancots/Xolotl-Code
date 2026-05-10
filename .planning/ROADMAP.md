@@ -154,8 +154,8 @@ Plans:
 - [x] 05-03-PLAN.md — Tauri spawn_agent command extended with task/model/budget + spawn_event_relay budget enforcement + bindings.ts manual update (AGT-03, AGT-05, AGT-06) *(complete 2026-05-10)*
 
 **Wave 3** *(parallel — depends on 05-03)*:
-- [ ] 05-04-PLAN.md — agentStore.ts Zustand store + tests + useAgentPanelEvents hook with rAF buffer and lazy notification permission (AGT-01, AGT-02, AGT-05, AGT-06)
-- [ ] 05-05-PLAN.md — AgentPanel + AgentCard + AgentStateBadge + SpawnAgentDialog + AgentCard tests (AGT-01, AGT-03, AGT-05)
+- [x] 05-04-PLAN.md — agentStore.ts Zustand store + tests + useAgentPanelEvents hook with rAF buffer and lazy notification permission (AGT-01, AGT-02, AGT-05, AGT-06) *(complete 2026-05-10)*
+- [x] 05-05-PLAN.md — AgentPanel + AgentCard + AgentStateBadge + SpawnAgentDialog + AgentCard tests (AGT-01, AGT-03, AGT-05) *(complete 2026-05-10)*
 
 **Wave 4** *(blocked on Wave 3)*:
 - [ ] 05-06-PLAN.md — AgentMessageList virtualizer + AgentOutputView read-only + App.tsx 3-column wiring (AGT-01, AGT-02, AGT-04)

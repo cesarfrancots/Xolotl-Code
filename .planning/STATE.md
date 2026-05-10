@@ -29,8 +29,8 @@ progress:
 
 - **Milestone:** v1
 - **Phase:** 5 — Agent Dashboard
-- **Plan:** Wave 2 complete — executing Wave 3 (05-04, 05-05)
-- **Status:** Phase 5 executing — Wave 2 done (3/7 plans)
+- **Plan:** Wave 3 complete — executing Wave 4 (05-06)
+- **Status:** Phase 5 executing — Wave 3 done (5/7 plans)
 - **Progress:** Phase 4 of 6 complete
 
 ```
