@@ -1,5 +1,7 @@
 import type { Message, PermissionItem } from "../../stores/chatStore";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { PermissionCard } from "./PermissionCard";
+import { ToolBlock } from "./ToolBlock";
 import { useChatStore } from "../../stores/chatStore";
 import { formatTurnFootnote } from "../../lib/cost";
 
@@ -18,17 +20,7 @@ interface MessageItemProps {
  */
 export function MessageItem({ item }: MessageItemProps) {
   if ((item as PermissionItem).type === "permission") {
-    // PermissionCard is created in Plan 05.
-    // Render a placeholder until then.
-    const perm = item as PermissionItem;
-    return (
-      <div className="py-2 px-4">
-        <div className="rounded-lg border border-amber-800/50 bg-[oklch(0.16_0_0)] p-3">
-          <p className="text-xs text-amber-400">Permission required: {perm.toolName}</p>
-          <p className="text-xs text-[oklch(0.55_0_0)] font-mono mt-1">{perm.preview}</p>
-        </div>
-      </div>
-    );
+    return <PermissionCard item={item as PermissionItem} />;
   }
 
   const msg = item as Message;
@@ -58,6 +50,14 @@ function AssistantMessage({ message }: { message: Message }) {
   return (
     <div className="py-2 px-4">
       <MarkdownRenderer content={message.content} />
+      {/* Tool call blocks per plan 05 */}
+      {message.toolCalls.length > 0 && (
+        <div className="flex flex-col gap-1 mt-2">
+          {message.toolCalls.map((tc) => (
+            <ToolBlock key={tc.id} toolCall={tc} />
+          ))}
+        </div>
+      )}
       {/* Cost footnote per D-06 */}
       {message.usage && (
         <p className="text-xs text-[oklch(0.38_0_0)] mt-1">
