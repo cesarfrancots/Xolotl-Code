@@ -1,0 +1,206 @@
+import { create } from "zustand";
+import type { AgentState, TokenUsage } from "../bindings";
+import type { ChatItem, Message, ToolCall } from "./chatStore";
+
+/** A single agent entry in the agent roster. */
+export interface AgentRecord {
+  id: string;
+  task: string;
+  model: string;
+  state: AgentState;
+  /** Running dollar cost accumulated from TurnCompleted events (client-side estimate). */
+  cumulativeCost: number;
+  /** Committed messages and tool calls for this agent. */
+  messages: ChatItem[];
+  /** Accumulated TextDelta content not yet committed. Flushed on TurnCompleted. */
+  streamingContent: string;
+  /** True while a TextDelta stream is in progress. */
+  isStreaming: boolean;
+}
+
+export interface AgentStoreState {
+  agents: AgentRecord[];
+  /** ID of the agent whose output is expanded in the center pane. null = show ChatPane. */
+  expandedAgentId: string | null;
+
+  /** Append a new agent to the roster with initial Idle state. */
+  addAgent: (id: string, task: string, model: string) => void;
+
+  /** Update only the state field of the matching agent. */
+  updateAgentState: (id: string, state: AgentState) => void;
+
+  /** Append a TextDelta to the agent's streaming buffer. */
+  appendAgentStreamingContent: (id: string, delta: string) => void;
+
+  /**
+   * Commit streamingContent as a final assistant message.
+   * Increments cumulativeCost by estimateTurnCost(usage, model).
+   * No-op if nothing was streaming.
+   */
+  finalizeAgentStream: (id: string, usage: TokenUsage) => void;
+
+  /**
+   * Insert a ToolCall into the last assistant message's toolCalls.
+   * If no assistant message exists yet, creates a placeholder.
+   */
+  startAgentToolCall: (id: string, toolCallId: string, tool: string, input: string) => void;
+
+  /**
+   * Resolve a ToolCall by id — set loading: false and output.
+   */
+  completeAgentToolCall: (id: string, toolCallId: string, output: string) => void;
+
+  /** Append an assistant message with error content and stopped: true. */
+  appendAgentError: (id: string, message: string) => void;
+
+  /** Set (or clear) the agent displayed in the center pane. */
+  setExpandedAgent: (id: string | null) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function generateId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/**
+ * Simplified per-model cost estimate for display purposes.
+ * Rates are per-1M tokens (USD). Default falls back to Sonnet pricing.
+ * Authoritative enforcement is Rust-side (D-10 / AGT-06).
+ */
+const RATES: Record<string, { in: number; out: number }> = {
+  "claude-sonnet-4-5": { in: 3, out: 15 },
+  "claude-sonnet-4": { in: 3, out: 15 },
+  "claude-opus-4": { in: 15, out: 75 },
+  "kimi-k2": { in: 0.15, out: 2.5 },
+  "minimax-m1": { in: 0.3, out: 1.65 },
+};
+
+function estimateTurnCost(usage: TokenUsage, model: string): number {
+  const rate = RATES[model] ?? { in: 3, out: 15 };
+  return (usage.input_tokens * rate.in + usage.output_tokens * rate.out) / 1_000_000;
+}
+
+function makeInitialRecord(id: string, task: string, model: string): AgentRecord {
+  return {
+    id,
+    task,
+    model,
+    state: "Idle",
+    cumulativeCost: 0,
+    messages: [],
+    streamingContent: "",
+    isStreaming: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
+
+export const useAgentStore = create<AgentStoreState>()((set) => ({
+  agents: [],
+  expandedAgentId: null,
+
+  addAgent: (id, task, model) =>
+    set((s) => ({
+      agents: [...s.agents, makeInitialRecord(id, task, model)],
+    })),
+
+  updateAgentState: (id, state) =>
+    set((s) => ({
+      agents: s.agents.map((a) =>
+        a.id === id ? { ...a, state } : a
+      ),
+    })),
+
+  appendAgentStreamingContent: (id, delta) =>
+    set((s) => ({
+      agents: s.agents.map((a) =>
+        a.id === id
+          ? { ...a, streamingContent: a.streamingContent + delta, isStreaming: true }
+          : a
+      ),
+    })),
+
+  finalizeAgentStream: (id, usage) =>
+    set((s) => ({
+      agents: s.agents.map((a) => {
+        if (a.id !== id) return a;
+        if (!a.streamingContent && !a.isStreaming) return a;
+        const assistantMessage: Message = {
+          id: generateId(),
+          role: "assistant",
+          content: a.streamingContent,
+          toolCalls: [],
+          usage,
+        };
+        return {
+          ...a,
+          messages: [...a.messages, assistantMessage],
+          streamingContent: "",
+          isStreaming: false,
+          cumulativeCost: a.cumulativeCost + estimateTurnCost(usage, a.model),
+        };
+      }),
+    })),
+
+  startAgentToolCall: (id, toolCallId, tool, input) =>
+    set((s) => ({
+      agents: s.agents.map((a) => {
+        if (a.id !== id) return a;
+        const newToolCall: ToolCall = { id: toolCallId, tool, input, loading: true };
+        const messages = [...a.messages];
+        const lastIdx = messages.length - 1;
+        if (lastIdx >= 0 && (messages[lastIdx] as Message).role === "assistant") {
+          const lastMsg = { ...(messages[lastIdx] as Message) };
+          lastMsg.toolCalls = [...lastMsg.toolCalls, newToolCall];
+          messages[lastIdx] = lastMsg;
+          return { ...a, messages };
+        }
+        // No existing assistant message — create a placeholder to hold the tool call.
+        const placeholder: Message = {
+          id: generateId(),
+          role: "assistant",
+          content: "",
+          toolCalls: [newToolCall],
+        };
+        return { ...a, messages: [...messages, placeholder] };
+      }),
+    })),
+
+  completeAgentToolCall: (id, toolCallId, output) =>
+    set((s) => ({
+      agents: s.agents.map((a) => {
+        if (a.id !== id) return a;
+        const messages = a.messages.map((item) => {
+          const msg = item as Message;
+          if (msg.role !== "assistant") return item;
+          const toolCalls = msg.toolCalls.map((tc) =>
+            tc.id === toolCallId ? { ...tc, output, loading: false } : tc
+          );
+          return { ...msg, toolCalls };
+        });
+        return { ...a, messages };
+      }),
+    })),
+
+  appendAgentError: (id, message) =>
+    set((s) => ({
+      agents: s.agents.map((a) => {
+        if (a.id !== id) return a;
+        const errorMessage: Message = {
+          id: generateId(),
+          role: "assistant",
+          content: `⚠ Error: ${message}`,
+          toolCalls: [],
+          stopped: true,
+        };
+        return { ...a, messages: [...a.messages, errorMessage] };
+      }),
+    })),
+
+  setExpandedAgent: (id) => set({ expandedAgentId: id }),
+}));
