@@ -162,7 +162,8 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4)*:
 - [ ] 05-07-PLAN.md — Pre-flight automated check + human smoke test (all AGT requirements)
-**UI hint**: yes
+
+Cross-cutting constraints: Dark-only oklch color scheme; all frontend state via Zustand (agentStore); rAF buffer in agentStore for streaming; budget enforcement exclusively in Rust spawn_event_relay (never frontend); bindings.ts manually maintained (WebView2 DLL issue); agent self-execution via CLI subprocess (--task-prompt flag).
 
 ### Phase 6: Parallel Worktrees + Team Orchestration
 **Goal**: A user can compose role-based agent teams or swarms running in parallel on separate worktrees, with file-conflict protection and reviewable merge checkpoints.
@@ -186,8 +187,8 @@ Plans:
 | 1. CLI Completion | 4/4 | Complete | 2026-05-08 |
 | 2. Orchestration Layer | 6/6 | Complete | 2026-05-08 |
 | 3. Tauri Shell | 5/5 | Complete | 2026-05-09 |
-| 4. Chat UI | 0/7 | In progress | — |
-| 5. Agent Dashboard | 0/7 | Planned | — |
+| 4. Chat UI | 7/7 | Complete | 2026-05-10 |
+| 5. Agent Dashboard | 0/7 | Ready to execute | — |
 | 6. Parallel Worktrees + Team Orchestration | 0/0 | Not started | — |
 
 ---

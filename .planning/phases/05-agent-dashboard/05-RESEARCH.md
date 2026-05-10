@@ -713,17 +713,18 @@ The client-side value uses simplified rates. This is acceptable for display purp
 
 ## Open Questions
 
-1. **When does ConversationRuntime wiring happen for supervised agents?**
+1. **When does ConversationRuntime wiring happen for supervised agents?** (RESOLVED in plan 05-03 Task 3, 2026-05-10)
    - What we know: `run_agent_turn` is currently a stub. The agent does nothing after spawn until `ConversationRuntime` is wired.
    - What's unclear: Phase 5 describes agents "running" — but the runtime wiring is Phase 4 carryover. Is real AI execution in scope for Phase 5, or do agents still show stub behavior?
    - Recommendation: Plan should include wiring `ConversationRuntime` in `spawn_agent` (the agent self-runs on the initial task). Budget enforcement requires real token events to trigger. If left as stub, budget/cost display shows $0.
+   - **Resolution:** Plan 05-03 Task 3 wires `spawn_agent_executor` which spawns the existing CLI binary as a child process with `--task-prompt --model --working-dir` and streams NDJSON `AgentEvent` lines from stdout into `handle.event_tx`. Chosen over in-process `ConversationRuntime` because the Tauri layer does not yet construct ApiClient/ToolExecutor/Session and `SubAgentSpawner` (Phase 2, ORC-06) already encapsulates the subprocess pattern. Real TextDelta + TurnCompleted events now flow, making AGT-02 and AGT-06 verifiable end-to-end.
 
-2. **AgentCards persistence: should completed agents survive app restart?**
+2. **AgentCards persistence: should completed agents survive app restart?** (RESOLVED — in-memory only per recommendation; no persistence in Phase 5)
    - What we know: AGT-01 says "all running and completed agents." No persistence requirement stated.
    - What's unclear: Does the roster reset on app restart?
    - Recommendation: In-memory only for Phase 5 (store resets on app close). No persistence requirement stated in CONTEXT.md or REQUIREMENTS.md.
 
-3. **Notification permission request timing**
+3. **Notification permission request timing** (RESOLVED — useAgentPanelEvents calls requestPermission() lazily on first Done/Failed)
    - What we know: `requestPermission()` must be called before `sendNotification()`. On Windows in dev, notifications fire but show PowerShell identity.
    - What's unclear: Where to call `requestPermission()`? On first agent spawn? On app start?
    - Recommendation: Call `requestPermission()` lazily on first `StateChanged(Done|Failed)` event, cache result in agentStore or module-level variable.
