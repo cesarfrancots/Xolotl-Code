@@ -12,7 +12,7 @@
 - [x] **Phase 1: CLI Completion** — Finish CLI gaps and lock down open-model tool-calling so the headless agent is production-ready before any UI work. *(complete 2026-05-08)*
 - [x] **Phase 2: Orchestration Layer** — Build the Rust-only actor model (supervisor, worktrees, shared context, git serialization) and validate headlessly. *(complete 2026-05-08)*
 - [x] **Phase 3: Tauri Shell** — Stand up the Tauri 2.x desktop shell with capability config, managed state, and TypeScript-typed IPC to the Rust core. *(complete 2026-05-09)*
-- [ ] **Phase 4: Chat UI** — Deliver the table-stakes chat experience: streaming, tool blocks, diffs, sessions, permissions, model selector, slash commands.
+- [x] **Phase 4: Chat UI** — Deliver the table-stakes chat experience: streaming, tool blocks, diffs, sessions, permissions, model selector, slash commands. *(complete 2026-05-10)*
 - [ ] **Phase 5: Agent Dashboard** — Make multi-agent orchestration visible: spawn, monitor, budget, and notify across multiple concurrent agents.
 - [ ] **Phase 6: Parallel Worktrees + Team Orchestration** — Enable parallel agents on isolated worktrees with role-based teams, swarm strategies, and merge checkpoints.
 
@@ -129,7 +129,7 @@ Plans:
 - [x] 04-06-PLAN.md — useAgentEvents hook: rAF buffer, tool calls, permission events, session auto-save; mount in ChatPane (UI-01 through UI-11) *(complete 2026-05-10)*
 
 **Wave 5** *(blocked on Wave 4)*:
-- [ ] 04-07-PLAN.md — Human smoke test checkpoint: verify all 5 success criteria in live Tauri window (UI-01 through UI-11)
+- [x] 04-07-PLAN.md — Human smoke test checkpoint: verify all 5 success criteria in live Tauri window (UI-01 through UI-11) *(complete 2026-05-10)*
 
 Cross-cutting constraints: bindings.ts is manually maintained (D-13); run_agent_turn uses stub echo in Wave 1 — full ConversationRuntime wiring is a Wave 4 TODO; all frontend state via Zustand; rAF buffer is mandatory for TextDelta (D-02); virtualizer requires #root height:100%.
 

@@ -9,14 +9,14 @@
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** Phase 4 Chat UI — executing. Waves 1–4 complete (04-01 through 04-06 ✓). At Wave 5 (04-07 human smoke test).
+- **Current Focus:** Phase 5 Agent Dashboard — not started.
 
 ## Current Position
 
 - **Milestone:** v1
-- **Phase:** 4 — Chat UI
-- **Plan:** Phase 4 executing (6/7 plans complete)
-- **Status:** In progress — awaiting human smoke test
+- **Phase:** 5 — Agent Dashboard
+- **Plan:** Not started
+- **Status:** Phase 4 complete — ready for Phase 5
 - **Progress:** Phase 3 of 6 complete
 
 ```
@@ -28,10 +28,10 @@
 
 | Metric | Value |
 |--------|-------|
-| Phases completed | 3 / 6 |
+| Phases completed | 4 / 6 |
 | v1 requirements mapped | 40 / 40 |
 | v1 requirements completed | 18 / 40 |
-| Plans completed | 20 |
+| Plans completed | 21 |
 | Active blockers | 0 |
 
 ## Accumulated Context
@@ -72,9 +72,9 @@
 
 ## Session Continuity
 
-- **Last action:** Phase 4 Wave 4 executed — 04-06 (useAgentEvents hook, rAF buffer, full Tauri event wiring) complete. 15 tests passing.
-- **Next action:** Human smoke test (04-07) — launch Tauri app and verify all 5 success criteria live.
-- **Resume file:** `.planning/phases/04-chat-ui/04-06-SUMMARY.md`
+- **Last action:** Phase 4 complete — all 7 plans executed, 2 gaps fixed (session hydration + cost bar), verified and closed.
+- **Next action:** `/gsd-discuss-phase 5` or `/gsd-plan-phase 5` — Agent Dashboard.
+- **Resume file:** `.planning/phases/04-chat-ui/04-07-SUMMARY.md`
 - **Last updated:** 2026-05-10
 
 ---
