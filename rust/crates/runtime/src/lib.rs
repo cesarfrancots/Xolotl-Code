@@ -69,7 +69,7 @@ pub use subagent::{
 };
 pub use supervisor::{
     AgentControl, AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor,
-    ContextError, GitOpQueue, SharedContextStore, SupervisorError,
+    ContextError, GitOpQueue, SharedContextStore, SupervisorError, slugify_task,
     WorktreeError, WorktreeManager,
 };
 pub use todo::{
