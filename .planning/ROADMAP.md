@@ -126,7 +126,7 @@ Plans:
 - [x] 04-05-PLAN.md — ToolBlock + DiffView + PermissionCard + Message.tsx updates (UI-03, UI-04, UI-07) *(complete 2026-05-10)*
 
 **Wave 4** *(blocked on Wave 3)*:
-- [ ] 04-06-PLAN.md — useAgentEvents hook: rAF buffer, tool calls, permission events, session auto-save; mount in ChatPane (UI-01 through UI-11)
+- [x] 04-06-PLAN.md — useAgentEvents hook: rAF buffer, tool calls, permission events, session auto-save; mount in ChatPane (UI-01 through UI-11) *(complete 2026-05-10)*
 
 **Wave 5** *(blocked on Wave 4)*:
 - [ ] 04-07-PLAN.md — Human smoke test checkpoint: verify all 5 success criteria in live Tauri window (UI-01 through UI-11)
