@@ -8,14 +8,14 @@
     "window-state:default",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
-    "fs:default"
-  ],
-  "scope": {
-    "allow": [
-      "$APPDATA/**",
-      "$APPLOG/**",
-      "$HOME/.xolotl-code/sessions/**",
-      "$APPDATA/.xolotl-code/sessions/**"
-    ]
-  }
+    {
+      "identifier": "fs:default",
+      "allow": [
+        { "path": "$APPDATA/**" },
+        { "path": "$APPCONFIG/**" },
+        { "path": "$HOME/.xolotl-code/**" }
+      ]
+    },
+    "notification:default"
+  ]
 }
