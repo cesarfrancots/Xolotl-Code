@@ -115,11 +115,11 @@ Cross-cutting constraints: tauri-app/src-tauri/ is a separate Cargo workspace fr
 
 Plans:
 **Wave 1:**
-- [ ] 04-01-PLAN.md — Bootstrap: TextDelta Rust variant, bindings.ts patch, npm install, shadcn init, Tailwind v4, vitest, run_agent_turn + session commands, CR fixes (UI-01, UI-06, UI-08)
+- [x] 04-01-PLAN.md — Bootstrap: TextDelta Rust variant, bindings.ts patch, npm install, shadcn init, Tailwind v4, vitest, run_agent_turn + session commands, CR fixes (UI-01, UI-06, UI-08) *(complete 2026-05-10)*
 
 **Wave 2** *(parallel — no file overlap between 04-02 and 04-03)*:
-- [ ] 04-02-PLAN.md — Zustand stores (chatStore, sessionStore) + utility libs (diff.ts, cost.ts) with unit tests (UI-01, UI-04, UI-09)
-- [ ] 04-03-PLAN.md — App shell layout + SessionSidebar + ChatPane skeleton + MessageInput + slash palette (UI-06, UI-08, UI-10, UI-11)
+- [x] 04-02-PLAN.md — Zustand stores (chatStore, sessionStore) + utility libs (diff.ts, cost.ts) with unit tests (UI-01, UI-04, UI-09) *(complete 2026-05-10)*
+- [x] 04-03-PLAN.md — App shell layout + SessionSidebar + ChatPane skeleton + MessageInput + slash palette (UI-06, UI-08, UI-10, UI-11) *(complete 2026-05-10)*
 
 **Wave 3** *(parallel — no file overlap between 04-04 and 04-05)*:
 - [ ] 04-04-PLAN.md — MessageList (virtualized) + Message + MarkdownRenderer + streaming cursor (UI-01, UI-02, UI-05, UI-09)
