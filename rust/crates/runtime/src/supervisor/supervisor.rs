@@ -22,6 +22,8 @@ pub enum SupervisorError {
     NotFound(AgentId),
     #[error("context store error: {0}")]
     Context(#[from] ContextError),
+    #[error("invalid budget: {0}")]
+    InvalidBudget(String),
 }
 
 /// Central supervisor owning all agent handles, worktrees, and shared context.
@@ -109,6 +111,64 @@ impl AgentSupervisor {
             let mut registry = self.registry.lock().unwrap();
             registry.insert(agent_id.clone(), handle);
         } // lock released here — no await below this block
+
+        Ok(agent_id)
+    }
+
+    /// Spawn a new agent with full task/model/budget configuration.
+    ///
+    /// Like `spawn_agent` but populates the handle's task, model, and budget fields,
+    /// enabling per-agent cost tracking and budget enforcement (AGT-05, AGT-06).
+    ///
+    /// # Errors
+    /// - `SupervisorError::InvalidBudget` if `budget_dollars` is Some(b) where b is
+    ///   non-positive or non-finite (T-5-01 mitigation).
+    /// - `SupervisorError::Worktree` if `git worktree add` fails.
+    pub fn spawn_agent_with_config(
+        &self,
+        branch: &str,
+        task: &str,
+        model: &str,
+        budget_dollars: Option<f64>,
+    ) -> Result<AgentId, SupervisorError> {
+        // T-5-01: validate budget is positive and finite before touching any resources
+        if let Some(b) = budget_dollars {
+            if !b.is_finite() || b <= 0.0 {
+                return Err(SupervisorError::InvalidBudget(
+                    format!("budget must be > 0 and finite, got {b}")
+                ));
+            }
+        }
+
+        let agent_id = AgentId::new();
+        let worktree_path = self.worktree_manager.add(&agent_id, branch)?;
+
+        let (event_tx, mut event_rx) = mpsc::channel::<AgentEvent>(64);
+        let (broadcast_tx, _) = broadcast::channel::<AgentEvent>(64);
+        let (cancel_tx, _cancel_rx) = mpsc::channel::<AgentControl>(8);
+
+        let handle = AgentHandle::new_with_config(
+            agent_id.clone(),
+            worktree_path,
+            event_tx,
+            broadcast_tx.clone(),
+            cancel_tx,
+            task.to_string(),
+            model.to_string(),
+            budget_dollars,
+        );
+
+        let broadcast_tx_clone = broadcast_tx.clone();
+        tokio::spawn(async move {
+            while let Some(event) = event_rx.recv().await {
+                let _ = broadcast_tx_clone.send(event);
+            }
+        });
+
+        {
+            let mut registry = self.registry.lock().unwrap();
+            registry.insert(agent_id.clone(), handle);
+        }
 
         Ok(agent_id)
     }
@@ -271,6 +331,75 @@ mod tests {
 
         supervisor.stop_all().await;
         assert!(supervisor.list().is_empty());
+    }
+
+    // --- New tests for Task 2 (Phase 5) ---
+
+    #[tokio::test]
+    async fn spawn_with_config_stores_task_model_budget() {
+        let (_dir, repo) = make_temp_git_repo();
+        let supervisor = AgentSupervisor::new(&repo);
+
+        let id = supervisor
+            .spawn_agent_with_config("feat-x", "do thing", "claude-sonnet-4", Some(0.5))
+            .expect("spawn_with_config ok");
+
+        let handle = supervisor.get_handle(&id).expect("handle exists");
+        assert_eq!(handle.task, "do thing");
+        assert_eq!(handle.model, "claude-sonnet-4");
+        assert_eq!(handle.budget_dollars, Some(0.5));
+    }
+
+    #[tokio::test]
+    async fn spawn_with_config_rejects_negative_budget() {
+        let (_dir, repo) = make_temp_git_repo();
+        let supervisor = AgentSupervisor::new(&repo);
+
+        let result = supervisor
+            .spawn_agent_with_config("feat-neg", "task", "claude-haiku", Some(-1.0));
+
+        assert!(
+            matches!(result, Err(SupervisorError::InvalidBudget(_))),
+            "expected InvalidBudget, got: {:?}", result
+        );
+        assert!(supervisor.list().is_empty(), "no handle should be registered on error");
+    }
+
+    #[tokio::test]
+    async fn spawn_with_config_rejects_nan_budget() {
+        let (_dir, repo) = make_temp_git_repo();
+        let supervisor = AgentSupervisor::new(&repo);
+
+        let result = supervisor
+            .spawn_agent_with_config("feat-nan", "task", "claude-haiku", Some(f64::NAN));
+
+        assert!(matches!(result, Err(SupervisorError::InvalidBudget(_))));
+        assert!(supervisor.list().is_empty());
+    }
+
+    #[tokio::test]
+    async fn spawn_with_config_rejects_infinite_budget() {
+        let (_dir, repo) = make_temp_git_repo();
+        let supervisor = AgentSupervisor::new(&repo);
+
+        let result = supervisor
+            .spawn_agent_with_config("feat-inf", "task", "claude-haiku", Some(f64::INFINITY));
+
+        assert!(matches!(result, Err(SupervisorError::InvalidBudget(_))));
+        assert!(supervisor.list().is_empty());
+    }
+
+    #[tokio::test]
+    async fn spawn_with_config_allows_none_budget() {
+        let (_dir, repo) = make_temp_git_repo();
+        let supervisor = AgentSupervisor::new(&repo);
+
+        let id = supervisor
+            .spawn_agent_with_config("feat-none-budget", "unlimited task", "claude-haiku", None)
+            .expect("spawn with None budget should succeed");
+
+        let handle = supervisor.get_handle(&id).expect("handle exists");
+        assert!(handle.budget_dollars.is_none(), "budget should be None (unlimited)");
     }
 
     /// ORC-02: Verify the event bus works end-to-end.
