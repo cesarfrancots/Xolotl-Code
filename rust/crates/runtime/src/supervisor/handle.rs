@@ -19,6 +19,26 @@ use std::sync::{
 };
 use tokio::sync::{broadcast, mpsc};
 
+/// Convert a task description to a safe git branch slug prefixed with `agent/`.
+///
+/// Strips all non-ASCII-alphanumeric characters (replacing with hyphens), collapses
+/// consecutive hyphens, lowercases the result, and caps the slug portion to 40 chars.
+/// Used by commands.rs to derive the worktree branch name from a user-provided task.
+/// Mitigates T-5-02: no path separators or shell metacharacters survive.
+pub fn slugify_task(task: &str) -> String {
+    let lowered: String = task
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .collect();
+    let slug: String = lowered
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let capped: String = slug.chars().take(40).collect();
+    format!("agent/{}", capped)
+}
+
 /// Typed control surface for a single supervised agent.
 ///
 /// Clone to get multiple control handles to the same agent.
@@ -46,12 +66,21 @@ pub struct AgentHandle {
     pub paused: Arc<AtomicBool>,
     /// Current state — written by the agent task, read by supervisor for listings.
     pub state: Arc<std::sync::Mutex<AgentState>>,
+    /// Task description provided at spawn time (AGT-03, AGT-05).
+    pub task: String,
+    /// Model name provided at spawn time (AGT-05).
+    pub model: String,
+    /// Optional budget in USD (AGT-06). None means unlimited.
+    pub budget_dollars: Option<f64>,
+    /// Cumulative cost in USD accumulated via `accumulate_cost` (AGT-06).
+    pub cumulative_cost: Arc<std::sync::Mutex<f64>>,
 }
 
 impl AgentHandle {
     /// Create a new AgentHandle.
     ///
     /// Called by AgentSupervisor::spawn_agent() — not by user code directly.
+    /// New fields (task/model/budget/cumulative_cost) are defaulted for backwards-compatibility.
     pub(crate) fn new(
         agent_id: AgentId,
         worktree_path: PathBuf,
@@ -67,7 +96,53 @@ impl AgentHandle {
             cancel_tx,
             paused: Arc::new(AtomicBool::new(false)),
             state: Arc::new(std::sync::Mutex::new(AgentState::Idle)),
+            task: String::new(),
+            model: String::new(),
+            budget_dollars: None,
+            cumulative_cost: Arc::new(std::sync::Mutex::new(0.0_f64)),
         }
+    }
+
+    /// Create a new AgentHandle with full task/model/budget configuration.
+    ///
+    /// Called by AgentSupervisor::spawn_agent_with_config() — not by user code directly.
+    /// cumulative_cost starts at 0.0 and is incremented via accumulate_cost().
+    pub(crate) fn new_with_config(
+        agent_id: AgentId,
+        worktree_path: PathBuf,
+        event_tx: mpsc::Sender<AgentEvent>,
+        broadcast_tx: broadcast::Sender<AgentEvent>,
+        cancel_tx: mpsc::Sender<AgentControl>,
+        task: String,
+        model: String,
+        budget_dollars: Option<f64>,
+    ) -> Self {
+        Self {
+            agent_id,
+            worktree_path,
+            event_tx,
+            broadcast_tx,
+            cancel_tx,
+            paused: Arc::new(AtomicBool::new(false)),
+            state: Arc::new(std::sync::Mutex::new(AgentState::Idle)),
+            task,
+            model,
+            budget_dollars,
+            cumulative_cost: Arc::new(std::sync::Mutex::new(0.0_f64)),
+        }
+    }
+
+    /// Accumulate the cost of a single turn into the handle's cumulative_cost.
+    ///
+    /// Computes the turn cost from `usage` and `model`, adds it to the running total,
+    /// and returns the new cumulative total in USD.
+    pub fn accumulate_cost(&self, usage: &crate::usage::TokenUsage, model: &str) -> f64 {
+        let mut tracker = crate::usage::UsageTracker::new();
+        tracker.record(*usage);
+        let turn_cost = tracker.cost_usd(model);
+        let mut cost = self.cumulative_cost.lock().expect("cumulative_cost mutex poisoned");
+        *cost += turn_cost;
+        *cost
     }
 
     /// Subscribe to the agent's event stream.
@@ -248,5 +323,84 @@ mod tests {
     fn agent_handle_initial_state_is_idle() {
         let (handle, _cancel_rx, _) = make_handle();
         assert_eq!(handle.current_state(), AgentState::Idle);
+    }
+
+    // --- New tests for Task 1 (Phase 5) ---
+
+    #[test]
+    fn handle_new_with_config_stores_fields() {
+        let agent_id = AgentId::new();
+        let (event_tx, _event_rx) = mpsc::channel(64);
+        let (broadcast_tx, _broadcast_rx) = broadcast::channel(64);
+        let (cancel_tx, _cancel_rx) = mpsc::channel(8);
+        let handle = AgentHandle::new_with_config(
+            agent_id,
+            std::path::PathBuf::from("/tmp/test-worktree"),
+            event_tx,
+            broadcast_tx,
+            cancel_tx,
+            "refactor auth".to_string(),
+            "claude-sonnet-4".to_string(),
+            Some(1.25),
+        );
+        assert_eq!(handle.task, "refactor auth");
+        assert_eq!(handle.model, "claude-sonnet-4");
+        assert_eq!(handle.budget_dollars, Some(1.25));
+        let cost = *handle.cumulative_cost.lock().unwrap();
+        assert_eq!(cost, 0.0);
+    }
+
+    #[test]
+    fn handle_accumulate_cost_increments() {
+        use crate::usage::TokenUsage;
+        let agent_id = AgentId::new();
+        let (event_tx, _event_rx) = mpsc::channel(64);
+        let (broadcast_tx, _broadcast_rx) = broadcast::channel(64);
+        let (cancel_tx, _cancel_rx) = mpsc::channel(8);
+        let handle = AgentHandle::new_with_config(
+            agent_id,
+            std::path::PathBuf::from("/tmp/test-worktree"),
+            event_tx,
+            broadcast_tx,
+            cancel_tx,
+            "test".to_string(),
+            "claude-sonnet-4-5".to_string(),
+            None,
+        );
+        let usage = TokenUsage {
+            input_tokens: 1000,
+            output_tokens: 500,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        };
+        let first = handle.accumulate_cost(&usage, "claude-sonnet-4-5");
+        assert!(first > 0.0, "first call must return positive cost");
+        let second = handle.accumulate_cost(&usage, "claude-sonnet-4-5");
+        assert!((second - 2.0 * first).abs() < 1e-10, "second call must return 2x the first");
+        let stored = *handle.cumulative_cost.lock().unwrap();
+        assert!((stored - second).abs() < 1e-10, "stored value must match second return");
+    }
+
+    #[test]
+    fn slugify_task_basic() {
+        assert_eq!(slugify_task("Refactor Auth Module!"), "agent/refactor-auth-module");
+    }
+
+    #[test]
+    fn slugify_task_length_capped() {
+        let long_input = "abc ".repeat(50);
+        let result = slugify_task(&long_input);
+        let slug = result.strip_prefix("agent/").expect("must start with agent/");
+        assert!(slug.len() <= 40, "slug portion must be <= 40 chars, got {}", slug.len());
+    }
+
+    #[test]
+    fn slugify_task_punctuation_only() {
+        let result = slugify_task("***///");
+        // Must not panic, must start with "agent/", must not contain * or /  beyond the prefix
+        assert!(result.starts_with("agent/"), "must start with agent/");
+        let slug = result.strip_prefix("agent/").unwrap();
+        assert!(!slug.contains('*'), "slug must not contain *");
+        assert!(!slug.contains('/'), "slug must not contain /");
     }
 }
