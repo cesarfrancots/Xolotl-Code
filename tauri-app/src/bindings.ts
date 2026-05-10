@@ -5,11 +5,9 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	smokeTest: () => __TAURI_INVOKE<string>("smoke_test"),
-	/**
-	 *  spawn_agent: creates an agent on `branch` and starts its event relay task (D-07).
-	 *  Returns the new AgentId as a String on success.
-	 */
-	spawnAgent: (branch: string) => typedError<string, string>(__TAURI_INVOKE("spawn_agent", { branch })),
+	/** spawn_agent: spawn a new agent with task, model, and optional budget. Worktree branch is derived from the task on the Rust side. Returns the new agent ID. */
+	spawnAgent: (task: string, model: string, budgetDollars: number | null) =>
+		typedError<string, string>(__TAURI_INVOKE("spawn_agent", { task, model, budgetDollars })),
 	/**  list_agents: returns all agent IDs currently in the supervisor registry. */
 	listAgents: () => __TAURI_INVOKE<string[]>("list_agents"),
 	/**  stop_agent: sends stop signal to the named agent (async because stop_agent() is async). */

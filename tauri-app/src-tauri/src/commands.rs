@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
-use runtime::{AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor, TokenUsage};
+use runtime::{AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor, TokenUsage, slugify_task};
 use tokio::sync::broadcast::error::RecvError;
 use crate::permission_prompter::{PendingPrompts, PermissionDecision, PermissionRequestPayload};
 
@@ -11,19 +11,28 @@ pub fn smoke_test() -> String {
     "smoke_test_ok".to_string()
 }
 
-/// spawn_agent: creates an agent on `branch` and starts its event relay task (D-07).
-/// Returns the new AgentId as a String on success.
+/// spawn_agent: creates an agent with task/model/optional budget. Worktree branch is
+/// derived from the task via slugify_task. Starts event relay AND agent self-execution.
+/// Returns new AgentId.
 #[tauri::command]
 #[specta::specta]
 pub fn spawn_agent(
     supervisor: tauri::State<'_, Arc<AgentSupervisor>>,
     app_handle: AppHandle,
-    branch: String,
+    task: String,
+    model: String,
+    budget_dollars: Option<f64>,
 ) -> Result<String, String> {
-    let agent_id = supervisor.spawn_agent(&branch).map_err(|e| e.to_string())?;
-    // Wire event relay immediately after spawn (D-07)
+    // T-5-02: slugify the task before passing to git
+    let branch = slugify_task(&task);
+    let agent_id = supervisor
+        .spawn_agent_with_config(&branch, &task, &model, budget_dollars)
+        .map_err(|e| e.to_string())?;
     if let Some(handle) = supervisor.get_handle(&agent_id) {
-        spawn_event_relay(app_handle, agent_id.clone(), handle);
+        spawn_event_relay(app_handle, agent_id.clone(), handle.clone());
+        // Task 3 self-execution — agent runs its initial task in a CLI subprocess,
+        // streaming NDJSON AgentEvents back into handle.event_tx.
+        spawn_agent_executor(agent_id.clone(), handle);
     }
     Ok(agent_id.0)
 }
@@ -264,6 +273,9 @@ fn home_sessions_dir() -> PathBuf {
 ///
 /// RecvError::Lagged is handled by emitting a synthetic EventsLost notification
 /// instead of panicking or silently dropping events (T-03-03-02 mitigation).
+///
+/// Budget enforcement (D-10, D-11): on every TurnCompleted event, accumulates cost
+/// and injects StateChanged(Failed) + Error when cumulative cost exceeds budget.
 pub(crate) fn spawn_event_relay(
     app_handle: AppHandle,
     agent_id: AgentId,
@@ -276,6 +288,22 @@ pub(crate) fn spawn_event_relay(
             match rx.recv().await {
                 Ok(event) => {
                     let _ = app_handle.emit(&channel, &event);
+                    // Budget enforcement (D-10, D-11). Runs after every event emit; cost accumulates
+                    // on TurnCompleted only. When cumulative_cost >= budget, inject Failed + Error
+                    // via event_tx so subscribers see the state change.
+                    if let AgentEvent::TurnCompleted { ref usage } = event {
+                        if let Some(budget) = handle.budget_dollars {
+                            let new_cost = handle.accumulate_cost(usage, &handle.model);
+                            if new_cost >= budget {
+                                let _ = handle.event_tx.try_send(
+                                    AgentEvent::StateChanged(AgentState::Failed)
+                                );
+                                let _ = handle.event_tx.try_send(AgentEvent::Error {
+                                    message: format!("Budget exceeded: ${:.4}", new_cost),
+                                });
+                            }
+                        }
+                    }
                 }
                 Err(RecvError::Lagged(n)) => {
                     // Broadcast channel capacity 64 (Phase 2 invariant).
@@ -286,6 +314,130 @@ pub(crate) fn spawn_event_relay(
                     );
                 }
                 Err(RecvError::Closed) => break, // agent stopped — relay task exits
+            }
+        }
+    });
+}
+
+/// spawn_agent_executor: drives the agent's initial task by spawning the CLI binary
+/// as a child process and streaming its NDJSON AgentEvent stdout back into
+/// `handle.event_tx`. Resolves RESEARCH.md Open Question 1 — without this, agents
+/// stay Idle forever after spawn and AGT-02 / AGT-06 cannot be verified end-to-end.
+///
+/// Design choice (subprocess vs in-process ConversationRuntime): the Tauri layer
+/// does not yet construct ApiClient / ToolExecutor / Session, so an in-process
+/// runtime would require a substantial new wiring layer. SubAgentSpawner (Phase 2
+/// ORC-06) already runs the CLI binary with `--task-prompt --working-dir` and emits
+/// NDJSON events. We reuse that mechanism, streaming each event line into the
+/// handle's mpsc channel as it arrives (rather than collecting to a Vec like
+/// spawn_ndjson_reader does).
+///
+/// Lifecycle:
+/// - Emits StateChanged(Planning) immediately before spawn (agent is now active).
+/// - For each NDJSON line on stdout: parse as AgentEvent and forward via event_tx.
+/// - On child exit: emit StateChanged(Done) if exit was clean (status.success()),
+///   otherwise StateChanged(Failed) + Error { message: "agent process exited with <code>" }.
+/// - Spawn errors emit StateChanged(Failed) + Error { message } and return.
+///
+/// SubAgentSpawner reference impl: rust/crates/runtime/src/subagent/spawner.rs:290
+pub(crate) fn spawn_agent_executor(agent_id: AgentId, handle: AgentHandle) {
+    // Clone fields we need for the move into the blocking task — AgentHandle is Clone.
+    let task = handle.task.clone();
+    let model = handle.model.clone();
+    let worktree_path = handle.worktree_path.clone();
+    let event_tx = handle.event_tx.clone();
+
+    // Use tokio::task::spawn_blocking because std::process::Child::wait + BufRead::lines()
+    // are synchronous. The closure body uses blocking I/O end-to-end; we send events
+    // through the mpsc channel via blocking_send (which is the sync API for tokio mpsc).
+    tokio::task::spawn_blocking(move || {
+        // Announce that the agent has started (Planning is the first non-Idle state).
+        let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Planning));
+
+        // Build the subprocess command. Mirrors SubAgentSpawner::spawn_ndjson_reader
+        // (rust/crates/runtime/src/subagent/spawner.rs lines 290-316) but streams
+        // line-by-line instead of collecting.
+        let exe = match std::env::current_exe() {
+            Ok(e) => e,
+            Err(e) => {
+                let _ = event_tx.blocking_send(AgentEvent::Error {
+                    message: format!("agent executor: current_exe failed: {e}"),
+                });
+                let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Failed));
+                return;
+            }
+        };
+
+        let task_id = format!("agent-{}", agent_id.0);
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.arg("--print-output")
+            .arg("--task-prompt").arg(&task)
+            .arg("--task-id").arg(&task_id)
+            .arg("--model").arg(&model)
+            .arg("--working-dir").arg(&worktree_path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = event_tx.blocking_send(AgentEvent::Error {
+                    message: format!("agent executor: spawn failed: {e}"),
+                });
+                let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Failed));
+                return;
+            }
+        };
+
+        // Stream NDJSON stdout: parse each line as AgentEvent, forward through event_tx.
+        // This is the critical difference vs spawn_ndjson_reader — events stream as
+        // they arrive rather than being buffered until child exit.
+        if let Some(stdout) = child.stdout.take() {
+            use std::io::BufRead;
+            let reader = std::io::BufReader::new(stdout);
+            for line_result in reader.lines() {
+                let line = match line_result {
+                    Ok(l) => l,
+                    Err(_) => break, // stdout closed or read error — child likely exited
+                };
+                if line.trim().is_empty() { continue; }
+                match serde_json::from_str::<AgentEvent>(&line) {
+                    Ok(event) => {
+                        // blocking_send returns Err only if the receiver was dropped;
+                        // that means the agent handle was removed and we should stop.
+                        if event_tx.blocking_send(event).is_err() {
+                            let _ = child.kill();
+                            return;
+                        }
+                    }
+                    Err(_) => {
+                        // Non-JSON line — ignore (CLI may emit human-readable preamble
+                        // before NDJSON events). Do NOT treat as fatal.
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Wait for the child to exit and inspect status.
+        let status = child.wait();
+        match status {
+            Ok(s) if s.success() => {
+                let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Done));
+            }
+            Ok(s) => {
+                let code = s.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string());
+                let _ = event_tx.blocking_send(AgentEvent::Error {
+                    message: format!("agent process exited with code {code}"),
+                });
+                let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Failed));
+            }
+            Err(e) => {
+                let _ = event_tx.blocking_send(AgentEvent::Error {
+                    message: format!("agent executor: wait failed: {e}"),
+                });
+                let _ = event_tx.blocking_send(AgentEvent::StateChanged(AgentState::Failed));
             }
         }
     });
