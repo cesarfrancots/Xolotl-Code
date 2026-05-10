@@ -147,8 +147,8 @@ Cross-cutting constraints: bindings.ts is manually maintained (D-13); run_agent_
 
 Plans:
 **Wave 1** *(parallel — no file overlap)*:
-- [ ] 05-01-PLAN.md — Rust AgentHandle extension: task/model/budget fields + accumulate_cost + slugify_task + supervisor.spawn_agent_with_config with budget validation (AGT-03, AGT-05, AGT-06)
-- [ ] 05-02-PLAN.md — Install tauri-plugin-notification 2.3.3 (Rust + JS) + capability grant + CR-01/CR-04 fixes (AGT-04)
+- [x] 05-01-PLAN.md — Rust AgentHandle extension: task/model/budget fields + accumulate_cost + slugify_task + supervisor.spawn_agent_with_config with budget validation (AGT-03, AGT-05, AGT-06) *(complete 2026-05-10)*
+- [x] 05-02-PLAN.md — Install tauri-plugin-notification 2.3.3 (Rust + JS) + capability grant + CR-01/CR-04 fixes (AGT-04) *(complete 2026-05-10)*
 
 **Wave 2** *(blocked on Wave 1)*:
 - [ ] 05-03-PLAN.md — Tauri spawn_agent command extended with task/model/budget + spawn_event_relay budget enforcement + bindings.ts manual update (AGT-03, AGT-05, AGT-06)
