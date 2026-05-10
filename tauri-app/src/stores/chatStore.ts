@@ -113,6 +113,9 @@ export interface ChatState {
 
   /** Clear the session: reset items, streaming state, and usage. Keeps agentId and model. */
   clearSession: () => void;
+
+  /** Restore a previously saved session: replaces items, model, and usage. */
+  hydrateSession: (items: Message[], model: string, usage: TokenUsage) => void;
 }
 
 const DEFAULT_MODEL = "claude-sonnet-4-5";
@@ -258,5 +261,14 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
       isStreaming: false,
       sessionUsage: EMPTY_USAGE,
       // Keep agentId and model — user may continue with the same agent
+    })),
+
+  hydrateSession: (items, model, usage) =>
+    set(() => ({
+      items,
+      model,
+      sessionUsage: usage,
+      streamingContent: "",
+      isStreaming: false,
     })),
 }));

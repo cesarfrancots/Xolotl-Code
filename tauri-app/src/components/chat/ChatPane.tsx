@@ -2,7 +2,7 @@ import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
 import { useChatStore } from "../../stores/chatStore";
 import { useAgentEvents } from "../../hooks/useAgentEvents";
-import { formatCostBar } from "../../lib/cost";
+import { formatCostBar, calcTurnCost } from "../../lib/cost";
 import { ChevronDown, Square } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -36,7 +36,7 @@ export function ChatPane() {
     sessionUsage.cache_creation_input_tokens +
     sessionUsage.cache_read_input_tokens;
 
-  const costBarText = formatCostBar(0, totalTokens);
+  const costBarText = formatCostBar(calcTurnCost(sessionUsage, model), totalTokens);
 
   return (
     <div className="flex-1 min-w-0 flex flex-col bg-[oklch(0.11_0_0)]">

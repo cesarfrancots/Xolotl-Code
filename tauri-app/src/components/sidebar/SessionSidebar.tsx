@@ -3,8 +3,10 @@ import { Plus } from "lucide-react";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { useSessionStore } from "../../stores/sessionStore";
+import type { SessionSnapshot } from "../../stores/sessionStore";
 import { useChatStore } from "../../stores/chatStore";
 import { SessionItem } from "./SessionItem";
+import { commands } from "../../bindings";
 
 /**
  * Left column: session list + "New session" button.
@@ -15,6 +17,7 @@ export function SessionSidebar() {
   const { sessions, activeSessionId, loadSessions, deleteSession, setActiveSessionId } =
     useSessionStore();
   const clearSession = useChatStore((s) => s.clearSession);
+  const hydrateSession = useChatStore((s) => s.hydrateSession);
 
   useEffect(() => {
     void loadSessions();
@@ -25,9 +28,16 @@ export function SessionSidebar() {
     clearSession();
   }
 
-  function handleResumeSession(id: string) {
+  async function handleResumeSession(id: string) {
     setActiveSessionId(id);
-    // Wave 3 plan will wire loadSession() → hydrate chatStore
+    const result = await commands.loadSession(id);
+    if (result.status === "error") return;
+    try {
+      const snapshot = JSON.parse(result.data) as SessionSnapshot;
+      hydrateSession(snapshot.messages, snapshot.model, snapshot.usage);
+    } catch {
+      // Malformed session — leave chat pane blank rather than crashing
+    }
   }
 
   function handleDeleteSession(id: string) {
@@ -66,7 +76,7 @@ export function SessionSidebar() {
                 key={session.id}
                 session={session}
                 isActive={session.id === activeSessionId}
-                onResume={() => handleResumeSession(session.id)}
+                onResume={() => void handleResumeSession(session.id)}
                 onDelete={() => handleDeleteSession(session.id)}
               />
             ))}
