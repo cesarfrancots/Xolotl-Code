@@ -1,6 +1,7 @@
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
 import { useChatStore } from "../../stores/chatStore";
+import { useAgentEvents } from "../../hooks/useAgentEvents";
 import { formatCostBar } from "../../lib/cost";
 import { ChevronDown, Square } from "lucide-react";
 import { Button } from "../ui/button";
@@ -19,6 +20,8 @@ import { useEffect, useState } from "react";
  */
 export function ChatPane() {
   const { model, setModel, isStreaming, sessionUsage } = useChatStore();
+  const agentId = useChatStore((s) => s.agentId);
+  useAgentEvents(agentId);
   const [availableModels, setAvailableModels] = useState<string[]>([model]);
 
   useEffect(() => {
