@@ -1,4 +1,5 @@
 import { MessageInput } from "./MessageInput";
+import { MessageList } from "./MessageList";
 import { useChatStore } from "../../stores/chatStore";
 import { formatCostBar } from "../../lib/cost";
 import { ChevronDown, Square } from "lucide-react";
@@ -68,17 +69,9 @@ export function ChatPane() {
         </div>
       </div>
 
-      {/* Message list area — placeholder div; replaced by MessageList in Plan 04 */}
-      <div
-        id="message-list-container"
-        className="flex-1 overflow-y-auto"
-        data-placeholder="message-list"
-      >
-        {/* Empty state */}
-        <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-8">
-          <p className="text-base font-semibold text-[oklch(0.92_0_0)]">Start a conversation</p>
-          <p className="text-sm text-[oklch(0.55_0_0)]">Type a message below or use / for commands.</p>
-        </div>
+      {/* Message list — virtualized via MessageList (Plan 04) */}
+      <div className="flex-1 min-h-0">
+        <MessageList />
       </div>
 
       {/* Input bar */}
