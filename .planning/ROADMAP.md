@@ -158,7 +158,7 @@ Plans:
 - [x] 05-05-PLAN.md — AgentPanel + AgentCard + AgentStateBadge + SpawnAgentDialog + AgentCard tests (AGT-01, AGT-03, AGT-05) *(complete 2026-05-10)*
 
 **Wave 4** *(blocked on Wave 3)*:
-- [ ] 05-06-PLAN.md — AgentMessageList virtualizer + AgentOutputView read-only + App.tsx 3-column wiring (AGT-01, AGT-02, AGT-04)
+- [x] 05-06-PLAN.md — AgentMessageList virtualizer + AgentOutputView read-only + App.tsx 3-column wiring (AGT-01, AGT-02, AGT-04) *(complete 2026-05-10)*
 
 **Wave 5** *(blocked on Wave 4)*:
 - [ ] 05-07-PLAN.md — Pre-flight automated check + human smoke test (all AGT requirements)
