@@ -9,14 +9,14 @@
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** Tauri shell complete — typed IPC, permission prompter, plugin bundle, all TAU requirements verified in live window. Next: Phase 4 Chat UI (streaming, tool blocks, sessions, model selector, slash commands).
+- **Current Focus:** Phase 4 Chat UI — 7 plans created and verified (6 waves). Ready to execute.
 
 ## Current Position
 
 - **Milestone:** v1
-- **Phase:** 4 — Chat UI (next)
-- **Plan:** Phase 3 complete (5/5 plans)
-- **Status:** Phase 3 complete; Phase 4 not started
+- **Phase:** 4 — Chat UI
+- **Plan:** Phase 4 planned (7/7 plans, 6 waves)
+- **Status:** Ready to execute
 - **Progress:** Phase 3 of 6 complete
 
 ```

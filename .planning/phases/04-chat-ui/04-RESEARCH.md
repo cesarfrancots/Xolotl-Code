@@ -703,27 +703,19 @@ export function computeLineDiff(oldStr: string, newStr: string) {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **How does `spawn_agent` receive a user message? (D-03 implementation detail)**
-   - What we know: D-03 says "extend/reuse spawn_agent; not a new run_turn command." Current `spawn_agent` takes only `branch: String`.
-   - What's unclear: The Rust `AgentSupervisor::spawn_agent()` only sets up infrastructure (channels, worktree). There is no `ConversationRuntime` wired yet — no actual API call happens. The agent is registered but idle.
-   - Recommendation: Phase 4 needs to add a `run_agent_turn(agent_id, message)` command (or extend spawn_agent to accept an initial message) that feeds the message into `ConversationRuntime::run_turn()` inside `tokio::task::spawn_blocking`. This is the most significant missing piece in the IPC layer.
+   - **RESOLVED (2026-05-10):** User approved a new `run_agent_turn(agent_id: String, message: String)` Tauri command. D-03 updated in CONTEXT.md. Phase 4 ships an echo stub; real `ConversationRuntime` wiring is a follow-on. See Plan 01 Task 1.
 
 2. **How are models configured and listed?**
-   - What we know: `config.rs` loads `RuntimeConfig` from `~/.xolotl-code/config.json`. Model is a string field.
-   - What's unclear: Is there a Tauri command to list available models? Phase 4 UI-08 needs a model list for the dropdown.
-   - Recommendation: Add a `list_models()` Tauri command that reads `RuntimeConfig` and returns configured model names. Or hardcode a known set (Anthropic models + any configured OpenAI-compat endpoints).
+   - **RESOLVED (2026-05-10):** `list_models()` Tauri command added in Plan 01 Task 1. Returns hardcoded Anthropic model set + reads any configured OpenAI-compat endpoints from `RuntimeConfig`. See Plan 01 Task 1.
 
 3. **Session persistence — what format and where?**
-   - What we know: Rust `Session` type in `session.rs` already has JSON save/load. Sessions save to `~/.xolotl-code/sessions/`. Tauri fs plugin is installed.
-   - What's unclear: Should the frontend read session files directly via the fs plugin, or should there be a `list_sessions()`/`load_session()` Tauri command wrapping the Rust session APIs?
-   - Recommendation: Add Tauri commands for `list_sessions()`, `load_session(id)`, `delete_session(id)` rather than having React read the filesystem directly. This keeps the session format knowledge in Rust.
+   - **RESOLVED (2026-05-10):** `list_sessions()`, `load_session(id)`, `delete_session(id)`, `save_session(id, json)` Tauri commands added in Plan 01 Task 1. Canonical session JSON format defined in `serializeSession()` helper in `sessionStore.ts` (Plan 02). See Plan 01 Task 1 and Plan 02 Task 2.
 
 4. **`spawn_agent` and conversation management**
-   - What we know: Each `spawn_agent` call creates a new git worktree and agent handle. A chat session is not one-to-one with an agent handle as currently defined.
-   - What's unclear: For a simple chat, do we want a persistent agent (spawn once, re-use across turns) or a new agent per turn? The current architecture creates a new worktree per spawn.
-   - Recommendation: For Phase 4 single-session chat, spawn once per session and run multiple turns through the same agent. This requires the agent task loop (not yet implemented) to stay alive between turns, waiting for user input.
+   - **RESOLVED (2026-05-10):** Phase 4 spawns once per session (`spawn_agent("main")`), then drives turns via `run_agent_turn(agent_id, message)`. Echo stub for Phase 4; persistent agent task loop is a follow-on. See Plan 01 Task 1 and Plan 06.
 
 ---
 

@@ -16,7 +16,7 @@ Deliver the table-stakes chat experience inside the Tauri shell: token-by-token 
 ### Streaming Architecture
 - **D-01:** Add `AgentEvent::TextDelta(String)` variant to the Rust runtime. The existing broadcast channel + Tauri event relay (Phase 3) picks it up automatically — no separate stream channel needed.
 - **D-02:** Frontend buffers incoming `TextDelta` events in a React ref and flushes to state on each `requestAnimationFrame` tick (~60fps). Matches UI-01 requirement directly.
-- **D-03:** User messages are sent by extending/reusing the existing `spawn_agent` Tauri command (not a new `run_turn` command). The agent runs and emits `AgentEvent`s including the new `TextDelta` variant.
+- **D-03:** User messages are sent via a new `run_agent_turn(agent_id: String, message: String)` Tauri command. The agent must already exist (spawned via `spawn_agent`); `run_agent_turn` feeds the message into `ConversationRuntime::run_turn()` inside `tokio::task::spawn_blocking` and the runtime emits `AgentEvent`s including the new `TextDelta` variant. **Updated 2026-05-10:** Original decision said "extend/reuse spawn_agent"; research confirmed spawn_agent only sets up infrastructure and cannot drive turns. User approved new command.
 
 ### UI Shell & Layout
 - **D-04:** Fixed 2-column layout: session list sidebar (left) + chat pane (right). Sidebar always visible — no toggle or collapse needed for Phase 4.
