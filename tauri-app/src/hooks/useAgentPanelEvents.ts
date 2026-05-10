@@ -75,7 +75,7 @@ export function useAgentPanelEvents(agentId: string): void {
         return;
       }
 
-      if ("StateChanged" in payload) {
+      if ("StateChanged" in payload && payload.StateChanged !== undefined) {
         const state = payload.StateChanged;
         useAgentStore.getState().updateAgentState(agentId, state);
         if (state === "Done" || state === "Failed") {

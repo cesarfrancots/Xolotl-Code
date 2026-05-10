@@ -107,7 +107,7 @@ export function MessageInput() {
     // Spawn agent if not yet spawned, then run the turn
     let currentAgentId = agentId;
     if (!currentAgentId) {
-      const spawnResult = await commands.spawnAgent("main");
+      const spawnResult = await commands.spawnAgent(msg, "claude-sonnet-4-5", null);
       if (spawnResult.status === "error") {
         console.error("spawn_agent error:", spawnResult.error);
         return;
