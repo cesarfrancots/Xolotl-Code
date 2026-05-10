@@ -111,8 +111,27 @@ Cross-cutting constraints: tauri-app/src-tauri/ is a separate Cargo workspace fr
   3. User can browse, resume, or delete saved sessions from a sidebar, and a 200+ turn session scrolls smoothly via virtualization.
   4. User can switch model per session, see per-turn and session-total token/dollar cost, cancel an in-flight turn while preserving partial output, and approve/deny/always-allow permission prompts as inline cards.
   5. User can open a slash-command palette with `/`, see described commands, and execute them inline in the chat input.
-**Plans**: TBD
-**UI hint**: yes
+**Plans**: 7 plans
+
+Plans:
+**Wave 1:**
+- [ ] 04-01-PLAN.md — Bootstrap: TextDelta Rust variant, bindings.ts patch, npm install, shadcn init, Tailwind v4, vitest, run_agent_turn + session commands, CR fixes (UI-01, UI-06, UI-08)
+
+**Wave 2** *(parallel — no file overlap between 04-02 and 04-03)*:
+- [ ] 04-02-PLAN.md — Zustand stores (chatStore, sessionStore) + utility libs (diff.ts, cost.ts) with unit tests (UI-01, UI-04, UI-09)
+- [ ] 04-03-PLAN.md — App shell layout + SessionSidebar + ChatPane skeleton + MessageInput + slash palette (UI-06, UI-08, UI-10, UI-11)
+
+**Wave 3** *(parallel — no file overlap between 04-04 and 04-05)*:
+- [ ] 04-04-PLAN.md — MessageList (virtualized) + Message + MarkdownRenderer + streaming cursor (UI-01, UI-02, UI-05, UI-09)
+- [ ] 04-05-PLAN.md — ToolBlock + DiffView + PermissionCard + Message.tsx updates (UI-03, UI-04, UI-07)
+
+**Wave 4** *(blocked on Wave 3)*:
+- [ ] 04-06-PLAN.md — useAgentEvents hook: rAF buffer, tool calls, permission events, session auto-save; mount in ChatPane (UI-01 through UI-11)
+
+**Wave 5** *(blocked on Wave 4)*:
+- [ ] 04-07-PLAN.md — Human smoke test checkpoint: verify all 5 success criteria in live Tauri window (UI-01 through UI-11)
+
+Cross-cutting constraints: bindings.ts is manually maintained (D-13); run_agent_turn uses stub echo in Wave 1 — full ConversationRuntime wiring is a Wave 4 TODO; all frontend state via Zustand; rAF buffer is mandatory for TextDelta (D-02); virtualizer requires #root height:100%.
 
 ### Phase 5: Agent Dashboard
 **Goal**: A user can spawn, monitor, budget, and be notified about multiple concurrent agents from a live dashboard inside the Tauri app.
@@ -149,7 +168,7 @@ Cross-cutting constraints: tauri-app/src-tauri/ is a separate Cargo workspace fr
 | 1. CLI Completion | 4/4 | Complete | 2026-05-08 |
 | 2. Orchestration Layer | 6/6 | Complete | 2026-05-08 |
 | 3. Tauri Shell | 5/5 | Complete | 2026-05-09 |
-| 4. Chat UI | 0/0 | Not started | — |
+| 4. Chat UI | 0/7 | In progress | — |
 | 5. Agent Dashboard | 0/0 | Not started | — |
 | 6. Parallel Worktrees + Team Orchestration | 0/0 | Not started | — |
 
@@ -173,4 +192,4 @@ Cross-cutting constraints: tauri-app/src-tauri/ is a separate Cargo workspace fr
 
 ---
 *Roadmap created: 2026-05-07*
-*Last updated: 2026-05-09 — Phase 3 complete (5/5 plans, 22/22 must-haves verified)*
+*Last updated: 2026-05-10 — Phase 4 planned (7 plans across 5 waves)*
