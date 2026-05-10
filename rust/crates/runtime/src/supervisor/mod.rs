@@ -10,7 +10,7 @@ mod worktree;
 pub use agent_state::{AgentControl, AgentEvent, AgentId, AgentState};
 pub use context_store::{ContextError, SharedContextStore};
 pub use git_queue::GitOpQueue;
-pub use handle::AgentHandle;
+pub use handle::{AgentHandle, slugify_task};
 pub use supervisor::{AgentSupervisor, SupervisorError};
 pub use worktree::{WorktreeError, WorktreeManager};
 
