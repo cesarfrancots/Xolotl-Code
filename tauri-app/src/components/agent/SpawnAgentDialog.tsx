@@ -18,8 +18,6 @@ import {
 import { commands } from "../../bindings";
 import { useAgentStore } from "../../stores/agentStore";
 
-const DEFAULT_MODEL = "claude-sonnet-4-5";
-
 export function SpawnAgentDialog({
   open,
   onOpenChange,
@@ -27,8 +25,8 @@ export function SpawnAgentDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [models, setModels] = useState<string[]>([DEFAULT_MODEL]);
-  const [model, setModel] = useState<string>(DEFAULT_MODEL);
+  const [models, setModels] = useState<string[]>([]);
+  const [model, setModel] = useState<string>("");
   const [task, setTask] = useState<string>("");
   const [budget, setBudget] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +47,7 @@ export function SpawnAgentDialog({
     setTask("");
     setBudget("");
     setError(null);
-    setModel(DEFAULT_MODEL);
+    setModel(models[0] ?? "");
   }
 
   async function handleSpawn() {

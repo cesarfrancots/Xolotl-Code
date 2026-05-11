@@ -118,7 +118,7 @@ export interface ChatState {
   hydrateSession: (items: Message[], model: string, usage: TokenUsage) => void;
 }
 
-const DEFAULT_MODEL = "claude-sonnet-4-5";
+const DEFAULT_MODEL = "kimi2.6";
 
 const EMPTY_USAGE: TokenUsage = {
   input_tokens: 0,

@@ -184,12 +184,12 @@ pub fn list_models() -> Vec<String> {
     // kimi2.6     → KIMI_API_KEY + Moonshot API
     // minimax2.7  → MINIMAX_API_KEY + MiniMax API
     vec![
-        "claude-opus-4-5".to_string(),
+        "kimi2.6".to_string(),
+        "kimi-coding".to_string(),
+        "minimax2.7".to_string(),
         "claude-sonnet-4-5".to_string(),
         "claude-haiku-3-5".to_string(),
-        "kimi-coding".to_string(),
-        "kimi2.6".to_string(),
-        "minimax2.7".to_string(),
+        "claude-opus-4-5".to_string(),
     ]
 }
 
