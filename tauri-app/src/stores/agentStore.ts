@@ -71,11 +71,12 @@ function generateId(): string {
  * Authoritative enforcement is Rust-side (D-10 / AGT-06).
  */
 const RATES: Record<string, { in: number; out: number }> = {
+  "claude-opus-4-5": { in: 15, out: 75 },
   "claude-sonnet-4-5": { in: 3, out: 15 },
-  "claude-sonnet-4": { in: 3, out: 15 },
-  "claude-opus-4": { in: 15, out: 75 },
-  "kimi-k2": { in: 0.15, out: 2.5 },
-  "minimax-m1": { in: 0.3, out: 1.65 },
+  "claude-haiku-3-5": { in: 0.8, out: 4 },
+  "kimi-coding": { in: 0.15, out: 2.5 },
+  "kimi2.6": { in: 0.15, out: 2.5 },
+  "minimax2.7": { in: 0.3, out: 1.65 },
 };
 
 function estimateTurnCost(usage: TokenUsage, model: string): number {

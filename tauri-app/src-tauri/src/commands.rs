@@ -179,10 +179,17 @@ pub async fn run_agent_turn(
 #[tauri::command]
 #[specta::specta]
 pub fn list_models() -> Vec<String> {
+    // Model aliases match the xolotl CLI exactly so they can be passed verbatim to --model.
+    // kimi-coding → KIMI_CODING_API_KEY + api.kimi.com/coding/v1
+    // kimi2.6     → KIMI_API_KEY + Moonshot API
+    // minimax2.7  → MINIMAX_API_KEY + MiniMax API
     vec![
         "claude-opus-4-5".to_string(),
         "claude-sonnet-4-5".to_string(),
         "claude-haiku-3-5".to_string(),
+        "kimi-coding".to_string(),
+        "kimi2.6".to_string(),
+        "minimax2.7".to_string(),
     ]
 }
 
@@ -321,61 +328,108 @@ pub(crate) fn spawn_event_relay(
     });
 }
 
-/// spawn_agent_executor: drives the agent's initial task by spawning the CLI binary
-/// as a child process and streaming its NDJSON AgentEvent stdout back into
-/// `handle.event_tx`. Resolves RESEARCH.md Open Question 1 — without this, agents
-/// stay Idle forever after spawn and AGT-02 / AGT-06 cannot be verified end-to-end.
-///
-/// Design choice (subprocess vs in-process ConversationRuntime): the Tauri layer
-/// does not yet construct ApiClient / ToolExecutor / Session, so an in-process
-/// runtime would require a substantial new wiring layer. SubAgentSpawner (Phase 2
-/// ORC-06) already runs the CLI binary with `--task-prompt --working-dir` and emits
-/// NDJSON events. We reuse that mechanism, streaming each event line into the
-/// handle's mpsc channel as it arrives (rather than collecting to a Vec like
-/// spawn_ndjson_reader does).
-///
-/// Lifecycle:
-/// - Emits StateChanged(Planning) immediately before spawn (agent is now active).
-/// - For each NDJSON line on stdout: parse as AgentEvent and forward via event_tx.
-/// - On child exit: emit StateChanged(Done) if exit was clean (status.success()),
-///   otherwise StateChanged(Failed) + Error { message: "agent process exited with <code>" }.
-/// - Spawn errors emit StateChanged(Failed) + Error { message } and return.
-///
-/// SubAgentSpawner reference impl: rust/crates/runtime/src/subagent/spawner.rs:290
+/// Locate the xolotl CLI binary. Checks $USERPROFILE/.cargo/bin first (Windows),
+/// then $HOME/.cargo/bin (Unix), then falls back to a plain PATH lookup.
+fn find_xolotl_bin() -> PathBuf {
+    for var in &["USERPROFILE", "HOME"] {
+        if let Ok(home) = std::env::var(var) {
+            let p = PathBuf::from(home)
+                .join(".cargo")
+                .join("bin")
+                .join(if cfg!(windows) { "xolotl.exe" } else { "xolotl" });
+            if p.exists() {
+                return p;
+            }
+        }
+    }
+    PathBuf::from(if cfg!(windows) { "xolotl.exe" } else { "xolotl" })
+}
+
+/// spawn_agent_executor: drives the agent's initial task by invoking the xolotl CLI
+/// in sub-agent mode (`--print-output --task-prompt <task> --task-output <tmpfile>`).
+/// The CLI handles all model routing — kimi-coding uses KIMI_CODING_API_KEY +
+/// api.kimi.com/coding/v1, minimax uses MINIMAX_API_KEY, etc. — exactly as in the
+/// interactive CLI. The output file is read on completion and emitted as TextDelta
+/// + TurnCompleted + StateChanged(Done).
 pub(crate) fn spawn_agent_executor(_agent_id: AgentId, handle: AgentHandle) {
-    // Clone fields we need for the move into the async task — AgentHandle is Clone.
-    // _task/_model/_worktree_path are unused by the CR-01 stub; retain them here so the
-    // follow-on sidecar implementation can uncomment without adding new declarations.
-    let _task = handle.task.clone();
-    let _model = handle.model.clone();
-    let _worktree_path = handle.worktree_path.clone();
+    let task = handle.task.clone();
+    let model = handle.model.clone();
+    let worktree_path = handle.worktree_path.clone();
     let event_tx = handle.event_tx.clone();
 
-    // CR-02: Wrap in an async tokio::spawn so we can sleep before the first event emit.
-    // This gives the IPC response time to return to the frontend and for listen() to be
-    // registered before StateChanged(Planning) fires. This is a heuristic — the robust
-    // fix requires a subscription-acknowledgment protocol.
     tokio::spawn(async move {
+        // CR-02: delay so the IPC round-trip returns and listen() registers before events fire.
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Planning)).await;
 
-        // CR-01: The agent CLI binary is not yet configured as a Tauri sidecar.
-        // Launching current_exe() would re-spawn the Tauri host binary (xolotl.exe),
-        // which does not accept --task-prompt / --model / --working-dir flags and would
-        // exit immediately with a non-zero code, silently failing every agent spawn.
-        //
-        // Until the sidecar is wired in tauri.conf.json ("bundle.externalBin":
-        // ["bin/xolotl-agent"]) and the binary path is plumbed through managed state,
-        // return a clear error rather than spawning the wrong executable.
-        //
-        // Follow-on: replace this stub with:
-        //   app_handle.shell().sidecar("xolotl-agent")?.arg(...).spawn(...)
-        let _ = event_tx.send(AgentEvent::Error {
-            message: "agent CLI binary not yet configured — see CR-01 in 05-REVIEW.md. \
-                      Sidecar wiring (tauri.conf.json externalBin) is required before \
-                      agents can execute tasks.".to_string(),
+        let xolotl = find_xolotl_bin();
+        let output_file = std::env::temp_dir().join(format!(
+            "xolotl-agent-{}.txt",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0)
+        ));
+
+        let output_file_clone = output_file.clone();
+        let task_clone = task.clone();
+        let model_clone = model.clone();
+        let worktree_clone = worktree_path.clone();
+
+        let spawn_result = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(&xolotl)
+                .arg("--model").arg(&model_clone)
+                .arg("--print-output")
+                .arg("--task-prompt").arg(&task_clone)
+                .arg("--task-output").arg(&output_file_clone)
+                .arg("--yes")
+                .current_dir(&worktree_clone)
+                .output()
         }).await;
-        let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Failed)).await;
+
+        let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Executing)).await;
+
+        match spawn_result {
+            Err(join_err) => {
+                let _ = event_tx.send(AgentEvent::Error {
+                    message: format!("failed to spawn xolotl: {join_err}"),
+                }).await;
+                let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Failed)).await;
+            }
+            Ok(Err(io_err)) => {
+                let _ = event_tx.send(AgentEvent::Error {
+                    message: format!("xolotl binary not found or failed to start: {io_err}. \
+                                     Install with: cargo install --path rust/crates/rusty-claude-cli"),
+                }).await;
+                let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Failed)).await;
+            }
+            Ok(Ok(output)) => {
+                if output.status.success() {
+                    let content = std::fs::read_to_string(&output_file)
+                        .unwrap_or_default();
+                    if !content.is_empty() {
+                        let _ = event_tx.send(AgentEvent::TextDelta(content)).await;
+                    }
+                    let _ = event_tx.send(AgentEvent::TurnCompleted {
+                        usage: TokenUsage {
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            cache_creation_input_tokens: 0,
+                            cache_read_input_tokens: 0,
+                        },
+                    }).await;
+                    let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Done)).await;
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let code = output.status.code().unwrap_or(-1);
+                    let _ = event_tx.send(AgentEvent::Error {
+                        message: format!("agent exited with code {code}: {stderr}"),
+                    }).await;
+                    let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Failed)).await;
+                }
+                let _ = std::fs::remove_file(&output_file);
+            }
+        }
     });
 }
 
