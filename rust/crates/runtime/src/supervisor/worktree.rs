@@ -32,8 +32,9 @@ pub struct WorktreeManager {
     repo_root: PathBuf,
     /// Base directory for all agent worktrees: <repo_root>/.xolotl-worktrees/
     worktrees_base: PathBuf,
-    /// Map from AgentId to the assigned worktree path.
-    active: Arc<Mutex<HashMap<AgentId, PathBuf>>>,
+    /// Map from AgentId to (worktree path, branch name).
+    /// Storing the branch alongside the path enables remove() to delete the branch.
+    active: Arc<Mutex<HashMap<AgentId, (PathBuf, String)>>>,
 }
 
 impl WorktreeManager {
@@ -79,11 +80,32 @@ impl WorktreeManager {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            // If the branch already exists (stale from a prior crashed spawn), delete it and retry.
+            if stderr.contains("already exists") {
+                let del = std::process::Command::new("git")
+                    .args(["branch", "-D", branch])
+                    .current_dir(&self.repo_root)
+                    .output()?;
+                if del.status.success() {
+                    // Retry the worktree add with the now-deleted branch.
+                    let retry = std::process::Command::new("git")
+                        .args(["worktree", "add", "-b", branch, path_str])
+                        .current_dir(&self.repo_root)
+                        .output()?;
+                    if !retry.status.success() {
+                        let retry_stderr = String::from_utf8_lossy(&retry.stderr).into_owned();
+                        return Err(WorktreeError::GitFailed(retry_stderr));
+                    }
+                    let mut active = self.active.lock().unwrap();
+                    active.insert(agent_id.clone(), (path.clone(), branch.to_string()));
+                    return Ok(path);
+                }
+            }
             return Err(WorktreeError::GitFailed(stderr));
         }
 
         let mut active = self.active.lock().unwrap();
-        active.insert(agent_id.clone(), path.clone());
+        active.insert(agent_id.clone(), (path.clone(), branch.to_string()));
         Ok(path)
     }
 
@@ -96,7 +118,7 @@ impl WorktreeManager {
     /// Returns `WorktreeError::NotAssigned` if `agent_id` has no active worktree.
     pub fn remove(&self, agent_id: &AgentId) -> Result<(), WorktreeError> {
         // Peek the path without removing from the map yet (CR-03: remove only on git success)
-        let path = {
+        let (path, branch) = {
             let active = self.active.lock().unwrap();
             active
                 .get(agent_id)
@@ -118,6 +140,13 @@ impl WorktreeManager {
             return Err(WorktreeError::GitFailed(stderr));
         }
 
+        // Delete the branch that was created exclusively for this worktree.
+        // Failure is non-fatal — prune() at next startup handles any residue.
+        let _ = std::process::Command::new("git")
+            .args(["branch", "-D", &branch])
+            .current_dir(&self.repo_root)
+            .output();
+
         // Remove from map only after git succeeds (CR-03)
         let mut active = self.active.lock().unwrap();
         active.remove(agent_id);
@@ -127,7 +156,7 @@ impl WorktreeManager {
     /// Return all currently active (AgentId, worktree path) pairs.
     pub fn list(&self) -> Vec<(AgentId, PathBuf)> {
         let active = self.active.lock().unwrap();
-        active.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        active.iter().map(|(k, (path, _branch))| (k.clone(), path.clone())).collect()
     }
 
     /// Prune stale worktree entries from git's internal state.
@@ -151,7 +180,7 @@ impl WorktreeManager {
     /// Return the worktree path assigned to `agent_id`, if any.
     pub fn get_path(&self, agent_id: &AgentId) -> Option<PathBuf> {
         let active = self.active.lock().unwrap();
-        active.get(agent_id).cloned()
+        active.get(agent_id).map(|(path, _branch)| path.clone())
     }
 }
 
