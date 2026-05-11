@@ -73,7 +73,13 @@ export function SpawnAgentDialog({
     const result = await commands.spawnAgent(trimmedTask, model, budgetDollars);
     setSubmitting(false);
     if (result.status === "error") {
-      setError(result.error);
+      // Create a synthetic Failed card so the user sees feedback in the roster.
+      const failedId = `failed-${Date.now()}`;
+      useAgentStore.getState().addAgent(failedId, trimmedTask, model);
+      useAgentStore.getState().updateAgentState(failedId, "Failed");
+      useAgentStore.getState().appendAgentError(failedId, result.error);
+      reset();
+      onOpenChange(false);
       return;
     }
     useAgentStore.getState().addAgent(result.data, trimmedTask, model);
