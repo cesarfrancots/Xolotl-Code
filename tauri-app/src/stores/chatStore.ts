@@ -145,7 +145,7 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
   items: [],
   streamingContent: "",
   isStreaming: false,
-  model: DEFAULT_MODEL,
+  model: localStorage.getItem("xolotl-selected-model") ?? DEFAULT_MODEL,
   sessionUsage: EMPTY_USAGE,
   alwaysAllowedTools: new Set(),
 
@@ -252,7 +252,10 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
       alwaysAllowedTools: new Set([...state.alwaysAllowedTools, toolName]),
     })),
 
-  setModel: (model) => set({ model }),
+  setModel: (model) => {
+    localStorage.setItem("xolotl-selected-model", model);
+    set({ model });
+  },
 
   clearSession: () =>
     set(() => ({
