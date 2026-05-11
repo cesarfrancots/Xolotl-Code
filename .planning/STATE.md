@@ -29,8 +29,8 @@ progress:
 
 - **Milestone:** v1
 - **Phase:** 5 — Agent Dashboard
-- **Plan:** Wave 4 complete — human checkpoint Wave 5 (05-07)
-- **Status:** Phase 5 executing — Wave 4 done (6/7 plans)
+- **Plan:** Wave 6 complete — 05-08 UAT gap closure done (7/7 plans)
+- **Status:** Phase 5 executing — Wave 6 done (7/7 plans)
 - **Progress:** Phase 4 of 6 complete
 
 ```
@@ -52,6 +52,10 @@ progress:
 
 ### Key Decisions
 
+- Worktree active map stores (PathBuf, String) tuple to enable branch cleanup on remove — prevents collision on respawn.
+- Failed spawn creates synthetic agent card (failed-${Date.now()}) so user sees red badge in AGENTS panel.
+- kimi2.6 is the canonical default model — matches CLI default; persisted to localStorage("xolotl-selected-model").
+- OS notifications fire unconditionally on Done/Failed regardless of window focus (D-14).
 - Rust core is not rewritten — extend only.
 - Tauri 2.x chosen for desktop shell (not Electron); leverages existing Rust backend directly.
 - Orchestrator runs in-process; worker sub-agents continue to use child-process `SubAgentSpawner`.
@@ -86,9 +90,9 @@ progress:
 
 ## Session Continuity
 
-- **Last action:** Phase 5 planned — 7 plans in 5 waves, verification passed, ready to execute.
-- **Next action:** `/gsd-execute-phase 5` — Agent Dashboard.
-- **Resume file:** .planning/phases/05-agent-dashboard/05-CONTEXT.md
+- **Last action:** Phase 5 plan 08 complete — all 8 UAT gaps closed, all 4 automated gates pass.
+- **Next action:** Phase 5 complete — proceed to Phase 6.
+- **Resume file:** .planning/phases/05-agent-dashboard/05-08-SUMMARY.md
 - **Last updated:** 2026-05-10
 
 ---
