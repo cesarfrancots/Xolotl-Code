@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_notification::NotificationExt;
 use runtime::{AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor, TokenUsage, slugify_task};
 use tokio::sync::broadcast::error::RecvError;
 use crate::permission_prompter::{PendingPrompts, PermissionDecision, PermissionRequestPayload};
@@ -295,12 +296,11 @@ pub(crate) fn spawn_event_relay(
             match rx.recv().await {
                 Ok(event) => {
                     let _ = app_handle.emit(&channel, &event);
-                    // Budget enforcement (D-10, D-11). Runs after every event emit; cost accumulates
-                    // on TurnCompleted only. When cumulative_cost >= budget, inject Failed + Error
-                    // via event_tx so subscribers see the state change.
+                    // Budget enforcement (D-10, D-11). Accumulate cost unconditionally on
+                    // TurnCompleted; only enforce the cap when budget is set.
                     if let AgentEvent::TurnCompleted { ref usage } = event {
+                        let new_cost = handle.accumulate_cost(usage, &handle.model);
                         if let Some(budget) = handle.budget_dollars {
-                            let new_cost = handle.accumulate_cost(usage, &handle.model);
                             if new_cost >= budget {
                                 // CR-03: use send().await instead of try_send so budget-exceeded
                                 // events are never silently dropped when the channel is full.
@@ -311,6 +311,24 @@ pub(crate) fn spawn_event_relay(
                                     message: format!("Budget exceeded: ${:.4}", new_cost),
                                 }).await;
                             }
+                        }
+                    }
+                    // OS notification on terminal states (D-12, D-13, D-14).
+                    if let AgentEvent::StateChanged(ref state) = event {
+                        if matches!(state, AgentState::Done | AgentState::Failed) {
+                            let cost = handle.cumulative_cost
+                                .lock()
+                                .map(|g| *g)
+                                .unwrap_or(0.0);
+                            let state_label = if matches!(state, AgentState::Done) { "Done" } else { "Failed" };
+                            let title: String = handle.task.chars().take(60).collect();
+                            let body = format!("{} — ${:.4}", state_label, cost);
+                            let _ = app_handle
+                                .notification()
+                                .builder()
+                                .title(&title)
+                                .body(&body)
+                                .show();
                         }
                     }
                 }
