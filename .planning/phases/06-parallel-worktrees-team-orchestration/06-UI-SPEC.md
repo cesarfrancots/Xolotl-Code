@@ -1,10 +1,11 @@
 ---
 phase: 6
 slug: parallel-worktrees-team-orchestration
-status: draft
+status: approved
 shadcn_initialized: true
 preset: none
 created: 2026-05-11
+reviewed_at: 2026-05-11
 ---
 
 # Phase 6 — UI Design Contract
@@ -54,7 +55,7 @@ Inherited from Phase 4. Multiples of 4 only.
 | Group header padding | 8px vertical, 12px horizontal (`py-2 px-3`) | Matches AgentCard `px-3 py-2` base — visual consistency |
 | Accordion trigger padding | 8px vertical, 12px horizontal (`py-2 px-3`) | Compact file list; DiffView provides its own inner spacing |
 | Accordion content padding | 0px (`p-0`) | DiffView component provides `my-2` + border internally |
-| Conflict badge padding | 2px vertical, 6px horizontal (`px-1.5 py-0.5`) | Inline badge; `px-1` is too tight at `text-xs` |
+| Conflict badge padding | 4px vertical, 8px horizontal (`px-2 py-1`) | Inline badge; sized to multiples of 4 at `text-xs` |
 | Merge checkpoint header padding | 16px (`p-4`) | Matches AgentOutputView header padding pattern |
 | LaunchTeamDialog role row gap | 8px (`gap-2`) | 4 role rows; tight layout keeps dialog below viewport mid-point |
 
@@ -157,7 +158,9 @@ Inherited palette from Phase 4. All values are oklch.
 Add a second icon button in the header row, beside the existing `+` (Plus) button:
 
 ```
-<Button variant="ghost" size="icon" className="h-7 w-7" title="Launch team or swarm"
+<Button variant="ghost" size="icon" className="h-7 w-7"
+  title="Launch team or swarm"
+  aria-label="Launch team or swarm"
   onClick={() => setTeamDialogOpen(true)}>
   <Users className="h-4 w-4" />
 </Button>
@@ -166,6 +169,7 @@ Add a second icon button in the header row, beside the existing `+` (Plus) butto
 - Icon: `Users` from lucide-react
 - Placement: to the LEFT of the existing `+` button (maintains `+` as the primary action)
 - Title tooltip: "Launch team or swarm"
+- `aria-label`: "Launch team or swarm" (matches title — required for icon-only button accessibility)
 
 **Group header row** — rendered above the AgentCards belonging to each group:
 
@@ -210,7 +214,7 @@ DialogContent (bg-[oklch(0.16_0_0)] border-neutral-800 text-[oklch(0.92_0_0)])
   [Mode Toggle]
   [Team Form | Swarm Form]
   DialogFooter
-    Cancel button (ghost)
+    Discard button (ghost)
     Launch button (primary)
 ```
 
@@ -289,7 +293,7 @@ Role task placeholders:
 
 **Dialog footer buttons:**
 
-- Cancel: `<Button variant="ghost">Cancel</Button>`
+- Discard: `<Button variant="ghost">Discard</Button>`
 - Launch (Team mode): `<Button disabled={submitting || anyRoleTaskEmpty}>Launch Team</Button>`
 - Launch (Swarm mode): `<Button disabled={submitting || !objectiveValid}>Launch Swarm</Button>`
 - Submitting state label (Team): "Launching…"
@@ -315,7 +319,9 @@ Role task placeholders:
     <span className="text-sm font-semibold text-[oklch(0.92_0_0)]">Merge Checkpoint</span>
     <div className="flex items-center gap-2">
       [merge status indicator]
-      <Button variant="ghost" size="icon" className="h-7 w-7" title="Close checkpoint"
+      <Button variant="ghost" size="icon" className="h-7 w-7"
+        title="Close checkpoint"
+        aria-label="Close checkpoint"
         onClick={() => openMergeCheckpoint(null)}>
         <X className="h-4 w-4" />
       </Button>
@@ -344,12 +350,17 @@ Role task placeholders:
     <Button
       disabled={merging || anyAgentStillRunning}
       title={anyAgentStillRunning ? "All agents must finish before merging" : undefined}
-      onClick={() => void handleMerge()}>
+      onClick={() => {
+        if (!window.confirm("Merge all worktree branches? This cannot be undone.")) return;
+        void handleMerge();
+      }}>
       {merging ? "Merging…" : "Approve & Merge"}
     </Button>
   </div>
 </div>
 ```
+
+**Approve & Merge confirmation:** Because the merge is irreversible, clicking "Approve & Merge" must trigger a `window.confirm("Merge all worktree branches? This cannot be undone.")` before invoking `handleMerge`. If the user clicks Cancel in the confirm dialog, the merge does not proceed.
 
 **WorktreeSection** — one accordion per agent branch:
 
@@ -374,7 +385,7 @@ Role task placeholders:
             <span className="truncate">{file.path}</span>
             {conflictPaths.has(file.path) && (
               <span className="flex-none text-xs bg-yellow-900/40 text-yellow-400 border border-yellow-800
-                               px-1.5 py-0.5 rounded">
+                               px-2 py-1 rounded">
                 conflict
               </span>
             )}
@@ -422,7 +433,7 @@ Role task placeholders:
 | Team mode CTA | "Launch Team" |
 | Swarm mode CTA | "Launch Swarm" |
 | Submitting label (both modes) | "Launching…" |
-| Cancel button | "Cancel" |
+| Discard button | "Discard" |
 | AgentPanel launch team button tooltip | "Launch team or swarm" |
 | AgentPanel new agent button tooltip | "New agent" (unchanged) |
 | Group header progress format | "{N}/{Total} Done" (e.g., "3/4 Done") |
@@ -430,6 +441,7 @@ Role task placeholders:
 | MergeCheckpointView header title | "Merge Checkpoint" |
 | MergeCheckpointView close tooltip | "Close checkpoint" |
 | Approve & Merge CTA | "Approve & Merge" |
+| Approve & Merge confirmation | "Merge all worktree branches? This cannot be undone." |
 | Merging in-progress label | "Merging…" |
 | Merge complete status | "Merged" |
 | Conflict count summary | "{N} conflict{s} detected" (pluralized) |
@@ -498,7 +510,7 @@ No third-party registries are used in Phase 6.
 | Conflict detected on file | Yellow "conflict" badge inline in AccordionTrigger |
 | No conflicts | No badges; "No conflicts" in footer |
 | Any agent in group non-terminal | "Approve & Merge" button is `disabled`; tooltip explains why |
-| All agents terminal | "Approve & Merge" button is enabled |
+| All agents terminal | "Approve & Merge" button is enabled; click triggers confirmation before merge |
 | Merge in progress | Button shows "Merging…" and is disabled; header shows spinner |
 | Merge complete | Header shows "Merged" in emerald; auto-close after 1.5s |
 
@@ -506,11 +518,11 @@ No third-party registries are used in Phase 6.
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-05-11
