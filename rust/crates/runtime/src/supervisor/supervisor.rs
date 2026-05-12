@@ -8,6 +8,7 @@ use crate::supervisor::{
     AgentControl, AgentEvent, AgentHandle, AgentId, ContextError, GitOpQueue, SharedContextStore,
     WorktreeError, WorktreeManager,
 };
+use crate::supervisor::handle::slugify_task;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -35,11 +36,14 @@ pub struct AgentSupervisor {
     /// Registry of all active agent handles, keyed by AgentId.
     registry: Arc<Mutex<HashMap<AgentId, AgentHandle>>>,
     /// Worktree manager — assigns one worktree per agent at spawn time (D-08).
-    worktree_manager: WorktreeManager,
+    /// Public so Tauri commands can call get_branch(), get_diff_files(), get_path(), remove().
+    pub worktree_manager: WorktreeManager,
     /// Shared context store — agents publish/pull snapshots (ORC-04).
     pub context: SharedContextStore,
     /// Git operation queues per repo root (ORC-07).
     git_queues: Arc<Mutex<HashMap<PathBuf, GitOpQueue>>>,
+    /// Root of the git repository — stored for repo_root() accessor used by merge commands.
+    repo_root: PathBuf,
 }
 
 impl AgentSupervisor {
@@ -47,7 +51,8 @@ impl AgentSupervisor {
     ///
     /// Calls `git worktree prune` at startup to clean up stale worktrees from previous runs.
     pub fn new(repo_root: impl AsRef<std::path::Path>) -> Self {
-        let worktree_manager = WorktreeManager::new(&repo_root);
+        let repo_root_path = repo_root.as_ref().to_path_buf();
+        let worktree_manager = WorktreeManager::new(&repo_root_path);
         // Best-effort prune on startup — ignore error if repo is not a git repo
         let _ = worktree_manager.prune();
 
@@ -56,7 +61,13 @@ impl AgentSupervisor {
             worktree_manager,
             context: SharedContextStore::new(),
             git_queues: Arc::new(Mutex::new(HashMap::new())),
+            repo_root: repo_root_path,
         }
+    }
+
+    /// Return the git repository root path.
+    pub fn repo_root(&self) -> &std::path::Path {
+        &self.repo_root
     }
 
     /// Spawn a new agent assigned to a fresh worktree on `branch`.
@@ -238,6 +249,60 @@ impl AgentSupervisor {
             .or_insert_with(GitOpQueue::start)
             .clone()
     }
+
+    /// Launch a role-based team: spawn one agent per role tuple (role_name, task, model).
+    ///
+    /// Branch names use `"agent/{index}-{slug}"` to prevent collision when roles share
+    /// task text (Pitfall 6 from research doc). The group concept lives entirely in the
+    /// frontend — this method just allocates agents and returns IDs.
+    ///
+    /// Returns `(group_id, agent_ids, branches)`.
+    pub fn launch_team(
+        &self,
+        roles: Vec<(String, String, String)>,
+    ) -> Result<(String, Vec<AgentId>, Vec<String>), SupervisorError> {
+        let group_id = uuid::Uuid::new_v4().to_string();
+        let mut agent_ids = Vec::with_capacity(roles.len());
+        let mut branches = Vec::with_capacity(roles.len());
+        for (index, (_role, task, model)) in roles.iter().enumerate() {
+            let slug = slugify_task(task);
+            let branch = format!("agent/{}-{}", index, slug);
+            let agent_id = self.spawn_agent_with_config(&branch, task, model, None)?;
+            agent_ids.push(agent_id);
+            branches.push(branch);
+        }
+        Ok((group_id, agent_ids, branches))
+    }
+
+    /// Launch a swarm: spawn `count` identical agents with a shared objective.
+    ///
+    /// Validates count is between 1 and 8 (inclusive) — T-06-01 mitigation.
+    /// Branch names use `"agent/{index}-{slug}"` to prevent collision (Pitfall 6).
+    ///
+    /// Returns `(group_id, agent_ids, branches)`.
+    pub fn launch_swarm(
+        &self,
+        count: u32,
+        objective: String,
+        model: String,
+    ) -> Result<(String, Vec<AgentId>, Vec<String>), SupervisorError> {
+        if count < 1 || count > 8 {
+            return Err(SupervisorError::InvalidBudget(
+                format!("swarm count must be 1–8, got {count}"),
+            ));
+        }
+        let group_id = uuid::Uuid::new_v4().to_string();
+        let mut agent_ids = Vec::with_capacity(count as usize);
+        let mut branches = Vec::with_capacity(count as usize);
+        for index in 0..count {
+            let slug = slugify_task(&objective);
+            let branch = format!("agent/{}-{}", index, slug);
+            let agent_id = self.spawn_agent_with_config(&branch, &objective, &model, None)?;
+            agent_ids.push(agent_id);
+            branches.push(branch);
+        }
+        Ok((group_id, agent_ids, branches))
+    }
 }
 
 impl std::fmt::Debug for AgentSupervisor {
@@ -331,6 +396,26 @@ mod tests {
 
         supervisor.stop_all().await;
         assert!(supervisor.list().is_empty());
+    }
+
+    // --- Phase 6 tests: launch_team / launch_swarm ---
+
+    #[test]
+    fn launch_swarm_rejects_zero() {
+        let (_dir, repo) = make_temp_git_repo();
+        let sup = AgentSupervisor::new(&repo);
+        let result = sup.launch_swarm(0, "objective".into(), "claude-haiku".into());
+        assert!(result.is_err(), "count=0 must be rejected");
+        assert!(matches!(result, Err(SupervisorError::InvalidBudget(_))));
+    }
+
+    #[test]
+    fn launch_swarm_rejects_nine() {
+        let (_dir, repo) = make_temp_git_repo();
+        let sup = AgentSupervisor::new(&repo);
+        let result = sup.launch_swarm(9, "objective".into(), "claude-haiku".into());
+        assert!(result.is_err(), "count=9 must be rejected");
+        assert!(matches!(result, Err(SupervisorError::InvalidBudget(_))));
     }
 
     // --- New tests for Task 2 (Phase 5) ---

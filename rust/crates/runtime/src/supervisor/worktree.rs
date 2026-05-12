@@ -182,6 +182,46 @@ impl WorktreeManager {
         let active = self.active.lock().unwrap();
         active.get(agent_id).map(|(path, _branch)| path.clone())
     }
+
+    /// Return the branch name assigned to `agent_id`. None if agent not registered.
+    pub fn get_branch(&self, agent_id: &AgentId) -> Option<String> {
+        let active = self.active.lock().unwrap();
+        active.get(agent_id).map(|(_, branch)| branch.clone())
+    }
+
+    /// Return a list of file paths changed on this agent's branch vs main.
+    ///
+    /// Uses `git diff main...HEAD --name-only` (three-dot diff) to capture all
+    /// commits on the branch since it diverged from main — handles both staged
+    /// and committed branch changes.
+    ///
+    /// # Errors
+    /// Returns `WorktreeError::NotAssigned` if `agent_id` has no active worktree.
+    /// Returns `WorktreeError::GitFailed` if git exits non-zero.
+    pub fn get_diff_files(&self, agent_id: &AgentId) -> Result<Vec<String>, WorktreeError> {
+        let path = {
+            let active = self.active.lock().unwrap();
+            active
+                .get(agent_id)
+                .map(|(p, _)| p.clone())
+                .ok_or_else(|| WorktreeError::NotAssigned(agent_id.clone()))?
+        };
+        let output = std::process::Command::new("git")
+            .args(["diff", "main...HEAD", "--name-only"])
+            .current_dir(&path)
+            .output()?;
+        if !output.status.success() {
+            return Err(WorktreeError::GitFailed(
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+            ));
+        }
+        let files = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.to_string())
+            .collect();
+        Ok(files)
+    }
 }
 
 #[cfg(test)]
