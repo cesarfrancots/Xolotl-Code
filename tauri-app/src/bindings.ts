@@ -28,6 +28,18 @@ export const commands = {
 	deleteSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_session", { id })),
 	/** save_session: writes session JSON to ~/.xolotl-code/sessions/{id}.json */
 	saveSession: (id: string, json: string) => typedError<null, string>(__TAURI_INVOKE("save_session", { id, json })),
+	/** launch_team: spawn a role-based team (Planner/Coder/Reviewer/Tester). Returns group_id, agent_ids, and branches. */
+	launchTeam: (roles: RoleConfig[]) =>
+		typedError<GroupLaunchResult, string>(__TAURI_INVOKE("launch_team", { roles })),
+	/** launch_swarm: spawn N identical agents with shared objective. Count must be 1-8. */
+	launchSwarm: (count: number, objective: string, model: string) =>
+		typedError<GroupLaunchResult, string>(__TAURI_INVOKE("launch_swarm", { count, objective, model })),
+	/** get_worktree_diff: returns per-file old/new content for an agent's worktree vs main. */
+	getWorktreeDiff: (agentId: string) =>
+		typedError<FileDiff[], string>(__TAURI_INVOKE("get_worktree_diff", { agentId })),
+	/** merge_worktrees: merges agent branches into main via GitOpQueue. Emits group-state-changed on success. */
+	mergeWorktrees: (groupId: string, agentIds: string[]) =>
+		typedError<null, string>(__TAURI_INVOKE("merge_worktrees", { groupId, agentIds })),
 };
 
 /* Types */
@@ -85,6 +97,27 @@ export type SessionMeta = {
 	id: string,
 	title: string,
 	created_at: number,
+};
+
+/** RoleConfig: one role in a team launch (Planner/Coder/Reviewer/Tester). */
+export type RoleConfig = {
+	role: string;
+	task: string;
+	model: string;
+};
+
+/** GroupLaunchResult: returned by launch_team and launch_swarm. */
+export type GroupLaunchResult = {
+	group_id: string;
+	agent_ids: string[];
+	branches: string[];
+};
+
+/** FileDiff: per-file before/after content returned by get_worktree_diff. */
+export type FileDiff = {
+	path: string;
+	old_content: string;
+	new_content: string;
 };
 
 /* Tauri Specta runtime */
