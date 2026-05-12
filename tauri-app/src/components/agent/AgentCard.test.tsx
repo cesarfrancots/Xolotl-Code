@@ -34,12 +34,14 @@ function makeAgent(overrides: Partial<AgentRecord> = {}): AgentRecord {
     messages: [],
     streamingContent: "",
     isStreaming: false,
+    branch: "",
+    groupId: null,
     ...overrides,
   };
 }
 
 beforeEach(() => {
-  useAgentStore.setState({ agents: [], expandedAgentId: null });
+  useAgentStore.setState({ agents: [], groups: [], mergeCheckpointGroupId: null, expandedAgentId: null });
 });
 
 it("renders the state badge text", () => {

@@ -2,6 +2,61 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { useAgentStore } from "./agentStore";
 import type { TokenUsage } from "../bindings";
 
+// ---------------------------------------------------------------------------
+// Group action tests (Task 1 — Phase 06 Plan 02)
+// ---------------------------------------------------------------------------
+
+describe("group actions", () => {
+  beforeEach(() => {
+    useAgentStore.setState({ agents: [], groups: [], mergeCheckpointGroupId: null, expandedAgentId: null });
+  });
+
+  it("addGroup creates a group with Pending mergeState", () => {
+    useAgentStore.getState().addGroup("g1", ["a1", "a2"], "team", "My Team");
+    const groups = useAgentStore.getState().groups;
+    expect(groups).toHaveLength(1);
+    expect(groups[0].mergeState).toBe("Pending");
+    expect(groups[0].mode).toBe("team");
+  });
+
+  it("updateGroupMergeState transitions mergeState", () => {
+    useAgentStore.getState().addGroup("g1", ["a1"], "swarm", "My Swarm");
+    useAgentStore.getState().updateGroupMergeState("g1", "AllDone");
+    expect(useAgentStore.getState().groups[0].mergeState).toBe("AllDone");
+  });
+
+  it("openMergeCheckpoint sets mergeCheckpointGroupId", () => {
+    useAgentStore.getState().openMergeCheckpoint("g1");
+    expect(useAgentStore.getState().mergeCheckpointGroupId).toBe("g1");
+  });
+
+  it("openMergeCheckpoint(null) clears mergeCheckpointGroupId", () => {
+    useAgentStore.getState().openMergeCheckpoint("g1");
+    useAgentStore.getState().openMergeCheckpoint(null);
+    expect(useAgentStore.getState().mergeCheckpointGroupId).toBeNull();
+  });
+});
+
+describe("addAgent backward compatibility", () => {
+  beforeEach(() => {
+    useAgentStore.setState({ agents: [], groups: [], mergeCheckpointGroupId: null, expandedAgentId: null });
+  });
+
+  it("addAgent with 3 args creates agent with empty branch and null groupId", () => {
+    useAgentStore.getState().addAgent("a1", "task", "model");
+    const agent = useAgentStore.getState().agents[0];
+    expect(agent.branch).toBe("");
+    expect(agent.groupId).toBeNull();
+  });
+
+  it("addAgent with branch and groupId stores them on the record", () => {
+    useAgentStore.getState().addAgent("a1", "task", "model", "agent/0-task", "g1");
+    const agent = useAgentStore.getState().agents[0];
+    expect(agent.branch).toBe("agent/0-task");
+    expect(agent.groupId).toBe("g1");
+  });
+});
+
 const ZERO_USAGE: TokenUsage = {
   input_tokens: 0,
   output_tokens: 0,
@@ -17,7 +72,7 @@ const SOME_USAGE: TokenUsage = {
 };
 
 beforeEach(() => {
-  useAgentStore.setState({ agents: [], expandedAgentId: null });
+  useAgentStore.setState({ agents: [], groups: [], mergeCheckpointGroupId: null, expandedAgentId: null });
 });
 
 describe("addAgent", () => {
