@@ -268,6 +268,196 @@ pub struct SessionMeta {
     pub created_at: u64,
 }
 
+// ── Phase 6: Team/Swarm + Worktree Diff + Merge commands ────────────────────
+
+/// RoleConfig: one role in a team launch (Planner/Coder/Reviewer/Tester).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct RoleConfig {
+    pub role: String,
+    pub task: String,
+    pub model: String,
+}
+
+/// GroupLaunchResult: returned by launch_team and launch_swarm.
+/// Contains the new group_id, all spawned agent_ids, and their branch names.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct GroupLaunchResult {
+    pub group_id: String,
+    pub agent_ids: Vec<String>,
+    pub branches: Vec<String>,
+}
+
+/// FileDiff: per-file before/after content returned by get_worktree_diff.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct FileDiff {
+    pub path: String,
+    pub old_content: String,
+    pub new_content: String,
+}
+
+/// launch_team: spawn a role-based team (Planner, Coder, Reviewer, Tester).
+/// Each role runs on its own worktree branch with a unique "agent/{index}-{slug}" name.
+/// Starts event relay and agent executor for each spawned agent.
+#[tauri::command]
+#[specta::specta]
+pub fn launch_team(
+    supervisor: tauri::State<'_, Arc<AgentSupervisor>>,
+    app_handle: AppHandle,
+    roles: Vec<RoleConfig>,
+) -> Result<GroupLaunchResult, String> {
+    let role_tuples: Vec<(String, String, String)> = roles
+        .into_iter()
+        .map(|r| (r.role, r.task, r.model))
+        .collect();
+    let (group_id, agent_ids, branches) = supervisor
+        .launch_team(role_tuples)
+        .map_err(|e| e.to_string())?;
+    // Start event relay + executor for each spawned agent
+    for agent_id in &agent_ids {
+        if let Some(handle) = supervisor.get_handle(agent_id) {
+            spawn_event_relay(app_handle.clone(), agent_id.clone(), handle.clone());
+            spawn_agent_executor(agent_id.clone(), handle);
+        }
+    }
+    Ok(GroupLaunchResult {
+        group_id,
+        agent_ids: agent_ids.into_iter().map(|id| id.0).collect(),
+        branches,
+    })
+}
+
+/// launch_swarm: spawn N identical agents with a shared objective.
+/// Security: count validated 1-8 in supervisor.launch_swarm() — returns error if out of range.
+/// Each agent runs on its own worktree branch with a unique "agent/{index}-{slug}" name.
+#[tauri::command]
+#[specta::specta]
+pub fn launch_swarm(
+    supervisor: tauri::State<'_, Arc<AgentSupervisor>>,
+    app_handle: AppHandle,
+    count: u32,
+    objective: String,
+    model: String,
+) -> Result<GroupLaunchResult, String> {
+    let (group_id, agent_ids, branches) = supervisor
+        .launch_swarm(count, objective, model)
+        .map_err(|e| e.to_string())?;
+    for agent_id in &agent_ids {
+        if let Some(handle) = supervisor.get_handle(agent_id) {
+            spawn_event_relay(app_handle.clone(), agent_id.clone(), handle.clone());
+            spawn_agent_executor(agent_id.clone(), handle);
+        }
+    }
+    Ok(GroupLaunchResult {
+        group_id,
+        agent_ids: agent_ids.into_iter().map(|id| id.0).collect(),
+        branches,
+    })
+}
+
+/// get_worktree_diff: returns per-file old/new content for an agent's worktree vs main.
+///
+/// Security: agent_id is validated against the supervisor registry before any filesystem
+/// operations — returns error "not found" if missing (T-06-02 mitigation).
+/// File paths returned by `git diff` are trusted (not user-controlled — T-06-04).
+#[tauri::command]
+#[specta::specta]
+pub fn get_worktree_diff(
+    supervisor: tauri::State<'_, Arc<AgentSupervisor>>,
+    agent_id: String,
+) -> Result<Vec<FileDiff>, String> {
+    let id = AgentId(agent_id);
+    // T-06-02: validate agent exists in registry before doing filesystem ops
+    if supervisor.get_handle(&id).is_none() {
+        return Err(format!("agent {} not found", id.0));
+    }
+    let changed_files = supervisor
+        .worktree_manager
+        .get_diff_files(&id)
+        .map_err(|e| e.to_string())?;
+
+    let worktree_path = supervisor
+        .worktree_manager
+        .get_path(&id)
+        .ok_or_else(|| format!("no worktree path for agent {}", id.0))?;
+
+    let mut diffs = Vec::new();
+    for file_path in changed_files {
+        // Read old content from HEAD (base branch). Empty string for new files.
+        let old = std::process::Command::new("git")
+            .args(["show", &format!("HEAD:{}", file_path)])
+            .current_dir(&worktree_path)
+            .output()
+            .map(|o| {
+                if o.status.success() {
+                    String::from_utf8_lossy(&o.stdout).into_owned()
+                } else {
+                    String::new() // new file — no base content
+                }
+            })
+            .unwrap_or_default();
+        // Read new content from worktree filesystem
+        let new_path = worktree_path.join(&file_path);
+        let new = std::fs::read_to_string(&new_path).unwrap_or_default();
+        diffs.push(FileDiff {
+            path: file_path,
+            old_content: old,
+            new_content: new,
+        });
+    }
+    Ok(diffs)
+}
+
+/// merge_worktrees: merges each agent's branch into main via the GitOpQueue (serialized).
+///
+/// Stops on first failure to avoid merging inconsistent state (Open Question 3 resolution).
+/// Emits "group-state-changed" Tauri event when all merges complete.
+/// Does NOT touch AgentEvent — uses a plain Tauri event to avoid deny_unknown_fields issues
+/// (Pitfall 2 from research doc).
+/// After each successful merge, prunes the agent's worktree.
+#[tauri::command]
+#[specta::specta]
+pub async fn merge_worktrees(
+    supervisor: tauri::State<'_, Arc<AgentSupervisor>>,
+    app_handle: AppHandle,
+    group_id: String,
+    agent_ids: Vec<String>,
+) -> Result<(), String> {
+    let repo_root = supervisor.repo_root().to_path_buf();
+    for raw_id in &agent_ids {
+        let id = AgentId(raw_id.clone());
+        // Collect branch first — releases mutex before the .await on git_queue
+        // (Pitfall 1: no Mutex lock held across .await points)
+        let branch = supervisor
+            .worktree_manager
+            .get_branch(&id)
+            .ok_or_else(|| format!("no branch for agent {raw_id}"))?;
+
+        let git_queue = supervisor.git_queue_for(repo_root.clone());
+        let result = git_queue
+            .run(
+                vec!["merge".to_string(), branch.clone()],
+                repo_root.clone(),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !result.status.success() {
+            let stderr = String::from_utf8_lossy(&result.stderr).into_owned();
+            return Err(format!("Merge failed for branch {branch}: {stderr}"));
+        }
+        // Prune worktree after successful merge (best-effort)
+        let _ = supervisor.worktree_manager.remove(&id);
+    }
+    // Emit plain Tauri event — avoids touching AgentEvent enum (deny_unknown_fields, Pitfall 2)
+    app_handle
+        .emit(
+            "group-state-changed",
+            serde_json::json!({ "groupId": group_id, "state": "Merged" }),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn home_sessions_dir() -> PathBuf {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
