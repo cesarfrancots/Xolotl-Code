@@ -2,6 +2,16 @@ import { create } from "zustand";
 import type { AgentState, TokenUsage } from "../bindings";
 import type { ChatItem, Message, ToolCall } from "./chatStore";
 
+/** A group of agents launched together (team or swarm). */
+export interface AgentGroup {
+  id: string;
+  agentIds: string[];
+  mode: "team" | "swarm";
+  /** State machine: Pending → AllDone → CheckpointOpen → Merged */
+  mergeState: "Pending" | "AllDone" | "CheckpointOpen" | "Merged";
+  name: string;
+}
+
 /** A single agent entry in the agent roster. */
 export interface AgentRecord {
   id: string;
@@ -16,15 +26,32 @@ export interface AgentRecord {
   streamingContent: string;
   /** True while a TextDelta stream is in progress. */
   isStreaming: boolean;
+  /** Worktree branch name (e.g. "agent/0-refactor-auth"). Empty string for solo agents. */
+  branch: string;
+  /** Group this agent belongs to, or null if spawned solo. */
+  groupId: string | null;
 }
 
 export interface AgentStoreState {
   agents: AgentRecord[];
   /** ID of the agent whose output is expanded in the center pane. null = show ChatPane. */
   expandedAgentId: string | null;
+  /** All active groups (teams or swarms). */
+  groups: AgentGroup[];
+  /** Group whose merge checkpoint is open in the center pane. null = no checkpoint open. */
+  mergeCheckpointGroupId: string | null;
 
   /** Append a new agent to the roster with initial Idle state. */
-  addAgent: (id: string, task: string, model: string) => void;
+  addAgent: (id: string, task: string, model: string, branch?: string, groupId?: string | null) => void;
+
+  /** Create a new group with Pending mergeState. */
+  addGroup: (id: string, agentIds: string[], mode: "team" | "swarm", name: string) => void;
+
+  /** Update the mergeState of the matching group. */
+  updateGroupMergeState: (groupId: string, state: AgentGroup["mergeState"]) => void;
+
+  /** Set (or clear) the group whose merge checkpoint is open. */
+  openMergeCheckpoint: (groupId: string | null) => void;
 
   /** Update only the state field of the matching agent. */
   updateAgentState: (id: string, state: AgentState) => void;
@@ -84,7 +111,13 @@ function estimateTurnCost(usage: TokenUsage, model: string): number {
   return (usage.input_tokens * rate.in + usage.output_tokens * rate.out) / 1_000_000;
 }
 
-function makeInitialRecord(id: string, task: string, model: string): AgentRecord {
+function makeInitialRecord(
+  id: string,
+  task: string,
+  model: string,
+  branch = "",
+  groupId: string | null = null
+): AgentRecord {
   return {
     id,
     task,
@@ -94,6 +127,8 @@ function makeInitialRecord(id: string, task: string, model: string): AgentRecord
     messages: [],
     streamingContent: "",
     isStreaming: false,
+    branch,
+    groupId,
   };
 }
 
@@ -104,11 +139,25 @@ function makeInitialRecord(id: string, task: string, model: string): AgentRecord
 export const useAgentStore = create<AgentStoreState>()((set) => ({
   agents: [],
   expandedAgentId: null,
+  groups: [],
+  mergeCheckpointGroupId: null,
 
-  addAgent: (id, task, model) =>
+  addAgent: (id, task, model, branch = "", groupId = null) =>
     set((s) => ({
-      agents: [...s.agents, makeInitialRecord(id, task, model)],
+      agents: [...s.agents, makeInitialRecord(id, task, model, branch, groupId)],
     })),
+
+  addGroup: (id, agentIds, mode, name) =>
+    set((s) => ({
+      groups: [...s.groups, { id, agentIds, mode, mergeState: "Pending", name }],
+    })),
+
+  updateGroupMergeState: (groupId, state) =>
+    set((s) => ({
+      groups: s.groups.map((g) => g.id === groupId ? { ...g, mergeState: state } : g),
+    })),
+
+  openMergeCheckpoint: (groupId) => set({ mergeCheckpointGroupId: groupId }),
 
   updateAgentState: (id, state) =>
     set((s) => ({
