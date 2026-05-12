@@ -6,7 +6,8 @@ use runtime::{AgentEvent, AgentId, AgentState, AgentSupervisor};
 use crate::commands::{
     delete_session, list_agents, list_models, list_sessions, load_session, respond_to_permission,
     save_session, smoke_test, spawn_agent, stop_agent, test_permission_prompt, run_agent_turn,
-    SessionMeta,
+    launch_team, launch_swarm, get_worktree_diff, merge_worktrees,
+    SessionMeta, RoleConfig, GroupLaunchResult, FileDiff,
 };
 use crate::permission_prompter::{PermissionDecision, PendingPrompts};
 
@@ -28,12 +29,19 @@ fn make_builder() -> Builder<tauri::Wry> {
             load_session,
             delete_session,
             save_session,
+            launch_team,
+            launch_swarm,
+            get_worktree_diff,
+            merge_worktrees,
         ])
         .typ::<AgentId>()
         .typ::<AgentState>()
         .typ::<AgentEvent>()
         .typ::<PermissionDecision>()
         .typ::<SessionMeta>()
+        .typ::<RoleConfig>()
+        .typ::<GroupLaunchResult>()
+        .typ::<FileDiff>()
     // AgentControl excluded per D-14 — lifecycle commands abstract over it.
 }
 
