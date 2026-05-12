@@ -14,7 +14,7 @@
 - [x] **Phase 3: Tauri Shell** — Stand up the Tauri 2.x desktop shell with capability config, managed state, and TypeScript-typed IPC to the Rust core. *(complete 2026-05-09)*
 - [x] **Phase 4: Chat UI** — Deliver the table-stakes chat experience: streaming, tool blocks, diffs, sessions, permissions, model selector, slash commands. *(complete 2026-05-10)*
 - [x] **Phase 5: Agent Dashboard** — Make multi-agent orchestration visible: spawn, monitor, budget, and notify across multiple concurrent agents. *(complete 2026-05-10)*
-- [ ] **Phase 6: Parallel Worktrees + Team Orchestration** — Enable parallel agents on isolated worktrees with role-based teams, swarm strategies, and merge checkpoints.
+- [x] **Phase 6: Parallel Worktrees + Team Orchestration** — Enable parallel agents on isolated worktrees with role-based teams, swarm strategies, and merge checkpoints. *(complete 2026-05-11)*
 
 ---
 
@@ -175,8 +175,22 @@ Cross-cutting constraints: Dark-only oklch color scheme; all frontend state via 
   3. User can configure a swarm strategy (agent count, shared objective, result aggregation method) and execute it from the UI.
   4. When two agents attempt to write the same file, the file-ownership protocol prevents corruption and surfaces the conflict in the UI.
   5. When parallel agents complete, a merge checkpoint UI lets the user review per-worktree changes and approve the merge.
-**Plans**: TBD
-**UI hint**: yes
+**Plans**: 4 plans
+
+Plans:
+**Wave 1:**
+- [x] 06-01-PLAN.md — Rust WorktreeManager + AgentSupervisor methods + 4 Tauri commands + bindings.ts update (WRK-01, WRK-02, WRK-03, WRK-04, WRK-05) *(complete 2026-05-11)*
+
+**Wave 2** *(blocked on Wave 1)*:
+- [x] 06-02-PLAN.md — agentStore extension (AgentGroup, groups, mergeCheckpointGroupId) + useGroupWatcher hook + SpawnAgentDialog backward-compat fix (WRK-01, WRK-04, WRK-05) *(complete 2026-05-11)*
+
+**Wave 3** *(blocked on Wave 2)*:
+- [x] 06-03-PLAN.md — AgentCard branch label + pulsing badge + AgentPanel group headers + LaunchTeamDialog (WRK-01, WRK-02, WRK-03, WRK-05) *(complete 2026-05-11)*
+
+**Wave 4** *(blocked on Wave 2 + Wave 3)*:
+- [x] 06-04-PLAN.md — MergeCheckpointView + App.tsx 3-branch center pane + final build check (WRK-04, WRK-05) *(complete 2026-05-11)*
+
+Cross-cutting constraints: bindings.ts manually maintained (WebView2 DLL issue); group concept lives in Tauri command layer + frontend only — Rust supervisor does NOT track groups; merge dispatched through existing GitOpQueue (serialized to prevent index.lock); shadcn accordion installed in Wave 4 Wave 0 step; all components dark-only oklch palette.
 
 ---
 
@@ -188,8 +202,8 @@ Cross-cutting constraints: Dark-only oklch color scheme; all frontend state via 
 | 2. Orchestration Layer | 6/6 | Complete | 2026-05-08 |
 | 3. Tauri Shell | 5/5 | Complete | 2026-05-09 |
 | 4. Chat UI | 7/7 | Complete | 2026-05-10 |
-| 5. Agent Dashboard | 0/7 | Ready to execute | — |
-| 6. Parallel Worktrees + Team Orchestration | 0/0 | Not started | — |
+| 5. Agent Dashboard | 7/7 | Complete | 2026-05-10 |
+| 6. Parallel Worktrees + Team Orchestration | 4/4 | Complete | 2026-05-11 |
 
 ---
 
@@ -211,4 +225,4 @@ Cross-cutting constraints: Dark-only oklch color scheme; all frontend state via 
 
 ---
 *Roadmap created: 2026-05-07*
-*Last updated: 2026-05-10 — Phase 5 planned (7 plans across 5 waves)*
+*Last updated: 2026-05-11 — Phase 6 planned (4 plans across 4 waves)*
