@@ -1155,11 +1155,6 @@ async fn call_openai_compat_streaming(
     let mut output_tokens: u32 = 0;
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
-    // Track when we transition from streaming reasoning to streaming the
-    // final answer so we can insert a visible separator. Without it the
-    // chain-of-thought and the answer run together as one paragraph.
-    let mut emitted_reasoning = false;
-    let mut emitted_content = false;
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Stream read error: {e}"))?;
@@ -1185,34 +1180,20 @@ async fn call_openai_compat_streaming(
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
                         let delta = &v["choices"][0]["delta"];
                         // reasoning_content: chain-of-thought from reasoning models
-                        // (Kimi For Coding, DeepSeek-R1, etc.). Surface it so the
-                        // user sees activity instead of a 10-second silent wait.
+                        // (Kimi For Coding, DeepSeek-R1, etc.). Emit as a separate
+                        // ReasoningDelta variant so the UI can present it in a
+                        // de-emphasized, collapsible block — not steal attention
+                        // from the actual reply.
                         if let Some(reasoning) = delta["reasoning_content"].as_str() {
                             if !reasoning.is_empty() {
-                                if !emitted_reasoning {
-                                    let _ = event_tx
-                                        .send(AgentEvent::TextDelta(
-                                            "*Thinking…*\n\n".to_string(),
-                                        ))
-                                        .await;
-                                    emitted_reasoning = true;
-                                }
                                 let _ = event_tx
-                                    .send(AgentEvent::TextDelta(reasoning.to_string()))
+                                    .send(AgentEvent::ReasoningDelta(reasoning.to_string()))
                                     .await;
                             }
                         }
                         // Final answer content
                         if let Some(content) = delta["content"].as_str() {
                             if !content.is_empty() {
-                                if !emitted_content && emitted_reasoning {
-                                    let _ = event_tx
-                                        .send(AgentEvent::TextDelta(
-                                            "\n\n---\n\n".to_string(),
-                                        ))
-                                        .await;
-                                }
-                                emitted_content = true;
                                 let _ = event_tx
                                     .send(AgentEvent::TextDelta(content.to_string()))
                                     .await;
@@ -1256,6 +1237,9 @@ pub(crate) fn spawn_event_relay(
                     emitted += 1;
                     let tag = match &event {
                         AgentEvent::TextDelta(s) => format!("TextDelta({} chars)", s.len()),
+                        AgentEvent::ReasoningDelta(s) => {
+                            format!("ReasoningDelta({} chars)", s.len())
+                        }
                         AgentEvent::StateChanged(s) => format!("StateChanged({s:?})"),
                         AgentEvent::TurnCompleted { .. } => "TurnCompleted".to_string(),
                         AgentEvent::Error { message } => format!("Error({message})"),

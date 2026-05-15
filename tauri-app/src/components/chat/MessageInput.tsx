@@ -35,15 +35,27 @@ async function streamChatTurn(
   const turnId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const channel = `chat-event:${turnId}`;
 
-  let deltaBuffer = "";
+  let contentBuffer = "";
+  let reasoningBuffer = "";
   let rafId: number | null = null;
   let unlisten: (() => void) | null = null;
 
   function flush() {
     rafId = null;
-    const delta = deltaBuffer;
-    deltaBuffer = "";
-    if (delta) useChatStore.getState().appendStreamingContent(delta);
+    if (contentBuffer) {
+      const d = contentBuffer;
+      contentBuffer = "";
+      useChatStore.getState().appendStreamingContent(d);
+    }
+    if (reasoningBuffer) {
+      const d = reasoningBuffer;
+      reasoningBuffer = "";
+      useChatStore.getState().appendStreamingReasoning(d);
+    }
+  }
+
+  function scheduleFlush() {
+    if (rafId === null) rafId = requestAnimationFrame(flush);
   }
 
   function cleanup() {
@@ -61,8 +73,13 @@ async function streamChatTurn(
     listen<AgentEvent>(channel, (event) => {
       const payload = event.payload;
       if ("TextDelta" in payload) {
-        deltaBuffer += payload.TextDelta;
-        if (rafId === null) rafId = requestAnimationFrame(flush);
+        contentBuffer += payload.TextDelta;
+        scheduleFlush();
+        return;
+      }
+      if ("ReasoningDelta" in payload) {
+        reasoningBuffer += payload.ReasoningDelta;
+        scheduleFlush();
         return;
       }
       if ("TurnCompleted" in payload && payload.TurnCompleted) {

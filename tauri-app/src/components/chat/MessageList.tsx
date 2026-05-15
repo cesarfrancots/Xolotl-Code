@@ -13,7 +13,7 @@ import { MessageItem, StreamingMessage } from "./Message";
  * Per 04-UI-SPEC.md §Message List: estimateSize=80, overscan=5, auto-scroll to bottom.
  */
 export function MessageList() {
-  const { items, streamingContent, isStreaming } = useChatStore();
+  const { items, streamingContent, streamingReasoning, isStreaming } = useChatStore();
   const parentRef = useRef<HTMLDivElement>(null);
   const prevItemCount = useRef(0);
 
@@ -84,7 +84,10 @@ export function MessageList() {
               }}
             >
               {isStreamingSlot ? (
-                <StreamingMessage content={streamingContent} />
+                <StreamingMessage
+                  content={streamingContent}
+                  reasoning={streamingReasoning}
+                />
               ) : (
                 <MessageItem item={items[vItem.index]} />
               )}

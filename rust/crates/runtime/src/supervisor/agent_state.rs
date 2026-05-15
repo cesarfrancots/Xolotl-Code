@@ -96,6 +96,10 @@ pub enum AgentEvent {
     TurnCompleted { usage: TokenUsage },
     Error { message: String },
     TextDelta(String),
+    /// Chain-of-thought delta from reasoning models (Kimi For Coding,
+    /// DeepSeek-R1, …). Kept on a separate event so the UI can present it
+    /// as a collapsible/muted block beside the main reply.
+    ReasoningDelta(String),
 }
 
 /// Control messages sent to an agent via its handle.

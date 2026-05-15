@@ -29,6 +29,8 @@ export interface Message {
   role: "user" | "assistant";
   /** Final committed text content. Empty string while streaming. */
   content: string;
+  /** Chain-of-thought from reasoning models. Optional, rendered collapsed. */
+  reasoning?: string;
   toolCalls: ToolCall[];
   usage?: TokenUsage;
   /** "(stopped)" suffix if turn was cancelled mid-stream. */
@@ -49,6 +51,11 @@ export interface ChatState {
    * Per D-02: only updated via rAF flush in useAgentEvents hook.
    */
   streamingContent: string;
+  /**
+   * Streaming chain-of-thought buffer — accumulated ReasoningDelta content.
+   * Rendered as a de-emphasized collapsible block alongside streamingContent.
+   */
+  streamingReasoning: string;
   /** True while an agent turn is in progress. */
   isStreaming: boolean;
   /** Currently selected model name (per-session, D-05). */
@@ -77,6 +84,8 @@ export interface ChatState {
    * Call ONLY from the rAF callback in useAgentEvents — not directly from event handler.
    */
   appendStreamingContent: (delta: string) => void;
+  /** Append a chain-of-thought delta to streamingReasoning. */
+  appendStreamingReasoning: (delta: string) => void;
 
   /**
    * Called on TurnCompleted: commits streamingContent as a final assistant message,
@@ -147,6 +156,7 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
   agentId: null,
   items: [],
   streamingContent: "",
+  streamingReasoning: "",
   isStreaming: false,
   model: localStorage.getItem("xolotl-selected-model") ?? DEFAULT_MODEL,
   sessionUsage: EMPTY_USAGE,
@@ -160,19 +170,29 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
   appendStreamingContent: (delta) =>
     set((state) => ({ streamingContent: state.streamingContent + delta, isStreaming: true })),
 
+  appendStreamingReasoning: (delta) =>
+    set((state) => ({
+      streamingReasoning: state.streamingReasoning + delta,
+      isStreaming: true,
+    })),
+
   finalizeStream: (usage) =>
     set((state) => {
-      if (!state.streamingContent && !state.isStreaming) return state;
+      if (!state.streamingContent && !state.streamingReasoning && !state.isStreaming) {
+        return state;
+      }
       const assistantMessage: Message = {
         id: generateId(),
         role: "assistant",
         content: state.streamingContent,
+        reasoning: state.streamingReasoning || undefined,
         toolCalls: [],
         usage,
       };
       return {
         items: [...state.items, assistantMessage],
         streamingContent: "",
+        streamingReasoning: "",
         isStreaming: false,
         sessionUsage: addUsage(state.sessionUsage, usage),
       };
@@ -180,18 +200,22 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
 
   cancelStream: () =>
     set((state) => {
-      if (!state.streamingContent && !state.isStreaming) return state;
+      if (!state.streamingContent && !state.streamingReasoning && !state.isStreaming) {
+        return state;
+      }
       const partial = state.streamingContent + "\n\n— *generation stopped*";
       const assistantMessage: Message = {
         id: generateId(),
         role: "assistant",
         content: partial,
+        reasoning: state.streamingReasoning || undefined,
         toolCalls: [],
         stopped: true,
       };
       return {
         items: [...state.items, assistantMessage],
         streamingContent: "",
+        streamingReasoning: "",
         isStreaming: false,
       };
     }),
@@ -265,6 +289,7 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
       agentId: null,
       items: [],
       streamingContent: "",
+      streamingReasoning: "",
       isStreaming: false,
       sessionUsage: EMPTY_USAGE,
       // Keep model — user's last-selected model carries to the new session
@@ -279,6 +304,7 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
       model,
       sessionUsage: usage,
       streamingContent: "",
+      streamingReasoning: "",
       isStreaming: false,
     })),
 }));

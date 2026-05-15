@@ -85,17 +85,23 @@ export const commands = {
  *  and NDJSON stdout serialization from child-process workers (D-04).
  *  All variants must remain serde-compatible — do NOT add non-serializable fields.
  */
-export type AgentEvent = ({ StateChanged: AgentState }) & { Error?: never; TextDelta?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never } | ({ ToolCallStarted: {
+export type AgentEvent = ({ StateChanged: AgentState }) & { Error?: never; ReasoningDelta?: never; TextDelta?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never } | ({ ToolCallStarted: {
 	tool: string,
 	input: string,
-} }) & { Error?: never; StateChanged?: never; TextDelta?: never; ToolCallCompleted?: never; TurnCompleted?: never } | ({ ToolCallCompleted: {
+} }) & { Error?: never; ReasoningDelta?: never; StateChanged?: never; TextDelta?: never; ToolCallCompleted?: never; TurnCompleted?: never } | ({ ToolCallCompleted: {
 	tool: string,
 	output: string,
-} }) & { Error?: never; StateChanged?: never; TextDelta?: never; ToolCallStarted?: never; TurnCompleted?: never } | ({ TurnCompleted: {
+} }) & { Error?: never; ReasoningDelta?: never; StateChanged?: never; TextDelta?: never; ToolCallStarted?: never; TurnCompleted?: never } | ({ TurnCompleted: {
 	usage: TokenUsage,
-} }) & { Error?: never; StateChanged?: never; TextDelta?: never; ToolCallCompleted?: never; ToolCallStarted?: never } | ({ Error: {
+} }) & { Error?: never; ReasoningDelta?: never; StateChanged?: never; TextDelta?: never; ToolCallCompleted?: never; ToolCallStarted?: never } | ({ Error: {
 	message: string,
-} }) & { StateChanged?: never; TextDelta?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never } | ({ TextDelta: string }) & { Error?: never; StateChanged?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never };
+} }) & { ReasoningDelta?: never; StateChanged?: never; TextDelta?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never } | ({ TextDelta: string }) & { Error?: never; ReasoningDelta?: never; StateChanged?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never } | 
+/**
+ *  Chain-of-thought delta from reasoning models (Kimi For Coding,
+ *  DeepSeek-R1, …). Kept on a separate event so the UI can present it
+ *  as a collapsible/muted block beside the main reply.
+ */
+({ ReasoningDelta: string }) & { Error?: never; StateChanged?: never; TextDelta?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never };
 
 /**
  *  Stable identifier for a supervised agent.
