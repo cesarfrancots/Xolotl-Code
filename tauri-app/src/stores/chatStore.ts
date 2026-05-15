@@ -118,7 +118,10 @@ export interface ChatState {
   hydrateSession: (items: Message[], model: string, usage: TokenUsage) => void;
 }
 
-const DEFAULT_MODEL = "kimi2.6";
+// Default to kimi-coding because the most common setup uses a Kimi For
+// Coding key (sk-kimi-…) which authenticates against api.kimi.com/coding/v1.
+// kimi2.6 routes to Moonshot (api.moonshot.cn) and requires a separate key.
+const DEFAULT_MODEL = "kimi-coding";
 
 const EMPTY_USAGE: TokenUsage = {
   input_tokens: 0,

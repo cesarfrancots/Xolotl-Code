@@ -66,6 +66,14 @@ pub fn smoke_test() -> String {
 // ── Agent lifecycle ───────────────────────────────────────────────────────────
 
 /// spawn_agent: creates an agent with task/model/optional budget.
+///
+/// `chat_mode = true` (used by the chat composer) skips spawn_agent_executor,
+/// which would otherwise launch the autonomous `xolotl` CLI subprocess.
+/// In chat we only need the agent handle as an event channel for
+/// run_agent_turn — the CLI subprocess would race with the streaming API
+/// call and pollute the chat with its own output.
+///
+/// `chat_mode = false` (Agents panel) keeps the original autonomous behavior.
 #[tauri::command]
 #[specta::specta]
 pub fn spawn_agent(
@@ -74,6 +82,7 @@ pub fn spawn_agent(
     task: String,
     model: String,
     budget_dollars: Option<f64>,
+    chat_mode: Option<bool>,
 ) -> Result<String, String> {
     let branch = slugify_task(&task);
     let agent_id = supervisor
@@ -81,7 +90,9 @@ pub fn spawn_agent(
         .map_err(|e| e.to_string())?;
     if let Some(handle) = supervisor.get_handle(&agent_id) {
         spawn_event_relay(app_handle, agent_id.clone(), handle.clone());
-        spawn_agent_executor(agent_id.clone(), handle);
+        if !chat_mode.unwrap_or(false) {
+            spawn_agent_executor(agent_id.clone(), handle);
+        }
     }
     Ok(agent_id.0)
 }

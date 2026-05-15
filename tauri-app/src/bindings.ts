@@ -5,8 +5,18 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	smokeTest: () => __TAURI_INVOKE<string>("smoke_test"),
-	/**  spawn_agent: creates an agent with task/model/optional budget. */
-	spawnAgent: (task: string, model: string, budgetDollars: number | null) => typedError<string, string>(__TAURI_INVOKE("spawn_agent", { task, model, budgetDollars })),
+	/**
+	 *  spawn_agent: creates an agent with task/model/optional budget.
+	 * 
+	 *  `chat_mode = true` (used by the chat composer) skips spawn_agent_executor,
+	 *  which would otherwise launch the autonomous `xolotl` CLI subprocess.
+	 *  In chat we only need the agent handle as an event channel for
+	 *  run_agent_turn — the CLI subprocess would race with the streaming API
+	 *  call and pollute the chat with its own output.
+	 * 
+	 *  `chat_mode = false` (Agents panel) keeps the original autonomous behavior.
+	 */
+	spawnAgent: (task: string, model: string, budgetDollars: number | null, chatMode: boolean | null) => typedError<string, string>(__TAURI_INVOKE("spawn_agent", { task, model, budgetDollars, chatMode })),
 	listAgents: () => __TAURI_INVOKE<string[]>("list_agents"),
 	stopAgent: (agentId: string) => typedError<null, string>(__TAURI_INVOKE("stop_agent", { agentId })),
 	respondToPermission: (promptId: string, decision: PermissionDecision) => typedError<null, string>(__TAURI_INVOKE("respond_to_permission", { promptId, decision })),

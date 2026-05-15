@@ -116,7 +116,7 @@ export function MessageInput() {
     // Spawn agent if not yet spawned
     let currentAgentId = agentId;
     if (!currentAgentId) {
-      const spawnResult = await commands.spawnAgent(msg, currentModel, null);
+      const spawnResult = await commands.spawnAgent(msg, currentModel, null, true);
       if (spawnResult.status === "error") {
         console.error("spawn_agent error:", spawnResult.error);
         return;

@@ -68,7 +68,7 @@ export function SpawnAgentDialog({
       budgetDollars = parsed;
     }
     setSubmitting(true);
-    const result = await commands.spawnAgent(trimmedTask, model, budgetDollars);
+    const result = await commands.spawnAgent(trimmedTask, model, budgetDollars, null);
     setSubmitting(false);
     if (result.status === "error") {
       // Create a synthetic Failed card so the user sees feedback in the roster.
