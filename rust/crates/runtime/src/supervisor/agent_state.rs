@@ -91,10 +91,20 @@ impl std::fmt::Display for AgentState {
 #[serde(deny_unknown_fields)]
 pub enum AgentEvent {
     StateChanged(AgentState),
-    ToolCallStarted { tool: String, input: String },
-    ToolCallCompleted { tool: String, output: String },
-    TurnCompleted { usage: TokenUsage },
-    Error { message: String },
+    ToolCallStarted {
+        tool: String,
+        input: String,
+    },
+    ToolCallCompleted {
+        tool: String,
+        output: String,
+    },
+    TurnCompleted {
+        usage: TokenUsage,
+    },
+    Error {
+        message: String,
+    },
     TextDelta(String),
     /// Chain-of-thought delta from reasoning models (Kimi For Coding,
     /// DeepSeek-R1, …). Kept on a separate event so the UI can present it
