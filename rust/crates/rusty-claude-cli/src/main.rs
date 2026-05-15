@@ -3998,9 +3998,7 @@ pub(crate) fn format_cost_footer(
     turn_cost: f64,
     session_cost: f64,
 ) -> String {
-    format!(
-        "in: {in_tokens} | out: {out_tokens} | ${turn_cost:.4}  [session: ${session_cost:.4}]"
-    )
+    format!("in: {in_tokens} | out: {out_tokens} | ${turn_cost:.4}  [session: ${session_cost:.4}]")
 }
 
 /// Format the D-10 budget exceeded error message.

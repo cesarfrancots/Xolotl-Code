@@ -154,7 +154,7 @@ impl WorktreeManager {
     }
 
     /// Return all currently active (`AgentId`, worktree path) pairs.
-    #[must_use] 
+    #[must_use]
     pub fn list(&self) -> Vec<(AgentId, PathBuf)> {
         let active = self.active.lock().unwrap();
         active
@@ -182,14 +182,14 @@ impl WorktreeManager {
     }
 
     /// Return the worktree path assigned to `agent_id`, if any.
-    #[must_use] 
+    #[must_use]
     pub fn get_path(&self, agent_id: &AgentId) -> Option<PathBuf> {
         let active = self.active.lock().unwrap();
         active.get(agent_id).map(|(path, _branch)| path.clone())
     }
 
     /// Return the branch name assigned to `agent_id`. None if agent not registered.
-    #[must_use] 
+    #[must_use]
     pub fn get_branch(&self, agent_id: &AgentId) -> Option<String> {
         let active = self.active.lock().unwrap();
         active.get(agent_id).map(|(_, branch)| branch.clone())

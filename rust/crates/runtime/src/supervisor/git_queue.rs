@@ -31,7 +31,7 @@ impl GitOpQueue {
     ///
     /// The queue task runs git commands sequentially inside `spawn_blocking` to avoid
     /// blocking the tokio worker thread (avoids Pitfall 4 from research doc).
-    #[must_use] 
+    #[must_use]
     pub fn start() -> Self {
         let (tx, mut rx) = mpsc::channel::<GitOp>(32);
         tokio::spawn(async move {

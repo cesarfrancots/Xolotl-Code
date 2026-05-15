@@ -66,7 +66,7 @@ impl AgentSupervisor {
     }
 
     /// Return the git repository root path.
-    #[must_use] 
+    #[must_use]
     pub fn repo_root(&self) -> &std::path::Path {
         &self.repo_root
     }
@@ -186,14 +186,14 @@ impl AgentSupervisor {
     }
 
     /// Return the `AgentId` list of all currently registered agents.
-    #[must_use] 
+    #[must_use]
     pub fn list(&self) -> Vec<AgentId> {
         let registry = self.registry.lock().unwrap();
         registry.keys().cloned().collect()
     }
 
     /// Get a clone of the `AgentHandle` for `agent_id`, if it exists.
-    #[must_use] 
+    #[must_use]
     pub fn get_handle(&self, agent_id: &AgentId) -> Option<AgentHandle> {
         let registry = self.registry.lock().unwrap();
         registry.get(agent_id).cloned()

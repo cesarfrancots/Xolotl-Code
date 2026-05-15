@@ -53,7 +53,7 @@ pub enum AgentState {
 impl AgentState {
     /// Returns true if transitioning from self to `next` is a valid state machine step.
     /// Terminal states (Done, Failed) always return false.
-    #[must_use] 
+    #[must_use]
     pub fn can_transition_to(&self, next: &AgentState) -> bool {
         match (self, next) {
             (AgentState::Done | AgentState::Failed, _) => false,

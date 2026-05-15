@@ -25,7 +25,7 @@ use tokio::sync::{broadcast, mpsc};
 /// consecutive hyphens, lowercases the result, and caps the slug portion to 40 chars.
 /// Used by commands.rs to derive the worktree branch name from a user-provided task.
 /// Mitigates T-5-02: no path separators or shell metacharacters survive.
-#[must_use] 
+#[must_use]
 pub fn slugify_task(task: &str) -> String {
     let lowered: String = task
         .chars()
@@ -143,7 +143,7 @@ impl AgentHandle {
     ///
     /// Computes the turn cost from `usage` and `model`, adds it to the running total,
     /// and returns the new cumulative total in USD.
-    #[must_use] 
+    #[must_use]
     pub fn accumulate_cost(&self, usage: &crate::usage::TokenUsage, model: &str) -> f64 {
         let mut tracker = crate::usage::UsageTracker::new();
         tracker.record(*usage);
@@ -161,7 +161,7 @@ impl AgentHandle {
     /// Returns a `broadcast::Receiver<AgentEvent>`. Multiple subscribers are supported.
     /// If a subscriber falls behind by >64 events, it receives `RecvError::Lagged(n)` —
     /// handle this case in Phase 3 by emitting a synthetic "events lost" notification.
-    #[must_use] 
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<AgentEvent> {
         self.broadcast_tx.subscribe()
     }
@@ -190,7 +190,7 @@ impl AgentHandle {
     }
 
     /// Get the current state of the agent.
-    #[must_use] 
+    #[must_use]
     pub fn current_state(&self) -> AgentState {
         self.state.lock().unwrap().clone()
     }

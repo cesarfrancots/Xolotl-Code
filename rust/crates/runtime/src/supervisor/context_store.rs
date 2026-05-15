@@ -28,7 +28,7 @@ pub struct SharedContextStore {
 
 impl SharedContextStore {
     /// Create a new empty store.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -51,21 +51,21 @@ impl SharedContextStore {
     /// Pull a named snapshot.
     ///
     /// Returns `None` if the key has not been published, `Some(snapshot)` otherwise.
-    #[must_use] 
+    #[must_use]
     pub fn pull(&self, key: &str) -> Option<String> {
         let map = self.inner.read().unwrap();
         map.get(key).cloned()
     }
 
     /// Remove a snapshot by key. Returns true if the key existed.
-    #[must_use] 
+    #[must_use]
     pub fn remove(&self, key: &str) -> bool {
         let mut map = self.inner.write().unwrap();
         map.remove(key).is_some()
     }
 
     /// Return all current keys in the store (order unspecified).
-    #[must_use] 
+    #[must_use]
     pub fn keys(&self) -> Vec<String> {
         let map = self.inner.read().unwrap();
         map.keys().cloned().collect()
