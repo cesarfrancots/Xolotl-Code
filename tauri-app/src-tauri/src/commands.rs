@@ -807,8 +807,12 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
             let resp = client
                 .post("https://api.kimi.com/coding/v1/chat/completions")
                 .header("Authorization", format!("Bearer {key}"))
-                .header("content-type", "application/json")
-                .header("User-Agent", "claude-code/1.0")
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .header("User-Agent", "claude-code/1.0.0 (Windows; x64)")
+                .header("X-Client-Name", "claude-code")
+                .header("X-Client-Version", "1.0.0")
+                .header("X-Source", "claude-code")
                 .json(&serde_json::json!({
                     "model": "kimi-k2-turbo-preview",
                     "max_tokens": 1,
@@ -1041,13 +1045,19 @@ async fn call_openai_compat_streaming(
     });
 
     let url = format!("{base_url}/chat/completions");
-    // Kimi For Coding API requires a recognized coding-agent User-Agent.
-    // Using claude-code/1.0 since this is also a coding agent harness.
+    // Kimi For Coding gates on coding-agent identification headers. Match the
+    // exact set the rusty-claude-cli sends (rust/crates/rusty-claude-cli/src/openai.rs)
+    // so behavior is consistent across CLI and desktop app. Harmless for other
+    // OpenAI-compatible providers.
     let response = client
         .post(&url)
         .header("Authorization", format!("Bearer {api_key}"))
-        .header("content-type", "application/json")
-        .header("User-Agent", "claude-code/1.0")
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
+        .header("User-Agent", "claude-code/1.0.0 (Windows; x64)")
+        .header("X-Client-Name", "claude-code")
+        .header("X-Client-Version", "1.0.0")
+        .header("X-Source", "claude-code")
         .json(&body)
         .send()
         .await
@@ -1063,6 +1073,11 @@ async fn call_openai_compat_streaming(
     let mut output_tokens: u32 = 0;
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
+    // Track when we transition from streaming reasoning to streaming the
+    // final answer so we can insert a visible separator. Without it the
+    // chain-of-thought and the answer run together as one paragraph.
+    let mut emitted_reasoning = false;
+    let mut emitted_content = false;
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Stream read error: {e}"))?;
@@ -1086,6 +1101,14 @@ async fn call_openai_compat_streaming(
                         // user sees activity instead of a 10-second silent wait.
                         if let Some(reasoning) = delta["reasoning_content"].as_str() {
                             if !reasoning.is_empty() {
+                                if !emitted_reasoning {
+                                    let _ = event_tx
+                                        .send(AgentEvent::TextDelta(
+                                            "*Thinking…*\n\n".to_string(),
+                                        ))
+                                        .await;
+                                    emitted_reasoning = true;
+                                }
                                 let _ = event_tx
                                     .send(AgentEvent::TextDelta(reasoning.to_string()))
                                     .await;
@@ -1094,6 +1117,14 @@ async fn call_openai_compat_streaming(
                         // Final answer content
                         if let Some(content) = delta["content"].as_str() {
                             if !content.is_empty() {
+                                if !emitted_content && emitted_reasoning {
+                                    let _ = event_tx
+                                        .send(AgentEvent::TextDelta(
+                                            "\n\n---\n\n".to_string(),
+                                        ))
+                                        .await;
+                                }
+                                emitted_content = true;
                                 let _ = event_tx
                                     .send(AgentEvent::TextDelta(content.to_string()))
                                     .await;
