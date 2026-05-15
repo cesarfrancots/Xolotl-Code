@@ -259,15 +259,19 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
 
   clearSession: () =>
     set(() => ({
+      agentId: null,
       items: [],
       streamingContent: "",
       isStreaming: false,
       sessionUsage: EMPTY_USAGE,
-      // Keep agentId and model — user may continue with the same agent
+      // Keep model — user's last-selected model carries to the new session
     })),
 
   hydrateSession: (items, model, usage) =>
     set(() => ({
+      // Resuming a saved session needs a fresh agent backing it — the old
+      // worktree/agent state is gone. Next user message will respawn.
+      agentId: null,
       items,
       model,
       sessionUsage: usage,

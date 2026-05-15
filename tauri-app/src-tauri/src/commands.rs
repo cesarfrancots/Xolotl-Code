@@ -1272,3 +1272,72 @@ pub(crate) fn spawn_agent_executor(_agent_id: AgentId, handle: AgentHandle) {
         }
     });
 }
+
+#[cfg(test)]
+mod config_tests {
+    use super::*;
+
+    fn make_legacy_cli_config() -> ConfigMap {
+        // Mimics what the existing rusty-claude-cli writes today: uppercase
+        // env-var-style keys plus extras the Tauri side doesn't know about.
+        serde_json::from_str(
+            r#"{
+                "ANTHROPIC_API_KEY": "ant-xxx",
+                "KIMI_API_KEY": "kimi-xxx",
+                "KIMI_CODING_BASE_URL": "https://api.kimi.com/coding/v1",
+                "AWS_SECRET_ACCESS_KEY": "aws-secret",
+                "OPENAI_API_KEY": "oai-xxx"
+            }"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn config_get_reads_uppercase_cli_keys() {
+        let cfg = make_legacy_cli_config();
+        assert_eq!(config_get(&cfg, "KIMI_API_KEY"), Some("kimi-xxx".to_string()));
+        assert_eq!(
+            config_get(&cfg, "ANTHROPIC_API_KEY"),
+            Some("ant-xxx".to_string())
+        );
+        assert_eq!(config_get(&cfg, "MISSING"), None);
+        // Empty strings should be treated as unset.
+        let mut cfg2 = cfg.clone();
+        cfg2.insert("KIMI_API_KEY".into(), serde_json::Value::String("".into()));
+        assert_eq!(config_get(&cfg2, "KIMI_API_KEY"), None);
+    }
+
+    #[test]
+    fn provider_env_var_map_matches_streaming_code() {
+        // These mappings must stay aligned with what call_anthropic_streaming
+        // and call_model_streaming read.
+        assert_eq!(provider_env_var("anthropic"), Some("ANTHROPIC_API_KEY"));
+        assert_eq!(provider_env_var("kimi"), Some("KIMI_API_KEY"));
+        assert_eq!(provider_env_var("kimi_coding"), Some("KIMI_CODING_API_KEY"));
+        assert_eq!(provider_env_var("minimax"), Some("MINIMAX_API_KEY"));
+        assert_eq!(provider_env_var("nope"), None);
+    }
+
+    #[test]
+    fn setting_a_key_preserves_unknown_cli_fields() {
+        // Regression: a previous AppConfig struct silently dropped any field
+        // the Tauri side didn't model, destroying the CLI's settings on save.
+        let mut cfg = make_legacy_cli_config();
+        let env_var = provider_env_var("kimi").unwrap();
+        cfg.insert(env_var.to_string(), serde_json::Value::String("new-kimi".into()));
+        // Round-trip serialize/deserialize to simulate save_config -> load_config.
+        let s = serde_json::to_string(&cfg).unwrap();
+        let cfg2: ConfigMap = serde_json::from_str(&s).unwrap();
+        assert_eq!(config_get(&cfg2, "KIMI_API_KEY"), Some("new-kimi".into()));
+        // CLI-only fields must still be present.
+        assert_eq!(
+            config_get(&cfg2, "KIMI_CODING_BASE_URL"),
+            Some("https://api.kimi.com/coding/v1".into())
+        );
+        assert_eq!(
+            config_get(&cfg2, "AWS_SECRET_ACCESS_KEY"),
+            Some("aws-secret".into())
+        );
+        assert_eq!(config_get(&cfg2, "OPENAI_API_KEY"), Some("oai-xxx".into()));
+    }
+}

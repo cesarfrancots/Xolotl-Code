@@ -110,10 +110,12 @@ export function MessageInput() {
       toolCalls: [],
     });
 
-    // Spawn agent if not yet spawned, then run the turn
+    const chatState = useChatStore.getState();
+    const currentModel = chatState.model;
+
+    // Spawn agent if not yet spawned
     let currentAgentId = agentId;
     if (!currentAgentId) {
-      const currentModel = useChatStore.getState().model;
       const spawnResult = await commands.spawnAgent(msg, currentModel, null);
       if (spawnResult.status === "error") {
         console.error("spawn_agent error:", spawnResult.error);
@@ -123,7 +125,18 @@ export function MessageInput() {
       setAgentId(currentAgentId);
     }
 
-    const turnResult = await commands.runAgentTurn(currentAgentId, msg);
+    // Build full message history to send to the AI
+    const historyMessages = chatState.items
+      .filter((item): item is import("../../stores/chatStore").Message =>
+        "role" in item && (item.role === "user" || item.role === "assistant")
+      )
+      .map((item) => ({ role: item.role, content: item.content }));
+
+    const turnResult = await commands.runAgentTurn(
+      currentAgentId,
+      historyMessages,
+      currentModel,
+    );
     if (turnResult.status === "error") {
       console.error("run_agent_turn error:", turnResult.error);
     }

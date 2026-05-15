@@ -47,7 +47,7 @@ describe("finalizeStream", () => {
 });
 
 describe("clearSession", () => {
-  it("resets items, streaming state, and usage; preserves agentId and model", () => {
+  it("resets items, streaming, usage, and agentId; preserves model", () => {
     useChatStore.setState({ agentId: "agent-123", model: "claude-opus-4-5" });
     useChatStore.getState().appendStreamingContent("partial");
     useChatStore.getState().clearSession();
@@ -56,8 +56,10 @@ describe("clearSession", () => {
     expect(state.streamingContent).toBe("");
     expect(state.isStreaming).toBe(false);
     expect(state.sessionUsage).toEqual(ZERO_USAGE);
-    // agentId and model preserved
-    expect(state.agentId).toBe("agent-123");
+    // agentId must reset — otherwise "New session" silently keeps using the
+    // old agent's runtime state (worktree, logs, etc.).
+    expect(state.agentId).toBeNull();
+    // Model preference carries to the new session.
     expect(state.model).toBe("claude-opus-4-5");
   });
 });
