@@ -9,14 +9,16 @@ interface MessageItemProps {
   item: Message | PermissionItem;
 }
 
+const ASSISTANT_NAME = "xolotl";
+const USER_NAME = "You";
+
 /**
- * Renders a single chat item — user message, assistant message, or permission prompt placeholder.
- * PermissionCard rendering is in Plan 05; this component renders the PermissionItem
- * as a loading state placeholder until PermissionCard is available.
+ * Slack-style chat message: avatar bubble + name + (subtitle) on the first
+ * line, then the message body.
  *
- * User message: right-aligned, surface-raised background, accent left border.
- * Assistant message: left-aligned, transparent background, prose markdown.
- * Per 04-UI-SPEC.md §Message.
+ * User messages are right-aligned with a subtle raised-surface card.
+ * Assistant messages span full width with high-contrast prose body so the
+ * reply is actually readable against the dark background.
  */
 export function MessageItem({ item }: MessageItemProps) {
   if ((item as PermissionItem).type === "permission") {
@@ -30,13 +32,63 @@ export function MessageItem({ item }: MessageItemProps) {
   return <AssistantMessage message={msg} />;
 }
 
+function Avatar({
+  initial,
+  tone,
+}: {
+  initial: string;
+  tone: "user" | "assistant";
+}) {
+  const bg =
+    tone === "assistant"
+      ? "bg-[oklch(0.65_0.18_250)]" // accent blue for xolotl
+      : "bg-[oklch(0.30_0_0)]";
+  return (
+    <div
+      className={`flex-none w-8 h-8 rounded-md ${bg} flex items-center justify-center text-xs font-semibold text-white select-none`}
+      aria-hidden="true"
+    >
+      {initial}
+    </div>
+  );
+}
+
+function MessageHeader({
+  name,
+  subtitle,
+  tone,
+}: {
+  name: string;
+  subtitle?: string;
+  tone: "user" | "assistant";
+}) {
+  return (
+    <div className="flex items-baseline gap-2 leading-none">
+      <span
+        className={`text-sm font-semibold ${
+          tone === "assistant"
+            ? "text-[oklch(0.78_0.12_250)]"
+            : "text-[oklch(0.92_0_0)]"
+        }`}
+      >
+        {name}
+      </span>
+      {subtitle && (
+        <span className="text-xs text-[oklch(0.50_0_0)] font-normal">
+          {subtitle}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function UserMessage({ message }: { message: Message }) {
   return (
-    <div className="py-2 px-4 flex justify-end">
-      <div
-        className="max-w-[75%] rounded-lg bg-[oklch(0.20_0_0)] border-l-2 border-[oklch(0.65_0.18_250)] px-3 py-2"
-      >
-        <p className="text-sm text-[oklch(0.92_0_0)] whitespace-pre-wrap break-words">
+    <div className="py-3 px-4 flex gap-3">
+      <Avatar initial="Y" tone="user" />
+      <div className="flex-1 min-w-0 flex flex-col gap-1">
+        <MessageHeader name={USER_NAME} tone="user" />
+        <p className="text-[15px] leading-relaxed text-[oklch(0.95_0_0)] whitespace-pre-wrap break-words">
           {message.content}
         </p>
       </div>
@@ -48,43 +100,51 @@ function AssistantMessage({ message }: { message: Message }) {
   const model = useChatStore((s) => s.model);
 
   return (
-    <div className="py-2 px-4">
-      <MarkdownRenderer content={message.content} />
-      {/* Tool call blocks per plan 05 */}
-      {message.toolCalls.length > 0 && (
-        <div className="flex flex-col gap-1 mt-2">
-          {message.toolCalls.map((tc) => (
-            <ToolBlock key={tc.id} toolCall={tc} />
-          ))}
+    <div className="py-3 px-4 flex gap-3">
+      <Avatar initial="x" tone="assistant" />
+      <div className="flex-1 min-w-0 flex flex-col gap-1">
+        <MessageHeader name={ASSISTANT_NAME} subtitle={model} tone="assistant" />
+        <div className="text-[15px] leading-relaxed text-[oklch(0.95_0_0)]">
+          <MarkdownRenderer content={message.content} />
         </div>
-      )}
-      {/* Cost footnote per D-06 */}
-      {message.usage && (
-        <p className="text-xs text-[oklch(0.38_0_0)] mt-1">
-          {formatTurnFootnote(message.usage, model)}
-          {message.stopped && (
-            <span className="ml-2 text-[oklch(0.60_0.20_25)]">(stopped)</span>
-          )}
-        </p>
-      )}
+        {message.toolCalls.length > 0 && (
+          <div className="flex flex-col gap-1 mt-1">
+            {message.toolCalls.map((tc) => (
+              <ToolBlock key={tc.id} toolCall={tc} />
+            ))}
+          </div>
+        )}
+        {message.usage && (
+          <p className="text-xs text-[oklch(0.45_0_0)] mt-1">
+            {formatTurnFootnote(message.usage, model)}
+            {message.stopped && (
+              <span className="ml-2 text-[oklch(0.60_0.20_25)]">(stopped)</span>
+            )}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
 
 /**
- * StreamingMessage: renders the in-progress assistant turn.
- * Receives streamingContent from chatStore and adds an animated cursor.
+ * In-progress assistant turn — same Slack layout as AssistantMessage but with
+ * a blinking cursor and no usage footer.
  */
 export function StreamingMessage({ content }: { content: string }) {
+  const model = useChatStore((s) => s.model);
   return (
-    <div className="py-2 px-4">
-      <div className="relative">
-        <MarkdownRenderer content={content} />
-        {/* Streaming cursor: 2px × 14px accent bar, animate-pulse (04-UI-SPEC.md) */}
-        <span
-          className="inline-block w-0.5 h-[14px] bg-[oklch(0.65_0.18_250)] animate-pulse ml-0.5 align-text-bottom"
-          aria-label="AI is typing"
-        />
+    <div className="py-3 px-4 flex gap-3">
+      <Avatar initial="x" tone="assistant" />
+      <div className="flex-1 min-w-0 flex flex-col gap-1">
+        <MessageHeader name={ASSISTANT_NAME} subtitle={model} tone="assistant" />
+        <div className="text-[15px] leading-relaxed text-[oklch(0.95_0_0)] relative">
+          <MarkdownRenderer content={content} />
+          <span
+            className="inline-block w-0.5 h-[14px] bg-[oklch(0.65_0.18_250)] animate-pulse ml-0.5 align-text-bottom"
+            aria-label="xolotl is typing"
+          />
+        </div>
       </div>
     </div>
   );

@@ -21,8 +21,25 @@ interface MarkdownRendererProps {
  * typography overriding highlight.js styles.
  */
 export function MarkdownRenderer({ content }: MarkdownRendererProps) {
+  // Override Tailwind typography defaults with explicit high-contrast values.
+  // `@theme` tokens don't always propagate into `.prose` so we set them here.
+  const proseVars: React.CSSProperties = {
+    // @ts-expect-error CSS custom properties
+    "--tw-prose-body": "oklch(0.95 0 0)",
+    "--tw-prose-headings": "oklch(0.97 0 0)",
+    "--tw-prose-bold": "oklch(0.98 0 0)",
+    "--tw-prose-code": "oklch(0.88 0.06 250)",
+    "--tw-prose-pre-bg": "oklch(0.16 0 0)",
+    "--tw-prose-pre-code": "oklch(0.92 0 0)",
+    "--tw-prose-links": "oklch(0.72 0.18 250)",
+    "--tw-prose-quotes": "oklch(0.80 0 0)",
+    "--tw-prose-quote-borders": "oklch(0.30 0 0)",
+    "--tw-prose-hr": "oklch(0.28 0 0)",
+    "--tw-prose-bullets": "oklch(0.60 0 0)",
+    "--tw-prose-counters": "oklch(0.60 0 0)",
+  };
   return (
-    <div className="prose prose-sm max-w-none">
+    <div className="prose prose-sm max-w-none" style={proseVars}>
     <ReactMarkdown
       rehypePlugins={[rehypeHighlight]}
       components={{
