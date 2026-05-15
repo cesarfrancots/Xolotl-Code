@@ -481,7 +481,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             LiveCli::new(model, true, auto_accept)?.run_turn(&prompt)?;
         }
-        CliAction::Repl { model, auto_accept, budget } => run_repl(model, auto_accept, budget)?,
+        CliAction::Repl {
+            model,
+            auto_accept,
+            budget,
+        } => run_repl(model, auto_accept, budget)?,
         CliAction::Setup => run_setup()?,
         CliAction::Help => print_help(),
         CliAction::SubAgent {
@@ -639,7 +643,11 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     if rest.is_empty() {
-        return Ok(CliAction::Repl { model, auto_accept, budget });
+        return Ok(CliAction::Repl {
+            model,
+            auto_accept,
+            budget,
+        });
     }
     if matches!(rest.first().map(String::as_str), Some("--help" | "-h")) {
         return Ok(CliAction::Help);
@@ -845,7 +853,11 @@ fn resolve_session_path(session_arg: &Path) -> PathBuf {
     }
 }
 
-fn run_repl(model: String, auto_accept: bool, budget: Option<f64>) -> Result<(), Box<dyn std::error::Error>> {
+fn run_repl(
+    model: String,
+    auto_accept: bool,
+    budget: Option<f64>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut cli = LiveCli::new(model, true, auto_accept)?;
     if let Some(b) = budget {
         cli.set_budget(b);
@@ -903,7 +915,6 @@ fn run_repl_loop(
     mut cli: LiveCli,
     mut editor: input::LineEditor,
 ) -> Result<(), Box<dyn std::error::Error>> {
-
     while let (Some(input), action) = editor.read_line_with_actions()? {
         // Handle keyboard shortcut actions first
         match action {
@@ -3988,16 +3999,14 @@ pub(crate) fn format_cost_footer(
     session_cost: f64,
 ) -> String {
     format!(
-        "in: {} | out: {} | ${:.4}  [session: ${:.4}]",
-        in_tokens, out_tokens, turn_cost, session_cost
+        "in: {in_tokens} | out: {out_tokens} | ${turn_cost:.4}  [session: ${session_cost:.4}]"
     )
 }
 
 /// Format the D-10 budget exceeded error message.
 pub(crate) fn format_budget_error(budget: f64, session_cost: f64) -> String {
     format!(
-        "Budget ${:.2} exceeded (session: ${:.4}). Use --budget to raise the limit.",
-        budget, session_cost
+        "Budget ${budget:.2} exceeded (session: ${session_cost:.4}). Use --budget to raise the limit."
     )
 }
 
@@ -4430,7 +4439,10 @@ fn run_subagent(
 
 #[cfg(test)]
 mod tests {
-    use super::{default_model, local_manifest_counts, parse_args, resolve_session_path, sessions_dir, CliAction};
+    use super::{
+        default_model, local_manifest_counts, parse_args, resolve_session_path, sessions_dir,
+        CliAction,
+    };
     use runtime::{ContentBlock, ConversationMessage, MessageRole};
     use std::path::PathBuf;
 
@@ -4582,10 +4594,7 @@ mod tests {
 
     #[test]
     fn parses_resume_flag_bare_id() {
-        let args = vec![
-            "--resume".to_string(),
-            "session-123".to_string(),
-        ];
+        let args = vec!["--resume".to_string(), "session-123".to_string()];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
             CliAction::ResumeSession {

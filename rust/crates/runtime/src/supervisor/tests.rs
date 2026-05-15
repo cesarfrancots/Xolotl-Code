@@ -308,7 +308,9 @@ mod orc_tests {
         let manager = WorktreeManager::new(&repo);
 
         let agent_id = AgentId::new();
-        let path = manager.add(&agent_id, "orc05-branch").expect("add worktree");
+        let path = manager
+            .add(&agent_id, "orc05-branch")
+            .expect("add worktree");
 
         let list = manager.list();
         assert_eq!(list.len(), 1);
@@ -330,7 +332,10 @@ mod orc_tests {
         let path1 = manager.add(&id1, "agent-wt-1").expect("add 1");
         let path2 = manager.add(&id2, "agent-wt-2").expect("add 2");
 
-        assert_ne!(path1, path2, "each agent must have a distinct worktree path");
+        assert_ne!(
+            path1, path2,
+            "each agent must have a distinct worktree path"
+        );
         assert_eq!(manager.list().len(), 2);
     }
 

@@ -76,7 +76,9 @@ impl PermissionPolicy {
                     tool_name: tool_name.to_string(),
                     input: input.to_string(),
                 }) {
-                    PermissionPromptDecision::Allow | PermissionPromptDecision::AlwaysAllow => PermissionOutcome::Allow,
+                    PermissionPromptDecision::Allow | PermissionPromptDecision::AlwaysAllow => {
+                        PermissionOutcome::Allow
+                    }
                     PermissionPromptDecision::Deny { reason } => PermissionOutcome::Deny { reason },
                 },
                 None => PermissionOutcome::Deny {

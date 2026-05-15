@@ -1,12 +1,12 @@
 //! Shared context store for cross-agent snapshot sharing.
 //!
 //! Agents publish named text snapshots and pull them on demand.
-//! Implements D-06 (keyed pull-on-demand) and D-07 (TooLarge enforcement).
+//! Implements D-06 (keyed pull-on-demand) and D-07 (`TooLarge` enforcement).
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-/// Errors returned by SharedContextStore operations.
+/// Errors returned by `SharedContextStore` operations.
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum ContextError {
     /// Snapshot exceeds the 1000-token whitespace limit. Contains the actual count.
@@ -28,6 +28,7 @@ pub struct SharedContextStore {
 
 impl SharedContextStore {
     /// Create a new empty store.
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -50,18 +51,21 @@ impl SharedContextStore {
     /// Pull a named snapshot.
     ///
     /// Returns `None` if the key has not been published, `Some(snapshot)` otherwise.
+    #[must_use] 
     pub fn pull(&self, key: &str) -> Option<String> {
         let map = self.inner.read().unwrap();
         map.get(key).cloned()
     }
 
     /// Remove a snapshot by key. Returns true if the key existed.
+    #[must_use] 
     pub fn remove(&self, key: &str) -> bool {
         let mut map = self.inner.write().unwrap();
         map.remove(key).is_some()
     }
 
     /// Return all current keys in the store (order unspecified).
+    #[must_use] 
     pub fn keys(&self) -> Vec<String> {
         let map = self.inner.read().unwrap();
         map.keys().cloned().collect()

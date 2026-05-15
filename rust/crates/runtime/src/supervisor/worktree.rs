@@ -1,7 +1,7 @@
-//! WorktreeManager: creates, lists, and removes git worktrees for agent isolation.
+//! `WorktreeManager`: creates, lists, and removes git worktrees for agent isolation.
 //!
 //! Each agent is assigned exactly one worktree at spawn time (D-08).
-//! The supervisor owns this manager and calls add() / remove() as agents start and stop.
+//! The supervisor owns this manager and calls `add()` / `remove()` as agents start and stop.
 //!
 //! Worktrees base directory: <repo_root>/.xolotl-worktrees/
 //! Add .xolotl-worktrees/ to .gitignore to prevent git from tracking worktree dirs.
@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-/// Errors from WorktreeManager git operations.
+/// Errors from `WorktreeManager` git operations.
 #[derive(Debug, thiserror::Error)]
 pub enum WorktreeError {
     #[error("git worktree command failed: {0}")]
@@ -32,8 +32,8 @@ pub struct WorktreeManager {
     repo_root: PathBuf,
     /// Base directory for all agent worktrees: <repo_root>/.xolotl-worktrees/
     worktrees_base: PathBuf,
-    /// Map from AgentId to (worktree path, branch name).
-    /// Storing the branch alongside the path enables remove() to delete the branch.
+    /// Map from `AgentId` to (worktree path, branch name).
+    /// Storing the branch alongside the path enables `remove()` to delete the branch.
     active: Arc<Mutex<HashMap<AgentId, (PathBuf, String)>>>,
 }
 
@@ -69,9 +69,9 @@ impl WorktreeManager {
         }
 
         let path = self.worktrees_base.join(agent_id.to_string());
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| WorktreeError::GitFailed(format!("worktree path is not valid UTF-8: {path:?}")))?;
+        let path_str = path.to_str().ok_or_else(|| {
+            WorktreeError::GitFailed(format!("worktree path is not valid UTF-8: {path:?}"))
+        })?;
 
         let output = std::process::Command::new("git")
             .args(["worktree", "add", "-b", branch, path_str])
@@ -126,9 +126,9 @@ impl WorktreeManager {
                 .ok_or_else(|| WorktreeError::NotAssigned(agent_id.clone()))?
         };
 
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| WorktreeError::GitFailed(format!("worktree path is not valid UTF-8: {path:?}")))?;
+        let path_str = path.to_str().ok_or_else(|| {
+            WorktreeError::GitFailed(format!("worktree path is not valid UTF-8: {path:?}"))
+        })?;
 
         let output = std::process::Command::new("git")
             .args(["worktree", "remove", "--force", path_str])
@@ -153,10 +153,14 @@ impl WorktreeManager {
         Ok(())
     }
 
-    /// Return all currently active (AgentId, worktree path) pairs.
+    /// Return all currently active (`AgentId`, worktree path) pairs.
+    #[must_use] 
     pub fn list(&self) -> Vec<(AgentId, PathBuf)> {
         let active = self.active.lock().unwrap();
-        active.iter().map(|(k, (path, _branch))| (k.clone(), path.clone())).collect()
+        active
+            .iter()
+            .map(|(k, (path, _branch))| (k.clone(), path.clone()))
+            .collect()
     }
 
     /// Prune stale worktree entries from git's internal state.
@@ -178,12 +182,14 @@ impl WorktreeManager {
     }
 
     /// Return the worktree path assigned to `agent_id`, if any.
+    #[must_use] 
     pub fn get_path(&self, agent_id: &AgentId) -> Option<PathBuf> {
         let active = self.active.lock().unwrap();
         active.get(agent_id).map(|(path, _branch)| path.clone())
     }
 
     /// Return the branch name assigned to `agent_id`. None if agent not registered.
+    #[must_use] 
     pub fn get_branch(&self, agent_id: &AgentId) -> Option<String> {
         let active = self.active.lock().unwrap();
         active.get(agent_id).map(|(_, branch)| branch.clone())
@@ -218,7 +224,7 @@ impl WorktreeManager {
         let files = String::from_utf8_lossy(&output.stdout)
             .lines()
             .filter(|l| !l.is_empty())
-            .map(|l| l.to_string())
+            .map(std::string::ToString::to_string)
             .collect();
         Ok(files)
     }
@@ -303,9 +309,7 @@ mod tests {
         let manager = WorktreeManager::new(&repo);
         let agent_id = AgentId::new();
 
-        manager
-            .add(&agent_id, "remove-branch")
-            .expect("add");
+        manager.add(&agent_id, "remove-branch").expect("add");
         assert_eq!(manager.list().len(), 1);
 
         manager.remove(&agent_id).expect("remove");

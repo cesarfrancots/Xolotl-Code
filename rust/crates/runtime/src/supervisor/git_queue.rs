@@ -1,6 +1,6 @@
 //! Serialized git operation queue — prevents index.lock conflicts between parallel agents.
 //!
-//! One GitOpQueue per repo root. AgentSupervisor holds HashMap<PathBuf, GitOpQueue>.
+//! One `GitOpQueue` per repo root. `AgentSupervisor` holds `HashMap`<`PathBuf`, `GitOpQueue`>.
 //! Each queue runs git commands sequentially in a dedicated tokio task (ORC-07).
 
 use std::path::PathBuf;
@@ -29,8 +29,9 @@ pub struct GitOpQueue {
 impl GitOpQueue {
     /// Start the background queue task and return a handle to submit operations.
     ///
-    /// The queue task runs git commands sequentially inside spawn_blocking to avoid
+    /// The queue task runs git commands sequentially inside `spawn_blocking` to avoid
     /// blocking the tokio worker thread (avoids Pitfall 4 from research doc).
+    #[must_use] 
     pub fn start() -> Self {
         let (tx, mut rx) = mpsc::channel::<GitOp>(32);
         tokio::spawn(async move {

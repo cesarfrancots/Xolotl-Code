@@ -23,7 +23,7 @@ pub struct SubAgentConfig {
     pub retry_backoff: Duration,
     /// Optional working directory for the child process (D-05: --working-dir flag).
     pub working_dir: Option<PathBuf>,
-    /// When true, supervisor reads NDJSON AgentEvent lines from child stdout (D-05).
+    /// When true, supervisor reads NDJSON `AgentEvent` lines from child stdout (D-05).
     /// When false (default), stdout is suppressed — existing behavior preserved.
     pub ndjson_stdout: bool,
 }
@@ -237,7 +237,7 @@ impl SubAgentSpawner {
             }
         }
 
-        if child.try_wait().map_or(false, |w| w.is_none()) {
+        if child.try_wait().is_ok_and(|w| w.is_none()) {
             let _ = child.kill();
             return SubAgentResult::failure(
                 task_id.to_string(),
@@ -281,12 +281,12 @@ impl SubAgentSpawner {
         )
     }
 
-    /// Spawn a child process with ndjson_stdout enabled and return an async stream of AgentEvents.
+    /// Spawn a child process with `ndjson_stdout` enabled and return an async stream of `AgentEvents`.
     ///
-    /// The child process emits one serde-serialized AgentEvent JSON per line on stdout.
+    /// The child process emits one serde-serialized `AgentEvent` JSON per line on stdout.
     /// This method spawns the child, then reads stdout line-by-line until the child exits.
     ///
-    /// Used by AgentSupervisor to bridge child-process events into the in-process channel (D-04, D-11).
+    /// Used by `AgentSupervisor` to bridge child-process events into the in-process channel (D-04, D-11).
     pub async fn spawn_ndjson_reader(
         &self,
         config: &SubAgentConfig,
@@ -416,8 +416,7 @@ mod tests {
 
     #[test]
     fn sub_agent_config_with_working_dir() {
-        let config = SubAgentConfig::new("test", "prompt")
-            .with_working_dir("/tmp/worktree-1");
+        let config = SubAgentConfig::new("test", "prompt").with_working_dir("/tmp/worktree-1");
         assert_eq!(
             config.working_dir,
             Some(std::path::PathBuf::from("/tmp/worktree-1"))

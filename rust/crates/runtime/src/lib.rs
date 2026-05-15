@@ -1,3 +1,24 @@
+#![allow(
+    dead_code,
+    clippy::items_after_statements,
+    clippy::needless_continue,
+    clippy::match_same_arms,
+    clippy::doc_link_with_quotes,
+    clippy::doc_overindented_list_items,
+    clippy::doc_markdown,
+    clippy::too_many_arguments,
+    clippy::missing_fields_in_debug,
+    clippy::module_inception,
+    clippy::needless_pass_by_value,
+    clippy::unnecessary_debug_formatting,
+    clippy::unused_async,
+    clippy::uninlined_format_args,
+    clippy::unnecessary_map_or,
+    clippy::manual_range_contains,
+    clippy::must_use_candidate,
+    clippy::redundant_closure_for_method_calls
+)]
+
 mod bash;
 mod bootstrap;
 mod compact;
@@ -68,9 +89,8 @@ pub use subagent::{
     TaskStatus,
 };
 pub use supervisor::{
-    AgentControl, AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor,
-    ContextError, GitOpQueue, SharedContextStore, SupervisorError, slugify_task,
-    WorktreeError, WorktreeManager,
+    slugify_task, AgentControl, AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor,
+    ContextError, GitOpQueue, SharedContextStore, SupervisorError, WorktreeError, WorktreeManager,
 };
 pub use todo::{
     todo_read, todo_write, TodoItem, TodoOutput, TodoPriority, TodoStatus, TodoWriteInput,

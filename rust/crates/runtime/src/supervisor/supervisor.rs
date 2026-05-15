@@ -1,20 +1,20 @@
-//! AgentSupervisor — central registry and lifecycle manager for supervised agents.
+//! `AgentSupervisor` — central registry and lifecycle manager for supervised agents.
 //!
-//! Implements ORC-02: spawn_agent(), list(), stop_agent(), stop_all().
-//! Owns WorktreeManager (D-08) and SharedContextStore.
+//! Implements ORC-02: `spawn_agent()`, `list()`, `stop_agent()`, `stop_all()`.
+//! Owns `WorktreeManager` (D-08) and `SharedContextStore`.
 //! All public types are Send + Sync for Phase 3 Tauri managed state compatibility.
 
+use crate::supervisor::handle::slugify_task;
 use crate::supervisor::{
     AgentControl, AgentEvent, AgentHandle, AgentId, ContextError, GitOpQueue, SharedContextStore,
     WorktreeError, WorktreeManager,
 };
-use crate::supervisor::handle::slugify_task;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, mpsc};
 
-/// Errors from AgentSupervisor operations.
+/// Errors from `AgentSupervisor` operations.
 #[derive(Debug, thiserror::Error)]
 pub enum SupervisorError {
     #[error("worktree error: {0}")]
@@ -33,16 +33,16 @@ pub enum SupervisorError {
 /// Suitable for use as Tauri managed state (Send + Sync) in Phase 3.
 #[derive(Clone)]
 pub struct AgentSupervisor {
-    /// Registry of all active agent handles, keyed by AgentId.
+    /// Registry of all active agent handles, keyed by `AgentId`.
     registry: Arc<Mutex<HashMap<AgentId, AgentHandle>>>,
     /// Worktree manager — assigns one worktree per agent at spawn time (D-08).
-    /// Public so Tauri commands can call get_branch(), get_diff_files(), get_path(), remove().
+    /// Public so Tauri commands can call `get_branch()`, `get_diff_files()`, `get_path()`, `remove()`.
     pub worktree_manager: WorktreeManager,
     /// Shared context store — agents publish/pull snapshots (ORC-04).
     pub context: SharedContextStore,
     /// Git operation queues per repo root (ORC-07).
     git_queues: Arc<Mutex<HashMap<PathBuf, GitOpQueue>>>,
-    /// Root of the git repository — stored for repo_root() accessor used by merge commands.
+    /// Root of the git repository — stored for `repo_root()` accessor used by merge commands.
     repo_root: PathBuf,
 }
 
@@ -66,6 +66,7 @@ impl AgentSupervisor {
     }
 
     /// Return the git repository root path.
+    #[must_use] 
     pub fn repo_root(&self) -> &std::path::Path {
         &self.repo_root
     }
@@ -80,7 +81,7 @@ impl AgentSupervisor {
     /// clone `handle.event_tx` to send events. The re-broadcast loop receives
     /// from `event_rx` and forwards to the broadcast channel for fan-out.
     ///
-    /// Returns the AgentId of the new agent. The caller can retrieve the handle
+    /// Returns the `AgentId` of the new agent. The caller can retrieve the handle
     /// via `get_handle()` to subscribe or send control signals.
     ///
     /// # Errors
@@ -101,7 +102,7 @@ impl AgentSupervisor {
         let handle = AgentHandle::new(
             agent_id.clone(),
             worktree_path,
-            event_tx,          // stored in handle — keeps channel alive
+            event_tx, // stored in handle — keeps channel alive
             broadcast_tx.clone(),
             cancel_tx,
         );
@@ -145,9 +146,9 @@ impl AgentSupervisor {
         // T-5-01: validate budget is positive and finite before touching any resources
         if let Some(b) = budget_dollars {
             if !b.is_finite() || b <= 0.0 {
-                return Err(SupervisorError::InvalidBudget(
-                    format!("budget must be > 0 and finite, got {b}")
-                ));
+                return Err(SupervisorError::InvalidBudget(format!(
+                    "budget must be > 0 and finite, got {b}"
+                )));
             }
         }
 
@@ -184,13 +185,15 @@ impl AgentSupervisor {
         Ok(agent_id)
     }
 
-    /// Return the AgentId list of all currently registered agents.
+    /// Return the `AgentId` list of all currently registered agents.
+    #[must_use] 
     pub fn list(&self) -> Vec<AgentId> {
         let registry = self.registry.lock().unwrap();
         registry.keys().cloned().collect()
     }
 
-    /// Get a clone of the AgentHandle for `agent_id`, if it exists.
+    /// Get a clone of the `AgentHandle` for `agent_id`, if it exists.
+    #[must_use] 
     pub fn get_handle(&self, agent_id: &AgentId) -> Option<AgentHandle> {
         let registry = self.registry.lock().unwrap();
         registry.get(agent_id).cloned()
@@ -207,7 +210,8 @@ impl AgentSupervisor {
         // Lock, clone the handle, drop lock — then await (Pitfall 1: no lock across .await)
         let handle = {
             let registry = self.registry.lock().unwrap();
-            registry.get(agent_id)
+            registry
+                .get(agent_id)
                 .cloned()
                 .ok_or_else(|| SupervisorError::NotFound(agent_id.clone()))?
         };
@@ -239,7 +243,7 @@ impl AgentSupervisor {
         }
     }
 
-    /// Get or create a GitOpQueue for `repo_root`.
+    /// Get or create a `GitOpQueue` for `repo_root`.
     ///
     /// Queues are keyed by canonical repo root path to ensure per-repo serialization (ORC-07).
     pub fn git_queue_for(&self, repo_root: PathBuf) -> GitOpQueue {
@@ -250,7 +254,7 @@ impl AgentSupervisor {
             .clone()
     }
 
-    /// Launch a role-based team: spawn one agent per role tuple (role_name, task, model).
+    /// Launch a role-based team: spawn one agent per role tuple (`role_name`, task, model).
     ///
     /// Branch names use `"agent/{index}-{slug}"` to prevent collision when roles share
     /// task text (Pitfall 6 from research doc). The group concept lives entirely in the
@@ -266,7 +270,7 @@ impl AgentSupervisor {
         let mut branches = Vec::with_capacity(roles.len());
         for (index, (_role, task, model)) in roles.iter().enumerate() {
             let slug = slugify_task(task);
-            let branch = format!("agent/{}-{}", index, slug);
+            let branch = format!("agent/{index}-{slug}");
             let agent_id = self.spawn_agent_with_config(&branch, task, model, None)?;
             agent_ids.push(agent_id);
             branches.push(branch);
@@ -286,17 +290,17 @@ impl AgentSupervisor {
         objective: String,
         model: String,
     ) -> Result<(String, Vec<AgentId>, Vec<String>), SupervisorError> {
-        if count < 1 || count > 8 {
-            return Err(SupervisorError::InvalidBudget(
-                format!("swarm count must be 1–8, got {count}"),
-            ));
+        if !(1..=8).contains(&count) {
+            return Err(SupervisorError::InvalidBudget(format!(
+                "swarm count must be 1–8, got {count}"
+            )));
         }
         let group_id = uuid::Uuid::new_v4().to_string();
         let mut agent_ids = Vec::with_capacity(count as usize);
         let mut branches = Vec::with_capacity(count as usize);
         for index in 0..count {
             let slug = slugify_task(&objective);
-            let branch = format!("agent/{}-{}", index, slug);
+            let branch = format!("agent/{index}-{slug}");
             let agent_id = self.spawn_agent_with_config(&branch, &objective, &model, None)?;
             agent_ids.push(agent_id);
             branches.push(branch);
@@ -320,12 +324,32 @@ mod tests {
     fn make_temp_git_repo() -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::TempDir::new().expect("tempdir");
         let path = dir.path().to_path_buf();
-        std::process::Command::new("git").args(["init"]).current_dir(&path).output().expect("git init");
-        std::process::Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(&path).output().expect("config email");
-        std::process::Command::new("git").args(["config", "user.name", "Test"]).current_dir(&path).output().expect("config name");
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&path)
+            .output()
+            .expect("git init");
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(&path)
+            .output()
+            .expect("config email");
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&path)
+            .output()
+            .expect("config name");
         std::fs::write(path.join("README.md"), "test").expect("write");
-        std::process::Command::new("git").args(["add", "."]).current_dir(&path).output().expect("git add");
-        std::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(&path).output().expect("git commit");
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(&path)
+            .output()
+            .expect("git add");
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(&path)
+            .output()
+            .expect("git commit");
         (dir, path)
     }
 
@@ -341,7 +365,9 @@ mod tests {
         let (_dir, repo) = make_temp_git_repo();
         let supervisor = AgentSupervisor::new(&repo);
 
-        let id = supervisor.spawn_agent("feature-branch-1").expect("spawn ok");
+        let id = supervisor
+            .spawn_agent("feature-branch-1")
+            .expect("spawn ok");
         let list = supervisor.list();
 
         assert_eq!(list.len(), 1);
@@ -440,14 +466,18 @@ mod tests {
         let (_dir, repo) = make_temp_git_repo();
         let supervisor = AgentSupervisor::new(&repo);
 
-        let result = supervisor
-            .spawn_agent_with_config("feat-neg", "task", "claude-haiku", Some(-1.0));
+        let result =
+            supervisor.spawn_agent_with_config("feat-neg", "task", "claude-haiku", Some(-1.0));
 
         assert!(
             matches!(result, Err(SupervisorError::InvalidBudget(_))),
-            "expected InvalidBudget, got: {:?}", result
+            "expected InvalidBudget, got: {:?}",
+            result
         );
-        assert!(supervisor.list().is_empty(), "no handle should be registered on error");
+        assert!(
+            supervisor.list().is_empty(),
+            "no handle should be registered on error"
+        );
     }
 
     #[tokio::test]
@@ -455,8 +485,8 @@ mod tests {
         let (_dir, repo) = make_temp_git_repo();
         let supervisor = AgentSupervisor::new(&repo);
 
-        let result = supervisor
-            .spawn_agent_with_config("feat-nan", "task", "claude-haiku", Some(f64::NAN));
+        let result =
+            supervisor.spawn_agent_with_config("feat-nan", "task", "claude-haiku", Some(f64::NAN));
 
         assert!(matches!(result, Err(SupervisorError::InvalidBudget(_))));
         assert!(supervisor.list().is_empty());
@@ -467,8 +497,12 @@ mod tests {
         let (_dir, repo) = make_temp_git_repo();
         let supervisor = AgentSupervisor::new(&repo);
 
-        let result = supervisor
-            .spawn_agent_with_config("feat-inf", "task", "claude-haiku", Some(f64::INFINITY));
+        let result = supervisor.spawn_agent_with_config(
+            "feat-inf",
+            "task",
+            "claude-haiku",
+            Some(f64::INFINITY),
+        );
 
         assert!(matches!(result, Err(SupervisorError::InvalidBudget(_))));
         assert!(supervisor.list().is_empty());
@@ -484,7 +518,10 @@ mod tests {
             .expect("spawn with None budget should succeed");
 
         let handle = supervisor.get_handle(&id).expect("handle exists");
-        assert!(handle.budget_dollars.is_none(), "budget should be None (unlimited)");
+        assert!(
+            handle.budget_dollars.is_none(),
+            "budget should be None (unlimited)"
+        );
     }
 
     /// ORC-02: Verify the event bus works end-to-end.
@@ -500,8 +537,12 @@ mod tests {
         let (_dir, repo) = make_temp_git_repo();
         let supervisor = AgentSupervisor::new(&repo);
 
-        let id = supervisor.spawn_agent("orc02-event-bus-branch").expect("spawn");
-        let handle = supervisor.get_handle(&id).expect("handle exists after spawn");
+        let id = supervisor
+            .spawn_agent("orc02-event-bus-branch")
+            .expect("spawn");
+        let handle = supervisor
+            .get_handle(&id)
+            .expect("handle exists after spawn");
 
         // Subscribe BEFORE sending so we don't miss the event
         let mut subscriber = handle.subscribe();
@@ -521,13 +562,10 @@ mod tests {
             .expect("event_tx send must succeed — channel is open because AgentHandle holds it");
 
         // Event must arrive at the broadcast subscriber via the re-broadcast loop
-        let received = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            subscriber.recv(),
-        )
-        .await
-        .expect("event arrived within 1s — no timeout")
-        .expect("no broadcast channel error");
+        let received = tokio::time::timeout(std::time::Duration::from_secs(1), subscriber.recv())
+            .await
+            .expect("event arrived within 1s — no timeout")
+            .expect("no broadcast channel error");
 
         assert!(
             matches!(received, AgentEvent::TurnCompleted { .. }),

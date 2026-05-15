@@ -1,15 +1,15 @@
-//! Core types for the agent supervisor: AgentId, AgentState, AgentEvent, AgentControl.
+//! Core types for the agent supervisor: `AgentId`, `AgentState`, `AgentEvent`, `AgentControl`.
 
 use crate::usage::TokenUsage;
 use serde::{Deserialize, Serialize};
 
 /// Stable identifier for a supervised agent.
-/// Newtype over String — use AgentId::new() to generate a unique id.
+/// Newtype over String — use `AgentId::new()` to generate a unique id.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
 pub struct AgentId(pub String);
 
 impl AgentId {
-    /// Generate a new unique AgentId using a counter-based id.
+    /// Generate a new unique `AgentId` using a counter-based id.
     pub fn new() -> Self {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -32,7 +32,7 @@ impl std::fmt::Display for AgentId {
 
 /// Typed state machine for a supervised agent.
 ///
-/// Valid transitions (can_transition_to returns true):
+/// Valid transitions (`can_transition_to` returns true):
 /// - Idle → Planning, Executing
 /// - Planning → Executing, Failed
 /// - Executing → Waiting, Done, Failed
@@ -53,12 +53,16 @@ pub enum AgentState {
 impl AgentState {
     /// Returns true if transitioning from self to `next` is a valid state machine step.
     /// Terminal states (Done, Failed) always return false.
+    #[must_use] 
     pub fn can_transition_to(&self, next: &AgentState) -> bool {
         match (self, next) {
             (AgentState::Done | AgentState::Failed, _) => false,
             (AgentState::Idle, AgentState::Planning | AgentState::Executing) => true,
             (AgentState::Planning, AgentState::Executing | AgentState::Failed) => true,
-            (AgentState::Executing, AgentState::Waiting | AgentState::Done | AgentState::Failed) => true,
+            (
+                AgentState::Executing,
+                AgentState::Waiting | AgentState::Done | AgentState::Failed,
+            ) => true,
             (AgentState::Waiting, AgentState::Executing | AgentState::Failed) => true,
             _ => false,
         }
