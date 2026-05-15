@@ -29,6 +29,17 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # macos-latest sometimes ships a pre-existing Homebrew rustup whose
+      # `cargo` shim fails with "unexpected argument 'fmt'" when a second
+      # toolchain is installed. Force the dtolnay-installed toolchain as the
+      # default so PATH resolves correctly across all runners.
+      - name: Pin default toolchain
+        shell: bash
+        run: |
+          rustup default 1.95.0
+          rustc --version
+          cargo --version
+
       - name: Restore cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -63,6 +74,9 @@ jobs:
         uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt, clippy, llvm-tools-preview
+
+      - name: Pin default toolchain
+        run: rustup default 1.95.0
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2
