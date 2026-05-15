@@ -5,79 +5,156 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	smokeTest: () => __TAURI_INVOKE<string>("smoke_test"),
-	/** spawn_agent: spawn a new agent with task, model, and optional budget. */
-	spawnAgent: (task: string, model: string, budgetDollars: number | null) =>
-		typedError<string, string>(__TAURI_INVOKE("spawn_agent", { task, model, budgetDollars })),
+	/**  spawn_agent: creates an agent with task/model/optional budget. */
+	spawnAgent: (task: string, model: string, budgetDollars: number | null) => typedError<string, string>(__TAURI_INVOKE("spawn_agent", { task, model, budgetDollars })),
 	listAgents: () => __TAURI_INVOKE<string[]>("list_agents"),
 	stopAgent: (agentId: string) => typedError<null, string>(__TAURI_INVOKE("stop_agent", { agentId })),
-	/** respond_to_permission: resolves a pending permission prompt. */
 	respondToPermission: (promptId: string, decision: PermissionDecision) => typedError<null, string>(__TAURI_INVOKE("respond_to_permission", { promptId, decision })),
 	testPermissionPrompt: () => typedError<string, string>(__TAURI_INVOKE("test_permission_prompt")),
-	/** run_agent_turn: send full message history + model to run a conversation turn with the AI. */
-	runAgentTurn: (agentId: string, messages: ChatMessage[], model: string) =>
-		typedError<null, string>(__TAURI_INVOKE("run_agent_turn", { agentId, messages, model })),
-	/** list_models: returns configured model names for the model selector. */
+	/**
+	 *  run_agent_turn: send message history to the AI and stream back the response.
+	 *  Messages is the full conversation including the new user message.
+	 *  Model is passed explicitly to enable per-turn model switching.
+	 */
+	runAgentTurn: (agentId: string, messages: ChatMessage[], model: string) => typedError<null, string>(__TAURI_INVOKE("run_agent_turn", { agentId, messages, model })),
 	listModels: () => __TAURI_INVOKE<string[]>("list_models"),
-	/** list_sessions: returns saved session metadata sorted newest first. */
 	listSessions: () => __TAURI_INVOKE<SessionMeta[]>("list_sessions"),
 	loadSession: (id: string) => typedError<string, string>(__TAURI_INVOKE("load_session", { id })),
 	deleteSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_session", { id })),
 	saveSession: (id: string, json: string) => typedError<null, string>(__TAURI_INVOKE("save_session", { id, json })),
-	/** launch_team: spawn a role-based team (Planner/Coder/Reviewer/Tester). */
-	launchTeam: (roles: RoleConfig[]) =>
-		typedError<GroupLaunchResult, string>(__TAURI_INVOKE("launch_team", { roles })),
-	launchSwarm: (count: number, objective: string, model: string) =>
-		typedError<GroupLaunchResult, string>(__TAURI_INVOKE("launch_swarm", { count, objective, model })),
-	getWorktreeDiff: (agentId: string) =>
-		typedError<FileDiff[], string>(__TAURI_INVOKE("get_worktree_diff", { agentId })),
-	mergeWorktrees: (groupId: string, agentIds: string[]) =>
-		typedError<null, string>(__TAURI_INVOKE("merge_worktrees", { groupId, agentIds })),
-	/** start_eval: run selected models on the same prompt; returns eval_id. Streams "eval-event:{eval_id}". */
-	startEval: (prompt: string, models: string[]) =>
-		typedError<string, string>(__TAURI_INVOKE("start_eval", { prompt, models })),
+	launchTeam: (roles: RoleConfig[]) => typedError<GroupLaunchResult, string>(__TAURI_INVOKE("launch_team", { roles })),
+	launchSwarm: (count: number, objective: string, model: string) => typedError<GroupLaunchResult, string>(__TAURI_INVOKE("launch_swarm", { count, objective, model })),
+	getWorktreeDiff: (agentId: string) => typedError<FileDiff[], string>(__TAURI_INVOKE("get_worktree_diff", { agentId })),
+	mergeWorktrees: (groupId: string, agentIds: string[]) => typedError<null, string>(__TAURI_INVOKE("merge_worktrees", { groupId, agentIds })),
+	/**
+	 *  start_eval: runs selected models on the same prompt sequentially.
+	 *  Emits "eval-event:{eval_id}" events as each model responds.
+	 *  Saves result to ~/.xolotl-code/evals/{eval_id}.json when all complete.
+	 */
+	startEval: (prompt: string, models: string[]) => typedError<string, string>(__TAURI_INVOKE("start_eval", { prompt, models })),
 	listEvals: () => __TAURI_INVOKE<EvalMeta[]>("list_evals"),
 	loadEval: (id: string) => typedError<string, string>(__TAURI_INVOKE("load_eval", { id })),
 	deleteEval: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_eval", { id })),
-	/** save_human_scores: update human scores for an eval. scoresJson is JSON map of model → HumanScores. */
-	saveHumanScores: (id: string, scoresJson: string) =>
-		typedError<null, string>(__TAURI_INVOKE("save_human_scores", { id, scoresJson })),
-	/** get_api_key_status: returns map of provider -> bool (true if key is configured). */
-	getApiKeyStatus: () => __TAURI_INVOKE<Record<string, boolean>>("get_api_key_status"),
-	/** set_api_key: save an API key for a provider. Pass empty string to clear. */
-	setApiKey: (provider: string, key: string) =>
-		typedError<null, string>(__TAURI_INVOKE("set_api_key", { provider, key })),
-	/** test_api_connection: make a minimal API call to verify the key works. */
-	testApiConnection: (provider: string) =>
-		typedError<string, string>(__TAURI_INVOKE("test_api_connection", { provider })),
+	/**
+	 *  save_human_scores: updates the human_scores map in a stored eval.
+	 *  scores_json is a JSON object mapping model name → HumanScores.
+	 */
+	saveHumanScores: (id: string, scoresJson: string) => typedError<null, string>(__TAURI_INVOKE("save_human_scores", { id, scoresJson })),
+	/**  Returns which providers have an API key configured (env var or config file). */
+	getApiKeyStatus: () => __TAURI_INVOKE<{ [key in string]: boolean }>("get_api_key_status"),
+	/**
+	 *  Save an API key for a provider. Pass an empty string to clear the key.
+	 *  Preserves all other fields in config.json (CLI-written settings).
+	 */
+	setApiKey: (provider: string, key: string) => typedError<null, string>(__TAURI_INVOKE("set_api_key", { provider, key })),
+	/**
+	 *  Test connectivity to an AI provider using its configured API key.
+	 *  Returns "Connected to <provider>" on success.
+	 */
+	testApiConnection: (provider: string) => typedError<string, string>(__TAURI_INVOKE("test_api_connection", { provider })),
 };
 
 /* Types */
 /**
  *  Events emitted by a supervised agent.
+ * 
+ *  This enum is the single event schema for both in-process channels (D-01)
+ *  and NDJSON stdout serialization from child-process workers (D-04).
+ *  All variants must remain serde-compatible — do NOT add non-serializable fields.
  */
-export type AgentEvent = ({ StateChanged: AgentState }) & { Error?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never; TextDelta?: never } | ({ ToolCallStarted: {
+export type AgentEvent = ({ StateChanged: AgentState }) & { Error?: never; TextDelta?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never } | ({ ToolCallStarted: {
 	tool: string,
 	input: string,
-} }) & { Error?: never; StateChanged?: never; ToolCallCompleted?: never; TurnCompleted?: never; TextDelta?: never } | ({ ToolCallCompleted: {
+} }) & { Error?: never; StateChanged?: never; TextDelta?: never; ToolCallCompleted?: never; TurnCompleted?: never } | ({ ToolCallCompleted: {
 	tool: string,
 	output: string,
-} }) & { Error?: never; StateChanged?: never; ToolCallStarted?: never; TurnCompleted?: never; TextDelta?: never } | ({ TurnCompleted: {
+} }) & { Error?: never; StateChanged?: never; TextDelta?: never; ToolCallStarted?: never; TurnCompleted?: never } | ({ TurnCompleted: {
 	usage: TokenUsage,
-} }) & { Error?: never; StateChanged?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TextDelta?: never } | ({ Error: {
+} }) & { Error?: never; StateChanged?: never; TextDelta?: never; ToolCallCompleted?: never; ToolCallStarted?: never } | ({ Error: {
 	message: string,
-} }) & { StateChanged?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never; TextDelta?: never } | ({ TextDelta: string }) & { Error?: never; StateChanged?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never };
+} }) & { StateChanged?: never; TextDelta?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never } | ({ TextDelta: string }) & { Error?: never; StateChanged?: never; ToolCallCompleted?: never; ToolCallStarted?: never; TurnCompleted?: never };
 
+/**
+ *  Stable identifier for a supervised agent.
+ *  Newtype over String — use `AgentId::new()` to generate a unique id.
+ */
 export type AgentId = string;
 
-export type AgentState = "Idle" | "Planning" | "Executing" | "Waiting" | "Done" | "Failed";
+/**
+ *  Typed state machine for a supervised agent.
+ * 
+ *  Valid transitions (`can_transition_to` returns true):
+ *  - Idle → Planning, Executing
+ *  - Planning → Executing, Failed
+ *  - Executing → Waiting, Done, Failed
+ *  - Waiting → Executing, Failed
+ *  - Done → (terminal — no transitions)
+ *  - Failed → (terminal — no transitions)
+ */
+export type AgentState = "Idle" | "Planning" | "Executing" | 
+/**  Blocked on a permission prompt or context pull. */
+"Waiting" | "Done" | "Failed";
 
-export type PermissionDecision = "Allow" | "Deny" | "AlwaysAllow";
+export type ChatMessage = {
+	role: string,
+	content: string,
+};
 
-export type TokenUsage = {
+export type EvalMeta = {
+	id: string,
+	prompt: string,
+	models: string[],
+	created_at: number,
+};
+
+export type EvalResult = {
+	id: string,
+	prompt: string,
+	models: string[],
+	results: ModelEvalResult[],
+	human_scores: { [key in string]: HumanScores },
+	created_at: number,
+};
+
+export type FileDiff = {
+	path: string,
+	old_content: string,
+	new_content: string,
+};
+
+export type GroupLaunchResult = {
+	group_id: string,
+	agent_ids: string[],
+	branches: string[],
+};
+
+export type HumanScores = {
+	accuracy: number | null,
+	helpfulness: number | null,
+	quality: number | null,
+	creativity: number | null,
+	design: number | null,
+};
+
+export type ModelEvalResult = {
+	model: string,
+	content: string,
 	input_tokens: number,
 	output_tokens: number,
-	cache_creation_input_tokens: number,
-	cache_read_input_tokens: number,
+	duration_ms: number,
+	error: string | null,
+};
+
+/**
+ *  Frontend-facing decision type with three options (D-12).
+ *  Distinct from PermissionPromptDecision in runtime — that type drives the Rust outcome.
+ */
+export type PermissionDecision = "Allow" | "Deny" | "AlwaysAllow";
+
+export type RoleConfig = {
+	role: string,
+	task: string,
+	model: string,
 };
 
 export type SessionMeta = {
@@ -86,65 +163,11 @@ export type SessionMeta = {
 	created_at: number,
 };
 
-export type RoleConfig = {
-	role: string;
-	task: string;
-	model: string;
-};
-
-export type GroupLaunchResult = {
-	group_id: string;
-	agent_ids: string[];
-	branches: string[];
-};
-
-export type FileDiff = {
-	path: string;
-	old_content: string;
-	new_content: string;
-};
-
-/** A message in the conversation (user or assistant). */
-export type ChatMessage = {
-	role: string;
-	content: string;
-};
-
-/** Metadata for a single eval run (used in the list view). */
-export type EvalMeta = {
-	id: string;
-	prompt: string;
-	models: string[];
-	created_at: number;
-};
-
-/** Per-model result within an eval run. */
-export type ModelEvalResult = {
-	model: string;
-	content: string;
-	input_tokens: number;
-	output_tokens: number;
-	duration_ms: number;
-	error: string | null;
-};
-
-/** Human scores for a single model response (all 1-10 scales). */
-export type HumanScores = {
-	accuracy: number;
-	helpfulness: number;
-	quality: number;
-	creativity: number;
-	design: number;
-};
-
-/** Full eval result including all model responses and human scores. */
-export type EvalResult = {
-	id: string;
-	prompt: string;
-	models: string[];
-	results: ModelEvalResult[];
-	human_scores: Record<string, HumanScores>;
-	created_at: number;
+export type TokenUsage = {
+	input_tokens: number,
+	output_tokens: number,
+	cache_creation_input_tokens: number,
+	cache_read_input_tokens: number,
 };
 
 /* Tauri Specta runtime */
@@ -152,6 +175,8 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
     try {
         return { status: "ok", data: await result };
     } catch (e) {
-        return { status: "error", error: e as E };
+        if (e instanceof Error) throw e;
+        return { status: "error", error: e as any };
     }
 }
+

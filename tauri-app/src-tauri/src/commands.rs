@@ -656,13 +656,25 @@ pub async fn merge_worktrees(
 }
 
 // ── Settings / API key management ─────────────────────────────────────────────
+//
+// Config file at ~/.xolotl-code/config.json is shared with the xolotl CLI,
+// which uses UPPERCASE env-var-style keys (e.g. ANTHROPIC_API_KEY). We treat
+// the file as a free-form JSON object so we don't drop unknown fields written
+// by the CLI (KIMI_CODING_BASE_URL, AWS_*, etc.) when we save.
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
-struct AppConfig {
-    anthropic_api_key: Option<String>,
-    kimi_api_key: Option<String>,
-    kimi_coding_api_key: Option<String>,
-    minimax_api_key: Option<String>,
+type ConfigMap = serde_json::Map<String, serde_json::Value>;
+
+/// Maps the provider id used by the frontend to the env-var-style key in
+/// config.json. Keep these names aligned with what call_model_streaming /
+/// call_anthropic_streaming read.
+fn provider_env_var(provider: &str) -> Option<&'static str> {
+    match provider {
+        "anthropic" => Some("ANTHROPIC_API_KEY"),
+        "kimi" => Some("KIMI_API_KEY"),
+        "kimi_coding" => Some("KIMI_CODING_API_KEY"),
+        "minimax" => Some("MINIMAX_API_KEY"),
+        _ => None,
+    }
 }
 
 fn home_config_path() -> PathBuf {
@@ -672,15 +684,15 @@ fn home_config_path() -> PathBuf {
     PathBuf::from(home).join(".xolotl-code").join("config.json")
 }
 
-fn load_config() -> AppConfig {
+fn load_config() -> ConfigMap {
     let path = home_config_path();
     std::fs::read_to_string(&path)
         .ok()
-        .and_then(|data| serde_json::from_str(&data).ok())
+        .and_then(|data| serde_json::from_str::<ConfigMap>(&data).ok())
         .unwrap_or_default()
 }
 
-fn save_config(config: &AppConfig) -> Result<(), String> {
+fn save_config(config: &ConfigMap) -> Result<(), String> {
     let path = home_config_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -689,11 +701,20 @@ fn save_config(config: &AppConfig) -> Result<(), String> {
     std::fs::write(&path, data).map_err(|e| e.to_string())
 }
 
-fn resolve_api_key(env_var: &str, config_key: Option<&String>) -> Option<String> {
+fn config_get(config: &ConfigMap, key: &str) -> Option<String> {
+    config
+        .get(key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+}
+
+/// Resolve a key: env var first, then config file.
+fn resolve_api_key(env_var: &str, config: &ConfigMap) -> Option<String> {
     std::env::var(env_var)
         .ok()
         .filter(|k| !k.is_empty())
-        .or_else(|| config_key.filter(|k| !k.is_empty()).cloned())
+        .or_else(|| config_get(config, env_var))
 }
 
 /// Returns which providers have an API key configured (env var or config file).
@@ -702,25 +723,25 @@ fn resolve_api_key(env_var: &str, config_key: Option<&String>) -> Option<String>
 pub fn get_api_key_status() -> HashMap<String, bool> {
     let config = load_config();
     let mut status = HashMap::new();
-    status.insert("anthropic".to_string(), resolve_api_key("ANTHROPIC_API_KEY", config.anthropic_api_key.as_ref()).is_some());
-    status.insert("kimi".to_string(), resolve_api_key("KIMI_API_KEY", config.kimi_api_key.as_ref()).is_some());
-    status.insert("kimi_coding".to_string(), resolve_api_key("KIMI_CODING_API_KEY", config.kimi_coding_api_key.as_ref()).is_some());
-    status.insert("minimax".to_string(), resolve_api_key("MINIMAX_API_KEY", config.minimax_api_key.as_ref()).is_some());
+    for provider in ["anthropic", "kimi", "kimi_coding", "minimax"] {
+        let env_var = provider_env_var(provider).unwrap();
+        status.insert(provider.to_string(), resolve_api_key(env_var, &config).is_some());
+    }
     status
 }
 
 /// Save an API key for a provider. Pass an empty string to clear the key.
+/// Preserves all other fields in config.json (CLI-written settings).
 #[tauri::command]
 #[specta::specta]
 pub fn set_api_key(provider: String, key: String) -> Result<(), String> {
+    let env_var = provider_env_var(&provider)
+        .ok_or_else(|| format!("Unknown provider: {provider}"))?;
     let mut config = load_config();
-    let value = if key.is_empty() { None } else { Some(key) };
-    match provider.as_str() {
-        "anthropic" => config.anthropic_api_key = value,
-        "kimi" => config.kimi_api_key = value,
-        "kimi_coding" => config.kimi_coding_api_key = value,
-        "minimax" => config.minimax_api_key = value,
-        _ => return Err(format!("Unknown provider: {provider}")),
+    if key.is_empty() {
+        config.remove(env_var);
+    } else {
+        config.insert(env_var.to_string(), serde_json::Value::String(key));
     }
     save_config(&config)
 }
@@ -735,7 +756,7 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
 
     match provider.as_str() {
         "anthropic" => {
-            let key = resolve_api_key("ANTHROPIC_API_KEY", config.anthropic_api_key.as_ref())
+            let key = resolve_api_key("ANTHROPIC_API_KEY", &config)
                 .ok_or_else(|| "Anthropic API key not set".to_string())?;
             let resp = client
                 .post("https://api.anthropic.com/v1/messages")
@@ -758,7 +779,7 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
             }
         }
         "kimi" => {
-            let key = resolve_api_key("KIMI_API_KEY", config.kimi_api_key.as_ref())
+            let key = resolve_api_key("KIMI_API_KEY", &config)
                 .ok_or_else(|| "Kimi API key not set".to_string())?;
             let resp = client
                 .post("https://api.moonshot.cn/v1/chat/completions")
@@ -780,15 +801,16 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
             }
         }
         "kimi_coding" => {
-            let key = resolve_api_key("KIMI_CODING_API_KEY", config.kimi_coding_api_key.as_ref())
-                .or_else(|| resolve_api_key("KIMI_API_KEY", config.kimi_api_key.as_ref()))
+            let key = resolve_api_key("KIMI_CODING_API_KEY", &config)
+                .or_else(|| resolve_api_key("KIMI_API_KEY", &config))
                 .ok_or_else(|| "Kimi Coding API key not set".to_string())?;
             let resp = client
                 .post("https://api.kimi.com/coding/v1/chat/completions")
                 .header("Authorization", format!("Bearer {key}"))
                 .header("content-type", "application/json")
+                .header("User-Agent", "claude-code/1.0")
                 .json(&serde_json::json!({
-                    "model": "kimi-coding",
+                    "model": "kimi-k2-turbo-preview",
                     "max_tokens": 1,
                     "messages": [{"role": "user", "content": "hi"}]
                 }))
@@ -803,7 +825,7 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
             }
         }
         "minimax" => {
-            let key = resolve_api_key("MINIMAX_API_KEY", config.minimax_api_key.as_ref())
+            let key = resolve_api_key("MINIMAX_API_KEY", &config)
                 .ok_or_else(|| "MiniMax API key not set".to_string())?;
             let resp = client
                 .post("https://api.minimax.chat/v1/text/chatcompletion_v2")
@@ -857,20 +879,20 @@ async fn call_model_streaming(
         call_anthropic_streaming(model, messages, event_tx).await
     } else if model.starts_with("kimi-coding") {
         let config = load_config();
-        let api_key = resolve_api_key("KIMI_CODING_API_KEY", config.kimi_coding_api_key.as_ref())
-            .or_else(|| resolve_api_key("KIMI_API_KEY", config.kimi_api_key.as_ref()))
+        let api_key = resolve_api_key("KIMI_CODING_API_KEY", &config)
+            .or_else(|| resolve_api_key("KIMI_API_KEY", &config))
             .ok_or_else(|| "KIMI_CODING_API_KEY not set. Configure it in Settings.".to_string())?;
         call_openai_compat_streaming(
             "https://api.kimi.com/coding/v1",
             &api_key,
-            "kimi-coding",
+            "kimi-k2-turbo-preview",
             messages,
             event_tx,
         )
         .await
     } else if model.starts_with("kimi") {
         let config = load_config();
-        let api_key = resolve_api_key("KIMI_API_KEY", config.kimi_api_key.as_ref())
+        let api_key = resolve_api_key("KIMI_API_KEY", &config)
             .ok_or_else(|| "KIMI_API_KEY not set. Configure it in Settings.".to_string())?;
         call_openai_compat_streaming(
             "https://api.moonshot.cn/v1",
@@ -882,7 +904,7 @@ async fn call_model_streaming(
         .await
     } else if model.starts_with("minimax") {
         let config = load_config();
-        let api_key = resolve_api_key("MINIMAX_API_KEY", config.minimax_api_key.as_ref())
+        let api_key = resolve_api_key("MINIMAX_API_KEY", &config)
             .ok_or_else(|| "MINIMAX_API_KEY not set. Configure it in Settings.".to_string())?;
         call_openai_compat_streaming(
             "https://api.minimax.chat/v1",
@@ -904,7 +926,7 @@ async fn call_anthropic_streaming(
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
 ) -> Result<TokenUsage, String> {
     let config = load_config();
-    let api_key = resolve_api_key("ANTHROPIC_API_KEY", config.anthropic_api_key.as_ref())
+    let api_key = resolve_api_key("ANTHROPIC_API_KEY", &config)
         .ok_or_else(|| "ANTHROPIC_API_KEY not set. Configure it in Settings.".to_string())?;
 
     let client = reqwest::Client::new();
@@ -1019,10 +1041,13 @@ async fn call_openai_compat_streaming(
     });
 
     let url = format!("{base_url}/chat/completions");
+    // Kimi For Coding API requires a recognized coding-agent User-Agent.
+    // Using claude-code/1.0 since this is also a coding agent harness.
     let response = client
         .post(&url)
         .header("Authorization", format!("Bearer {api_key}"))
         .header("content-type", "application/json")
+        .header("User-Agent", "claude-code/1.0")
         .json(&body)
         .send()
         .await
@@ -1055,16 +1080,31 @@ async fn call_openai_compat_streaming(
                         continue;
                     }
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-                        // Text delta
-                        if let Some(content) = v["choices"][0]["delta"]["content"].as_str() {
+                        let delta = &v["choices"][0]["delta"];
+                        // reasoning_content: chain-of-thought from reasoning models
+                        // (Kimi For Coding, DeepSeek-R1, etc.). Surface it so the
+                        // user sees activity instead of a 10-second silent wait.
+                        if let Some(reasoning) = delta["reasoning_content"].as_str() {
+                            if !reasoning.is_empty() {
+                                let _ = event_tx
+                                    .send(AgentEvent::TextDelta(reasoning.to_string()))
+                                    .await;
+                            }
+                        }
+                        // Final answer content
+                        if let Some(content) = delta["content"].as_str() {
                             if !content.is_empty() {
-                                let _ = event_tx.send(AgentEvent::TextDelta(content.to_string())).await;
+                                let _ = event_tx
+                                    .send(AgentEvent::TextDelta(content.to_string()))
+                                    .await;
                             }
                         }
                         // Usage (some providers include it in last chunk)
                         if let Some(usage) = v.get("usage") {
-                            input_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
-                            output_tokens = usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
+                            input_tokens =
+                                usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
+                            output_tokens =
+                                usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
                         }
                     }
                 }

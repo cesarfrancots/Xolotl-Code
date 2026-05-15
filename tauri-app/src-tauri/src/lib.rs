@@ -19,6 +19,10 @@ mod permission_prompter;
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
+        // u64 timestamps (created_at, duration_ms) exceed TS number precision in
+        // theory; in practice these are unix-ms / millisecond durations that fit
+        // comfortably under Number.MAX_SAFE_INTEGER for centuries.
+        .dangerously_cast_bigints_to_number()
         .commands(collect_commands![
             smoke_test,
             spawn_agent,
