@@ -7,7 +7,10 @@ use crate::commands::{
     delete_session, list_agents, list_models, list_sessions, load_session, respond_to_permission,
     save_session, smoke_test, spawn_agent, stop_agent, test_permission_prompt, run_agent_turn,
     launch_team, launch_swarm, get_worktree_diff, merge_worktrees,
+    start_eval, list_evals, load_eval, delete_eval, save_human_scores,
+    get_api_key_status, set_api_key, test_api_connection,
     SessionMeta, RoleConfig, GroupLaunchResult, FileDiff,
+    ChatMessage, EvalMeta, EvalResult, ModelEvalResult, HumanScores,
 };
 use crate::permission_prompter::{PermissionDecision, PendingPrompts};
 
@@ -33,6 +36,14 @@ fn make_builder() -> Builder<tauri::Wry> {
             launch_swarm,
             get_worktree_diff,
             merge_worktrees,
+            start_eval,
+            list_evals,
+            load_eval,
+            delete_eval,
+            save_human_scores,
+            get_api_key_status,
+            set_api_key,
+            test_api_connection,
         ])
         .typ::<AgentId>()
         .typ::<AgentState>()
@@ -42,11 +53,13 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<RoleConfig>()
         .typ::<GroupLaunchResult>()
         .typ::<FileDiff>()
-    // AgentControl excluded per D-14 — lifecycle commands abstract over it.
+        .typ::<ChatMessage>()
+        .typ::<EvalMeta>()
+        .typ::<EvalResult>()
+        .typ::<ModelEvalResult>()
+        .typ::<HumanScores>()
 }
 
-/// Export TypeScript bindings to tauri-app/src/bindings.ts.
-/// Called from run() in debug builds and from tests to generate the file.
 pub fn export_bindings(path: &str) {
     make_builder()
         .export(Typescript::default(), path)
@@ -60,8 +73,7 @@ pub fn run() {
     #[cfg(debug_assertions)]
     export_bindings("../src/bindings.ts");
 
-    // repo_root for AgentSupervisor: detect git root so WorktreeManager::add()
-    // can run `git worktree add` successfully. Falls back to cwd if git is unavailable.
+    let cwd = std::env::current_dir().expect("cwd must be accessible");
     let repo_root = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .output()
@@ -69,7 +81,8 @@ pub fn run() {
         .filter(|o| o.status.success())
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| std::path::PathBuf::from(s.trim()))
-        .unwrap_or_else(|| std::env::current_dir().expect("cwd must be accessible"));
+        .filter(|root| cwd.starts_with(root))
+        .unwrap_or(cwd);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -94,8 +107,6 @@ mod tests {
 
     #[test]
     fn generate_bindings_ts() {
-        // Write bindings.ts relative to this file's location at compile time.
-        // CARGO_MANIFEST_DIR is the tauri-app/src-tauri directory.
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let out = format!("{manifest_dir}/../src/bindings.ts");
         export_bindings(&out);

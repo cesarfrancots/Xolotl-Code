@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Plus, Settings } from "lucide-react";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -7,6 +7,7 @@ import type { SessionSnapshot } from "../../stores/sessionStore";
 import { useChatStore } from "../../stores/chatStore";
 import { SessionItem } from "./SessionItem";
 import { commands } from "../../bindings";
+import { SettingsDialog } from "../settings/SettingsDialog";
 
 /**
  * Left column: session list + "New session" button.
@@ -14,6 +15,7 @@ import { commands } from "../../bindings";
  * Background: --color-surface (#222222) per 04-UI-SPEC.md.
  */
 export function SessionSidebar() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { sessions, activeSessionId, loadSessions, deleteSession, setActiveSessionId } =
     useSessionStore();
   const clearSession = useChatStore((s) => s.clearSession);
@@ -45,19 +47,32 @@ export function SessionSidebar() {
   }
 
   return (
+    <>
+    <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     <aside className="w-64 flex-none flex flex-col border-r border-neutral-800 bg-[oklch(0.16_0_0)]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 h-12 flex-none border-b border-neutral-800">
         <span className="text-xs font-normal text-[oklch(0.55_0_0)]">SESSIONS</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          title="New session"
-          onClick={handleNewSession}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title="Settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title="New session"
+            onClick={handleNewSession}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Session list */}
@@ -84,5 +99,6 @@ export function SessionSidebar() {
         )}
       </ScrollArea>
     </aside>
+    </>
   );
 }

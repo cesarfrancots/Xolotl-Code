@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
@@ -5,6 +6,56 @@ use tauri_plugin_notification::NotificationExt;
 use runtime::{AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor, TokenUsage, slugify_task};
 use tokio::sync::broadcast::error::RecvError;
 use crate::permission_prompter::{PendingPrompts, PermissionDecision, PermissionRequestPayload};
+use futures_util::StreamExt;
+
+// ── Chat message type used by run_agent_turn ──────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+// ── Eval types ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct EvalMeta {
+    pub id: String,
+    pub prompt: String,
+    pub models: Vec<String>,
+    pub created_at: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct ModelEvalResult {
+    pub model: String,
+    pub content: String,
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub duration_ms: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct HumanScores {
+    pub accuracy: f32,
+    pub helpfulness: f32,
+    pub quality: f32,
+    pub creativity: f32,
+    pub design: f32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct EvalResult {
+    pub id: String,
+    pub prompt: String,
+    pub models: Vec<String>,
+    pub results: Vec<ModelEvalResult>,
+    pub human_scores: HashMap<String, HumanScores>,
+    pub created_at: u64,
+}
+
+// ── Health check ──────────────────────────────────────────────────────────────
 
 #[tauri::command]
 #[specta::specta]
@@ -12,9 +63,9 @@ pub fn smoke_test() -> String {
     "smoke_test_ok".to_string()
 }
 
-/// spawn_agent: creates an agent with task/model/optional budget. Worktree branch is
-/// derived from the task via slugify_task. Starts event relay AND agent self-execution.
-/// Returns new AgentId.
+// ── Agent lifecycle ───────────────────────────────────────────────────────────
+
+/// spawn_agent: creates an agent with task/model/optional budget.
 #[tauri::command]
 #[specta::specta]
 pub fn spawn_agent(
@@ -24,21 +75,17 @@ pub fn spawn_agent(
     model: String,
     budget_dollars: Option<f64>,
 ) -> Result<String, String> {
-    // T-5-02: slugify the task before passing to git
     let branch = slugify_task(&task);
     let agent_id = supervisor
         .spawn_agent_with_config(&branch, &task, &model, budget_dollars)
         .map_err(|e| e.to_string())?;
     if let Some(handle) = supervisor.get_handle(&agent_id) {
         spawn_event_relay(app_handle, agent_id.clone(), handle.clone());
-        // Task 3 self-execution — agent runs its initial task in a CLI subprocess,
-        // streaming NDJSON AgentEvents back into handle.event_tx.
         spawn_agent_executor(agent_id.clone(), handle);
     }
     Ok(agent_id.0)
 }
 
-/// list_agents: returns all agent IDs currently in the supervisor registry.
 #[tauri::command]
 #[specta::specta]
 pub fn list_agents(
@@ -47,7 +94,6 @@ pub fn list_agents(
     supervisor.list().into_iter().map(|id| id.0).collect()
 }
 
-/// stop_agent: sends stop signal to the named agent (async because stop_agent() is async).
 #[tauri::command]
 #[specta::specta]
 pub async fn stop_agent(
@@ -58,8 +104,8 @@ pub async fn stop_agent(
     supervisor.stop_agent(&id).await.map_err(|e| e.to_string())
 }
 
-/// respond_to_permission: resolves a pending permission prompt (D-10 / D-11).
-/// Called from the frontend after the user makes a decision in the UI.
+// ── Permission handling ───────────────────────────────────────────────────────
+
 #[tauri::command]
 #[specta::specta]
 pub fn respond_to_permission(
@@ -68,7 +114,6 @@ pub fn respond_to_permission(
     decision: PermissionDecision,
 ) -> Result<(), String> {
     let mut prompts = pending_prompts.lock().map_err(|e| e.to_string())?;
-    // CR-02: use remove() not get() to prevent double-resolve race (2026-05-10)
     match prompts.remove(&prompt_id) {
         Some(tx) => tx.send(decision).map_err(|e| e.to_string()),
         None => Err(format!(
@@ -77,10 +122,6 @@ pub fn respond_to_permission(
     }
 }
 
-/// test_permission_prompt: emits a synthetic permission-request event for smoke testing.
-/// Allows verifying the full permission round-trip from DevTools without a running agent.
-/// The receiver is held alive in a background thread for 10 seconds so that
-/// respond_to_permission can complete the round-trip.
 #[tauri::command]
 #[specta::specta]
 pub fn test_permission_prompt(
@@ -106,9 +147,6 @@ pub fn test_permission_prompt(
         )
         .map_err(|e| e.to_string())?;
 
-    // Hold the receiver alive in a background thread for 10 seconds so that
-    // respond_to_permission can complete the round-trip. If no response arrives,
-    // clean up the pending entry automatically.
     let pending = pending_prompts.inner().clone();
     let id_clone = prompt_id.clone();
     std::thread::spawn(move || {
@@ -117,7 +155,6 @@ pub fn test_permission_prompt(
                 println!("[smoke-test] permission response received: {:?}", decision);
             }
             Err(_) => {
-                // Timed out — clean up so the HashMap does not grow unboundedly
                 let _ = pending.lock().map(|mut p| p.remove(&id_clone));
                 println!("[smoke-test] permission prompt timed out");
             }
@@ -127,75 +164,78 @@ pub fn test_permission_prompt(
     Ok(prompt_id)
 }
 
-/// run_agent_turn: send a user message to a running agent (per D-03, approved 2026-05-10).
-///
-/// Phase 4 stub behavior: does NOT call ConversationRuntime::run_turn().
-/// Emits a single TextDelta echoing the message, then TurnCompleted with zero usage.
-/// The echo streams as one chunk — correct stub behavior for Phase 4.
-/// Real ConversationRuntime wiring is a follow-on task.
+// ── AI conversation turn ──────────────────────────────────────────────────────
+
+/// run_agent_turn: send message history to the AI and stream back the response.
+/// Messages is the full conversation including the new user message.
+/// Model is passed explicitly to enable per-turn model switching.
 #[tauri::command]
 #[specta::specta]
 pub async fn run_agent_turn(
     supervisor: tauri::State<'_, Arc<AgentSupervisor>>,
     agent_id: String,
-    message: String,
+    messages: Vec<ChatMessage>,
+    model: String,
 ) -> Result<(), String> {
     let id = AgentId(agent_id);
     let handle = supervisor
         .get_handle(&id)
         .ok_or_else(|| format!("agent {id} not found"))?;
-    // Emit StateChanged(Executing) so frontend knows the turn started
-    handle
-        .event_tx
+
+    let event_tx = handle.event_tx.clone();
+
+    // Signal turn start
+    event_tx
         .send(AgentEvent::StateChanged(AgentState::Executing))
         .await
         .map_err(|e| e.to_string())?;
-    // Echo stub — approved Phase 4 behavior per D-03 (2026-05-10).
-    // The smoke tester (Plan 07, SC1) expects to see "Echo (stub):" in the chat.
-    // Replace with ConversationRuntime::run_turn() in a follow-on iteration.
-    handle
-        .event_tx
-        .send(AgentEvent::TextDelta(format!(
-            "Echo (stub): {message}\n\n_Real AI streaming requires ConversationRuntime wiring (follow-on)._"
-        )))
-        .await
-        .map_err(|e| e.to_string())?;
-    handle
-        .event_tx
-        .send(AgentEvent::TurnCompleted {
-            usage: TokenUsage {
-                input_tokens: 0,
-                output_tokens: 0,
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: 0,
-            },
-        })
-        .await
-        .map_err(|e| e.to_string())?;
+
+    // Run the actual AI call in a background task so this command returns quickly.
+    // We create a local mpsc channel as the streaming sink, then forward all events
+    // to handle.event_tx (which is an mpsc::Sender going to the broadcast re-emitter).
+    let handle_tx = handle.event_tx.clone();
+    tokio::spawn(async move {
+        // Use a separate mpsc channel for the stream so we can intercept and forward
+        let (stream_tx, mut stream_rx) = tokio::sync::mpsc::channel::<AgentEvent>(256);
+
+        let model2 = model.clone();
+        let msgs = messages.clone();
+        let stream_tx2 = stream_tx.clone();
+        tokio::spawn(async move {
+            match call_model_streaming(&model2, &msgs, &stream_tx2).await {
+                Ok(usage) => { let _ = stream_tx2.send(AgentEvent::TurnCompleted { usage }).await; }
+                Err(e) => { let _ = stream_tx2.send(AgentEvent::Error { message: e }).await; }
+            }
+        });
+        drop(stream_tx);
+
+        while let Some(event) = stream_rx.recv().await {
+            let _ = handle_tx.send(event).await;
+        }
+
+        let _ = handle_tx.send(AgentEvent::StateChanged(AgentState::Waiting)).await;
+    });
+
     Ok(())
 }
 
-/// list_models: returns configured model names.
-/// Powers the model selector dropdown (UI-08, D-05).
+// ── Model list ────────────────────────────────────────────────────────────────
+
 #[tauri::command]
 #[specta::specta]
 pub fn list_models() -> Vec<String> {
-    // Model aliases match the xolotl CLI exactly so they can be passed verbatim to --model.
-    // kimi-coding → KIMI_CODING_API_KEY + api.kimi.com/coding/v1
-    // kimi2.6     → KIMI_API_KEY + Moonshot API
-    // minimax2.7  → MINIMAX_API_KEY + MiniMax API
     vec![
+        "claude-sonnet-4-6".to_string(),
+        "claude-haiku-4-5-20251001".to_string(),
+        "claude-opus-4-7".to_string(),
         "kimi2.6".to_string(),
         "kimi-coding".to_string(),
         "minimax2.7".to_string(),
-        "claude-sonnet-4-5".to_string(),
-        "claude-haiku-3-5".to_string(),
-        "claude-opus-4-5".to_string(),
     ]
 }
 
-/// list_sessions: returns saved session metadata from ~/.xolotl-code/sessions/
-/// Each entry: { id, title, created_at (unix timestamp) }
+// ── Session persistence ───────────────────────────────────────────────────────
+
 #[tauri::command]
 #[specta::specta]
 pub fn list_sessions() -> Vec<SessionMeta> {
@@ -222,9 +262,6 @@ pub fn list_sessions() -> Vec<SessionMeta> {
     metas
 }
 
-/// load_session: read a session JSON file by UUID id.
-/// Returns raw JSON string — frontend parses display fields only.
-/// Validates id is alphanumeric + hyphens only (path traversal prevention).
 #[tauri::command]
 #[specta::specta]
 pub fn load_session(id: String) -> Result<String, String> {
@@ -235,8 +272,6 @@ pub fn load_session(id: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
-/// delete_session: remove a session JSON file by UUID id.
-/// Validates id is alphanumeric + hyphens only (path traversal prevention).
 #[tauri::command]
 #[specta::specta]
 pub fn delete_session(id: String) -> Result<(), String> {
@@ -247,7 +282,6 @@ pub fn delete_session(id: String) -> Result<(), String> {
     std::fs::remove_file(&path).map_err(|e| e.to_string())
 }
 
-/// save_session: write session JSON to ~/.xolotl-code/sessions/{id}.json
 #[tauri::command]
 #[specta::specta]
 pub fn save_session(id: String, json: String) -> Result<(), String> {
@@ -260,7 +294,6 @@ pub fn save_session(id: String, json: String) -> Result<(), String> {
     std::fs::write(&path, json).map_err(|e| e.to_string())
 }
 
-/// SessionMeta: lightweight session list item returned by list_sessions.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct SessionMeta {
     pub id: String,
@@ -268,9 +301,202 @@ pub struct SessionMeta {
     pub created_at: u64,
 }
 
-// ── Phase 6: Team/Swarm + Worktree Diff + Merge commands ────────────────────
+// ── Eval commands ─────────────────────────────────────────────────────────────
 
-/// RoleConfig: one role in a team launch (Planner/Coder/Reviewer/Tester).
+/// start_eval: runs selected models on the same prompt sequentially.
+/// Emits "eval-event:{eval_id}" events as each model responds.
+/// Saves result to ~/.xolotl-code/evals/{eval_id}.json when all complete.
+#[tauri::command]
+#[specta::specta]
+pub async fn start_eval(
+    app_handle: AppHandle,
+    prompt: String,
+    models: Vec<String>,
+) -> Result<String, String> {
+    let eval_id = uuid::Uuid::new_v4().to_string();
+    let evals_dir = home_evals_dir();
+    std::fs::create_dir_all(&evals_dir).map_err(|e| e.to_string())?;
+
+    let created_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let eval_id_clone = eval_id.clone();
+
+    tokio::spawn(async move {
+        let channel = format!("eval-event:{eval_id_clone}");
+        let mut all_results: Vec<ModelEvalResult> = Vec::new();
+
+        for model in &models {
+            let _ = app_handle.emit(
+                &channel,
+                serde_json::json!({ "type": "ModelStart", "model": model }),
+            );
+
+            let messages = vec![ChatMessage {
+                role: "user".to_string(),
+                content: prompt.clone(),
+            }];
+
+            let start = std::time::Instant::now();
+
+            // mpsc channel to collect streaming events from the model call
+            let (local_tx, mut local_rx) = tokio::sync::mpsc::channel::<AgentEvent>(256);
+
+            let model_name = model.clone();
+            let msgs = messages.clone();
+            let local_tx2 = local_tx.clone();
+            // Stream model response in a sibling task; sends terminal event when done
+            tokio::spawn(async move {
+                match call_model_streaming(&model_name, &msgs, &local_tx2).await {
+                    Ok(usage) => { let _ = local_tx2.send(AgentEvent::TurnCompleted { usage }).await; }
+                    Err(e) => { let _ = local_tx2.send(AgentEvent::Error { message: e }).await; }
+                }
+                // local_tx2 drops → channel closes after local_tx also drops
+            });
+            drop(local_tx); // drop our copy so channel closes when spawned task is done
+
+            // Drain events, collecting content and forwarding deltas to frontend
+            let mut content_buf = String::new();
+            let mut in_tokens: u32 = 0;
+            let mut out_tokens: u32 = 0;
+            let mut err_msg: Option<String> = None;
+
+            while let Some(event) = local_rx.recv().await {
+                match event {
+                    AgentEvent::TextDelta(text) => {
+                        content_buf.push_str(&text);
+                        let _ = app_handle.emit(
+                            &channel,
+                            serde_json::json!({ "type": "ModelDelta", "model": model, "text": &text }),
+                        );
+                    }
+                    AgentEvent::TurnCompleted { usage } => {
+                        in_tokens = usage.input_tokens;
+                        out_tokens = usage.output_tokens;
+                        break;
+                    }
+                    AgentEvent::Error { message: e } => {
+                        err_msg = Some(e);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            let duration_ms = start.elapsed().as_millis() as u64;
+            let model_result = ModelEvalResult {
+                model: model.clone(),
+                content: content_buf,
+                input_tokens: in_tokens,
+                output_tokens: out_tokens,
+                duration_ms,
+                error: err_msg,
+            };
+
+            let _ = app_handle.emit(
+                &channel,
+                serde_json::json!({
+                    "type": "ModelComplete",
+                    "model": model,
+                    "input_tokens": model_result.input_tokens,
+                    "output_tokens": model_result.output_tokens,
+                    "duration_ms": model_result.duration_ms,
+                    "error": model_result.error,
+                }),
+            );
+            all_results.push(model_result);
+        }
+
+        let eval_result = EvalResult {
+            id: eval_id_clone.clone(),
+            prompt: prompt.clone(),
+            models: models.clone(),
+            results: all_results,
+            human_scores: HashMap::new(),
+            created_at,
+        };
+
+        if let Ok(json) = serde_json::to_string_pretty(&eval_result) {
+            let path = home_evals_dir().join(format!("{eval_id_clone}.json"));
+            let _ = std::fs::write(path, json);
+        }
+
+        let _ = app_handle.emit(
+            &channel,
+            serde_json::json!({ "type": "EvalComplete", "eval_id": eval_id_clone }),
+        );
+    });
+
+    Ok(eval_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn list_evals() -> Vec<EvalMeta> {
+    let dir = home_evals_dir();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut metas: Vec<EvalMeta> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
+        .filter_map(|e| {
+            let json = std::fs::read_to_string(e.path()).ok()?;
+            let result: EvalResult = serde_json::from_str(&json).ok()?;
+            Some(EvalMeta {
+                id: result.id,
+                prompt: result.prompt,
+                models: result.models,
+                created_at: result.created_at,
+            })
+        })
+        .collect();
+    metas.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    metas
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn load_eval(id: String) -> Result<String, String> {
+    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err("invalid eval id".to_string());
+    }
+    let path = home_evals_dir().join(format!("{id}.json"));
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn delete_eval(id: String) -> Result<(), String> {
+    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err("invalid eval id".to_string());
+    }
+    let path = home_evals_dir().join(format!("{id}.json"));
+    std::fs::remove_file(&path).map_err(|e| e.to_string())
+}
+
+/// save_human_scores: updates the human_scores map in a stored eval.
+/// scores_json is a JSON object mapping model name → HumanScores.
+#[tauri::command]
+#[specta::specta]
+pub fn save_human_scores(id: String, scores_json: String) -> Result<(), String> {
+    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err("invalid eval id".to_string());
+    }
+    let path = home_evals_dir().join(format!("{id}.json"));
+    let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut result: EvalResult = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let scores: HashMap<String, HumanScores> =
+        serde_json::from_str(&scores_json).map_err(|e| e.to_string())?;
+    result.human_scores = scores;
+    let updated = serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?;
+    std::fs::write(&path, updated).map_err(|e| e.to_string())
+}
+
+// ── Phase 6: Team/Swarm + Worktree Diff + Merge ───────────────────────────────
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct RoleConfig {
     pub role: String,
@@ -278,8 +504,6 @@ pub struct RoleConfig {
     pub model: String,
 }
 
-/// GroupLaunchResult: returned by launch_team and launch_swarm.
-/// Contains the new group_id, all spawned agent_ids, and their branch names.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct GroupLaunchResult {
     pub group_id: String,
@@ -287,7 +511,6 @@ pub struct GroupLaunchResult {
     pub branches: Vec<String>,
 }
 
-/// FileDiff: per-file before/after content returned by get_worktree_diff.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct FileDiff {
     pub path: String,
@@ -295,9 +518,6 @@ pub struct FileDiff {
     pub new_content: String,
 }
 
-/// launch_team: spawn a role-based team (Planner, Coder, Reviewer, Tester).
-/// Each role runs on its own worktree branch with a unique "agent/{index}-{slug}" name.
-/// Starts event relay and agent executor for each spawned agent.
 #[tauri::command]
 #[specta::specta]
 pub fn launch_team(
@@ -312,7 +532,6 @@ pub fn launch_team(
     let (group_id, agent_ids, branches) = supervisor
         .launch_team(role_tuples)
         .map_err(|e| e.to_string())?;
-    // Start event relay + executor for each spawned agent
     for agent_id in &agent_ids {
         if let Some(handle) = supervisor.get_handle(agent_id) {
             spawn_event_relay(app_handle.clone(), agent_id.clone(), handle.clone());
@@ -326,9 +545,6 @@ pub fn launch_team(
     })
 }
 
-/// launch_swarm: spawn N identical agents with a shared objective.
-/// Security: count validated 1-8 in supervisor.launch_swarm() — returns error if out of range.
-/// Each agent runs on its own worktree branch with a unique "agent/{index}-{slug}" name.
 #[tauri::command]
 #[specta::specta]
 pub fn launch_swarm(
@@ -354,11 +570,6 @@ pub fn launch_swarm(
     })
 }
 
-/// get_worktree_diff: returns per-file old/new content for an agent's worktree vs main.
-///
-/// Security: agent_id is validated against the supervisor registry before any filesystem
-/// operations — returns error "not found" if missing (T-06-02 mitigation).
-/// File paths returned by `git diff` are trusted (not user-controlled — T-06-04).
 #[tauri::command]
 #[specta::specta]
 pub fn get_worktree_diff(
@@ -366,7 +577,6 @@ pub fn get_worktree_diff(
     agent_id: String,
 ) -> Result<Vec<FileDiff>, String> {
     let id = AgentId(agent_id);
-    // T-06-02: validate agent exists in registry before doing filesystem ops
     if supervisor.get_handle(&id).is_none() {
         return Err(format!("agent {} not found", id.0));
     }
@@ -382,7 +592,6 @@ pub fn get_worktree_diff(
 
     let mut diffs = Vec::new();
     for file_path in changed_files {
-        // Read old content from HEAD (base branch). Empty string for new files.
         let old = std::process::Command::new("git")
             .args(["show", &format!("HEAD:{}", file_path)])
             .current_dir(&worktree_path)
@@ -391,11 +600,10 @@ pub fn get_worktree_diff(
                 if o.status.success() {
                     String::from_utf8_lossy(&o.stdout).into_owned()
                 } else {
-                    String::new() // new file — no base content
+                    String::new()
                 }
             })
             .unwrap_or_default();
-        // Read new content from worktree filesystem
         let new_path = worktree_path.join(&file_path);
         let new = std::fs::read_to_string(&new_path).unwrap_or_default();
         diffs.push(FileDiff {
@@ -407,13 +615,6 @@ pub fn get_worktree_diff(
     Ok(diffs)
 }
 
-/// merge_worktrees: merges each agent's branch into main via the GitOpQueue (serialized).
-///
-/// Stops on first failure to avoid merging inconsistent state (Open Question 3 resolution).
-/// Emits "group-state-changed" Tauri event when all merges complete.
-/// Does NOT touch AgentEvent — uses a plain Tauri event to avoid deny_unknown_fields issues
-/// (Pitfall 2 from research doc).
-/// After each successful merge, prunes the agent's worktree.
 #[tauri::command]
 #[specta::specta]
 pub async fn merge_worktrees(
@@ -425,8 +626,6 @@ pub async fn merge_worktrees(
     let repo_root = supervisor.repo_root().to_path_buf();
     for raw_id in &agent_ids {
         let id = AgentId(raw_id.clone());
-        // Collect branch first — releases mutex before the .await on git_queue
-        // (Pitfall 1: no Mutex lock held across .await points)
         let branch = supervisor
             .worktree_manager
             .get_branch(&id)
@@ -445,10 +644,8 @@ pub async fn merge_worktrees(
             let stderr = String::from_utf8_lossy(&result.stderr).into_owned();
             return Err(format!("Merge failed for branch {branch}: {stderr}"));
         }
-        // Prune worktree after successful merge (best-effort)
         let _ = supervisor.worktree_manager.remove(&id);
     }
-    // Emit plain Tauri event — avoids touching AgentEvent enum (deny_unknown_fields, Pitfall 2)
     app_handle
         .emit(
             "group-state-changed",
@@ -458,6 +655,181 @@ pub async fn merge_worktrees(
     Ok(())
 }
 
+// ── Settings / API key management ─────────────────────────────────────────────
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
+struct AppConfig {
+    anthropic_api_key: Option<String>,
+    kimi_api_key: Option<String>,
+    kimi_coding_api_key: Option<String>,
+    minimax_api_key: Option<String>,
+}
+
+fn home_config_path() -> PathBuf {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".xolotl-code").join("config.json")
+}
+
+fn load_config() -> AppConfig {
+    let path = home_config_path();
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|data| serde_json::from_str(&data).ok())
+        .unwrap_or_default()
+}
+
+fn save_config(config: &AppConfig) -> Result<(), String> {
+    let path = home_config_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let data = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
+    std::fs::write(&path, data).map_err(|e| e.to_string())
+}
+
+fn resolve_api_key(env_var: &str, config_key: Option<&String>) -> Option<String> {
+    std::env::var(env_var)
+        .ok()
+        .filter(|k| !k.is_empty())
+        .or_else(|| config_key.filter(|k| !k.is_empty()).cloned())
+}
+
+/// Returns which providers have an API key configured (env var or config file).
+#[tauri::command]
+#[specta::specta]
+pub fn get_api_key_status() -> HashMap<String, bool> {
+    let config = load_config();
+    let mut status = HashMap::new();
+    status.insert("anthropic".to_string(), resolve_api_key("ANTHROPIC_API_KEY", config.anthropic_api_key.as_ref()).is_some());
+    status.insert("kimi".to_string(), resolve_api_key("KIMI_API_KEY", config.kimi_api_key.as_ref()).is_some());
+    status.insert("kimi_coding".to_string(), resolve_api_key("KIMI_CODING_API_KEY", config.kimi_coding_api_key.as_ref()).is_some());
+    status.insert("minimax".to_string(), resolve_api_key("MINIMAX_API_KEY", config.minimax_api_key.as_ref()).is_some());
+    status
+}
+
+/// Save an API key for a provider. Pass an empty string to clear the key.
+#[tauri::command]
+#[specta::specta]
+pub fn set_api_key(provider: String, key: String) -> Result<(), String> {
+    let mut config = load_config();
+    let value = if key.is_empty() { None } else { Some(key) };
+    match provider.as_str() {
+        "anthropic" => config.anthropic_api_key = value,
+        "kimi" => config.kimi_api_key = value,
+        "kimi_coding" => config.kimi_coding_api_key = value,
+        "minimax" => config.minimax_api_key = value,
+        _ => return Err(format!("Unknown provider: {provider}")),
+    }
+    save_config(&config)
+}
+
+/// Test connectivity to an AI provider using its configured API key.
+/// Returns "Connected to <provider>" on success.
+#[tauri::command]
+#[specta::specta]
+pub async fn test_api_connection(provider: String) -> Result<String, String> {
+    let config = load_config();
+    let client = reqwest::Client::new();
+
+    match provider.as_str() {
+        "anthropic" => {
+            let key = resolve_api_key("ANTHROPIC_API_KEY", config.anthropic_api_key.as_ref())
+                .ok_or_else(|| "Anthropic API key not set".to_string())?;
+            let resp = client
+                .post("https://api.anthropic.com/v1/messages")
+                .header("x-api-key", &key)
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&serde_json::json!({
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "hi"}]
+                }))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+            if resp.status().is_success() {
+                Ok("Connected to Anthropic".to_string())
+            } else {
+                let body = resp.text().await.unwrap_or_default();
+                Err(format!("Anthropic error: {body}"))
+            }
+        }
+        "kimi" => {
+            let key = resolve_api_key("KIMI_API_KEY", config.kimi_api_key.as_ref())
+                .ok_or_else(|| "Kimi API key not set".to_string())?;
+            let resp = client
+                .post("https://api.moonshot.cn/v1/chat/completions")
+                .header("Authorization", format!("Bearer {key}"))
+                .header("content-type", "application/json")
+                .json(&serde_json::json!({
+                    "model": "moonshot-v1-8k",
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "hi"}]
+                }))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+            if resp.status().is_success() {
+                Ok("Connected to Kimi".to_string())
+            } else {
+                let body = resp.text().await.unwrap_or_default();
+                Err(format!("Kimi error: {body}"))
+            }
+        }
+        "kimi_coding" => {
+            let key = resolve_api_key("KIMI_CODING_API_KEY", config.kimi_coding_api_key.as_ref())
+                .or_else(|| resolve_api_key("KIMI_API_KEY", config.kimi_api_key.as_ref()))
+                .ok_or_else(|| "Kimi Coding API key not set".to_string())?;
+            let resp = client
+                .post("https://api.kimi.com/coding/v1/chat/completions")
+                .header("Authorization", format!("Bearer {key}"))
+                .header("content-type", "application/json")
+                .json(&serde_json::json!({
+                    "model": "kimi-coding",
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "hi"}]
+                }))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+            if resp.status().is_success() {
+                Ok("Connected to Kimi Coding".to_string())
+            } else {
+                let body = resp.text().await.unwrap_or_default();
+                Err(format!("Kimi Coding error: {body}"))
+            }
+        }
+        "minimax" => {
+            let key = resolve_api_key("MINIMAX_API_KEY", config.minimax_api_key.as_ref())
+                .ok_or_else(|| "MiniMax API key not set".to_string())?;
+            let resp = client
+                .post("https://api.minimax.chat/v1/text/chatcompletion_v2")
+                .header("Authorization", format!("Bearer {key}"))
+                .header("content-type", "application/json")
+                .json(&serde_json::json!({
+                    "model": "MiniMax-Text-01",
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "hi"}]
+                }))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+            if resp.status().is_success() {
+                Ok("Connected to MiniMax".to_string())
+            } else {
+                let body = resp.text().await.unwrap_or_default();
+                Err(format!("MiniMax error: {body}"))
+            }
+        }
+        _ => Err(format!("Unknown provider: {provider}")),
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 fn home_sessions_dir() -> PathBuf {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
@@ -465,35 +837,267 @@ fn home_sessions_dir() -> PathBuf {
     PathBuf::from(home).join(".xolotl-code").join("sessions")
 }
 
-/// spawn_event_relay: dedicated tokio task per agent (D-07 / D-08).
-/// Subscribes to the agent's broadcast channel and re-emits each AgentEvent
-/// on "agent-event:{agent_id}" so the frontend can listen via listen().
-///
-/// RecvError::Lagged is handled by emitting a synthetic EventsLost notification
-/// instead of panicking or silently dropping events (T-03-03-02 mitigation).
-///
-/// Budget enforcement (D-10, D-11): on every TurnCompleted event, accumulates cost
-/// and injects StateChanged(Failed) + Error when cumulative cost exceeds budget.
+fn home_evals_dir() -> PathBuf {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".xolotl-code").join("evals")
+}
+
+// ── AI API streaming ──────────────────────────────────────────────────────────
+
+/// Route a model name to the appropriate provider and stream the response.
+/// Sends AgentEvent::TextDelta for each text chunk via the mpsc sender.
+async fn call_model_streaming(
+    model: &str,
+    messages: &[ChatMessage],
+    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+) -> Result<TokenUsage, String> {
+    if model.starts_with("claude") {
+        call_anthropic_streaming(model, messages, event_tx).await
+    } else if model.starts_with("kimi-coding") {
+        let config = load_config();
+        let api_key = resolve_api_key("KIMI_CODING_API_KEY", config.kimi_coding_api_key.as_ref())
+            .or_else(|| resolve_api_key("KIMI_API_KEY", config.kimi_api_key.as_ref()))
+            .ok_or_else(|| "KIMI_CODING_API_KEY not set. Configure it in Settings.".to_string())?;
+        call_openai_compat_streaming(
+            "https://api.kimi.com/coding/v1",
+            &api_key,
+            "kimi-coding",
+            messages,
+            event_tx,
+        )
+        .await
+    } else if model.starts_with("kimi") {
+        let config = load_config();
+        let api_key = resolve_api_key("KIMI_API_KEY", config.kimi_api_key.as_ref())
+            .ok_or_else(|| "KIMI_API_KEY not set. Configure it in Settings.".to_string())?;
+        call_openai_compat_streaming(
+            "https://api.moonshot.cn/v1",
+            &api_key,
+            "moonshot-v1-8k",
+            messages,
+            event_tx,
+        )
+        .await
+    } else if model.starts_with("minimax") {
+        let config = load_config();
+        let api_key = resolve_api_key("MINIMAX_API_KEY", config.minimax_api_key.as_ref())
+            .ok_or_else(|| "MINIMAX_API_KEY not set. Configure it in Settings.".to_string())?;
+        call_openai_compat_streaming(
+            "https://api.minimax.chat/v1",
+            &api_key,
+            "MiniMax-Text-01",
+            messages,
+            event_tx,
+        )
+        .await
+    } else {
+        Err(format!("Unknown model: {model}"))
+    }
+}
+
+/// Stream from the Anthropic Messages API (SSE format).
+async fn call_anthropic_streaming(
+    model: &str,
+    messages: &[ChatMessage],
+    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+) -> Result<TokenUsage, String> {
+    let config = load_config();
+    let api_key = resolve_api_key("ANTHROPIC_API_KEY", config.anthropic_api_key.as_ref())
+        .ok_or_else(|| "ANTHROPIC_API_KEY not set. Configure it in Settings.".to_string())?;
+
+    let client = reqwest::Client::new();
+
+    let api_messages: Vec<serde_json::Value> = messages
+        .iter()
+        .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+        .collect();
+
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": 8096,
+        "stream": true,
+        "messages": api_messages,
+    });
+
+    let response = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", &api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let err_body = response.text().await.unwrap_or_default();
+        return Err(format!("Anthropic API error {status}: {err_body}"));
+    }
+
+    let mut input_tokens: u32 = 0;
+    let mut output_tokens: u32 = 0;
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Stream read error: {e}"))?;
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+        // Process all complete SSE events (delimited by double newline)
+        loop {
+            let Some(pos) = buffer.find("\n\n") else { break };
+            let raw_event = buffer[..pos].to_string();
+            buffer = buffer[pos + 2..].to_string();
+
+            let mut event_type = String::new();
+            let mut data_str = String::new();
+            for line in raw_event.lines() {
+                if let Some(t) = line.strip_prefix("event: ") {
+                    event_type = t.to_string();
+                } else if let Some(d) = line.strip_prefix("data: ") {
+                    data_str = d.to_string();
+                }
+            }
+
+            if data_str == "[DONE]" {
+                break;
+            }
+
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&data_str) {
+                match event_type.as_str() {
+                    "message_start" => {
+                        input_tokens = v["message"]["usage"]["input_tokens"]
+                            .as_u64()
+                            .unwrap_or(0) as u32;
+                    }
+                    "content_block_delta" => {
+                        if let Some(text) = v["delta"]["text"].as_str() {
+                            let _ = event_tx.send(AgentEvent::TextDelta(text.to_string())).await;
+                        }
+                    }
+                    "message_delta" => {
+                        output_tokens = v["usage"]["output_tokens"]
+                            .as_u64()
+                            .unwrap_or(0) as u32;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    Ok(TokenUsage {
+        input_tokens,
+        output_tokens,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+    })
+}
+
+/// Stream from an OpenAI-compatible API (kimi, minimax, etc.).
+async fn call_openai_compat_streaming(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    messages: &[ChatMessage],
+    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+) -> Result<TokenUsage, String> {
+    let client = reqwest::Client::new();
+
+    let api_messages: Vec<serde_json::Value> = messages
+        .iter()
+        .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+        .collect();
+
+    let body = serde_json::json!({
+        "model": model,
+        "stream": true,
+        "messages": api_messages,
+    });
+
+    let url = format!("{base_url}/chat/completions");
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let err_body = response.text().await.unwrap_or_default();
+        return Err(format!("API error {status}: {err_body}"));
+    }
+
+    let mut input_tokens: u32 = 0;
+    let mut output_tokens: u32 = 0;
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Stream read error: {e}"))?;
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+        // Process lines (OpenAI format uses "data: {...}\n\n")
+        loop {
+            let Some(pos) = buffer.find("\n\n") else { break };
+            let raw = buffer[..pos].to_string();
+            buffer = buffer[pos + 2..].to_string();
+
+            for line in raw.lines() {
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if data == "[DONE]" {
+                        continue;
+                    }
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
+                        // Text delta
+                        if let Some(content) = v["choices"][0]["delta"]["content"].as_str() {
+                            if !content.is_empty() {
+                                let _ = event_tx.send(AgentEvent::TextDelta(content.to_string())).await;
+                            }
+                        }
+                        // Usage (some providers include it in last chunk)
+                        if let Some(usage) = v.get("usage") {
+                            input_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
+                            output_tokens = usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(TokenUsage {
+        input_tokens,
+        output_tokens,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+    })
+}
+
+// ── Event relay ───────────────────────────────────────────────────────────────
+
 pub(crate) fn spawn_event_relay(
     app_handle: AppHandle,
     agent_id: AgentId,
     handle: AgentHandle,
 ) {
-    let mut rx = handle.subscribe(); // broadcast::Receiver<AgentEvent>
-    let channel = format!("agent-event:{}", agent_id.0); // D-08 channel naming
+    let mut rx = handle.subscribe();
+    let channel = format!("agent-event:{}", agent_id.0);
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(event) => {
                     let _ = app_handle.emit(&channel, &event);
-                    // Budget enforcement (D-10, D-11). Accumulate cost unconditionally on
-                    // TurnCompleted; only enforce the cap when budget is set.
                     if let AgentEvent::TurnCompleted { ref usage } = event {
                         let new_cost = handle.accumulate_cost(usage, &handle.model);
                         if let Some(budget) = handle.budget_dollars {
                             if new_cost >= budget {
-                                // CR-03: use send().await instead of try_send so budget-exceeded
-                                // events are never silently dropped when the channel is full.
                                 let _ = handle.event_tx.send(
                                     AgentEvent::StateChanged(AgentState::Failed)
                                 ).await;
@@ -503,7 +1107,6 @@ pub(crate) fn spawn_event_relay(
                             }
                         }
                     }
-                    // OS notification on terminal states (D-12, D-13, D-14).
                     if let AgentEvent::StateChanged(ref state) = event {
                         if matches!(state, AgentState::Done | AgentState::Failed) {
                             let cost = handle.cumulative_cost
@@ -523,21 +1126,17 @@ pub(crate) fn spawn_event_relay(
                     }
                 }
                 Err(RecvError::Lagged(n)) => {
-                    // Broadcast channel capacity 64 (Phase 2 invariant).
-                    // Frontend fell behind — emit synthetic event so UI can react.
                     let _ = app_handle.emit(
                         &channel,
                         serde_json::json!({ "type": "EventsLost", "count": n }),
                     );
                 }
-                Err(RecvError::Closed) => break, // agent stopped — relay task exits
+                Err(RecvError::Closed) => break,
             }
         }
     });
 }
 
-/// Locate the xolotl CLI binary. Checks $USERPROFILE/.cargo/bin first (Windows),
-/// then $HOME/.cargo/bin (Unix), then falls back to a plain PATH lookup.
 fn find_xolotl_bin() -> PathBuf {
     for var in &["USERPROFILE", "HOME"] {
         if let Ok(home) = std::env::var(var) {
@@ -553,12 +1152,6 @@ fn find_xolotl_bin() -> PathBuf {
     PathBuf::from(if cfg!(windows) { "xolotl.exe" } else { "xolotl" })
 }
 
-/// spawn_agent_executor: drives the agent's initial task by invoking the xolotl CLI
-/// in sub-agent mode (`--print-output --task-prompt <task> --task-output <tmpfile>`).
-/// The CLI handles all model routing — kimi-coding uses KIMI_CODING_API_KEY +
-/// api.kimi.com/coding/v1, minimax uses MINIMAX_API_KEY, etc. — exactly as in the
-/// interactive CLI. The output file is read on completion and emitted as TextDelta
-/// + TurnCompleted + StateChanged(Done).
 pub(crate) fn spawn_agent_executor(_agent_id: AgentId, handle: AgentHandle) {
     let task = handle.task.clone();
     let model = handle.model.clone();
@@ -566,7 +1159,6 @@ pub(crate) fn spawn_agent_executor(_agent_id: AgentId, handle: AgentHandle) {
     let event_tx = handle.event_tx.clone();
 
     tokio::spawn(async move {
-        // CR-02: delay so the IPC round-trip returns and listen() registers before events fire.
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Planning)).await;
 
@@ -640,4 +1232,3 @@ pub(crate) fn spawn_agent_executor(_agent_id: AgentId, handle: AgentHandle) {
         }
     });
 }
-
