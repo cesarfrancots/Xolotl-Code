@@ -43,6 +43,21 @@ xolotl setup
 
 Configuration is stored in `~/.xolotl-code/config.json`. Existing `~/.claw-code/config.json` files are migrated automatically when possible.
 
+## Desktop App (Tauri)
+
+The repo also ships a Tauri-based desktop UI in `tauri-app/` that shares the same `~/.xolotl-code/config.json`. It gives you a chat pane, an Agents panel for spawning parallel coding agents in git worktrees, an Eval view, and a Settings dialog for API keys.
+
+Prerequisites: Node.js 20+, Rust toolchain, and the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS (WebView2 on Windows, WebKitGTK on Linux, none on macOS).
+
+```bash
+cd tauri-app
+npm install
+npm run tauri dev      # development with hot-reload
+npm run tauri build    # production binary in src-tauri/target/release
+```
+
+On first launch click the gear icon in the sidebar to set API keys, or set the matching environment variable (`ANTHROPIC_API_KEY`, `KIMI_API_KEY`, `KIMI_CODING_API_KEY`, `MINIMAX_API_KEY`).
+
 ## Provider Setup
 
 Inside the REPL, use `/connect <provider>`:
