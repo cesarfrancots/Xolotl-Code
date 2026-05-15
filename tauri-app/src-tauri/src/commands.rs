@@ -177,6 +177,61 @@ pub fn test_permission_prompt(
 
 // ── AI conversation turn ──────────────────────────────────────────────────────
 
+/// chat_turn: streaming chat that bypasses the agent/worktree system entirely.
+///
+/// This is for the conversational chat UX (vibe-coding style, like Claude or
+/// ChatGPT). Unlike run_agent_turn, it does NOT spawn an AgentSupervisor entry,
+/// create a git worktree, or maintain any per-session state on the Rust side —
+/// it just streams from the LLM and emits events on `chat-event:{turn_id}`.
+///
+/// The caller (frontend) generates `turn_id`, subscribes to the channel BEFORE
+/// invoking this command (to avoid losing the first events), then awaits a
+/// TurnCompleted or Error event to know the turn finished.
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_turn(
+    app_handle: AppHandle,
+    turn_id: String,
+    messages: Vec<ChatMessage>,
+    model: String,
+) -> Result<(), String> {
+    let channel = format!("chat-event:{turn_id}");
+    eprintln!("[chat_turn] start turn_id={turn_id} model={model} msgs={}", messages.len());
+
+    tokio::spawn(async move {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(256);
+
+        let model2 = model.clone();
+        let msgs = messages;
+        let tx2 = tx.clone();
+        tokio::spawn(async move {
+            match call_model_streaming(&model2, &msgs, &tx2).await {
+                Ok(usage) => {
+                    eprintln!(
+                        "[chat_turn] streaming OK in={} out={}",
+                        usage.input_tokens, usage.output_tokens
+                    );
+                    let _ = tx2.send(AgentEvent::TurnCompleted { usage }).await;
+                }
+                Err(e) => {
+                    eprintln!("[chat_turn] streaming ERR: {e}");
+                    let _ = tx2.send(AgentEvent::Error { message: e }).await;
+                }
+            }
+        });
+        drop(tx);
+
+        let mut emitted = 0usize;
+        while let Some(event) = rx.recv().await {
+            emitted += 1;
+            let _ = app_handle.emit(&channel, &event);
+        }
+        eprintln!("[chat_turn] emitted {emitted} events on {channel}");
+    });
+
+    Ok(())
+}
+
 /// run_agent_turn: send message history to the AI and stream back the response.
 /// Messages is the full conversation including the new user message.
 /// Model is passed explicitly to enable per-turn model switching.
@@ -205,6 +260,9 @@ pub async fn run_agent_turn(
     // We create a local mpsc channel as the streaming sink, then forward all events
     // to handle.event_tx (which is an mpsc::Sender going to the broadcast re-emitter).
     let handle_tx = handle.event_tx.clone();
+    let model_log = model.clone();
+    let msg_count = messages.len();
+    eprintln!("[run_agent_turn] starting model={model_log} msgs={msg_count}");
     tokio::spawn(async move {
         // Use a separate mpsc channel for the stream so we can intercept and forward
         let (stream_tx, mut stream_rx) = tokio::sync::mpsc::channel::<AgentEvent>(256);
@@ -213,16 +271,29 @@ pub async fn run_agent_turn(
         let msgs = messages.clone();
         let stream_tx2 = stream_tx.clone();
         tokio::spawn(async move {
-            match call_model_streaming(&model2, &msgs, &stream_tx2).await {
-                Ok(usage) => { let _ = stream_tx2.send(AgentEvent::TurnCompleted { usage }).await; }
-                Err(e) => { let _ = stream_tx2.send(AgentEvent::Error { message: e }).await; }
+            let res = call_model_streaming(&model2, &msgs, &stream_tx2).await;
+            match res {
+                Ok(usage) => {
+                    eprintln!(
+                        "[run_agent_turn] streaming OK — in={} out={}",
+                        usage.input_tokens, usage.output_tokens
+                    );
+                    let _ = stream_tx2.send(AgentEvent::TurnCompleted { usage }).await;
+                }
+                Err(e) => {
+                    eprintln!("[run_agent_turn] streaming ERR: {e}");
+                    let _ = stream_tx2.send(AgentEvent::Error { message: e }).await;
+                }
             }
         });
         drop(stream_tx);
 
+        let mut forwarded = 0usize;
         while let Some(event) = stream_rx.recv().await {
+            forwarded += 1;
             let _ = handle_tx.send(event).await;
         }
+        eprintln!("[run_agent_turn] forwarded {forwarded} events to broadcast");
 
         let _ = handle_tx.send(AgentEvent::StateChanged(AgentState::Waiting)).await;
     });
@@ -1176,10 +1247,24 @@ pub(crate) fn spawn_event_relay(
 ) {
     let mut rx = handle.subscribe();
     let channel = format!("agent-event:{}", agent_id.0);
+    eprintln!("[spawn_event_relay] subscribed channel={channel}");
     tokio::spawn(async move {
+        let mut emitted = 0usize;
         loop {
             match rx.recv().await {
                 Ok(event) => {
+                    emitted += 1;
+                    let tag = match &event {
+                        AgentEvent::TextDelta(s) => format!("TextDelta({} chars)", s.len()),
+                        AgentEvent::StateChanged(s) => format!("StateChanged({s:?})"),
+                        AgentEvent::TurnCompleted { .. } => "TurnCompleted".to_string(),
+                        AgentEvent::Error { message } => format!("Error({message})"),
+                        AgentEvent::ToolCallStarted { tool, .. } => format!("ToolCallStarted({tool})"),
+                        AgentEvent::ToolCallCompleted { tool, .. } => {
+                            format!("ToolCallCompleted({tool})")
+                        }
+                    };
+                    eprintln!("[relay #{emitted} {channel}] emit {tag}");
                     let _ = app_handle.emit(&channel, &event);
                     if let AgentEvent::TurnCompleted { ref usage } = event {
                         let new_cost = handle.accumulate_cost(usage, &handle.model);

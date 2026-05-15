@@ -62,6 +62,19 @@ export const commands = {
 	 *  Returns "Connected to <provider>" on success.
 	 */
 	testApiConnection: (provider: string) => typedError<string, string>(__TAURI_INVOKE("test_api_connection", { provider })),
+	/**
+	 *  chat_turn: streaming chat that bypasses the agent/worktree system entirely.
+	 * 
+	 *  This is for the conversational chat UX (vibe-coding style, like Claude or
+	 *  ChatGPT). Unlike run_agent_turn, it does NOT spawn an AgentSupervisor entry,
+	 *  create a git worktree, or maintain any per-session state on the Rust side —
+	 *  it just streams from the LLM and emits events on `chat-event:{turn_id}`.
+	 * 
+	 *  The caller (frontend) generates `turn_id`, subscribes to the channel BEFORE
+	 *  invoking this command (to avoid losing the first events), then awaits a
+	 *  TurnCompleted or Error event to know the turn finished.
+	 */
+	chatTurn: (turnId: string, messages: ChatMessage[], model: string) => typedError<null, string>(__TAURI_INVOKE("chat_turn", { turnId, messages, model })),
 };
 
 /* Types */

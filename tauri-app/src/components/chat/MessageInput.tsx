@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { Send } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/button";
 import { Popover, PopoverAnchor, PopoverContent } from "../ui/popover";
 import {
@@ -10,7 +11,107 @@ import {
 } from "../ui/command";
 import { useChatStore } from "../../stores/chatStore";
 import { commands } from "../../bindings";
+import type { AgentEvent, TokenUsage } from "../../bindings";
 import { useSessionStore, serializeSession } from "../../stores/sessionStore";
+
+const ZERO_USAGE: TokenUsage = {
+  input_tokens: 0,
+  output_tokens: 0,
+  cache_creation_input_tokens: 0,
+  cache_read_input_tokens: 0,
+};
+
+/**
+ * Stream one chat turn using the chat_turn Tauri command.
+ *
+ * Pre-subscribes to `chat-event:{turn_id}` BEFORE calling chat_turn so no
+ * events are lost to a listener-not-ready race. Resolves when the backend
+ * emits TurnCompleted or Error. Does NOT touch the agent/worktree system.
+ */
+async function streamChatTurn(
+  messages: Array<{ role: string; content: string }>,
+  model: string,
+): Promise<void> {
+  const turnId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const channel = `chat-event:${turnId}`;
+
+  let deltaBuffer = "";
+  let rafId: number | null = null;
+  let unlisten: (() => void) | null = null;
+
+  function flush() {
+    rafId = null;
+    const delta = deltaBuffer;
+    deltaBuffer = "";
+    if (delta) useChatStore.getState().appendStreamingContent(delta);
+  }
+
+  function cleanup() {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      flush();
+    }
+    if (unlisten) {
+      unlisten();
+      unlisten = null;
+    }
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    listen<AgentEvent>(channel, (event) => {
+      const payload = event.payload;
+      if ("TextDelta" in payload) {
+        deltaBuffer += payload.TextDelta;
+        if (rafId === null) rafId = requestAnimationFrame(flush);
+        return;
+      }
+      if ("TurnCompleted" in payload && payload.TurnCompleted) {
+        cleanup();
+        useChatStore.getState().finalizeStream(payload.TurnCompleted.usage);
+        // Auto-save the session after every successful turn.
+        const state = useChatStore.getState();
+        const sessionStore = useSessionStore.getState();
+        let sessionId = sessionStore.activeSessionId;
+        if (!sessionId) {
+          sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+          sessionStore.setActiveSessionId(sessionId);
+        }
+        void sessionStore.saveSession(
+          sessionId,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          serializeSession(sessionId, state.model, state.items as any, state.sessionUsage),
+        );
+        resolve();
+        return;
+      }
+      if ("Error" in payload && payload.Error) {
+        cleanup();
+        // Preserve any partial streaming content as a stopped message
+        useChatStore.getState().finalizeStream(ZERO_USAGE);
+        useChatStore.getState().appendItem({
+          id: `${Date.now()}-err`,
+          role: "assistant",
+          content: `**Chat error**\n\n\`\`\`\n${payload.Error.message}\n\`\`\``,
+          toolCalls: [],
+        });
+        resolve();
+      }
+    })
+      .then(async (unlistenFn) => {
+        unlisten = unlistenFn;
+        // Subscription is live — now safe to start the turn.
+        const result = await commands.chatTurn(turnId, messages, model);
+        if (result.status === "error") {
+          cleanup();
+          reject(new Error(result.error));
+        }
+      })
+      .catch((err) => {
+        cleanup();
+        reject(err);
+      });
+  });
+}
 
 /**
  * Chat input: textarea + send button + slash palette.
@@ -21,7 +122,7 @@ export function MessageInput() {
   const [value, setValue] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { agentId, isStreaming, setAgentId } = useChatStore();
+  const { isStreaming } = useChatStore();
   const { activeSessionId } = useSessionStore();
 
   // Slash commands with descriptions per D-11 and 04-UI-SPEC.md
@@ -113,32 +214,28 @@ export function MessageInput() {
     const chatState = useChatStore.getState();
     const currentModel = chatState.model;
 
-    // Spawn agent if not yet spawned
-    let currentAgentId = agentId;
-    if (!currentAgentId) {
-      const spawnResult = await commands.spawnAgent(msg, currentModel, null, true);
-      if (spawnResult.status === "error") {
-        console.error("spawn_agent error:", spawnResult.error);
-        return;
-      }
-      currentAgentId = spawnResult.data;
-      setAgentId(currentAgentId);
+    function showInlineError(prefix: string, err: unknown) {
+      const text = err instanceof Error ? err.message : String(err);
+      console.error(`${prefix}:`, err);
+      useChatStore.getState().appendItem({
+        id: `${Date.now()}-err`,
+        role: "assistant",
+        content: `**${prefix}**\n\n\`\`\`\n${text}\n\`\`\``,
+        toolCalls: [],
+      });
     }
 
-    // Build full message history to send to the AI
+    // Build full message history to send to the LLM
     const historyMessages = chatState.items
       .filter((item): item is import("../../stores/chatStore").Message =>
         "role" in item && (item.role === "user" || item.role === "assistant")
       )
       .map((item) => ({ role: item.role, content: item.content }));
 
-    const turnResult = await commands.runAgentTurn(
-      currentAgentId,
-      historyMessages,
-      currentModel,
-    );
-    if (turnResult.status === "error") {
-      console.error("run_agent_turn error:", turnResult.error);
+    try {
+      await streamChatTurn(historyMessages, currentModel);
+    } catch (err) {
+      showInlineError("chat_turn error", err);
     }
   }
 

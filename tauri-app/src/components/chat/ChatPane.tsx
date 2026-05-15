@@ -88,8 +88,9 @@ function StopButton() {
   const { agentId, cancelStream } = useChatStore();
 
   async function handleStop() {
+    // Chat-mode turns have no agentId — just commit partial content.
+    cancelStream();
     if (agentId) {
-      cancelStream();
       const result = await commands.stopAgent(agentId);
       if (result.status === "error") {
         console.error("stop_agent error:", result.error);

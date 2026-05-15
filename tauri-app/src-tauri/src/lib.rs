@@ -4,10 +4,10 @@ use tauri_specta::{collect_commands, Builder};
 
 use runtime::{AgentEvent, AgentId, AgentState, AgentSupervisor};
 use crate::commands::{
-    delete_session, list_agents, list_models, list_sessions, load_session, respond_to_permission,
-    save_session, smoke_test, spawn_agent, stop_agent, test_permission_prompt, run_agent_turn,
-    launch_team, launch_swarm, get_worktree_diff, merge_worktrees,
-    start_eval, list_evals, load_eval, delete_eval, save_human_scores,
+    chat_turn, delete_session, list_agents, list_models, list_sessions, load_session,
+    respond_to_permission, save_session, smoke_test, spawn_agent, stop_agent,
+    test_permission_prompt, run_agent_turn, launch_team, launch_swarm, get_worktree_diff,
+    merge_worktrees, start_eval, list_evals, load_eval, delete_eval, save_human_scores,
     get_api_key_status, set_api_key, test_api_connection,
     SessionMeta, RoleConfig, GroupLaunchResult, FileDiff,
     ChatMessage, EvalMeta, EvalResult, ModelEvalResult, HumanScores,
@@ -48,6 +48,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             get_api_key_status,
             set_api_key,
             test_api_connection,
+            chat_turn,
         ])
         .typ::<AgentId>()
         .typ::<AgentState>()
