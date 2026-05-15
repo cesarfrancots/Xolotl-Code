@@ -8,14 +8,23 @@ use crate::commands::{
     respond_to_permission, save_session, smoke_test, spawn_agent, stop_agent,
     test_permission_prompt, run_agent_turn, launch_team, launch_swarm, get_worktree_diff,
     merge_worktrees, start_eval, list_evals, load_eval, delete_eval, save_human_scores,
+    list_eval_suites, run_eval_suite, run_llm_judge,
+    start_goal_eval, run_goal_grade,
     get_api_key_status, set_api_key, test_api_connection,
     SessionMeta, RoleConfig, GroupLaunchResult, FileDiff,
     ChatMessage, EvalMeta, EvalResult, ModelEvalResult, HumanScores,
+    AutoScores, JudgeScores, EvalSuite, SuitePrompt,
+    GoalAxisScore, ReasoningFlag, GoalGrade,
+};
+use crate::skills_mcp::{
+    list_skills, read_skill, list_mcp_servers, test_mcp_server,
+    SkillManifest, McpServerConfig, McpTestResult,
 };
 use crate::permission_prompter::{PermissionDecision, PendingPrompts};
 
 mod commands;
 mod permission_prompter;
+pub mod skills_mcp;
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
@@ -45,6 +54,15 @@ fn make_builder() -> Builder<tauri::Wry> {
             load_eval,
             delete_eval,
             save_human_scores,
+            list_eval_suites,
+            run_eval_suite,
+            run_llm_judge,
+            start_goal_eval,
+            run_goal_grade,
+            list_skills,
+            read_skill,
+            list_mcp_servers,
+            test_mcp_server,
             get_api_key_status,
             set_api_key,
             test_api_connection,
@@ -63,6 +81,16 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<EvalResult>()
         .typ::<ModelEvalResult>()
         .typ::<HumanScores>()
+        .typ::<AutoScores>()
+        .typ::<JudgeScores>()
+        .typ::<EvalSuite>()
+        .typ::<SuitePrompt>()
+        .typ::<GoalAxisScore>()
+        .typ::<ReasoningFlag>()
+        .typ::<GoalGrade>()
+        .typ::<SkillManifest>()
+        .typ::<McpServerConfig>()
+        .typ::<McpTestResult>()
 }
 
 pub fn export_bindings(path: &str) {

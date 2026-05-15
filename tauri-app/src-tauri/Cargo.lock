@@ -5870,6 +5870,8 @@ checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
 name = "xolotl"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
+ "reqwest 0.12.28",
  "runtime",
  "serde",
  "serde_json",

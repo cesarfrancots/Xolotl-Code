@@ -1,0 +1,51 @@
+{
+  "phase": "5",
+  "phase_name": "Agent Dashboard",
+  "created": "2026-05-10",
+  "areas_completed": ["Dashboard layout", "Spawn dialog design", "Agent output expansion"],
+  "areas_remaining": ["OS notifications"],
+  "decisions": {
+    "Dashboard layout": {
+      "layout_structure": "3-column: SessionSidebar (256px) | ChatPane (flex-1) | AgentPanel (320px fixed right)",
+      "agent_panel_width": "Fixed ~320px — no resize handle",
+      "agent_card_content": "Status badge (colored, maps to AgentState) + task description (truncated) + cumulative cost + expand button for output (AGT-01)"
+    },
+    "Spawn dialog design": {
+      "dialog_fields": "Model (dropdown from list_models) + Task (text) + Budget (optional dollars, empty = unlimited). Worktree auto-assigned from task name — new branch created automatically.",
+      "model_picker": "Dropdown using existing list_models command — same list as Phase 4 chat top bar.",
+      "budget_enforcement": "Rust backend: extend spawn_agent to accept optional budget param. Runtime halts agent when budget exceeded, same as CLI --budget flag. Emits AgentEvent::StateChanged(Failed) + error message."
+    },
+    "Agent output expansion": {
+      "expansion_behavior": "Clicking expand on an agent card replaces the center ChatPane with that agent's conversation view. Reuses all existing Message/ToolBlock/MessageList/DiffView components — no new rendering infrastructure.",
+      "interaction_mode": "Read-only — no input field in agent view. Observation only. Chat pane = human sessions; agent view = monitoring.",
+      "default_center": "When no agent is selected/expanded, center shows the regular human chat session. Closing agent view returns to chat."
+    }
+  },
+  "deferred": [],
+  "discussion_log": [
+    {
+      "area": "Dashboard layout",
+      "questions": [
+        {"q": "Where does the agent roster panel live?", "answer": "3rd column (right)"},
+        {"q": "How wide should the agent panel be?", "answer": "Fixed ~320px"},
+        {"q": "What's in each agent card?", "answer": "Status badge + task + cost + expand button"}
+      ]
+    },
+    {
+      "area": "Spawn dialog design",
+      "questions": [
+        {"q": "What does the New Agent dialog collect?", "answer": "Model + task + budget (worktree auto-assigned)"},
+        {"q": "How does the model picker work?", "answer": "Dropdown from list_models"},
+        {"q": "Where does budget enforcement live?", "answer": "Rust backend — extend spawn_agent"}
+      ]
+    },
+    {
+      "area": "Agent output expansion",
+      "questions": [
+        {"q": "Where does the stream appear when expanded?", "answer": "Replaces main chat pane"},
+        {"q": "Can user send messages to agent?", "answer": "Read-only"},
+        {"q": "What shows in center when no agent selected?", "answer": "Regular chat session"}
+      ]
+    }
+  ]
+}

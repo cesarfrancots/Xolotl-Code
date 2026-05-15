@@ -15,6 +15,10 @@ rust/Cargo.lock
 graphify-out/
 *.session
 
+# External tool caches
+.codex/
+.playwright-mcp/
+
 # Secrets and local config
 *.env
 .env*

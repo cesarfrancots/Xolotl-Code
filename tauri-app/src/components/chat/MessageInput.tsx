@@ -1,5 +1,6 @@
-import { useState, useRef } from "react";
-import { Send } from "lucide-react";
+import { useState, useRef, useCallback } from "react";
+import { ArrowUp, Paperclip, X, FileText, Command as CommandIcon } from "lucide-react";
+import { CommandsPalette } from "./CommandsPalette";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/button";
 import { Popover, PopoverAnchor, PopoverContent } from "../ui/popover";
@@ -13,6 +14,7 @@ import { useChatStore } from "../../stores/chatStore";
 import { commands } from "../../bindings";
 import type { AgentEvent, TokenUsage } from "../../bindings";
 import { useSessionStore, serializeSession } from "../../stores/sessionStore";
+import { useUiStore } from "../../stores/uiStore";
 
 const ZERO_USAGE: TokenUsage = {
   input_tokens: 0,
@@ -31,6 +33,7 @@ const ZERO_USAGE: TokenUsage = {
 async function streamChatTurn(
   messages: Array<{ role: string; content: string }>,
   model: string,
+  enabledSkills: string[],
 ): Promise<void> {
   const turnId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const channel = `chat-event:${turnId}`;
@@ -117,7 +120,7 @@ async function streamChatTurn(
       .then(async (unlistenFn) => {
         unlisten = unlistenFn;
         // Subscription is live — now safe to start the turn.
-        const result = await commands.chatTurn(turnId, messages, model);
+        const result = await commands.chatTurn(turnId, messages, model, enabledSkills);
         if (result.status === "error") {
           cleanup();
           reject(new Error(result.error));
@@ -135,12 +138,90 @@ async function streamChatTurn(
  * Per D-11, D-12 (locked): 5 slash commands, shadcn Command as popover.
  * Per 04-UI-SPEC.md §Input Bar: min-h-[48px] max-h-[192px] auto-resize textarea.
  */
+interface Attachment {
+  id: string;
+  name: string;
+  size: number;
+  content: string;
+  truncated: boolean;
+}
+
+const MAX_ATTACHMENT_BYTES = 250_000; // 250KB cap per file before truncation
+
+const TEXT_EXTENSIONS = new Set([
+  "ts", "tsx", "js", "jsx", "py", "rs", "go", "java", "kt", "swift",
+  "c", "cc", "cpp", "h", "hpp", "rb", "php", "lua", "sh", "ps1",
+  "json", "yaml", "yml", "toml", "ini", "env", "md", "txt", "log",
+  "html", "css", "scss", "sass", "less", "xml", "sql", "graphql",
+  "csv", "tsv", "vue", "svelte", "astro", "dockerfile", "gitignore",
+]);
+
+function langHint(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  if (dot < 0) return "";
+  return filename.slice(dot + 1).toLowerCase();
+}
+
+async function readFileAsText(file: File): Promise<Attachment> {
+  const slice = file.size > MAX_ATTACHMENT_BYTES ? file.slice(0, MAX_ATTACHMENT_BYTES) : file;
+  const content = await slice.text();
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: file.name,
+    size: file.size,
+    content,
+    truncated: file.size > MAX_ATTACHMENT_BYTES,
+  };
+}
+
+function buildAttachmentsBlock(atts: Attachment[]): string {
+  if (atts.length === 0) return "";
+  return atts.map((a) => {
+    const lang = langHint(a.name);
+    const header = `\`\`\`${lang}\n// ${a.name}${a.truncated ? `  (truncated to ${MAX_ATTACHMENT_BYTES / 1000}KB)` : ""}\n`;
+    return `${header}${a.content}\n\`\`\``;
+  }).join("\n\n");
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
 export function MessageInput() {
   const [value, setValue] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [commandsOpen, setCommandsOpen] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { isStreaming } = useChatStore();
   const { activeSessionId } = useSessionStore();
+
+  const addFiles = useCallback(async (files: FileList | File[]) => {
+    const fileArr = Array.from(files);
+    const accepted: Attachment[] = [];
+    for (const f of fileArr) {
+      const ext = langHint(f.name);
+      const looksText = TEXT_EXTENSIONS.has(ext) || f.type.startsWith("text/") || (ext === "" && f.size < 100_000);
+      if (!looksText) {
+        console.warn(`Skipping non-text file: ${f.name}`);
+        continue;
+      }
+      try {
+        accepted.push(await readFileAsText(f));
+      } catch (err) {
+        console.error(`Failed to read ${f.name}:`, err);
+      }
+    }
+    if (accepted.length > 0) setAttachments((prev) => [...prev, ...accepted]);
+  }, []);
+
+  function removeAttachment(id: string) {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }
 
   // Slash commands with descriptions per D-11 and 04-UI-SPEC.md
   const SLASH_COMMANDS = [
@@ -157,7 +238,7 @@ export function MessageInput() {
     // Auto-resize textarea
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 192)}px`;
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
     }
     // Open slash palette when input starts with "/"
     setPaletteOpen(v.startsWith("/") && v.length >= 1);
@@ -213,12 +294,17 @@ export function MessageInput() {
   }
 
   async function handleSend() {
-    const msg = value.trim();
-    if (!msg || isStreaming) return;
+    const typed = value.trim();
+    if ((!typed && attachments.length === 0) || isStreaming) return;
+
+    // Compose final message: attachments first as fenced code blocks, then the
+    // typed prose. If user typed nothing, the attachments stand on their own.
+    const block = buildAttachmentsBlock(attachments);
+    const msg = block && typed ? `${block}\n\n${typed}` : block || typed;
+
     setValue("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
+    setAttachments([]);
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
 
     // Append the user message to the chat immediately
     useChatStore.getState().appendItem({
@@ -250,7 +336,8 @@ export function MessageInput() {
       .map((item) => ({ role: item.role, content: item.content }));
 
     try {
-      await streamChatTurn(historyMessages, currentModel);
+      const enabledSkills = useUiStore.getState().enabledSkills;
+      await streamChatTurn(historyMessages, currentModel, enabledSkills);
     } catch (err) {
       showInlineError("chat_turn error", err);
     }
@@ -267,42 +354,129 @@ export function MessageInput() {
     }
   }
 
-  const canSend = value.trim().length > 0 && !isStreaming;
+  const canSend = (value.trim().length > 0 || attachments.length > 0) && !isStreaming;
 
   return (
-    <div className="flex-none px-4 py-3 border-t border-neutral-800">
+    <div
+      className={[
+        "flex-none px-4 py-3 border-t transition-colors relative",
+        dragOver
+          ? "border-[oklch(0.65_0.18_250)] bg-[oklch(0.65_0.18_250)]/5"
+          : "border-neutral-800",
+      ].join(" ")}
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        if (e.dataTransfer.files.length > 0) void addFiles(e.dataTransfer.files);
+      }}
+    >
+      {dragOver && (
+        <div className="absolute inset-2 rounded-lg border-2 border-dashed border-[oklch(0.65_0.18_250)] flex items-center justify-center pointer-events-none bg-[oklch(0.12_0_0)]/80 z-10">
+          <span className="text-sm text-[oklch(0.78_0.18_250)] font-medium">Drop to attach</span>
+        </div>
+      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) void addFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+
+      {/* Attachment chips */}
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {attachments.map((a) => (
+            <div
+              key={a.id}
+              className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md bg-[oklch(0.20_0_0)] border border-neutral-700 text-xs"
+              title={`${a.name} · ${fmtSize(a.size)}${a.truncated ? " (truncated)" : ""}`}
+            >
+              <FileText className="w-3 h-3 text-[oklch(0.65_0.18_250)] flex-none" />
+              <span className="text-[oklch(0.85_0_0)] max-w-[160px] truncate">{a.name}</span>
+              <span className="text-[10px] text-[oklch(0.50_0_0)] tabular-nums">{fmtSize(a.size)}</span>
+              {a.truncated && <span className="text-[10px] text-[oklch(0.72_0.18_30)]">trunc</span>}
+              <button
+                onClick={() => removeAttachment(a.id)}
+                className="w-4 h-4 rounded flex items-center justify-center text-[oklch(0.50_0_0)] hover:text-[oklch(0.85_0_0)] hover:bg-[oklch(0.25_0_0)]"
+                title="Remove"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <Popover open={paletteOpen} onOpenChange={setPaletteOpen}>
         <PopoverAnchor asChild>
-          <div className="flex items-end gap-2">
+          <div
+            className={[
+              "rounded-xl border bg-[oklch(0.155_0_0)] transition-colors",
+              "focus-within:border-[oklch(0.65_0.18_250)]/60 focus-within:shadow-[0_0_0_4px_oklch(0.65_0.18_250_/_0.08)]",
+              dragOver ? "border-[oklch(0.65_0.18_250)]" : "border-neutral-800",
+            ].join(" ")}
+          >
             <textarea
               ref={textareaRef}
               value={value}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="Message xolotl..."
+              placeholder={attachments.length > 0 ? "Add a message about these files…" : "Message xolotl…"}
               rows={1}
               className={[
-                "flex-1 resize-none rounded-lg border border-neutral-700 bg-[oklch(0.20_0_0)]",
-                "px-3 py-2 text-sm text-[oklch(0.92_0_0)] placeholder:text-[oklch(0.38_0_0)]",
-                "min-h-[48px] max-h-[192px] overflow-y-auto",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.65_0.18_250)]",
+                "w-full resize-none bg-transparent border-0",
+                "px-3.5 pt-3 pb-1.5 text-sm text-[oklch(0.92_0_0)] placeholder:text-[oklch(0.38_0_0)]",
+                "min-h-[44px] max-h-[200px] overflow-y-auto",
+                "focus:outline-none",
               ].join(" ")}
-              style={{ height: "48px" }}
+              style={{ height: "44px" }}
             />
-            <Button
-              size="sm"
-              className={[
-                "h-10 w-10 flex-none",
-                canSend
-                  ? "bg-[oklch(0.65_0.18_250)] hover:bg-[oklch(0.60_0.18_250)] text-white"
-                  : "opacity-40 cursor-not-allowed",
-              ].join(" ")}
-              disabled={!canSend}
-              title="Send message"
-              onClick={() => void handleSend()}
-            >
-              <Send className="h-4 w-4" />
-            </Button>
+            {/* Action row */}
+            <div className="flex items-center gap-1 px-2 pb-2">
+              <Button
+                size="icon-sm" variant="ghost" type="button"
+                className="text-[oklch(0.55_0_0)] hover:text-[oklch(0.88_0_0)]"
+                title="Attach files (drag-drop also works)"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="icon-sm" variant="ghost" type="button"
+                className="text-[oklch(0.55_0_0)] hover:text-[oklch(0.88_0_0)]"
+                title="Commands & shortcuts (Ctrl+K)"
+                onClick={() => setCommandsOpen(true)}
+              >
+                <CommandIcon className="h-3.5 w-3.5" />
+              </Button>
+              <span className="text-[10px] text-[oklch(0.38_0_0)] ml-1 select-none">
+                {attachments.length > 0
+                  ? `${attachments.length} attached`
+                  : <><kbd className="font-mono text-[10px] px-1 py-0.5 rounded bg-[oklch(0.18_0_0)] border border-neutral-800 text-[oklch(0.55_0_0)]">⏎</kbd> to send · <kbd className="font-mono text-[10px] px-1 py-0.5 rounded bg-[oklch(0.18_0_0)] border border-neutral-800 text-[oklch(0.55_0_0)]">⇧⏎</kbd> for newline</>}
+              </span>
+              <div className="ml-auto">
+                <Button
+                  size="sm"
+                  className={[
+                    "h-7 w-7 p-0 rounded-full transition-all",
+                    canSend
+                      ? "bg-[oklch(0.65_0.18_250)] hover:bg-[oklch(0.60_0.18_250)] text-white shadow-md shadow-[oklch(0.65_0.18_250)]/30"
+                      : "bg-[oklch(0.20_0_0)] text-[oklch(0.40_0_0)] cursor-not-allowed",
+                  ].join(" ")}
+                  disabled={!canSend}
+                  title="Send message"
+                  onClick={() => void handleSend()}
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
           </div>
         </PopoverAnchor>
         {/* Slash command palette (D-12) — opens above input when "/" typed */}
@@ -332,6 +506,7 @@ export function MessageInput() {
           </Command>
         </PopoverContent>
       </Popover>
+      <CommandsPalette open={commandsOpen} onOpenChange={setCommandsOpen} />
     </div>
   );
 }

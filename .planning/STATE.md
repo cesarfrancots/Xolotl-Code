@@ -77,10 +77,7 @@ progress:
 
 ### Open Todos
 
-- CR-01 (medium priority): permission_prompter.rs — use `.lock().map_err()` instead of `.unwrap()` to avoid process crash on poisoned mutex.
-- CR-02 (medium priority): respond_to_permission — use `HashMap::remove` not `.get()` to prevent double-resolve race.
-- CR-03 (low priority): lib.rs — validate git rev-parse repo root is ancestor of cwd.
-- CR-04 (low priority): capabilities/default.json — add path scope to `fs:default`.
+- None. All CR items resolved: CR-01/02/04 were already fixed in code; CR-03 fixed 2026-05-11 (lib.rs ancestor validation).
 
 ### Blockers
 
@@ -91,6 +88,7 @@ progress:
 - **Last action:** Phase 6 execution complete — all 4 plans executed, verified (9/9 automated + human approved).
 - **Next action:** v1 milestone complete. Consider `/gsd-new-milestone` for v1.1 or shipping.
 - **Last updated:** 2026-05-11
+- **Session resumed:** 2026-05-11 — reviewing options for next milestone or shipping
 
 ---
 *State initialized: 2026-05-07*

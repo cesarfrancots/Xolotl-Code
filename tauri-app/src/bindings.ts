@@ -37,8 +37,8 @@ export const commands = {
 	getWorktreeDiff: (agentId: string) => typedError<FileDiff[], string>(__TAURI_INVOKE("get_worktree_diff", { agentId })),
 	mergeWorktrees: (groupId: string, agentIds: string[]) => typedError<null, string>(__TAURI_INVOKE("merge_worktrees", { groupId, agentIds })),
 	/**
-	 *  start_eval: runs selected models on the same prompt sequentially.
-	 *  Emits "eval-event:{eval_id}" events as each model responds.
+	 *  start_eval: runs selected models on the same prompt in parallel.
+	 *  Emits "eval-event:{eval_id}" events as each model streams.
 	 *  Saves result to ~/.xolotl-code/evals/{eval_id}.json when all complete.
 	 */
 	startEval: (prompt: string, models: string[]) => typedError<string, string>(__TAURI_INVOKE("start_eval", { prompt, models })),
@@ -50,6 +50,38 @@ export const commands = {
 	 *  scores_json is a JSON object mapping model name → HumanScores.
 	 */
 	saveHumanScores: (id: string, scoresJson: string) => typedError<null, string>(__TAURI_INVOKE("save_human_scores", { id, scoresJson })),
+	listEvalSuites: () => __TAURI_INVOKE<EvalSuite[]>("list_eval_suites"),
+	/**
+	 *  run_eval_suite: runs every prompt of a suite across selected models in parallel.
+	 *  Returns a `suite_run_id` shared by all the per-prompt EvalResults written to disk.
+	 */
+	runEvalSuite: (suiteId: string, models: string[]) => typedError<string, string>(__TAURI_INVOKE("run_eval_suite", { suiteId, models })),
+	/**
+	 *  LLM-as-judge: have `judge_model` score every response in a stored eval against
+	 *  the 8-dimension rubric. Result is saved into the eval's `judge` field.
+	 */
+	runLlmJudge: (id: string, judgeModel: string) => typedError<string, string>(__TAURI_INVOKE("run_llm_judge", { id, judgeModel })),
+	/**
+	 *  start_goal_eval: like start_eval but tagged as a goal eval and (optionally)
+	 *  streams a live reasoning supervisor that flags issues as the model thinks.
+	 *  `live_supervisor` flips on the per-model windowed flag-judge.
+	 */
+	startGoalEval: (goal: string, models: string[], liveSupervisor: boolean, supervisorModel: string | null) => typedError<string, string>(__TAURI_INVOKE("start_goal_eval", { goal, models, liveSupervisor, supervisorModel })),
+	/**
+	 *  Post-hoc goal grader. For each model in a stored eval, score the 5 reasoning
+	 *  axes (1–5 each) with an evidence quote, extract retrospective flags, and
+	 *  write a one-line summary. Results saved into `goal_grades` on disk.
+	 */
+	runGoalGrade: (id: string, judgeModel: string) => typedError<string, string>(__TAURI_INVOKE("run_goal_grade", { id, judgeModel })),
+	listSkills: () => __TAURI_INVOKE<SkillManifest[]>("list_skills"),
+	readSkill: (name: string) => typedError<string, string>(__TAURI_INVOKE("read_skill", { name })),
+	listMcpServers: () => __TAURI_INVOKE<McpServerConfig[]>("list_mcp_servers"),
+	/**
+	 *  Test an MCP server's reachability. For stdio: spawn it and send a JSON-RPC
+	 *  `initialize` ping (handshake required by the MCP spec). For http: GET / and
+	 *  check for any response (200/404 both prove the host is up).
+	 */
+	testMcpServer: (name: string) => __TAURI_INVOKE<McpTestResult>("test_mcp_server", { name }),
 	/**  Returns which providers have an API key configured (env var or config file). */
 	getApiKeyStatus: () => __TAURI_INVOKE<{ [key in string]: boolean }>("get_api_key_status"),
 	/**
@@ -74,7 +106,7 @@ export const commands = {
 	 *  invoking this command (to avoid losing the first events), then awaits a
 	 *  TurnCompleted or Error event to know the turn finished.
 	 */
-	chatTurn: (turnId: string, messages: ChatMessage[], model: string) => typedError<null, string>(__TAURI_INVOKE("chat_turn", { turnId, messages, model })),
+	chatTurn: (turnId: string, messages: ChatMessage[], model: string, enabledSkills: string[] | null) => typedError<null, string>(__TAURI_INVOKE("chat_turn", { turnId, messages, model, enabledSkills })),
 };
 
 /* Types */
@@ -124,6 +156,22 @@ export type AgentState = "Idle" | "Planning" | "Executing" |
 /**  Blocked on a permission prompt or context pull. */
 "Waiting" | "Done" | "Failed";
 
+/**  Mechanical scores derived from response text (no LLM involved). */
+export type AutoScores = {
+	/**  1–10. Lower = more slop. Computed from regex phrase hits + em-dash density. */
+	ai_slop_score: number | null,
+	/**  1–10. Lower = too short or wall-of-text; higher = appropriate length. */
+	brevity_score: number | null,
+	/**  None = grader N/A. Some(true)/Some(false) = JSON parse outcome on full body. */
+	json_valid: boolean | null,
+	code_block_count: number,
+	em_dash_count: number,
+	word_count: number,
+	char_count: number,
+	/**  Phrases hit, e.g. "Certainly!", "I'd be happy to", "delve". */
+	slop_hits: string[],
+};
+
 export type ChatMessage = {
 	role: string,
 	content: string,
@@ -134,6 +182,8 @@ export type EvalMeta = {
 	prompt: string,
 	models: string[],
 	created_at: number,
+	suite_id?: string | null,
+	suite_run_id?: string | null,
 };
 
 export type EvalResult = {
@@ -142,13 +192,63 @@ export type EvalResult = {
 	models: string[],
 	results: ModelEvalResult[],
 	human_scores: { [key in string]: HumanScores },
+	auto_scores?: { [key in string]: AutoScores },
+	judge?: JudgeScores | null,
+	/**
+	 *  Per-model captured reasoning_content stream (chain-of-thought). Empty
+	 *  string for models that don't expose reasoning.
+	 */
+	reasoning_traces?: { [key in string]: string },
+	/**  Per-model goal grade (5 axes + flags). Populated by run_goal_grade. */
+	goal_grades?: { [key in string]: GoalGrade },
+	/**
+	 *  True if this eval was started via start_goal_eval (so the UI/grader
+	 *  knows to apply the goal rubric).
+	 */
+	is_goal_eval?: boolean,
+	/**
+	 *  The original goal text (== prompt when is_goal_eval). Kept distinct for
+	 *  future variants that wrap the goal in extra framing.
+	 */
+	goal?: string | null,
+	/**  If part of a suite run, the suite id (e.g. "reasoning"). None for ad-hoc evals. */
+	suite_id?: string | null,
+	/**  If part of a suite run, groups prompts together by the same run id. */
+	suite_run_id?: string | null,
+	/**  If part of a suite run, the SuitePrompt.id for this row. */
+	suite_prompt_id?: string | null,
 	created_at: number,
+};
+
+export type EvalSuite = {
+	id: string,
+	name: string,
+	description: string,
+	prompts: SuitePrompt[],
 };
 
 export type FileDiff = {
 	path: string,
 	old_content: string,
 	new_content: string,
+};
+
+/**  One axis of the goal rubric (1–5 with an evidence quote from the reasoning). */
+export type GoalAxisScore = {
+	score: number | null,
+	evidence: string,
+};
+
+/**  Per-model goal grade with the 5 reasoning axes, flags and a one-line summary. */
+export type GoalGrade = {
+	judge_model: string,
+	/**
+	 *  Keyed by axis: "goal_decomposition", "assumption_quality",
+	 *  "self_correction", "plan_action_coherence", "goal_achievement".
+	 */
+	axes: { [key in string]: GoalAxisScore },
+	flags: ReasoningFlag[],
+	summary: string,
 };
 
 export type GroupLaunchResult = {
@@ -163,6 +263,47 @@ export type HumanScores = {
 	quality: number | null,
 	creativity: number | null,
 	design: number | null,
+	/**  1–10. Visual/structural beauty: hierarchy, code-block formatting, whitespace. */
+	aesthetics: number | null,
+	/**  1–10. 1 = full of clichés ("certainly!", em-dash spam, "delve"); 10 = clean prose. */
+	ai_slop: number | null,
+	/**  1–10. Appropriate concision (penalize wall-of-text and excessive hedging). */
+	brevity: number | null,
+};
+
+/**  LLM-judge output for a single eval. */
+export type JudgeScores = {
+	judge_model: string,
+	/**  Per-model rubric scores assigned by the judge. */
+	scores: { [key in string]: HumanScores },
+	/**  Per-model one-line rationale from the judge. */
+	rationale: { [key in string]: string },
+};
+
+/**
+ *  Single MCP server entry as stored in `mcp.json`.
+ *  Two transports: `stdio` (default — spawn a process) or `http` (remote SSE/HTTP).
+ */
+export type McpServerConfig = {
+	name: string,
+	/**  "stdio" | "http"  (defaults to stdio if absent in raw json). */
+	transport: string,
+	/**  For stdio: the executable. For http: ignored. */
+	command?: string | null,
+	args?: string[],
+	env?: { [key in string]: string },
+	/**  For http: the URL. */
+	url?: string | null,
+	headers?: { [key in string]: string },
+	/**  "user" | "project" — which config file declared this server. */
+	scope: string,
+};
+
+export type McpTestResult = {
+	ok: boolean,
+	message: string,
+	/**  Round-trip latency in ms (None on failure). */
+	latency_ms: number | null,
 };
 
 export type ModelEvalResult = {
@@ -180,6 +321,23 @@ export type ModelEvalResult = {
  */
 export type PermissionDecision = "Allow" | "Deny" | "AlwaysAllow";
 
+/**
+ *  A flag raised against a chunk of reasoning. Emitted live by the supervisor
+ *  during streaming, and/or in batch by the post-hoc grader.
+ */
+export type ReasoningFlag = {
+	/**  e.g. "bad_assumption" | "goal_drift" | "premature_commit" | "no_verification" | "good_decomposition" */
+	kind: string,
+	/**  "info" | "warn" | "error" */
+	severity: string,
+	/**  A short quote from the reasoning that triggered the flag. */
+	quote: string,
+	/**  Why the flag was raised. */
+	comment: string,
+	/**  Char offset into the reasoning trace where `quote` begins (best-effort). */
+	offset_chars: number,
+};
+
 export type RoleConfig = {
 	role: string,
 	task: string,
@@ -190,6 +348,28 @@ export type SessionMeta = {
 	id: string,
 	title: string,
 	created_at: number,
+};
+
+export type SkillManifest = {
+	/**  Short kebab-case slug (also the directory name). */
+	name: string,
+	/**  One-line summary shown in the UI and prepended to the chat system prompt. */
+	description: string,
+	/**  Path to the SKILL.md on disk (for "open in editor" actions later). */
+	path: string,
+	/**  Body length in bytes (so the UI can warn about large skills). */
+	body_bytes: number,
+	/**  Optional list of tools the skill says it needs — informational only for now. */
+	allowed_tools?: string[],
+	/**  Optional invocation triggers — informational hints to the model. */
+	triggers?: string[],
+};
+
+export type SuitePrompt = {
+	id: string,
+	prompt: string,
+	/**  "ai_slop" | "brevity" | "json_mode" | "code" | "refusal" | "free" */
+	grader: string,
 };
 
 export type TokenUsage = {
