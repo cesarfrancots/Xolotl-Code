@@ -1101,10 +1101,16 @@ async fn call_openai_compat_streaming(
             buffer = buffer[pos + 2..].to_string();
 
             for line in raw.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if data == "[DONE]" {
-                        continue;
-                    }
+                // Accept both "data: {...}" (OpenAI canonical) and "data:{...}"
+                // (Kimi For Coding emits no space after the colon). Trimming the
+                // tail also strips any whitespace the canonical form carries.
+                let Some(rest) = line.strip_prefix("data:") else {
+                    continue;
+                };
+                let data = rest.trim_start();
+                if data == "[DONE]" {
+                    continue;
+                }
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
                         let delta = &v["choices"][0]["delta"];
                         // reasoning_content: chain-of-thought from reasoning models
@@ -1149,7 +1155,6 @@ async fn call_openai_compat_streaming(
                                 usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
                         }
                     }
-                }
             }
         }
     }
