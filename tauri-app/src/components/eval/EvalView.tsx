@@ -1755,28 +1755,30 @@ export function EvalView() {
                   disabled={running}
                   className="bg-[oklch(0.13_0.004_245)] border border-[oklch(0.25_0.012_220)] rounded-md px-3 py-2.5 text-sm text-[oklch(0.88_0.01_220)] placeholder:text-[oklch(0.42_0.012_245)] resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.60_0.045_190)] disabled:opacity-60"
                 />
-                <div className="grid grid-cols-1 gap-2 lg:grid-cols-[1fr_auto]">
-                <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-[oklch(0.24_0.010_245)] bg-[oklch(0.115_0.004_245)]">
+                <div className="flex flex-col gap-2 rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.003_245)] px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex items-start gap-2 min-w-0">
-                    <Activity className="w-3.5 h-3.5 mt-0.5 text-[oklch(0.62_0.035_220)] flex-none" />
-                    <div className="min-w-0">
-                      <div className="text-xs text-[oklch(0.86_0.015_230)] font-medium">Live reasoning supervisor</div>
-                      <div className="text-[10px] text-[oklch(0.54_0.02_235)] leading-relaxed">
-                        Flags bad assumptions, goal drift, and contradictions while the run streams. Adds about 2x judge cost.
+                    <Activity className="w-3.5 h-3.5 mt-0.5 text-[oklch(0.58_0.026_210)] flex-none" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs text-[oklch(0.84_0.014_225)] font-medium">Live reasoning supervisor</div>
+                      <div className="text-[10px] text-[oklch(0.52_0.014_235)] leading-relaxed">
+                        Flags assumptions, drift, and contradictions while the run streams. Adds about 2x judge cost.
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setLiveSupervisor((v) => !v)}
+                      aria-label="Toggle live reasoning supervisor"
+                      aria-pressed={liveSupervisor}
+                      title={liveSupervisor ? "Disable live reasoning supervisor" : "Enable live reasoning supervisor"}
+                      className={`relative mt-0.5 h-5 w-9 flex-none rounded-full transition-colors ${liveSupervisor ? "bg-[oklch(0.44_0.038_190)]" : "bg-[oklch(0.23_0.008_235)]"}`}
+                    >
+                      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-[oklch(0.88_0.012_220)] transition-transform ${liveSupervisor ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => setLiveSupervisor((v) => !v)}
-                    className={`w-9 h-5 flex-none rounded-full transition-colors relative ${liveSupervisor ? "bg-[oklch(0.48_0.045_190)]" : "bg-[oklch(0.24_0.010_235)]"}`}
-                  >
-                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${liveSupervisor ? "translate-x-4" : "translate-x-0.5"}`} />
-                  </button>
-                </div>
-                <div className="flex items-center gap-2 rounded-md border border-[oklch(0.24_0.010_245)] bg-[oklch(0.115_0.004_245)] px-3 py-2 text-xs text-[oklch(0.62_0.012_230)]">
-                  <ScanSearch className="h-3.5 w-3.5 text-[oklch(0.70_0.055_190)]" />
-                  <span>Review labels stay anonymous until you reveal them.</span>
-                </div>
+                  <div className="flex items-center gap-2 border-t border-[oklch(0.20_0.006_245)] pt-2 text-xs text-[oklch(0.58_0.012_230)] lg:border-l lg:border-t-0 lg:pl-3 lg:pt-0">
+                    <ScanSearch className="h-3.5 w-3.5 flex-none text-[oklch(0.60_0.032_190)]" />
+                    <span>Review labels stay anonymous until reveal.</span>
+                  </div>
                 </div>
               </div>
             ) : (
