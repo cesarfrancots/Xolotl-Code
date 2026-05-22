@@ -756,11 +756,13 @@ function BlindReviewBanner({
   blindMode,
   onToggle,
   revealLocked,
+  revealLockTitle,
   progressLabel,
 }: {
   blindMode: boolean;
   onToggle: () => void;
   revealLocked: boolean;
+  revealLockTitle: string;
   progressLabel: string;
 }) {
   return (
@@ -797,7 +799,7 @@ function BlindReviewBanner({
               ? "border-[oklch(0.70_0.12_185)]/40 bg-[oklch(0.70_0.12_185)]/14 text-[oklch(0.84_0.08_185)]"
               : "border-[oklch(0.32_0.018_245)] bg-[oklch(0.12_0.01_245)] text-[oklch(0.62_0.02_245)]",
           ].join(" ")}
-          title={revealLocked ? "Finish blind scores before revealing model names" : blindMode ? "Reveal model names" : "Hide model names"}
+          title={revealLocked ? revealLockTitle : blindMode ? "Reveal model names" : "Hide model names"}
         >
           {blindMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
           {revealLocked ? "Locked" : blindMode ? "Blind on" : "Names shown"}
@@ -916,12 +918,13 @@ export function EvalView() {
 
   const activeEval = useEvalStore((s) => s.activeEval);
   const humanScores = useEvalStore((s) => s.humanScores);
+  const scoresDirty = useEvalStore((s) => s.scoresDirty);
   const blindMode = useEvalStore((s) => s.blindMode);
   const toggleBlind = useEvalStore((s) => s.toggleBlind);
   const setBlindMode = useEvalStore((s) => s.setBlindMode);
   const {
     startEval, setModelRunning, appendModelDelta, appendModelReasoning, pushReasoningFlag,
-    completeModel, finalizeEval, setJudge, setGoalGrades,
+    completeModel, finalizeEval, setJudge, setGoalGrades, markHumanScoresSaved,
   } = useEvalStore.getState();
 
   useEffect(() => {
@@ -943,12 +946,18 @@ export function EvalView() {
     () => activeEval ? getBlindReviewProgress(activeEval.models, humanScores) : null,
     [activeEval, humanScores]
   );
-  const revealLocked = Boolean(activeEval && blindMode && blindReviewProgress && !blindReviewProgress.complete);
+  const saveRequiredForReveal = Boolean(activeEval && blindMode && blindReviewProgress?.complete && scoresDirty);
+  const revealLocked = Boolean(activeEval && blindMode && blindReviewProgress && (!blindReviewProgress.complete || scoresDirty));
   const blindProgressLabel = blindReviewProgress
     ? blindReviewProgress.complete
-      ? "Review complete"
+      ? scoresDirty
+        ? "Review complete - save to reveal"
+        : "Review saved"
       : `${blindReviewProgress.completedScores}/${blindReviewProgress.totalScores} scores complete`
     : `${SCORE_DIMENSION_COUNT} score axes`;
+  const revealLockTitle = saveRequiredForReveal
+    ? "Save blind scores before revealing model names"
+    : "Finish blind scores before revealing model names";
   const handleBlindToggle = useCallback(() => {
     if (revealLocked) return;
     toggleBlind();
@@ -1073,9 +1082,18 @@ export function EvalView() {
         brevity:     partial.brevity     ?? 5,
       };
     }
-    const result = await commands.saveHumanScores(activeEval.id, JSON.stringify(scoresMap));
-    if (result.status === "error") console.error("save_human_scores error:", result.error);
-    setSavingScores(false);
+    try {
+      const result = await commands.saveHumanScores(activeEval.id, JSON.stringify(scoresMap));
+      if (result.status === "error") {
+        console.error("save_human_scores error:", result.error);
+      } else {
+        markHumanScoresSaved();
+      }
+    } catch (error) {
+      console.error("save_human_scores error:", error);
+    } finally {
+      setSavingScores(false);
+    }
   }
 
   async function runGoalGrade() {
@@ -1177,13 +1195,13 @@ export function EvalView() {
               onClick={handleBlindToggle}
               disabled={revealLocked}
               className={`text-xs h-7 gap-1 ${blindMode ? "text-[oklch(0.78_0.12_185)]" : "text-[oklch(0.58_0.025_230)]"}`}
-              title={revealLocked ? "Finish blind scores before revealing model names" : "Hide model names during scoring"}
+              title={revealLocked ? revealLockTitle : "Hide model names during scoring"}
             >
               {blindMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />} Blind
             </Button>
             {activeEval && hasScores && (
-              <Button size="sm" variant="ghost" onClick={saveScores} disabled={savingScores} className="text-xs h-7 gap-1 text-[oklch(0.65_0.18_250)]">
-                <Save className="w-3.5 h-3.5" /> {savingScores ? "Saving…" : "Save scores"}
+              <Button size="sm" variant="ghost" onClick={saveScores} disabled={savingScores || !scoresDirty} className={`text-xs h-7 gap-1 ${scoresDirty ? "text-[oklch(0.65_0.18_250)]" : "text-[oklch(0.50_0.025_230)]"}`}>
+                <Save className="w-3.5 h-3.5" /> {savingScores ? "Saving..." : scoresDirty ? "Save scores" : "Scores saved"}
               </Button>
             )}
           </div>
@@ -1221,6 +1239,7 @@ export function EvalView() {
                 blindMode={blindMode}
                 onToggle={handleBlindToggle}
                 revealLocked={revealLocked}
+                revealLockTitle={revealLockTitle}
                 progressLabel={blindProgressLabel}
               />
             )}
@@ -1369,7 +1388,7 @@ export function EvalView() {
                     </Button>
                   )}
                   <Button size="sm" variant="ghost"
-                    onClick={() => { setPrompt(""); useEvalStore.setState({ activeEval: null, humanScores: {} }); }}
+                    onClick={() => { setPrompt(""); useEvalStore.setState({ activeEval: null, humanScores: {}, scoresDirty: false }); }}
                     className="gap-1 text-xs h-7 text-[oklch(0.45_0_0)]">
                     <RotateCcw className="w-3 h-3" /> Reset
                   </Button>

@@ -63,6 +63,8 @@ export interface SuiteRunState {
 export interface EvalState {
   activeEval: ActiveEval | null;
   humanScores: Record<string, Partial<HumanScores>>;
+  /** True when local human score edits have not been saved to disk yet. */
+  scoresDirty: boolean;
   evalOpen: boolean;
   /** True if names are blinded (A, B, C) for unbiased human scoring. */
   blindMode: boolean;
@@ -89,6 +91,7 @@ export interface EvalState {
   setGoalGrades: (grades: Record<string, GoalGrade>) => void;
   loadEval: (result: EvalResult) => void;
   setHumanScore: (model: string, dimension: keyof HumanScores, value: number) => void;
+  markHumanScoresSaved: () => void;
   clearHumanScores: () => void;
   openEval: () => void;
   closeEval: () => void;
@@ -177,6 +180,7 @@ export function getBlindReviewProgress(
 export const useEvalStore = create<EvalState>()((set) => ({
   activeEval: null,
   humanScores: {},
+  scoresDirty: false,
   evalOpen: false,
   blindMode: true,
   activeSuite: null,
@@ -211,6 +215,7 @@ export const useEvalStore = create<EvalState>()((set) => ({
         live_supervisor: suiteInfo?.live_supervisor ?? false,
       },
       humanScores: {},
+      scoresDirty: false,
       evalOpen: true,
     });
   },
@@ -370,6 +375,7 @@ export const useEvalStore = create<EvalState>()((set) => ({
         is_goal_eval: result.is_goal_eval ?? false,
       },
       humanScores,
+      scoresDirty: false,
       evalOpen: true,
       ...(result.is_goal_eval ? { blindMode: true } : {}),
     });
@@ -381,9 +387,12 @@ export const useEvalStore = create<EvalState>()((set) => ({
         ...s.humanScores,
         [model]: { ...(s.humanScores[model] ?? {}), [dimension]: value },
       },
+      scoresDirty: true,
     })),
 
-  clearHumanScores: () => set({ humanScores: {} }),
+  markHumanScoresSaved: () => set({ scoresDirty: false }),
+
+  clearHumanScores: () => set({ humanScores: {}, scoresDirty: false }),
 
   openEval: () => set({ evalOpen: true }),
   closeEval: () => set({ evalOpen: false }),

@@ -8,6 +8,7 @@ beforeEach(() => {
   useEvalStore.setState({
     activeEval: null,
     humanScores: {},
+    scoresDirty: false,
     evalOpen: false,
     blindMode: true,
     activeSuite: null,
@@ -70,6 +71,16 @@ describe("getBlindReviewProgress", () => {
 });
 
 describe("eval blind review state", () => {
+  it("marks human score edits dirty until they are saved", () => {
+    expect(useEvalStore.getState().scoresDirty).toBe(false);
+
+    useEvalStore.getState().setHumanScore("kimi-coding", "accuracy", 8);
+
+    expect(useEvalStore.getState().scoresDirty).toBe(true);
+    useEvalStore.getState().markHumanScoresSaved();
+    expect(useEvalStore.getState().scoresDirty).toBe(false);
+  });
+
   it("stores blind labels when starting an eval", () => {
     useEvalStore.getState().startEval("eval-live", "Ship a feature", MODELS, { is_goal_eval: true });
 
@@ -79,6 +90,8 @@ describe("eval blind review state", () => {
   });
 
   it("rebuilds the same blind labels when loading a stored eval", () => {
+    useEvalStore.setState({ scoresDirty: true });
+
     const result: EvalResult = {
       id: "eval-stored",
       prompt: "Ship a feature",
@@ -99,6 +112,7 @@ describe("eval blind review state", () => {
     useEvalStore.getState().loadEval(result);
 
     expect(useEvalStore.getState().activeEval?.blindLabels).toEqual(buildBlindLabels("eval-stored", MODELS));
+    expect(useEvalStore.getState().scoresDirty).toBe(false);
   });
 
   it("forces goal evals loaded from history back into blind mode", () => {
