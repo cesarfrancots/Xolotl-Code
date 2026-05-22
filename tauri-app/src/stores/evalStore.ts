@@ -80,6 +80,7 @@ export interface EvalState {
   openEval: () => void;
   closeEval: () => void;
   toggleBlind: () => void;
+  setBlindMode: (blindMode: boolean) => void;
   startSuite: (run: SuiteRunState) => void;
   advanceSuite: (eval_id: string) => void;
   finishSuite: () => void;
@@ -89,7 +90,7 @@ export const useEvalStore = create<EvalState>()((set) => ({
   activeEval: null,
   humanScores: {},
   evalOpen: false,
-  blindMode: false,
+  blindMode: true,
   activeSuite: null,
 
   startEval: (id, prompt, models, suiteInfo) => {
@@ -296,6 +297,7 @@ export const useEvalStore = create<EvalState>()((set) => ({
   openEval: () => set({ evalOpen: true }),
   closeEval: () => set({ evalOpen: false }),
   toggleBlind: () => set((s) => ({ blindMode: !s.blindMode })),
+  setBlindMode: (blindMode) => set({ blindMode }),
 
   startSuite: (run) => set({ activeSuite: run }),
   advanceSuite: (eval_id) =>

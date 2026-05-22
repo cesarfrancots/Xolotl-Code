@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   FlaskConical, Play, RotateCcw, ChevronDown, ChevronUp, Save, Clock, Coins, Hash,
   Eye, EyeOff, Trophy, Sparkles, History, ListChecks, Gavel, Trash2,
-  Target, Brain, AlertTriangle, Activity,
+  Target, Brain, AlertTriangle, Activity, ShieldCheck, ScanSearch, Gauge,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
@@ -652,8 +652,119 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
 // ════════════════════════════════════════════════════════════════════════════
 type Mode = "single" | "suite" | "goal";
 
+function ModeButton({
+  active, onClick, icon, title, hint, tone = "default",
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  tone?: "default" | "goal";
+}) {
+  const activeClass = tone === "goal"
+    ? "border-[oklch(0.71_0.13_185)] bg-[oklch(0.30_0.07_185)]/30 text-[oklch(0.89_0.06_185)]"
+    : "border-[oklch(0.58_0.12_255)] bg-[oklch(0.28_0.06_255)]/30 text-[oklch(0.88_0.06_255)]";
+  return (
+    <button
+      onClick={onClick}
+      className={[
+        "flex min-h-[64px] flex-1 items-start gap-2 rounded-lg border px-3 py-2 text-left transition-all",
+        active
+          ? `${activeClass} shadow-[0_0_0_1px_oklch(1_0_0_/_0.04),0_18px_44px_oklch(0_0_0_/_0.24)]`
+          : "border-[oklch(0.24_0.018_245)] bg-[oklch(0.12_0.01_245)] text-[oklch(0.58_0.02_245)] hover:border-[oklch(0.34_0.035_230)] hover:text-[oklch(0.82_0.02_230)]",
+      ].join(" ")}
+    >
+      <span className="mt-0.5 flex h-7 w-7 flex-none items-center justify-center rounded-md bg-[oklch(0.08_0.01_245)]/70">
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-xs font-semibold">{title}</span>
+        <span className="mt-0.5 block text-[10px] leading-snug text-[oklch(0.57_0.02_235)]">{hint}</span>
+      </span>
+    </button>
+  );
+}
+
+function BlindReviewBanner({ blindMode, onToggle }: { blindMode: boolean; onToggle: () => void }) {
+  return (
+    <div className="relative overflow-hidden rounded-lg border border-[oklch(0.27_0.035_205)] xolotl-panel px-3 py-3">
+      <div className="absolute inset-0 eval-topography opacity-70" aria-hidden="true" />
+      <div className="relative flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-9 w-9 flex-none items-center justify-center rounded-lg border border-[oklch(0.70_0.12_185)]/35 bg-[oklch(0.70_0.12_185)]/12">
+            <ShieldCheck className="h-4 w-4 text-[oklch(0.80_0.11_185)]" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-[oklch(0.90_0.025_220)]">Blind human review</div>
+            <div className="mt-0.5 text-xs leading-relaxed text-[oklch(0.62_0.025_225)]">
+              Responses are labeled Model A, B, C while scoring. Reveal names only after the review pass.
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={onToggle}
+          className={[
+            "flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+            blindMode
+              ? "border-[oklch(0.70_0.12_185)]/40 bg-[oklch(0.70_0.12_185)]/14 text-[oklch(0.84_0.08_185)]"
+              : "border-[oklch(0.32_0.018_245)] bg-[oklch(0.12_0.01_245)] text-[oklch(0.62_0.02_245)]",
+          ].join(" ")}
+          title={blindMode ? "Reveal model names" : "Hide model names"}
+        >
+          {blindMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          {blindMode ? "Blind on" : "Names shown"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EvalRunStrip({ blindNames }: { blindNames: Record<string, string> }) {
+  const activeEval = useEvalStore((s) => s.activeEval);
+  if (!activeEval) return null;
+
+  const done = activeEval.models.filter((m) => {
+    const status = activeEval.modelStates[m]?.status;
+    return status === "done" || status === "error";
+  }).length;
+  const tokenTotal = activeEval.models.reduce((sum, model) => {
+    const s = activeEval.modelStates[model];
+    return sum + (s?.input_tokens ?? 0) + (s?.output_tokens ?? 0);
+  }, 0);
+  const costTotal = activeEval.models.reduce((sum, model) => {
+    const s = activeEval.modelStates[model];
+    return sum + calcCost(model, s?.input_tokens ?? 0, s?.output_tokens ?? 0);
+  }, 0);
+
+  return (
+    <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
+      <div className="rounded-lg border border-[oklch(0.25_0.025_245)] bg-[oklch(0.12_0.012_245)] px-3 py-2">
+        <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-[oklch(0.54_0.03_220)]">
+          <Gauge className="h-3 w-3" />
+          Active trial
+        </div>
+        <div className="line-clamp-2 text-sm leading-relaxed text-[oklch(0.84_0.015_220)]">{activeEval.prompt}</div>
+      </div>
+      <div className="rounded-lg border border-[oklch(0.25_0.025_245)] bg-[oklch(0.12_0.012_245)] px-3 py-2 text-xs">
+        <div className="text-[10px] uppercase tracking-[0.15em] text-[oklch(0.52_0.025_230)]">Progress</div>
+        <div className="mt-1 font-mono text-[oklch(0.83_0.05_185)]">{done}/{activeEval.models.length}</div>
+      </div>
+      <div className="rounded-lg border border-[oklch(0.25_0.025_245)] bg-[oklch(0.12_0.012_245)] px-3 py-2 text-xs">
+        <div className="text-[10px] uppercase tracking-[0.15em] text-[oklch(0.52_0.025_230)]">Usage</div>
+        <div className="mt-1 font-mono text-[oklch(0.83_0.05_185)]">{tokenTotal} tok / ${costTotal.toFixed(4)}</div>
+      </div>
+      {activeEval.complete && (
+        <div className="md:col-span-3 rounded-lg border border-[oklch(0.31_0.04_185)] bg-[oklch(0.16_0.035_185)]/50 px-3 py-2 text-xs text-[oklch(0.74_0.06_185)]">
+          Review order: {activeEval.models.map((m) => blindNames[m] ?? m).join(", ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function EvalView() {
-  const [mode, setMode] = useState<Mode>("single");
+  const [mode, setMode] = useState<Mode>("goal");
   const [prompt, setPrompt] = useState("");
   const [selectedModels, setSelectedModels] = useState<string[]>(["claude-haiku-4-5-20251001", "kimi2.6"]);
   const [allModels, setAllModels] = useState<string[]>([]);
@@ -671,6 +782,7 @@ export function EvalView() {
   const humanScores = useEvalStore((s) => s.humanScores);
   const blindMode = useEvalStore((s) => s.blindMode);
   const toggleBlind = useEvalStore((s) => s.toggleBlind);
+  const setBlindMode = useEvalStore((s) => s.setBlindMode);
   const {
     startEval, setModelRunning, appendModelDelta, appendModelReasoning, pushReasoningFlag,
     completeModel, finalizeEval, setJudge, setGoalGrades,
@@ -737,6 +849,7 @@ export function EvalView() {
 
   const runGoalEval = useCallback(async () => {
     if (!prompt.trim() || selectedModels.length === 0 || running) return;
+    setBlindMode(true);
     setRunning(true);
     const supervisor = liveSupervisor ? judgeModel : null;
     const result = await commands.startGoalEval(prompt.trim(), selectedModels, liveSupervisor, supervisor);
@@ -748,7 +861,7 @@ export function EvalView() {
     const evalId = result.data;
     startEval(evalId, prompt.trim(), selectedModels, { is_goal_eval: true, live_supervisor: liveSupervisor });
     await subscribeToEval(evalId);
-  }, [prompt, selectedModels, running, liveSupervisor, judgeModel]);
+  }, [prompt, selectedModels, running, liveSupervisor, judgeModel, setBlindMode]);
 
   const runSuiteEval = useCallback(async () => {
     if (selectedModels.length === 0 || running) return;
@@ -874,18 +987,25 @@ export function EvalView() {
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <div className="flex-none flex items-center gap-3 px-4 py-3 border-b border-neutral-800 bg-[oklch(0.12_0_0)]">
-          <FlaskConical className="w-5 h-5 text-[oklch(0.65_0.18_250)]" />
-          <span className="text-sm font-semibold text-[oklch(0.88_0_0)]">Model Eval Lab</span>
-          <span className="text-xs text-[oklch(0.40_0_0)]">Race · score · judge</span>
+        <div className="flex-none flex items-center gap-3 px-4 py-3 border-b border-[oklch(0.24_0.022_235)] bg-[oklch(0.115_0.012_245)]">
+          <div className="xolotl-mark scale-90" aria-hidden="true" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-[oklch(0.91_0.02_220)]">Model Eval Lab</span>
+              <span className="rounded border border-[oklch(0.72_0.12_185)]/25 bg-[oklch(0.72_0.12_185)]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[oklch(0.74_0.09_185)]">
+                Blind first
+              </span>
+            </div>
+            <div className="mt-0.5 text-xs text-[oklch(0.48_0.025_230)]">Goal trials, review scoring, and judge passes</div>
+          </div>
 
           <div className="ml-auto flex items-center gap-1">
             {!historyOpen && (
-              <Button size="sm" variant="ghost" onClick={() => setHistoryOpen(true)} className="text-xs h-7 gap-1 text-[oklch(0.55_0_0)]">
+              <Button size="sm" variant="ghost" onClick={() => setHistoryOpen(true)} className="text-xs h-7 gap-1 text-[oklch(0.58_0.025_230)]">
                 <History className="w-3.5 h-3.5" /> History
               </Button>
             )}
-            <Button size="sm" variant="ghost" onClick={toggleBlind} className={`text-xs h-7 gap-1 ${blindMode ? "text-[oklch(0.78_0.18_250)]" : "text-[oklch(0.55_0_0)]"}`} title="Hide model names during scoring">
+            <Button size="sm" variant="ghost" onClick={toggleBlind} className={`text-xs h-7 gap-1 ${blindMode ? "text-[oklch(0.78_0.12_185)]" : "text-[oklch(0.58_0.025_230)]"}`} title="Hide model names during scoring">
               {blindMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />} Blind
             </Button>
             {activeEval && hasScores && (
@@ -898,50 +1018,64 @@ export function EvalView() {
 
         <div className="flex-1 overflow-y-auto">
           {/* Mode + suite/prompt + models */}
-          <div className="px-4 py-3 border-b border-neutral-800 flex flex-col gap-3">
-            <div className="flex items-center gap-1 text-xs">
-              <button onClick={() => setMode("single")}
-                className={`px-3 py-1.5 rounded-l-md border ${mode === "single" ? "bg-[oklch(0.65_0.18_250)]/20 border-[oklch(0.65_0.18_250)] text-[oklch(0.85_0.15_250)]" : "bg-transparent border-neutral-700 text-[oklch(0.55_0_0)]"}`}>
-                Single Prompt
-              </button>
-              <button onClick={() => setMode("suite")}
-                className={`px-3 py-1.5 border -ml-px ${mode === "suite" ? "bg-[oklch(0.65_0.18_250)]/20 border-[oklch(0.65_0.18_250)] text-[oklch(0.85_0.15_250)]" : "bg-transparent border-neutral-700 text-[oklch(0.55_0_0)]"}`}>
-                <ListChecks className="inline w-3 h-3 mr-1" /> Eval Suite
-              </button>
-              <button onClick={() => setMode("goal")}
-                className={`px-3 py-1.5 rounded-r-md border -ml-px ${mode === "goal" ? "bg-[oklch(0.78_0.18_60)]/20 border-[oklch(0.78_0.18_60)] text-[oklch(0.88_0.15_60)]" : "bg-transparent border-neutral-700 text-[oklch(0.55_0_0)]"}`}>
-                <Target className="inline w-3 h-3 mr-1" /> Goal Eval
-              </button>
+          <div className="px-4 py-4 border-b border-[oklch(0.23_0.018_245)] flex flex-col gap-4 bg-[oklch(0.105_0.012_250)]">
+            <div className="grid grid-cols-1 gap-2 lg:grid-cols-3">
+              <ModeButton
+                active={mode === "goal"}
+                onClick={() => { setMode("goal"); setBlindMode(true); }}
+                icon={<Target className="h-4 w-4" />}
+                title="Goal Eval"
+                hint="Compare models on one concrete production goal."
+                tone="goal"
+              />
+              <ModeButton
+                active={mode === "single"}
+                onClick={() => setMode("single")}
+                icon={<FlaskConical className="h-4 w-4" />}
+                title="Single Prompt"
+                hint="Race a prompt and score output quality."
+              />
+              <ModeButton
+                active={mode === "suite"}
+                onClick={() => setMode("suite")}
+                icon={<ListChecks className="h-4 w-4" />}
+                title="Eval Suite"
+                hint="Run a saved prompt set across selected models."
+              />
             </div>
+            {(mode === "goal" || activeEval?.is_goal_eval) && (
+              <BlindReviewBanner blindMode={blindMode} onToggle={toggleBlind} />
+            )}
 
             {mode === "single" ? (
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider">Prompt</label>
                 <textarea
                   value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
-                  placeholder="Enter a prompt to evaluate across all selected models…"
+                  placeholder="Enter a prompt to evaluate across all selected models..."
                   disabled={running}
-                  className="bg-[oklch(0.155_0_0)] border border-neutral-800 rounded-lg px-3 py-2.5 text-sm text-[oklch(0.88_0_0)] placeholder:text-[oklch(0.38_0_0)] resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.65_0.18_250)] disabled:opacity-60"
+                  className="bg-[oklch(0.14_0.012_245)] border border-[oklch(0.25_0.02_245)] rounded-lg px-3 py-2.5 text-sm text-[oklch(0.88_0.01_220)] placeholder:text-[oklch(0.42_0.02_245)] resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.65_0.14_190)] disabled:opacity-60"
                 />
               </div>
             ) : mode === "goal" ? (
               <div className="flex flex-col gap-2">
                 <label className="text-[10px] text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider flex items-center gap-1.5">
-                  <Target className="w-3 h-3 text-[oklch(0.78_0.18_60)]" /> Goal
+                  <Target className="w-3 h-3 text-[oklch(0.78_0.12_185)]" /> Goal
                 </label>
                 <textarea
                   value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
                   placeholder="e.g. Refactor src/auth/middleware.ts to use the jose library instead of jsonwebtoken, preserving the same public API."
                   disabled={running}
-                  className="bg-[oklch(0.155_0_0)] border border-neutral-800 rounded-lg px-3 py-2.5 text-sm text-[oklch(0.88_0_0)] placeholder:text-[oklch(0.38_0_0)] resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.78_0.18_60)] disabled:opacity-60"
+                  className="bg-[oklch(0.14_0.012_245)] border border-[oklch(0.27_0.035_205)] rounded-lg px-3 py-2.5 text-sm text-[oklch(0.88_0.01_220)] placeholder:text-[oklch(0.42_0.02_245)] resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.70_0.12_185)] disabled:opacity-60"
                 />
-                <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-neutral-800 bg-[oklch(0.13_0_0)]">
+                <div className="grid grid-cols-1 gap-2 lg:grid-cols-[1fr_auto]">
+                <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-[oklch(0.25_0.025_250)] bg-[oklch(0.12_0.012_255)]">
                   <div className="flex items-start gap-2 min-w-0">
-                    <Activity className="w-3.5 h-3.5 mt-0.5 text-[oklch(0.65_0.18_280)] flex-none" />
+                    <Activity className="w-3.5 h-3.5 mt-0.5 text-[oklch(0.66_0.12_285)] flex-none" />
                     <div className="min-w-0">
-                      <div className="text-xs text-[oklch(0.85_0_0)] font-medium">Live reasoning supervisor</div>
-                      <div className="text-[10px] text-[oklch(0.50_0_0)] leading-relaxed">
-                        Every ~1200 chars of reasoning, a judge call flags bad assumptions, goal drift, or contradictions. Adds ~2× cost.
+                      <div className="text-xs text-[oklch(0.86_0.015_230)] font-medium">Live reasoning supervisor</div>
+                      <div className="text-[10px] text-[oklch(0.54_0.02_235)] leading-relaxed">
+                        Flags bad assumptions, goal drift, and contradictions while the run streams. Adds about 2x judge cost.
                       </div>
                     </div>
                   </div>
@@ -951,6 +1085,11 @@ export function EvalView() {
                   >
                     <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${liveSupervisor ? "translate-x-4" : "translate-x-0.5"}`} />
                   </button>
+                </div>
+                <div className="flex items-center gap-2 rounded-lg border border-[oklch(0.25_0.025_250)] bg-[oklch(0.12_0.012_255)] px-3 py-2 text-xs text-[oklch(0.62_0.025_230)]">
+                  <ScanSearch className="h-3.5 w-3.5 text-[oklch(0.78_0.11_185)]" />
+                  <span>Review labels stay anonymous until you reveal them.</span>
+                </div>
                 </div>
               </div>
             ) : (
@@ -1019,8 +1158,8 @@ export function EvalView() {
                 disabled={running || selectedModels.length === 0 || ((mode === "single" || mode === "goal") && !prompt.trim())}
                 className={`gap-1.5 text-white disabled:opacity-50 ${
                   mode === "goal"
-                    ? "bg-[oklch(0.65_0.18_60)] hover:bg-[oklch(0.60_0.18_60)]"
-                    : "bg-[oklch(0.65_0.18_250)] hover:bg-[oklch(0.60_0.18_250)]"
+                    ? "bg-[oklch(0.58_0.14_185)] hover:bg-[oklch(0.53_0.14_185)]"
+                    : "bg-[oklch(0.60_0.14_250)] hover:bg-[oklch(0.55_0.14_250)]"
                 }`}
               >
                 {mode === "goal" ? <Target className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
@@ -1059,6 +1198,7 @@ export function EvalView() {
           {/* Active eval body */}
           {activeEval && (
             <div className="px-4 py-4 flex flex-col gap-4">
+              <EvalRunStrip blindNames={blindNames} />
               {/* Live race-track */}
               {!activeEval.complete && (
                 <div className="rounded-lg border border-neutral-800 overflow-hidden bg-[oklch(0.12_0_0)]">
@@ -1097,9 +1237,26 @@ export function EvalView() {
               )}
             </div>
           )}
+
+          {!activeEval && (
+            <div className="px-4 py-5">
+              <div className="relative overflow-hidden rounded-xl border border-[oklch(0.24_0.025_245)] xolotl-panel p-5">
+                <div className="absolute inset-0 eval-topography opacity-60" aria-hidden="true" />
+                <div className="relative max-w-3xl">
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-[oklch(0.72_0.12_185)]/25 bg-[oklch(0.72_0.12_185)]/10 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-[oklch(0.75_0.08_185)]">
+                    <ShieldCheck className="h-3 w-3" />
+                    Goal review ready
+                  </div>
+                  <h2 className="text-lg font-semibold tracking-normal text-[oklch(0.92_0.02_220)]">Start with a concrete goal, then score outputs without model names.</h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[oklch(0.62_0.025_230)]">
+                    The lab now defaults to goal eval and blind review, so the first pass focuses on evidence, completeness, and production fit before provider bias enters the decision.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
-
