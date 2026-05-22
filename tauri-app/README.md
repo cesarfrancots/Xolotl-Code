@@ -1,7 +1,25 @@
-# Tauri + React + Typescript
+# xolotl desktop
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Tauri desktop workbench for xolotl coding sessions, parallel agents, and model evaluation.
 
-## Recommended IDE Setup
+## Local development
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+```sh
+npm install
+npm run dev
+```
+
+## Verification
+
+```sh
+npm test
+npm run build
+```
+
+## Product surfaces
+
+- Chat: session-based coding conversations with model selection, skills, file attachments, and tool output rendering.
+- Agents: isolated worktree agents, team launches, and merge checkpoint review.
+- Eval Lab: single-prompt, suite, and goal evals with randomized blind labels for human review.
+
+The app shares provider configuration, sessions, eval results, skills, and MCP server discovery through `~/.xolotl-code/`.
