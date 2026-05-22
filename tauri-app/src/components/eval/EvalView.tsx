@@ -825,22 +825,22 @@ function BlindReviewBanner({
   progressLabel: string;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-md border border-[oklch(0.25_0.012_220)] xolotl-panel px-3 py-3">
-      <div className="absolute inset-0 eval-topography opacity-35" aria-hidden="true" />
+    <div className="relative overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)] px-3 py-3">
+      <div className="absolute inset-y-3 left-0 w-px bg-[oklch(0.62_0.035_190)]/55" aria-hidden="true" />
       <div className="relative flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-9 w-9 flex-none items-center justify-center rounded-md border border-[oklch(0.42_0.025_195)] bg-[oklch(0.14_0.010_205)]">
-            <ShieldCheck className="h-4 w-4 text-[oklch(0.72_0.055_190)]" />
+          <div className="flex h-8 w-8 flex-none items-center justify-center rounded-md border border-[oklch(0.28_0.012_235)] bg-[oklch(0.12_0.004_245)]">
+            <ShieldCheck className="h-4 w-4 text-[oklch(0.62_0.030_195)]" />
           </div>
           <div className="min-w-0">
             <div className="text-sm font-semibold text-[oklch(0.90_0.025_220)]">Blind human review</div>
             <div className="mt-0.5 text-xs leading-relaxed text-[oklch(0.62_0.025_225)]">
               Responses get stable randomized labels while scoring. Reveal names only after the review pass.
             </div>
-            <div className={`mt-2 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] uppercase tracking-[0.14em] ${
+            <div className={`mt-2 inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${
               revealLocked
-                ? "border-[oklch(0.42_0.045_72)] bg-[oklch(0.15_0.018_72)]/60 text-[oklch(0.74_0.055_72)]"
-                : "border-[oklch(0.36_0.025_175)] bg-[oklch(0.14_0.012_180)]/70 text-[oklch(0.72_0.055_185)]"
+                ? "border-[oklch(0.32_0.030_72)] bg-[oklch(0.13_0.010_72)] text-[oklch(0.66_0.040_72)]"
+                : "border-[oklch(0.30_0.018_175)] bg-[oklch(0.12_0.006_180)] text-[oklch(0.66_0.035_185)]"
             }`}>
               {revealLocked ? <AlertTriangle className="h-3 w-3" /> : <ShieldCheck className="h-3 w-3" />}
               {progressLabel}
@@ -854,8 +854,8 @@ function BlindReviewBanner({
             "flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
             revealLocked
               ? "cursor-not-allowed border-[oklch(0.27_0.010_240)] bg-[oklch(0.105_0.004_245)] text-[oklch(0.46_0.012_245)]"
-              : blindMode
-              ? "border-[oklch(0.42_0.03_190)] bg-[oklch(0.14_0.012_200)] text-[oklch(0.76_0.055_190)]"
+            : blindMode
+              ? "border-[oklch(0.34_0.018_190)] bg-[oklch(0.13_0.006_200)] text-[oklch(0.70_0.040_190)]"
               : "border-[oklch(0.32_0.012_245)] bg-[oklch(0.12_0.006_245)] text-[oklch(0.62_0.012_245)]",
           ].join(" ")}
           title={revealLocked ? revealLockTitle : blindMode ? "Reveal model names" : "Hide model names"}
@@ -926,24 +926,28 @@ function workflowIcon(step: GoalWorkflowStep) {
 }
 
 function GoalWorkflowStrip({ steps }: { steps: GoalWorkflowStep[] }) {
+  const currentStep = steps.find((step) => step.state === "current") ?? steps.find((step) => step.state === "locked") ?? steps[steps.length - 1];
+
   return (
     <div className="rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.105_0.004_245)] px-3 py-2">
-      <div className="mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.15em] text-[oklch(0.52_0.012_230)]">
-        <ShieldCheck className="h-3 w-3 text-[oklch(0.62_0.030_195)]" />
-        Review sequence
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.15em] text-[oklch(0.52_0.012_230)]">
+          <ShieldCheck className="h-3 w-3 text-[oklch(0.58_0.025_195)]" />
+          Review protocol
+        </div>
+        <div className="text-[11px] leading-snug text-[oklch(0.58_0.014_225)]">
+          {currentStep?.label}: {currentStep?.detail}
+        </div>
       </div>
-      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-5">
+      <div className="mt-2 grid grid-cols-5 gap-1.5">
         {steps.map((step) => (
           <div
             key={step.id}
-            className={`min-h-[54px] rounded border px-2 py-1.5 transition-colors ${workflowTone(step.state)}`}
+            className={`flex h-7 items-center justify-center gap-1.5 rounded border px-1.5 text-[11px] transition-colors ${workflowTone(step.state)}`}
             title={step.detail}
           >
-            <div className="flex items-center gap-1.5 text-[11px] font-medium">
-              {workflowIcon(step)}
-              {step.label}
-            </div>
-            <div className="mt-1 text-[10px] leading-snug opacity-70">{step.detail}</div>
+            {workflowIcon(step)}
+            <span className="hidden truncate sm:inline">{step.label}</span>
           </div>
         ))}
       </div>
@@ -1732,16 +1736,24 @@ export function EvalView() {
 
           {!activeEval && (
             <div className="px-4 py-5">
-              <div className="relative overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.118_0.004_245)] p-5">
-                <div className="relative max-w-3xl">
-                  <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-[oklch(0.38_0.018_205)] bg-[oklch(0.13_0.006_220)] px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-[oklch(0.66_0.035_195)]">
-                    <ShieldCheck className="h-3 w-3" />
-                    Goal review ready
+              <div className="relative overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.112_0.004_245)] px-4 py-3">
+                <div className="relative flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="min-w-0">
+                    <div className="mb-1.5 inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">
+                      <ShieldCheck className="h-3 w-3" />
+                      No active trial
+                    </div>
+                    <h2 className="text-sm font-semibold tracking-normal text-[oklch(0.88_0.016_220)]">Prepare the goal, select models, then run a blind comparison.</h2>
+                    <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[oklch(0.56_0.014_225)]">
+                      Rankings, model names, judge notes, and telemetry stay out of the way until the human review is saved.
+                    </p>
                   </div>
-                  <h2 className="text-lg font-semibold tracking-normal text-[oklch(0.92_0.02_220)]">Start with a concrete goal, then score outputs without model names.</h2>
-                  <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[oklch(0.62_0.025_230)]">
-                    The lab now defaults to goal eval and blind review, so the first pass focuses on evidence, completeness, and production fit before provider bias enters the decision.
-                  </p>
+                  <div className="flex flex-wrap gap-1.5 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.50_0.012_230)]">
+                    <span className="rounded border border-[oklch(0.24_0.010_245)] px-2 py-1">Goal</span>
+                    <span className="rounded border border-[oklch(0.24_0.010_245)] px-2 py-1">Compare</span>
+                    <span className="rounded border border-[oklch(0.24_0.010_245)] px-2 py-1">Blind score</span>
+                    <span className="rounded border border-[oklch(0.24_0.010_245)] px-2 py-1">Reveal</span>
+                  </div>
                 </div>
               </div>
             </div>
