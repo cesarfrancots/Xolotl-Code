@@ -11,7 +11,7 @@ import { commands } from "../../bindings";
 import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalGrade } from "../../bindings";
 import { HUMAN_SCORE_KEYS, getBlindReviewProgress, getReviewOrder, useEvalStore } from "../../stores/evalStore";
 import { MarkdownRenderer } from "../chat/MarkdownRenderer";
-import { assessGoalEvalReadiness, type GoalEvalReadiness, type GoalReadinessState } from "../../lib/evalReadiness";
+import { assessBlindReviewGate, assessGoalEvalReadiness, type GoalEvalReadiness, type GoalReadinessState } from "../../lib/evalReadiness";
 
 const UI_ACCENT = "oklch(0.70 0.07 190)";
 const UI_ACCENT_DIM = "oklch(0.58 0.045 205)";
@@ -965,6 +965,15 @@ export function EvalView() {
   const revealLockTitle = saveRequiredForReveal
     ? "Save blind scores before revealing model names"
     : "Finish blind scores before revealing model names";
+  const reviewGate = useMemo(
+    () => assessBlindReviewGate({
+      isGoalEval: Boolean(activeEval?.is_goal_eval),
+      blindMode,
+      reviewComplete: Boolean(blindReviewProgress?.complete),
+      scoresDirty,
+    }),
+    [activeEval?.is_goal_eval, blindMode, blindReviewProgress?.complete, scoresDirty]
+  );
   const handleBlindToggle = useCallback(() => {
     if (revealLocked) return;
     toggleBlind();
@@ -1105,6 +1114,7 @@ export function EvalView() {
 
   async function runGoalGrade() {
     if (!activeEval || goalGrading) return;
+    if (reviewGate.machineReviewLocked) return;
     setGoalGrading(true);
     const result = await commands.runGoalGrade(activeEval.id, judgeModel);
     if (result.status === "error") {
@@ -1122,6 +1132,7 @@ export function EvalView() {
 
   async function runJudge() {
     if (!activeEval || judgeRunning) return;
+    if (reviewGate.machineReviewLocked) return;
     setJudgeRunning(true);
     const result = await commands.runLlmJudge(activeEval.id, judgeModel);
     if (result.status === "error") {
@@ -1384,12 +1395,31 @@ export function EvalView() {
                   >
                     {allModels.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
-                  <Button size="sm" variant="ghost" onClick={runJudge} disabled={judgeRunning}
+                  {reviewGate.machineReviewLocked && (
+                    <span
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[oklch(0.38_0.030_72)] bg-[oklch(0.13_0.010_72)] px-2 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.70_0.045_72)]"
+                      title={reviewGate.detail}
+                    >
+                      <ShieldCheck className="h-3 w-3" />
+                      {reviewGate.label}
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={runJudge}
+                    disabled={judgeRunning || reviewGate.machineReviewLocked}
+                    title={reviewGate.machineReviewLocked ? reviewGate.detail : "Run anonymized LLM judge"}
                     className="gap-1 text-xs h-7 text-[oklch(0.68_0.040_205)]">
                     <Gavel className="w-3.5 h-3.5" /> {judgeRunning ? "Judging…" : "Run LLM Judge"}
                   </Button>
                   {(activeEval.is_goal_eval || mode === "goal") && (
-                    <Button size="sm" variant="ghost" onClick={runGoalGrade} disabled={goalGrading}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={runGoalGrade}
+                      disabled={goalGrading || reviewGate.machineReviewLocked}
+                      title={reviewGate.machineReviewLocked ? reviewGate.detail : "Run goal-grade pass"}
                       className="gap-1 text-xs h-7 text-[oklch(0.70_0.055_190)]">
                       <Target className="w-3.5 h-3.5" /> {goalGrading ? "Grading…" : "Grade Goal"}
                     </Button>

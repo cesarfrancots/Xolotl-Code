@@ -12,6 +12,13 @@ export interface GoalEvalReadiness {
   items: GoalReadinessItem[];
 }
 
+export interface BlindReviewGate {
+  machineReviewLocked: boolean;
+  reason: "score" | "save" | null;
+  label: string;
+  detail: string;
+}
+
 export function assessGoalEvalReadiness({
   goal,
   modelCount,
@@ -68,5 +75,51 @@ export function assessGoalEvalReadiness({
   return {
     canRun: hasGoal && hasComparison,
     items,
+  };
+}
+
+export function assessBlindReviewGate({
+  isGoalEval,
+  blindMode,
+  reviewComplete,
+  scoresDirty,
+}: {
+  isGoalEval: boolean;
+  blindMode: boolean;
+  reviewComplete: boolean;
+  scoresDirty: boolean;
+}): BlindReviewGate {
+  if (!isGoalEval || !blindMode) {
+    return {
+      machineReviewLocked: false,
+      reason: null,
+      label: "Machine review available",
+      detail: "Judge and goal-grade passes can run.",
+    };
+  }
+
+  if (!reviewComplete) {
+    return {
+      machineReviewLocked: true,
+      reason: "score",
+      label: "Human review first",
+      detail: "Complete blind scores before judge or goal-grade passes.",
+    };
+  }
+
+  if (scoresDirty) {
+    return {
+      machineReviewLocked: true,
+      reason: "save",
+      label: "Save review first",
+      detail: "Save the completed blind scores before machine review.",
+    };
+  }
+
+  return {
+    machineReviewLocked: false,
+    reason: null,
+    label: "Blind review saved",
+    detail: "Judge and goal-grade passes can run.",
   };
 }
