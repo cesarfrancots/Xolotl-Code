@@ -87,6 +87,7 @@ export interface EvalState {
     stats: { input_tokens: number; output_tokens: number; duration_ms: number; error?: string; auto?: AutoScores; reasoning?: string }
   ) => void;
   finalizeEval: (evalId: string) => void;
+  failEval: (evalId: string, error: string) => void;
   setJudge: (judge: JudgeScores) => void;
   setGoalGrades: (grades: Record<string, GoalGrade>) => void;
   loadEval: (result: EvalResult) => void;
@@ -323,6 +324,25 @@ export const useEvalStore = create<EvalState>()((set) => ({
     set((s) => {
       if (!s.activeEval || s.activeEval.id !== evalId) return s;
       return { activeEval: { ...s.activeEval, complete: true } };
+    }),
+
+  failEval: (evalId, error) =>
+    set((s) => {
+      if (!s.activeEval || s.activeEval.id !== evalId) return s;
+      const next: Record<string, EvalModelState> = {};
+      for (const [model, state] of Object.entries(s.activeEval.modelStates)) {
+        next[model] =
+          state.status === "done" || state.status === "error"
+            ? state
+            : { ...state, status: "error", error };
+      }
+      return {
+        activeEval: {
+          ...s.activeEval,
+          modelStates: next,
+          complete: true,
+        },
+      };
     }),
 
   setJudge: (judge) =>

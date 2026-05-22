@@ -1069,7 +1069,7 @@ export function EvalView() {
   const setBlindMode = useEvalStore((s) => s.setBlindMode);
   const {
     startEval, setModelRunning, appendModelDelta, appendModelReasoning, pushReasoningFlag,
-    completeModel, finalizeEval, setJudge, setGoalGrades, markHumanScoresSaved,
+    completeModel, finalizeEval, failEval, setJudge, setGoalGrades, markHumanScoresSaved,
   } = useEvalStore.getState();
 
   useEffect(() => {
@@ -1180,7 +1180,16 @@ export function EvalView() {
           }
           break;
         case "EvalComplete":    finalizeEval(evalId); setRunning(false); if (un) un(); unlistenRef.current = null; break;
-        case "EvalError":       console.error("eval run error:", p.error); setRunning(false); if (un) un(); unlistenRef.current = null; break;
+        case "EvalError": {
+          const detail = typeof p.error === "string" ? p.error : "The eval runner stopped before all model outputs completed.";
+          console.error("eval run error:", p.error);
+          failEval(evalId, detail);
+          setReviewNotice({ title: "Eval run failed", detail });
+          setRunning(false);
+          if (un) un();
+          unlistenRef.current = null;
+          break;
+        }
       }
     });
     unlistenRef.current = un;

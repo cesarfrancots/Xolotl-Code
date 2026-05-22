@@ -98,6 +98,25 @@ describe("eval blind review state", () => {
     expect(useEvalStore.getState().blindMode).toBe(true);
   });
 
+  it("marks unfinished model states as errored when a run-level eval failure occurs", () => {
+    useEvalStore.getState().startEval("eval-failed", "Ship a feature", MODELS, { is_goal_eval: true });
+    useEvalStore.getState().setModelRunning("eval-failed", "kimi-coding");
+    useEvalStore.getState().completeModel("eval-failed", "minimax2.7", {
+      input_tokens: 10,
+      output_tokens: 20,
+      duration_ms: 1000,
+    });
+
+    useEvalStore.getState().failEval("eval-failed", "Provider credentials missing");
+
+    const activeEval = useEvalStore.getState().activeEval;
+    expect(activeEval?.complete).toBe(true);
+    expect(activeEval?.modelStates["kimi-coding"].status).toBe("error");
+    expect(activeEval?.modelStates["kimi-coding"].error).toBe("Provider credentials missing");
+    expect(activeEval?.modelStates["claude-sonnet-4-6"].status).toBe("error");
+    expect(activeEval?.modelStates["minimax2.7"].status).toBe("done");
+  });
+
   it("rebuilds the same blind labels when loading a stored eval", () => {
     useEvalStore.setState({ scoresDirty: true });
 
