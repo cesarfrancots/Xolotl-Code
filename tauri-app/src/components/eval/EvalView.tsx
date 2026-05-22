@@ -118,21 +118,39 @@ function tokensPerSec(state: { output_tokens: number; duration_ms: number; statu
 // SCORE SLIDER
 // ════════════════════════════════════════════════════════════════════════════
 function ScoreSlider({ label, color, value, onChange }: { label: string; color: string; value: number; onChange: (v: number) => void; }) {
+  const isUnset = value <= 0;
   return (
     <div className="flex flex-col gap-1">
       <div className="flex justify-between text-xs">
         <span className="text-[oklch(0.65_0_0)]">{label}</span>
-        <span style={{ color }} className="font-medium tabular-nums">
-          {value > 0 ? value.toFixed(1) : "—"}
+        <span
+          style={{ color: isUnset ? undefined : color }}
+          className={`font-medium tabular-nums ${isUnset ? "text-[oklch(0.46_0.012_230)]" : ""}`}
+        >
+          {isUnset ? "unset" : value.toFixed(1)}
         </span>
       </div>
-      <input
-        type="range" min={1} max={10} step={0.5}
-        value={value || 5}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full h-1 rounded appearance-none cursor-pointer"
-        style={{ accentColor: color }}
-      />
+      <div className="flex items-center gap-2">
+        <input
+          type="range" min={1} max={10} step={0.5}
+          value={isUnset ? 5 : value}
+          aria-label={`${label} score`}
+          aria-valuetext={isUnset ? "unset" : value.toFixed(1)}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className={`h-1 w-full rounded appearance-none cursor-pointer ${isUnset ? "opacity-45" : ""}`}
+          style={{ accentColor: color }}
+        />
+        {isUnset && (
+          <button
+            type="button"
+            onClick={() => onChange(5)}
+            className="h-5 flex-none rounded border border-[oklch(0.26_0.010_240)] px-1.5 text-[10px] text-[oklch(0.58_0.014_225)] transition-colors hover:border-[oklch(0.34_0.018_220)] hover:text-[oklch(0.78_0.018_220)]"
+            title="Set a neutral score"
+          >
+            Set 5
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -348,12 +366,17 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
         <div className="border-t border-[oklch(0.22_0.008_240)] px-3 py-3 grid grid-cols-2 gap-x-4 gap-y-2 bg-[oklch(0.105_0.003_245)]">
           <div className="col-span-2 mb-1 flex items-center justify-between gap-3">
             <p className="text-xs text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider">
-              Human Evaluation (1–10)
+              Blind human score (1-10)
             </p>
             <span className="text-[10px] uppercase tracking-[0.14em] text-[oklch(0.55_0.03_220)]">
               {scoreComplete ? "Complete" : `${scoreCount}/${SCORE_DIMENSION_COUNT} scored`}
             </span>
           </div>
+          {!scoreComplete && (
+            <div className="col-span-2 -mt-1 text-[10px] leading-relaxed text-[oklch(0.48_0.012_230)]">
+              Unset dimensions do not count toward blind review completion.
+            </div>
+          )}
           {SCORE_DIMENSIONS.map((dim) => (
             <ScoreSlider
               key={dim.key}

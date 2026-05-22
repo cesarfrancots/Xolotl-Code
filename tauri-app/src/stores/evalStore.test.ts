@@ -68,6 +68,15 @@ describe("getBlindReviewProgress", () => {
     expect(full.completedModels).toBe(MODELS.length);
     expect(full.complete).toBe(true);
   });
+
+  it("treats zero-valued dimensions as unset during blind review", () => {
+    const progress = getBlindReviewProgress(["kimi-coding"], {
+      "kimi-coding": Object.fromEntries(HUMAN_SCORE_KEYS.map((key) => [key, 0])),
+    });
+
+    expect(progress.completedScores).toBe(0);
+    expect(progress.complete).toBe(false);
+  });
 });
 
 describe("eval blind review state", () => {
