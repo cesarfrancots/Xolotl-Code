@@ -126,10 +126,10 @@ export function AgentPanel() {
           {agents.slice(0, 12).map((agent) => {
             const dotClass =
               agent.state === "Executing" || agent.state === "Planning" ? "bg-[oklch(0.64_0.045_190)] animate-pulse" :
-              agent.state === "Done"      ? "bg-green-500" :
-              agent.state === "Failed"    ? "bg-red-500" :
-              agent.state === "Waiting"   ? "bg-yellow-400" :
-                                            "bg-neutral-500";
+              agent.state === "Done"      ? "bg-[oklch(0.66_0.075_155)]" :
+              agent.state === "Failed"    ? "bg-[oklch(0.62_0.16_28)]" :
+              agent.state === "Waiting"   ? "bg-[oklch(0.72_0.080_70)]" :
+                                            "bg-[oklch(0.34_0.010_235)]";
             return (
               <button
                 key={agent.id}

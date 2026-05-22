@@ -44,7 +44,7 @@ export function LaunchTeamDialog({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Team mode state — one entry per role
+  // Team mode state: one entry per role.
   const [teamRoles, setTeamRoles] = useState<TeamRole[]>(
     ROLES.map(() => ({ task: "", model: "" }))
   );
@@ -150,21 +150,21 @@ export function LaunchTeamDialog({
         onOpenChange(o);
       }}
     >
-      <DialogContent className="bg-[oklch(0.16_0_0)] border-neutral-800 text-[oklch(0.92_0_0)] sm:max-w-[560px]">
+      <DialogContent className="border-[oklch(0.22_0.008_240)] bg-[oklch(0.112_0.004_245)] text-[oklch(0.90_0.015_220)] shadow-[0_28px_90px_oklch(0_0_0_/_0.32)] sm:max-w-[560px]">
         <DialogHeader>
-          <DialogTitle>Launch Team</DialogTitle>
-          <DialogDescription className="text-[oklch(0.55_0_0)]">
+          <DialogTitle className="text-[oklch(0.92_0.015_220)]">Launch Team</DialogTitle>
+          <DialogDescription className="text-[oklch(0.56_0.014_225)]">
             Configure a role-based team or a parallel swarm.
           </DialogDescription>
         </DialogHeader>
 
         {/* Mode toggle */}
-        <div className="flex gap-1 p-1 rounded-md bg-[oklch(0.20_0_0)] w-fit">
+        <div className="flex w-fit gap-1 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.105_0.004_245)] p-1">
           <button
             className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
               mode === "team"
-                ? "bg-[oklch(0.28_0_0)] text-[oklch(0.92_0_0)]"
-                : "text-[oklch(0.55_0_0)]"
+                ? "bg-[oklch(0.145_0.010_195)] text-[oklch(0.76_0.040_190)] shadow-[inset_0_0_0_1px_oklch(0.36_0.022_195)]"
+                : "text-[oklch(0.56_0.014_225)] hover:text-[oklch(0.84_0.015_220)]"
             }`}
             onClick={() => setMode("team")}
           >
@@ -173,8 +173,8 @@ export function LaunchTeamDialog({
           <button
             className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
               mode === "swarm"
-                ? "bg-[oklch(0.28_0_0)] text-[oklch(0.92_0_0)]"
-                : "text-[oklch(0.55_0_0)]"
+                ? "bg-[oklch(0.145_0.010_195)] text-[oklch(0.76_0.040_190)] shadow-[inset_0_0_0_1px_oklch(0.36_0.022_195)]"
+                : "text-[oklch(0.56_0.014_225)] hover:text-[oklch(0.84_0.015_220)]"
             }`}
             onClick={() => setMode("swarm")}
           >
@@ -186,17 +186,17 @@ export function LaunchTeamDialog({
         {mode === "team" && (
           <div className="flex flex-col gap-0 py-1 max-h-[60vh] overflow-y-auto">
             {ROLES.map((roleDef, i) => (
-              <div key={roleDef.name} className="flex flex-col gap-2 py-3 border-b border-neutral-800 last:border-0">
+              <div key={roleDef.name} className="flex flex-col gap-2 border-b border-[oklch(0.22_0.008_240)] py-3 last:border-0">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[oklch(0.92_0_0)]">{roleDef.name}</span>
+                  <span className="text-xs font-semibold text-[oklch(0.88_0.015_220)]">{roleDef.name}</span>
                   <Select
                     value={teamRoles[i].model}
                     onValueChange={(v) => updateRoleModel(i, v)}
                   >
-                    <SelectTrigger className="w-44 h-7 text-xs bg-[oklch(0.20_0_0)] border-neutral-800">
+                    <SelectTrigger className="w-44 h-7 border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] text-xs text-[oklch(0.84_0.012_220)]">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-[oklch(0.16_0_0)] border-neutral-800">
+                    <SelectContent className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.115_0.004_245)] text-[oklch(0.86_0.012_220)]">
                       {models.map((m) => (
                         <SelectItem key={m} value={m}>{m}</SelectItem>
                       ))}
@@ -208,7 +208,7 @@ export function LaunchTeamDialog({
                   value={teamRoles[i].task}
                   onChange={(e) => updateRoleTask(i, e.target.value)}
                   placeholder={roleDef.placeholder}
-                  className="bg-[oklch(0.20_0_0)] border border-neutral-800 rounded-md px-3 py-2 text-sm text-[oklch(0.92_0_0)] resize-none w-full"
+                  className="w-full resize-none rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-3 py-2 text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.52_0.030_195)]"
                 />
               </div>
             ))}
@@ -219,7 +219,7 @@ export function LaunchTeamDialog({
         {mode === "swarm" && (
           <div className="flex flex-col gap-4 py-2">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-[oklch(0.55_0_0)]">Agent count</label>
+              <label className="text-xs text-[oklch(0.56_0.014_225)]">Agent count</label>
               <input
                 type="number"
                 min="1"
@@ -227,26 +227,26 @@ export function LaunchTeamDialog({
                 value={swarmCount}
                 onChange={(e) => setSwarmCount(e.target.value)}
                 placeholder="2"
-                className="bg-[oklch(0.20_0_0)] border border-neutral-800 rounded-md px-3 py-2 text-sm text-[oklch(0.92_0_0)] w-24"
+                className="w-24 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-3 py-2 text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.52_0.030_195)]"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-[oklch(0.55_0_0)]">Shared objective</label>
+              <label className="text-xs text-[oklch(0.56_0.014_225)]">Shared objective</label>
               <textarea
                 rows={4}
                 value={swarmObjective}
                 onChange={(e) => setSwarmObjective(e.target.value)}
                 placeholder="e.g. Explore three different approaches to optimizing the query pipeline"
-                className="bg-[oklch(0.20_0_0)] border border-neutral-800 rounded-md px-3 py-2 text-sm text-[oklch(0.92_0_0)] resize-none"
+                className="resize-none rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-3 py-2 text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.52_0.030_195)]"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-[oklch(0.55_0_0)]">Model (all agents)</label>
+              <label className="text-xs text-[oklch(0.56_0.014_225)]">Model (all agents)</label>
               <Select value={swarmModel} onValueChange={setSwarmModel}>
-                <SelectTrigger className="bg-[oklch(0.20_0_0)] border-neutral-800">
+                <SelectTrigger className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] text-[oklch(0.84_0.012_220)]">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[oklch(0.16_0_0)] border-neutral-800">
+                <SelectContent className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.115_0.004_245)] text-[oklch(0.86_0.012_220)]">
                   {models.map((m) => (
                     <SelectItem key={m} value={m}>{m}</SelectItem>
                   ))}
@@ -257,20 +257,21 @@ export function LaunchTeamDialog({
         )}
 
         {error && (
-          <p className="text-xs text-red-400" role="alert">
+          <p className="rounded-md border border-[oklch(0.38_0.040_28)] bg-[oklch(0.13_0.014_28)] px-3 py-2 text-xs text-[oklch(0.72_0.060_28)]" role="alert">
             {error}
           </p>
         )}
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" className="text-[oklch(0.58_0.012_230)] hover:text-[oklch(0.86_0.015_220)]" onClick={() => onOpenChange(false)}>
             Discard
           </Button>
           <Button
+            className="bg-[oklch(0.46_0.040_190)] text-white hover:bg-[oklch(0.42_0.040_190)]"
             onClick={() => void handleLaunch()}
             disabled={mode === "team" ? teamLaunchDisabled : swarmLaunchDisabled}
           >
-            {submitting ? "Launching…" : mode === "team" ? "Launch Team" : "Launch Swarm"}
+            {submitting ? "Launching..." : mode === "team" ? "Launch Team" : "Launch Swarm"}
           </Button>
         </DialogFooter>
       </DialogContent>
