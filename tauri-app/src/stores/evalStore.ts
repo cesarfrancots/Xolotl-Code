@@ -371,6 +371,7 @@ export const useEvalStore = create<EvalState>()((set) => ({
       },
       humanScores,
       evalOpen: true,
+      ...(result.is_goal_eval ? { blindMode: true } : {}),
     });
   },
 

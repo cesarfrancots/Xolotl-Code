@@ -100,4 +100,50 @@ describe("eval blind review state", () => {
 
     expect(useEvalStore.getState().activeEval?.blindLabels).toEqual(buildBlindLabels("eval-stored", MODELS));
   });
+
+  it("forces goal evals loaded from history back into blind mode", () => {
+    useEvalStore.setState({ blindMode: false });
+
+    useEvalStore.getState().loadEval({
+      id: "eval-goal-history",
+      prompt: "Ship a feature",
+      models: MODELS,
+      results: MODELS.map((model) => ({
+        model,
+        content: `${model} output`,
+        input_tokens: 10,
+        output_tokens: 20,
+        duration_ms: 1000,
+        error: null,
+      })),
+      human_scores: {},
+      created_at: 123,
+      is_goal_eval: true,
+    });
+
+    expect(useEvalStore.getState().blindMode).toBe(true);
+  });
+
+  it("preserves the current blind preference when loading a non-goal eval", () => {
+    useEvalStore.setState({ blindMode: false });
+
+    useEvalStore.getState().loadEval({
+      id: "eval-free-history",
+      prompt: "Compare these outputs",
+      models: MODELS,
+      results: MODELS.map((model) => ({
+        model,
+        content: `${model} output`,
+        input_tokens: 10,
+        output_tokens: 20,
+        duration_ms: 1000,
+        error: null,
+      })),
+      human_scores: {},
+      created_at: 123,
+      is_goal_eval: false,
+    });
+
+    expect(useEvalStore.getState().blindMode).toBe(false);
+  });
 });
