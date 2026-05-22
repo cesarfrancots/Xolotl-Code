@@ -4,12 +4,14 @@ import {
   FlaskConical, Play, RotateCcw, ChevronDown, ChevronUp, Save, Clock, Coins, Hash,
   Eye, EyeOff, Trophy, Sparkles, History, ListChecks, Gavel, Trash2,
   Target, Brain, AlertTriangle, Activity, ShieldCheck, ScanSearch, Gauge,
+  CheckCircle2, CircleDot,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
 import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalGrade } from "../../bindings";
 import { getReviewOrder, useEvalStore } from "../../stores/evalStore";
 import { MarkdownRenderer } from "../chat/MarkdownRenderer";
+import { assessGoalEvalReadiness, type GoalEvalReadiness, type GoalReadinessState } from "../../lib/evalReadiness";
 
 const GOAL_AXES: { key: string; label: string; color: string; hint: string }[] = [
   { key: "goal_decomposition",    label: "Goal Decomposition",  color: "oklch(0.72 0.18 250)", hint: "Does it break the goal into right sub-tasks?" },
@@ -745,6 +747,51 @@ function BlindReviewBanner({ blindMode, onToggle }: { blindMode: boolean; onTogg
   );
 }
 
+function readinessTone(state: GoalReadinessState): string {
+  if (state === "ready") return "border-[oklch(0.40_0.06_165)] bg-[oklch(0.15_0.035_165)]/45 text-[oklch(0.78_0.08_165)]";
+  if (state === "blocked") return "border-[oklch(0.43_0.08_28)] bg-[oklch(0.16_0.04_28)]/45 text-[oklch(0.77_0.08_28)]";
+  return "border-[oklch(0.42_0.07_72)] bg-[oklch(0.16_0.04_72)]/45 text-[oklch(0.78_0.08_72)]";
+}
+
+function readinessIcon(state: GoalReadinessState) {
+  if (state === "ready") return <CheckCircle2 className="h-3.5 w-3.5" />;
+  if (state === "blocked") return <AlertTriangle className="h-3.5 w-3.5" />;
+  return <CircleDot className="h-3.5 w-3.5" />;
+}
+
+function GoalReadinessPanel({ readiness }: { readiness: GoalEvalReadiness }) {
+  const blocked = readiness.items.filter((item) => item.state === "blocked").length;
+
+  return (
+    <div className="rounded-lg border border-[oklch(0.25_0.025_245)] bg-[oklch(0.115_0.012_255)] px-3 py-2">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-[oklch(0.86_0.018_225)]">
+          <Gauge className="h-3.5 w-3.5 text-[oklch(0.74_0.10_185)]" />
+          Goal eval readiness
+        </div>
+        <span className={`rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${
+          readiness.canRun
+            ? "border-[oklch(0.42_0.06_165)] bg-[oklch(0.16_0.04_165)]/55 text-[oklch(0.78_0.08_165)]"
+            : "border-[oklch(0.43_0.08_28)] bg-[oklch(0.16_0.04_28)]/55 text-[oklch(0.77_0.08_28)]"
+        }`}>
+          {readiness.canRun ? "Ready" : `${blocked} blocking`}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-4">
+        {readiness.items.map((item) => (
+          <div key={item.id} className={`min-h-[58px] rounded-md border px-2.5 py-2 ${readinessTone(item.state)}`}>
+            <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold">
+              {readinessIcon(item.state)}
+              {item.label}
+            </div>
+            <div className="text-[10px] leading-snug opacity-80">{item.detail}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function EvalRunStrip({ blindMode }: { blindMode: boolean }) {
   const activeEval = useEvalStore((s) => s.activeEval);
   if (!activeEval) return null;
@@ -832,6 +879,20 @@ export function EvalView() {
     () => activeEval ? getReviewOrder(activeEval.models, activeEval.blindLabels, blindMode) : [],
     [activeEval, blindMode]
   );
+  const goalReadiness = useMemo(
+    () => assessGoalEvalReadiness({
+      goal: prompt,
+      modelCount: selectedModels.length,
+      blindMode,
+      liveSupervisor,
+    }),
+    [prompt, selectedModels.length, blindMode, liveSupervisor]
+  );
+  const runDisabled =
+    running ||
+    (mode === "goal"
+      ? !goalReadiness.canRun
+      : selectedModels.length === 0 || (mode === "single" && !prompt.trim()));
 
   // Subscribe to streaming eval events; survives multiple consecutive runs.
   const unlistenRef = useRef<UnlistenFn | null>(null);
@@ -878,7 +939,7 @@ export function EvalView() {
   }, [prompt, selectedModels, running]);
 
   const runGoalEval = useCallback(async () => {
-    if (!prompt.trim() || selectedModels.length === 0 || running) return;
+    if (!prompt.trim() || selectedModels.length < 2 || running) return;
     setBlindMode(true);
     setRunning(true);
     const supervisor = liveSupervisor ? judgeModel : null;
@@ -1177,6 +1238,10 @@ export function EvalView() {
               </div>
             </div>
 
+            {mode === "goal" && (
+              <GoalReadinessPanel readiness={goalReadiness} />
+            )}
+
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
@@ -1185,7 +1250,8 @@ export function EvalView() {
                   mode === "goal"   ? runGoalEval :
                                       runSuiteEval
                 }
-                disabled={running || selectedModels.length === 0 || ((mode === "single" || mode === "goal") && !prompt.trim())}
+                disabled={runDisabled}
+                title={mode === "goal" && !goalReadiness.canRun ? "Add a goal and select at least two models." : undefined}
                 className={`gap-1.5 text-white disabled:opacity-50 ${
                   mode === "goal"
                     ? "bg-[oklch(0.58_0.14_185)] hover:bg-[oklch(0.53_0.14_185)]"
