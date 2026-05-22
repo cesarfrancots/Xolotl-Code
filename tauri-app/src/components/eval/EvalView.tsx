@@ -262,6 +262,12 @@ function ResponseCard({
     ? filledDims.reduce((sum, d) => sum + (humanScores[d.key] ?? 0), 0) / filledDims.length
     : 0;
   const showHumanAggregate = canShowHumanScoreAggregate({ aggregate: humanAvg, resultsLocked });
+  const unsetScoreCount = SCORE_DIMENSION_COUNT - scoreCount;
+  const setRemainingNeutral = () => {
+    for (const key of HUMAN_SCORE_KEYS) {
+      if ((humanScores[key] ?? 0) <= 0) setHumanScore(model, key, 5);
+    }
+  };
 
   const judgeScores = judge?.scores[model];
   const judgeAvg = judgeScores
@@ -383,9 +389,21 @@ function ResponseCard({
             <p className="text-xs text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider">
               Blind human score (1-10)
             </p>
-            <span className="text-[10px] uppercase tracking-[0.14em] text-[oklch(0.55_0.03_220)]">
-              {scoreComplete ? "Complete" : `${scoreCount}/${SCORE_DIMENSION_COUNT} scored`}
-            </span>
+            <div className="flex items-center gap-2">
+              {unsetScoreCount > 0 && (
+                <button
+                  type="button"
+                  onClick={setRemainingNeutral}
+                  className="h-6 rounded border border-[oklch(0.27_0.012_235)] bg-[oklch(0.12_0.004_245)] px-2 text-[10px] font-medium text-[oklch(0.58_0.016_220)] transition-colors hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.76_0.025_205)]"
+                  title="Set every unset dimension on this response to a neutral score"
+                >
+                  Set remaining 5
+                </button>
+              )}
+              <span className="text-[10px] uppercase tracking-[0.14em] text-[oklch(0.55_0.03_220)]">
+                {scoreComplete ? "Complete" : `${scoreCount}/${SCORE_DIMENSION_COUNT} scored`}
+              </span>
+            </div>
           </div>
           {!scoreComplete && (
             <div className="col-span-2 -mt-1 text-[10px] leading-relaxed text-[oklch(0.48_0.012_230)]">
