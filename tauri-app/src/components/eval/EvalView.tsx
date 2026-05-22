@@ -770,6 +770,10 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
 type Mode = "single" | "suite" | "goal";
 type ReviewNotice = { title: string; detail: string };
 
+function noticeDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function ModeButton({
   active, onClick, icon, title, hint, tone = "default",
 }: {
@@ -1076,8 +1080,12 @@ export function EvalView() {
   } = useEvalStore.getState();
 
   useEffect(() => {
-    commands.listModels().then(setAllModels).catch(console.error);
-    commands.listEvalSuites().then(setSuites).catch(console.error);
+    commands.listModels()
+      .then(setAllModels)
+      .catch((error) => setReviewNotice({ title: "Eval setup unavailable", detail: noticeDetail(error) }));
+    commands.listEvalSuites()
+      .then(setSuites)
+      .catch((error) => setReviewNotice({ title: "Eval suites unavailable", detail: noticeDetail(error) }));
   }, []);
 
   // Map model -> display name (blind A/B/C or real name)
@@ -1202,15 +1210,22 @@ export function EvalView() {
     if (!prompt.trim() || selectedModels.length === 0 || running) return;
     setReviewNotice(null);
     setRunning(true);
-    const result = await commands.startEval(prompt.trim(), selectedModels);
+    const result = await commands.startEval(prompt.trim(), selectedModels).catch((error) => ({ status: "error" as const, error: noticeDetail(error) }));
     if (result.status === "error") {
-      console.error("start_eval error:", result.error);
+      setReviewNotice({ title: "Could not start eval", detail: noticeDetail(result.error) });
       setRunning(false);
       return;
     }
     const evalId = result.data;
     startEval(evalId, prompt.trim(), selectedModels);
-    await subscribeToEval(evalId);
+    try {
+      await subscribeToEval(evalId);
+    } catch (error) {
+      const detail = noticeDetail(error);
+      failEval(evalId, detail);
+      setReviewNotice({ title: "Could not subscribe to eval events", detail });
+      setRunning(false);
+    }
   }, [prompt, selectedModels, running]);
 
   const runGoalEval = useCallback(async () => {
@@ -1219,15 +1234,24 @@ export function EvalView() {
     setBlindMode(true);
     setRunning(true);
     const supervisor = liveSupervisor ? judgeModel : null;
-    const result = await commands.startGoalEval(prompt.trim(), selectedModels, liveSupervisor, supervisor);
+    const result = await commands
+      .startGoalEval(prompt.trim(), selectedModels, liveSupervisor, supervisor)
+      .catch((error) => ({ status: "error" as const, error: noticeDetail(error) }));
     if (result.status === "error") {
-      console.error("start_goal_eval error:", result.error);
+      setReviewNotice({ title: "Could not start goal eval", detail: noticeDetail(result.error) });
       setRunning(false);
       return;
     }
     const evalId = result.data;
     startEval(evalId, prompt.trim(), selectedModels, { is_goal_eval: true, live_supervisor: liveSupervisor });
-    await subscribeToEval(evalId);
+    try {
+      await subscribeToEval(evalId);
+    } catch (error) {
+      const detail = noticeDetail(error);
+      failEval(evalId, detail);
+      setReviewNotice({ title: "Could not subscribe to eval events", detail });
+      setRunning(false);
+    }
   }, [goalReadiness.canRun, prompt, selectedModels, running, liveSupervisor, judgeModel, setBlindMode]);
 
   const runSuiteEval = useCallback(async () => {
@@ -1235,9 +1259,11 @@ export function EvalView() {
     setReviewNotice(null);
     setRunning(true);
     // Subscribe to suite-level events to track each prompt within the suite run.
-    const result = await commands.runEvalSuite(selectedSuite, selectedModels);
+    const result = await commands
+      .runEvalSuite(selectedSuite, selectedModels)
+      .catch((error) => ({ status: "error" as const, error: noticeDetail(error) }));
     if (result.status === "error") {
-      console.error("run_eval_suite error:", result.error);
+      setReviewNotice({ title: "Could not start eval suite", detail: noticeDetail(result.error) });
       setRunning(false);
       return;
     }
@@ -1245,18 +1271,30 @@ export function EvalView() {
     const channel = `suite-event:${suiteRunId}`;
     // Each prompt inside the suite emits its own eval-event with a new eval id —
     // we listen for SuitePromptStart so we can hook the per-prompt channel.
-    const suiteUnlisten = await listen<any>(channel, async (event) => {
-      const p = event.payload;
-      if (p.type === "SuitePromptStart" && p.eval_id) {
-        // Backend pre-generates eval_id and emits it before model events, plus a
-        // 50ms grace delay so this listen() call wins the race.
-        startEval(p.eval_id, p.prompt, selectedModels, { suite_run_id: suiteRunId, suite_prompt_id: p.prompt_id });
-        await subscribeToEval(p.eval_id);
-      } else if (p.type === "SuiteComplete") {
-        setRunning(false);
-        suiteUnlisten();
-      }
-    });
+    try {
+      const suiteUnlisten = await listen<any>(channel, async (event) => {
+        const p = event.payload;
+        if (p.type === "SuitePromptStart" && p.eval_id) {
+          // Backend pre-generates eval_id and emits it before model events, plus a
+          // 50ms grace delay so this listen() call wins the race.
+          startEval(p.eval_id, p.prompt, selectedModels, { suite_run_id: suiteRunId, suite_prompt_id: p.prompt_id });
+          try {
+            await subscribeToEval(p.eval_id);
+          } catch (error) {
+            const detail = noticeDetail(error);
+            failEval(p.eval_id, detail);
+            setReviewNotice({ title: "Could not subscribe to suite prompt events", detail });
+            setRunning(false);
+          }
+        } else if (p.type === "SuiteComplete") {
+          setRunning(false);
+          suiteUnlisten();
+        }
+      });
+    } catch (error) {
+      setReviewNotice({ title: "Could not subscribe to suite events", detail: noticeDetail(error) });
+      setRunning(false);
+    }
   }, [selectedSuite, selectedModels, running]);
 
   async function saveScores() {

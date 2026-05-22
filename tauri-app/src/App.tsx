@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import "./styles.css";
 import { SessionSidebar } from "./components/sidebar/SessionSidebar";
 import { ChatPane } from "./components/chat/ChatPane";
@@ -99,11 +99,38 @@ export default function App() {
             </div>
           </div>
         )}
-        <div className="flex-1 min-h-0 flex flex-col">{renderCenter()}</div>
+        <WorkspaceErrorBoundary key={`${centerTab}:${expandedAgentId ?? ""}:${mergeCheckpointGroupId ?? ""}`}>
+          <div className="flex-1 min-h-0 flex flex-col">{renderCenter()}</div>
+        </WorkspaceErrorBoundary>
       </div>
       <AgentPanel forceCollapsed={compactShell} />
     </div>
   );
+}
+
+class WorkspaceErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="flex flex-1 items-center justify-center bg-[oklch(0.105_0.004_250)] p-6">
+        <div className="max-w-xl rounded-md border border-[oklch(0.36_0.035_28)] bg-[oklch(0.13_0.010_28)] px-4 py-3 text-sm text-[oklch(0.76_0.055_28)]">
+          <div className="font-semibold text-[oklch(0.82_0.060_28)]">Workspace view failed</div>
+          <div className="mt-1 text-xs leading-relaxed text-[oklch(0.68_0.045_28)]">
+            {this.state.error.message}
+          </div>
+        </div>
+      </div>
+    );
+  }
 }
 
 function EvalLoading() {
