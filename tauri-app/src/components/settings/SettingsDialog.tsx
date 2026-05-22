@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   CheckCircle, XCircle, Loader2, Eye, EyeOff, Key, Sparkles, Plug, FileCode,
-  RefreshCw,
+  RefreshCw, ShieldCheck, AlertCircle,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -15,15 +15,17 @@ import { useUiStore } from "../../stores/uiStore";
 interface ProviderConfig {
   id: string;
   label: string;
+  envVar: string;
   placeholder: string;
+  models: string;
 }
 
 const PROVIDERS: ProviderConfig[] = [
-  { id: "anthropic",   label: "Anthropic",                                            placeholder: "sk-ant-..." },
-  { id: "bedrock",     label: "AWS Bedrock (Bearer API key)",                         placeholder: "ABSK..." },
-  { id: "kimi",        label: "Kimi (Moonshot)",                                      placeholder: "sk-..." },
-  { id: "kimi_coding", label: "Kimi For Coding",                                      placeholder: "sk-..." },
-  { id: "minimax",     label: "MiniMax",                                              placeholder: "eyJ..." },
+  { id: "anthropic",   label: "Anthropic",              envVar: "ANTHROPIC_API_KEY",   placeholder: "sk-ant-...", models: "Claude Sonnet, Opus, Haiku" },
+  { id: "bedrock",     label: "AWS Bedrock",            envVar: "BEDROCK_API_KEY",     placeholder: "ABSK...", models: "Bedrock Claude, Nova, Llama" },
+  { id: "kimi",        label: "Kimi / Moonshot",        envVar: "KIMI_API_KEY",        placeholder: "sk-...", models: "kimi2.6" },
+  { id: "kimi_coding", label: "Kimi For Coding",        envVar: "KIMI_CODING_API_KEY", placeholder: "sk-...", models: "kimi-coding" },
+  { id: "minimax",     label: "MiniMax",                envVar: "MINIMAX_API_KEY",     placeholder: "eyJ...", models: "minimax2.7" },
 ];
 
 type Tab = "providers" | "skills" | "mcp";
@@ -38,16 +40,17 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl w-full p-0 overflow-hidden">
-        <DialogHeader className="px-5 pt-4 pb-3 border-b border-neutral-800">
-          <DialogTitle className="text-base">Settings</DialogTitle>
-          <DialogDescription className="text-xs">
-            Config lives in <code className="text-[10px] bg-neutral-800 px-1 rounded">~/.xolotl-code/</code>. Environment variables override config values.
+      <DialogContent className="max-w-3xl w-full p-0 overflow-hidden border-[oklch(0.25_0.025_230)] bg-[oklch(0.115_0.012_245)]">
+        <DialogHeader className="relative overflow-hidden px-5 pt-4 pb-3 border-b border-[oklch(0.24_0.025_235)] xolotl-panel">
+          <div className="absolute inset-0 eval-topography opacity-40" aria-hidden="true" />
+          <DialogTitle className="relative text-base text-[oklch(0.92_0.02_220)]">Settings</DialogTitle>
+          <DialogDescription className="relative text-xs text-[oklch(0.62_0.025_230)]">
+            Runtime config lives in <code className="text-[10px] bg-[oklch(0.09_0.012_245)] px-1 rounded">~/.xolotl-code/</code>. Environment variables override saved keys.
           </DialogDescription>
         </DialogHeader>
 
         {/* Tab bar */}
-        <div className="flex items-center gap-1 px-3 py-2 border-b border-neutral-800 bg-[oklch(0.125_0_0)]">
+        <div className="flex items-center gap-1 px-3 py-2 border-b border-[oklch(0.24_0.02_245)] bg-[oklch(0.105_0.012_250)]">
           <TabBtn active={tab === "providers"} onClick={() => setTab("providers")} icon={<Key className="w-3.5 h-3.5" />} label="Providers" />
           <TabBtn active={tab === "skills"} onClick={() => setTab("skills")} icon={<Sparkles className="w-3.5 h-3.5" />} label="Skills" />
           <TabBtn active={tab === "mcp"} onClick={() => setTab("mcp")} icon={<Plug className="w-3.5 h-3.5" />} label="MCP Servers" />
@@ -108,11 +111,22 @@ function makeInitialState(): Record<string, ProviderState> {
 function ProvidersPanel({ open }: { open: boolean }) {
   const [status, setStatus] = useState<Record<string, boolean>>({});
   const [state, setState] = useState<Record<string, ProviderState>>(makeInitialState);
+  const [loadingStatus, setLoadingStatus] = useState(false);
+
+  const refreshStatus = useCallback(async () => {
+    setLoadingStatus(true);
+    try {
+      const next = await commands.getApiKeyStatus();
+      setStatus(next);
+    } finally {
+      setLoadingStatus(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
-    commands.getApiKeyStatus().then((s) => setStatus(s));
-  }, [open]);
+    void refreshStatus();
+  }, [open, refreshStatus]);
 
   function updateProvider(id: string, patch: Partial<ProviderState>) {
     setState((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
@@ -125,7 +139,7 @@ function ProvidersPanel({ open }: { open: boolean }) {
       setStatus((prev) => ({ ...prev, [provider]: state[provider].key.trim().length > 0 }));
       updateProvider(provider, { saving: false, key: "", testState: "idle", testMessage: "" });
     } else {
-      updateProvider(provider, { saving: false });
+      updateProvider(provider, { saving: false, testState: "error", testMessage: result.error });
     }
   }
 
@@ -146,28 +160,65 @@ function ProvidersPanel({ open }: { open: boolean }) {
     });
   }
 
+  const configuredCount = PROVIDERS.filter((provider) => status[provider.id]).length;
+  const hasAnyProvider = configuredCount > 0;
+  const primaryReady = Boolean(status.kimi_coding || status.anthropic || status.bedrock);
+
   return (
-    <div className="flex flex-col gap-5 p-5">
+    <div className="flex flex-col gap-4 p-5">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto]">
+        <div className={[
+          "rounded-lg border px-3 py-3",
+          hasAnyProvider
+            ? "border-[oklch(0.34_0.07_155)] bg-[oklch(0.16_0.035_155)]/45"
+            : "border-[oklch(0.35_0.075_60)] bg-[oklch(0.16_0.035_60)]/40",
+        ].join(" ")}>
+          <div className="flex items-center gap-2 text-sm font-medium text-[oklch(0.90_0.025_220)]">
+            {hasAnyProvider ? (
+              <ShieldCheck className="h-4 w-4 text-[oklch(0.76_0.13_155)]" />
+            ) : (
+              <AlertCircle className="h-4 w-4 text-[oklch(0.80_0.13_60)]" />
+            )}
+            Provider readiness
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-[oklch(0.62_0.025_230)]">
+            {hasAnyProvider
+              ? `${configuredCount} of ${PROVIDERS.length} providers configured. ${primaryReady ? "Chat and goal eval can use configured models." : "Add Kimi Coding, Anthropic, or Bedrock for the main coding models."}`
+              : "Add at least one provider key before running chat, agents, or model evals."}
+          </p>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => void refreshStatus()} disabled={loadingStatus} className="self-start gap-1 text-xs">
+          {loadingStatus ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          Refresh
+        </Button>
+      </div>
+
       {PROVIDERS.map((provider) => {
         const ps = state[provider.id];
         const isSet = status[provider.id] ?? false;
         return (
-          <div key={provider.id} className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-[oklch(0.88_0_0)]">{provider.label}</span>
+          <div key={provider.id} className="flex flex-col gap-2 rounded-lg border border-[oklch(0.24_0.02_245)] bg-[oklch(0.13_0.012_245)] px-3 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-[oklch(0.88_0.015_220)]">{provider.label}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-[oklch(0.48_0.025_230)]">
+                  <code className="rounded bg-[oklch(0.09_0.01_245)] px-1 py-0.5">{provider.envVar}</code>
+                  <span>{provider.models}</span>
+                </div>
+              </div>
               {isSet ? (
-                <span className="flex items-center gap-1 text-xs text-emerald-400">
+                <span className="flex flex-none items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-300">
                   <CheckCircle className="h-3 w-3" /> Configured
                 </span>
               ) : (
-                <span className="text-xs text-[oklch(0.45_0_0)]">Not set</span>
+                <span className="flex-none rounded-full bg-[oklch(0.18_0.02_245)] px-2 py-0.5 text-xs text-[oklch(0.50_0.025_230)]">Not set</span>
               )}
             </div>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Input
                   type={ps.showKey ? "text" : "password"}
-                  placeholder={isSet ? "Enter new key to replace…" : provider.placeholder}
+                  placeholder={isSet ? "Enter new key to replace..." : provider.placeholder}
                   value={ps.key}
                   onChange={(e) => updateProvider(provider.id, { key: e.target.value, testState: "idle", testMessage: "" })}
                   className="pr-8 text-sm font-mono"
@@ -198,7 +249,7 @@ function ProvidersPanel({ open }: { open: boolean }) {
               </p>
             )}
             {isSet && (
-              <button type="button" className="self-start text-xs text-[oklch(0.45_0_0)] hover:text-red-400 underline underline-offset-2" onClick={() => handleClear(provider.id)}>
+              <button type="button" className="self-start text-xs text-[oklch(0.45_0.02_245)] hover:text-red-400 underline underline-offset-2" onClick={() => handleClear(provider.id)}>
                 Clear key
               </button>
             )}
@@ -429,4 +480,3 @@ function EmptyHint({
     </div>
   );
 }
-
