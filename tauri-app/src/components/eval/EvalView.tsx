@@ -264,6 +264,9 @@ function ResponseCard({
   const judgeAvg = judgeScores
     ? SCORE_DIMENSIONS.reduce((s, d) => s + (judgeScores[d.key] ?? 5), 0) / SCORE_DIMENSIONS.length
     : 0;
+  const safeModelId = model.replace(/[^a-zA-Z0-9_-]/g, "-");
+  const responsePanelId = `eval-response-${safeModelId}`;
+  const scoringPanelId = `eval-score-${safeModelId}`;
 
   return (
     <div className="flex flex-col overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)]">
@@ -313,26 +316,37 @@ function ResponseCard({
             </>
           )}
           <button
+            type="button"
             onClick={() => setScoring((v) => !v)}
             disabled={!canScore}
+            aria-expanded={canScore ? scoring : undefined}
+            aria-controls={canScore ? scoringPanelId : undefined}
             className={`ml-1 flex h-6 items-center gap-1 rounded-md border px-2 text-[11px] transition-colors ${
               scoring
                 ? "border-[oklch(0.42_0.03_190)] bg-[oklch(0.14_0.012_200)] text-[oklch(0.76_0.055_190)]"
                 : "border-[oklch(0.27_0.018_245)] bg-[oklch(0.11_0.01_245)] text-[oklch(0.55_0.02_235)] hover:text-[oklch(0.85_0.02_220)]"
             } disabled:cursor-not-allowed disabled:opacity-45`}
-            title={canScore ? "Score this response" : "Scoring unlocks after the response finishes"}
+            title={canScore ? scoring ? "Hide scoring controls" : "Score this response" : "Scoring unlocks after the response finishes"}
           >
             <ScanSearch className="w-3.5 h-3.5" />
             Score
           </button>
-          <button onClick={() => setExpanded((v) => !v)} className="text-[oklch(0.54_0.010_225)] hover:text-[oklch(0.84_0.015_220)]">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-label={expanded ? "Collapse response" : "Expand response"}
+            aria-expanded={expanded}
+            aria-controls={responsePanelId}
+            title={expanded ? "Collapse response" : "Expand response"}
+            className="text-[oklch(0.54_0.010_225)] hover:text-[oklch(0.84_0.015_220)]"
+          >
             {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
         </div>
       </div>
 
       {/* Response */}
-      <div className="px-3 py-3 text-sm text-[oklch(0.84_0.012_220)] leading-relaxed overflow-y-auto" style={{ maxHeight: expanded ? "none" : "320px", minHeight: "60px" }}>
+      <div id={responsePanelId} className="px-3 py-3 text-sm text-[oklch(0.84_0.012_220)] leading-relaxed overflow-y-auto" style={{ maxHeight: expanded ? "none" : "320px", minHeight: "60px" }}>
         {state.status === "pending" && <span className="text-[oklch(0.40_0_0)]">Waiting…</span>}
         {state.status === "running" && !state.content && <span className="text-[oklch(0.55_0_0)] animate-pulse">Generating…</span>}
         {state.content && <MarkdownRenderer content={state.content} />}
@@ -375,7 +389,7 @@ function ResponseCard({
 
       {/* HIL panel */}
       {scoring && (state.status === "done" || state.status === "error") && (
-        <div className="border-t border-[oklch(0.22_0.008_240)] px-3 py-3 grid grid-cols-2 gap-x-4 gap-y-2 bg-[oklch(0.105_0.003_245)]">
+        <div id={scoringPanelId} className="border-t border-[oklch(0.22_0.008_240)] px-3 py-3 grid grid-cols-2 gap-x-4 gap-y-2 bg-[oklch(0.105_0.003_245)]">
           <div className="col-span-2 mb-1 flex items-center justify-between gap-3">
             <p className="text-xs text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider">
               Blind human score (1-10)
