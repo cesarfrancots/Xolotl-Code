@@ -731,6 +731,7 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
 // MAIN VIEW
 // ════════════════════════════════════════════════════════════════════════════
 type Mode = "single" | "suite" | "goal";
+type ReviewNotice = { title: string; detail: string };
 
 function ModeButton({
   active, onClick, icon, title, hint, tone = "default",
@@ -905,6 +906,31 @@ function GoalWorkflowStrip({ steps }: { steps: GoalWorkflowStep[] }) {
   );
 }
 
+function ReviewNoticeBanner({
+  notice,
+  onDismiss,
+}: {
+  notice: ReviewNotice;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-[oklch(0.38_0.040_28)] bg-[oklch(0.13_0.014_28)] px-3 py-2 text-xs text-[oklch(0.72_0.060_28)]" role="alert">
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-none" />
+      <div className="min-w-0 flex-1">
+        <div className="font-semibold text-[oklch(0.78_0.065_28)]">{notice.title}</div>
+        <div className="mt-0.5 break-words leading-relaxed text-[oklch(0.68_0.045_28)]">{notice.detail}</div>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="flex-none rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[oklch(0.62_0.035_28)] transition-colors hover:bg-[oklch(0.18_0.020_28)] hover:text-[oklch(0.78_0.055_28)]"
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
 function EvalRunStrip({ blindMode }: { blindMode: boolean }) {
   const activeEval = useEvalStore((s) => s.activeEval);
   if (!activeEval) return null;
@@ -966,6 +992,7 @@ export function EvalView() {
   const [judgeModel, setJudgeModel] = useState<string>("claude-sonnet-4-6");
   const [liveSupervisor, setLiveSupervisor] = useState(true);
   const [goalGrading, setGoalGrading] = useState(false);
+  const [reviewNotice, setReviewNotice] = useState<ReviewNotice | null>(null);
 
   const activeEval = useEvalStore((s) => s.activeEval);
   const humanScores = useEvalStore((s) => s.humanScores);
@@ -1085,6 +1112,7 @@ export function EvalView() {
 
   const runSingleEval = useCallback(async () => {
     if (!prompt.trim() || selectedModels.length === 0 || running) return;
+    setReviewNotice(null);
     setRunning(true);
     const result = await commands.startEval(prompt.trim(), selectedModels);
     if (result.status === "error") {
@@ -1099,6 +1127,7 @@ export function EvalView() {
 
   const runGoalEval = useCallback(async () => {
     if (!goalReadiness.canRun || running) return;
+    setReviewNotice(null);
     setBlindMode(true);
     setRunning(true);
     const supervisor = liveSupervisor ? judgeModel : null;
@@ -1115,6 +1144,7 @@ export function EvalView() {
 
   const runSuiteEval = useCallback(async () => {
     if (selectedModels.length === 0 || running) return;
+    setReviewNotice(null);
     setRunning(true);
     // Subscribe to suite-level events to track each prompt within the suite run.
     const result = await commands.runEvalSuite(selectedSuite, selectedModels);
@@ -1143,6 +1173,7 @@ export function EvalView() {
 
   async function saveScores() {
     if (!activeEval) return;
+    setReviewNotice(null);
     setSavingScores(true);
     const scoresMap: Record<string, HumanScores> = {};
     for (const [model, partial] of Object.entries(humanScores)) {
@@ -1161,11 +1192,13 @@ export function EvalView() {
       const result = await commands.saveHumanScores(activeEval.id, JSON.stringify(scoresMap));
       if (result.status === "error") {
         console.error("save_human_scores error:", result.error);
+        setReviewNotice({ title: "Could not save blind scores", detail: result.error });
       } else {
         markHumanScoresSaved();
       }
     } catch (error) {
       console.error("save_human_scores error:", error);
+      setReviewNotice({ title: "Could not save blind scores", detail: error instanceof Error ? error.message : String(error) });
     } finally {
       setSavingScores(false);
     }
@@ -1174,38 +1207,55 @@ export function EvalView() {
   async function runGoalGrade() {
     if (!activeEval || goalGrading) return;
     if (reviewGate.machineReviewLocked) return;
+    setReviewNotice(null);
     setGoalGrading(true);
-    const result = await commands.runGoalGrade(activeEval.id, judgeModel);
-    if (result.status === "error") {
-      console.error("run_goal_grade:", result.error);
-      alert(`Goal grade failed: ${result.error}`);
-    } else {
-      const loaded = await commands.loadEval(activeEval.id);
-      if (loaded.status === "ok") {
-        const r: EvalResult = JSON.parse(loaded.data);
-        if (r.goal_grades) setGoalGrades(r.goal_grades);
+    try {
+      const result = await commands.runGoalGrade(activeEval.id, judgeModel);
+      if (result.status === "error") {
+        console.error("run_goal_grade:", result.error);
+        setReviewNotice({ title: "Goal grade failed", detail: result.error });
+      } else {
+        const loaded = await commands.loadEval(activeEval.id);
+        if (loaded.status === "ok") {
+          const r: EvalResult = JSON.parse(loaded.data);
+          if (r.goal_grades) setGoalGrades(r.goal_grades);
+        } else {
+          setReviewNotice({ title: "Goal grade saved but could not reload", detail: loaded.error });
+        }
       }
+    } catch (error) {
+      console.error("run_goal_grade:", error);
+      setReviewNotice({ title: "Goal grade failed", detail: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setGoalGrading(false);
     }
-    setGoalGrading(false);
   }
 
   async function runJudge() {
     if (!activeEval || judgeRunning) return;
     if (reviewGate.machineReviewLocked) return;
+    setReviewNotice(null);
     setJudgeRunning(true);
-    const result = await commands.runLlmJudge(activeEval.id, judgeModel);
-    if (result.status === "error") {
-      console.error("run_llm_judge:", result.error);
-      alert(`Judge failed: ${result.error}`);
-    } else {
-      // Reload the eval to pick up the saved judge scores.
-      const loaded = await commands.loadEval(activeEval.id);
-      if (loaded.status === "ok") {
-        const r: EvalResult = JSON.parse(loaded.data);
-        if (r.judge) setJudge(r.judge);
+    try {
+      const result = await commands.runLlmJudge(activeEval.id, judgeModel);
+      if (result.status === "error") {
+        console.error("run_llm_judge:", result.error);
+        setReviewNotice({ title: "Judge pass failed", detail: result.error });
+      } else {
+        const loaded = await commands.loadEval(activeEval.id);
+        if (loaded.status === "ok") {
+          const r: EvalResult = JSON.parse(loaded.data);
+          if (r.judge) setJudge(r.judge);
+        } else {
+          setReviewNotice({ title: "Judge pass saved but could not reload", detail: loaded.error });
+        }
       }
+    } catch (error) {
+      console.error("run_llm_judge:", error);
+      setReviewNotice({ title: "Judge pass failed", detail: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setJudgeRunning(false);
     }
-    setJudgeRunning(false);
   }
 
   function toggleModel(model: string) {
@@ -1241,6 +1291,7 @@ export function EvalView() {
             if (r.status === "ok") {
               const parsed: EvalResult = JSON.parse(r.data);
               useEvalStore.getState().loadEval(parsed);
+              setReviewNotice(null);
             }
           }} />
         </div>
@@ -1487,13 +1538,16 @@ export function EvalView() {
                     </Button>
                   )}
                   <Button size="sm" variant="ghost"
-                    onClick={() => { setPrompt(""); useEvalStore.setState({ activeEval: null, humanScores: {}, scoresDirty: false }); }}
+                    onClick={() => { setPrompt(""); setReviewNotice(null); useEvalStore.setState({ activeEval: null, humanScores: {}, scoresDirty: false }); }}
                     className="gap-1 text-xs h-7 text-[oklch(0.45_0_0)]">
                     <RotateCcw className="w-3 h-3" /> Reset
                   </Button>
                 </>
               )}
             </div>
+            {reviewNotice && (
+              <ReviewNoticeBanner notice={reviewNotice} onDismiss={() => setReviewNotice(null)} />
+            )}
           </div>
 
           {/* Active eval body */}
