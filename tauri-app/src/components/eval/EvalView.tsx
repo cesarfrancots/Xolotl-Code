@@ -8,8 +8,8 @@ import {
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
-import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalGrade } from "../../bindings";
-import { HUMAN_SCORE_KEYS, getBlindReviewProgress, getReviewOrder, useEvalStore } from "../../stores/evalStore";
+import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalGrade, JudgeScores } from "../../bindings";
+import { HUMAN_SCORE_KEYS, buildBlindLabels, getBlindReviewProgress, getReviewOrder, useEvalStore } from "../../stores/evalStore";
 import { MarkdownRenderer } from "../chat/MarkdownRenderer";
 import {
   assessBlindResultsGate,
@@ -63,6 +63,7 @@ const SCORE_DIMENSIONS: { key: keyof HumanScores; label: string; color: string }
 ];
 
 const SCORE_DIMENSION_COUNT = HUMAN_SCORE_KEYS.length;
+const EMPTY_HUMAN_SCORES: Partial<HumanScores> = {};
 
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "claude-sonnet-4-6":           { input: 3,   output: 15 },
@@ -236,7 +237,7 @@ function ResponseCard({
   resultsLocked: boolean;
 }) {
   const state = useEvalStore((s) => s.activeEval?.modelStates[model]);
-  const humanScores = useEvalStore((s) => s.humanScores[model] ?? {});
+  const humanScores = useEvalStore((s) => s.humanScores[model] ?? EMPTY_HUMAN_SCORES);
   const setHumanScore = useEvalStore((s) => s.setHumanScore);
   const judge = useEvalStore((s) => s.activeEval?.judge);
   const [expanded, setExpanded] = useState(false);
@@ -774,6 +775,99 @@ function noticeDetail(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const PREVIEW_GOAL_PROMPT = "Refactor src/components/eval/EvalView.tsx to clarify the blind review flow, preserve reveal gating, and verify tests pass.";
+
+function isPreviewEvalId(id: string): boolean {
+  return id.startsWith("preview-goal-");
+}
+
+function previewResponse(index: number, goal: string): string {
+  const openings = [
+    "Start with the review contract before touching layout details.",
+    "Treat the goal as a workflow problem, then reduce the visual surface.",
+    "Keep the comparison objective by separating human scoring from model identity.",
+  ];
+  const checks = [
+    "Verify the blind labels remain stable through score entry and save.",
+    "Confirm rankings, telemetry, and judge notes stay hidden before reveal.",
+    "Run the focused tests, build the app, and smoke the eval tab in preview.",
+  ];
+
+  return [
+    "### Approach",
+    openings[index % openings.length],
+    "",
+    "### Changes",
+    `- Scope the work to: ${goal}`,
+    "- Keep the primary path in the setup surface instead of adding another dashboard panel.",
+    "- Preserve anonymous labels until human scores are complete and saved.",
+    "",
+    "### Verification",
+    `- ${checks[index % checks.length]}`,
+    "- Leave provider calls out of preview mode.",
+  ].join("\n");
+}
+
+function previewReasoning(index: number, goal: string): string {
+  return [
+    `Goal: ${goal}`,
+    "Need to keep provider identity out of the scoring pass.",
+    index % 2 === 0
+      ? "The safer path is a local preview trial that exercises the review UI without calling providers."
+      : "The UI should expose the next review step without adding another prominent card.",
+    "Verification should cover the browser preview and the normal test/build gates.",
+  ].join("\n");
+}
+
+function previewGoalGrades(models: string[], judgeModel: string): Record<string, GoalGrade> {
+  return Object.fromEntries(models.map((model, index) => {
+    const base = 3 + (index % 3);
+    return [model, {
+      judge_model: judgeModel,
+      axes: Object.fromEntries(GOAL_AXES.map((axis, axisIndex) => [
+        axis.key,
+        {
+          score: Math.min(5, base + (axisIndex % 2)),
+          evidence: axisIndex % 2 === 0 ? "Preserve reveal gating" : "Verify tests pass",
+        },
+      ])),
+      flags: index === 0
+        ? [{
+            kind: "good_decomposition",
+            severity: "info",
+            quote: "Start with the review contract",
+            comment: "The response scopes the work before changing UI.",
+            offset_chars: 0,
+          }]
+        : [],
+      summary: "Preview-only grade generated locally for review-flow testing.",
+    }];
+  }));
+}
+
+function previewJudgeScores(models: string[], judgeModel: string): JudgeScores {
+  return {
+    judge_model: judgeModel,
+    scores: Object.fromEntries(models.map((model, index) => {
+      const score = 6 + (index % 4);
+      return [model, {
+        accuracy: score,
+        helpfulness: score,
+        quality: Math.min(10, score + 1),
+        creativity: Math.max(1, score - 1),
+        design: score,
+        aesthetics: score,
+        ai_slop: Math.min(10, score + 1),
+        brevity: score,
+      }];
+    })),
+    rationale: Object.fromEntries(models.map((model) => [
+      model,
+      "Preview-only judge note generated locally after blind review is saved.",
+    ])),
+  };
+}
+
 function ModeButton({
   active, onClick, icon, title, hint, tone = "default",
 }: {
@@ -1071,6 +1165,7 @@ export function EvalView() {
   const [liveSupervisor, setLiveSupervisor] = useState(true);
   const [goalGrading, setGoalGrading] = useState(false);
   const [reviewNotice, setReviewNotice] = useState<ReviewNotice | null>(null);
+  const isBrowserPreview = typeof window !== "undefined" && Boolean(window.__XOLOTL_BROWSER_PREVIEW__);
 
   const activeEval = useEvalStore((s) => s.activeEval);
   const humanScores = useEvalStore((s) => s.humanScores);
@@ -1301,10 +1396,89 @@ export function EvalView() {
     }
   }, [selectedSuite, selectedModels, running]);
 
+  const loadPreviewGoalEval = useCallback(() => {
+    if (!isBrowserPreview || running) return;
+    const previewModels = selectedModels.length >= 2
+      ? selectedModels
+      : allModels.length >= 2
+        ? allModels.slice(0, 2)
+        : ["preview-model-a", "preview-model-b"];
+    const previewPrompt = prompt.trim() || PREVIEW_GOAL_PROMPT;
+    const evalId = `preview-goal-${Date.now()}`;
+    const createdAt = Date.now();
+    const goalGrades = previewGoalGrades(previewModels, judgeModel);
+    const modelStates = Object.fromEntries(previewModels.map((model, index) => {
+      const content = previewResponse(index, previewPrompt);
+      const reasoning = previewReasoning(index, previewPrompt);
+      const flags: ReasoningFlag[] = liveSupervisor && index === 0
+        ? [{
+            kind: "good_decomposition",
+            severity: "info",
+            quote: "Start with the review contract",
+            comment: "Preview supervisor flag generated locally for review-flow testing.",
+            offset_chars: 0,
+          }]
+        : [];
+
+      return [model, {
+        model,
+        status: "done" as const,
+        content,
+        reasoning,
+        flags,
+        input_tokens: Math.round(previewPrompt.length / 4),
+        output_tokens: Math.round(content.length / 4),
+        duration_ms: 900 + index * 240,
+        started_at: createdAt - (900 + index * 240),
+        goalGrade: goalGrades[model],
+      }];
+    }));
+
+    setMode("goal");
+    setPrompt(previewPrompt);
+    setSelectedModels(previewModels);
+    setReviewNotice(null);
+    setRunning(false);
+    useEvalStore.setState({
+      activeEval: {
+        id: evalId,
+        prompt: previewPrompt,
+        models: previewModels,
+        blindLabels: buildBlindLabels(evalId, previewModels),
+        modelStates,
+        complete: true,
+        created_at: createdAt,
+        suite_id: null,
+        suite_run_id: null,
+        suite_prompt_id: null,
+        judge: null,
+        is_goal_eval: true,
+        live_supervisor: liveSupervisor,
+      },
+      humanScores: {},
+      scoresDirty: false,
+      evalOpen: true,
+      blindMode: true,
+    });
+  }, [
+    allModels,
+    isBrowserPreview,
+    judgeModel,
+    liveSupervisor,
+    prompt,
+    running,
+    selectedModels,
+  ]);
+
   async function saveScores() {
     if (!activeEval) return;
     setReviewNotice(null);
     setSavingScores(true);
+    if (isBrowserPreview && isPreviewEvalId(activeEval.id)) {
+      markHumanScoresSaved();
+      setSavingScores(false);
+      return;
+    }
     const scoresMap: Record<string, HumanScores> = {};
     for (const [model, partial] of Object.entries(humanScores)) {
       scoresMap[model] = {
@@ -1338,6 +1512,12 @@ export function EvalView() {
     if (!activeEval || goalGrading) return;
     if (reviewGate.machineReviewLocked) return;
     setReviewNotice(null);
+    if (isBrowserPreview && isPreviewEvalId(activeEval.id)) {
+      setGoalGrading(true);
+      setGoalGrades(previewGoalGrades(activeEval.models, judgeModel));
+      setGoalGrading(false);
+      return;
+    }
     setGoalGrading(true);
     try {
       const result = await commands.runGoalGrade(activeEval.id, judgeModel);
@@ -1365,6 +1545,12 @@ export function EvalView() {
     if (!activeEval || judgeRunning) return;
     if (reviewGate.machineReviewLocked) return;
     setReviewNotice(null);
+    if (isBrowserPreview && isPreviewEvalId(activeEval.id)) {
+      setJudgeRunning(true);
+      setJudge(previewJudgeScores(activeEval.models, judgeModel));
+      setJudgeRunning(false);
+      return;
+    }
     setJudgeRunning(true);
     try {
       const result = await commands.runLlmJudge(activeEval.id, judgeModel);
@@ -1628,6 +1814,18 @@ export function EvalView() {
                 {mode === "goal" ? <Target className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                 {running ? "Running…" : (mode === "single" ? "Run Eval" : mode === "goal" ? "Run Goal Eval" : "Run Suite")}
               </Button>
+              {isBrowserPreview && mode === "goal" && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={loadPreviewGoalEval}
+                  disabled={running}
+                  title="Load a local sample trial without provider calls"
+                  className="gap-1 text-xs h-7 text-[oklch(0.58_0.025_205)]"
+                >
+                  <ScanSearch className="w-3.5 h-3.5" /> Load sample trial
+                </Button>
+              )}
 
               {activeEval && !running && (
                 <>
