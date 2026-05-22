@@ -1154,8 +1154,10 @@ function EvalRunStrip({ blindMode }: { blindMode: boolean }) {
         <div className="mt-1 font-mono text-[oklch(0.76_0.040_190)]">{done}/{activeEval.models.length}</div>
       </div>
       <div className="rounded-md border border-[oklch(0.24_0.010_245)] bg-[oklch(0.115_0.004_245)] px-3 py-2 text-xs">
-        <div className="text-[10px] uppercase tracking-[0.15em] text-[oklch(0.52_0.012_230)]">Usage</div>
-        <div className="mt-1 font-mono text-[oklch(0.76_0.040_190)]">{tokenTotal} tok / ${costTotal.toFixed(4)}</div>
+        <div className="text-[10px] uppercase tracking-[0.15em] text-[oklch(0.52_0.012_230)]">Telemetry</div>
+        <div className={`mt-1 ${blindMode ? "text-[oklch(0.54_0.018_225)]" : "font-mono text-[oklch(0.76_0.040_190)]"}`}>
+          {blindMode ? "hidden during blind review" : `${tokenTotal} tok / $${costTotal.toFixed(4)}`}
+        </div>
       </div>
       {activeEval.complete && (
         <div className="md:col-span-3 rounded-md border border-[oklch(0.31_0.018_205)] bg-[oklch(0.13_0.008_220)] px-3 py-2 text-xs text-[oklch(0.66_0.035_195)]">
