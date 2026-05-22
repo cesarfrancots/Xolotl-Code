@@ -780,25 +780,28 @@ function ModeButton({
   hint: string;
   tone?: "default" | "goal";
 }) {
-  const activeClass = tone === "goal"
-    ? "border-[oklch(0.45_0.035_195)] bg-[oklch(0.15_0.012_210)] text-[oklch(0.88_0.025_205)]"
-    : "border-[oklch(0.34_0.018_235)] bg-[oklch(0.14_0.008_235)] text-[oklch(0.84_0.018_230)]";
+  const iconClass = active && tone === "goal"
+    ? "text-[oklch(0.74_0.045_195)]"
+    : active
+      ? "text-[oklch(0.72_0.030_220)]"
+      : "text-[oklch(0.46_0.010_235)] group-hover:text-[oklch(0.66_0.018_220)]";
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       className={[
-        "flex min-h-[64px] flex-1 items-start gap-2 rounded-md border px-3 py-2 text-left transition-colors",
+        "group flex min-w-0 flex-1 items-center gap-2 rounded px-2.5 py-1.5 text-left transition-colors sm:w-auto",
         active
-          ? activeClass
-          : "border-[oklch(0.23_0.010_240)] bg-[oklch(0.115_0.004_240)] text-[oklch(0.56_0.012_235)] hover:border-[oklch(0.34_0.018_220)] hover:text-[oklch(0.82_0.015_220)]",
+          ? "bg-[oklch(0.148_0.008_220)] text-[oklch(0.88_0.018_220)] shadow-[inset_0_0_0_1px_oklch(0.30_0.014_220)]"
+          : "text-[oklch(0.55_0.010_230)] hover:bg-[oklch(0.13_0.004_245)] hover:text-[oklch(0.80_0.014_220)]",
       ].join(" ")}
     >
-      <span className="mt-0.5 flex h-7 w-7 flex-none items-center justify-center rounded-md bg-[oklch(0.09_0.004_245)]/80">
+      <span className={`flex h-6 w-6 flex-none items-center justify-center ${iconClass}`}>
         {icon}
       </span>
       <span className="min-w-0">
-        <span className="block text-xs font-semibold">{title}</span>
-        <span className="mt-0.5 block text-[10px] leading-snug text-[oklch(0.57_0.02_235)]">{hint}</span>
+        <span className="block truncate text-xs font-semibold">{title}</span>
+        <span className="mt-0.5 hidden truncate text-[10px] leading-snug text-[oklch(0.52_0.012_230)] xl:block">{hint}</span>
       </span>
     </button>
   );
@@ -1423,7 +1426,7 @@ export function EvalView() {
         <div className="flex-1 overflow-y-auto">
           {/* Mode + suite/prompt + models */}
           <div className="px-4 py-4 border-b border-[oklch(0.22_0.008_245)] flex flex-col gap-4 bg-[oklch(0.102_0.004_250)]">
-            <div className="grid grid-cols-1 gap-2 lg:grid-cols-3">
+            <div className="flex w-full flex-col gap-1 rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)] p-1 sm:flex-row">
               <ModeButton
                 active={mode === "goal"}
                 onClick={() => { setMode("goal"); setBlindMode(true); }}

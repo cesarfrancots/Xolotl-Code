@@ -13,15 +13,16 @@ import { LaunchTeamDialog } from "./LaunchTeamDialog";
  * Right column: agent roster + spawn buttons.
  * Expanded: 320px (w-80). Collapsed: 48px icon-rail.
  */
-export function AgentPanel() {
+export function AgentPanel({ forceCollapsed = false }: { forceCollapsed?: boolean }) {
   const agents = useAgentStore((s) => s.agents);
   const groups = useAgentStore((s) => s.groups);
   const openMergeCheckpoint = useAgentStore((s) => s.openMergeCheckpoint);
   const setExpandedAgent = useAgentStore((s) => s.setExpandedAgent);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
-  const collapsed = useUiStore((s) => s.agentsCollapsed);
+  const storedCollapsed = useUiStore((s) => s.agentsCollapsed);
   const toggleCollapsed = useUiStore((s) => s.toggleAgents);
+  const collapsed = forceCollapsed || storedCollapsed;
 
   useGroupWatcher();
 
@@ -55,8 +56,8 @@ export function AgentPanel() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 mx-auto text-[oklch(0.64_0.035_190)] hover:text-[oklch(0.78_0.040_190)] relative"
-            title="Expand agents"
-            onClick={toggleCollapsed}
+            title={forceCollapsed ? "Widen window to expand agents" : "Expand agents"}
+            onClick={forceCollapsed ? undefined : toggleCollapsed}
           >
             <BotMessageSquare className="h-4 w-4" />
             {runningCount > 0 && (
@@ -107,7 +108,7 @@ export function AgentPanel() {
         >
           <UsersRound className="h-4 w-4" />
         </Button>
-        {collapsed && (
+        {collapsed && !forceCollapsed && (
           <Button
             variant="ghost"
             size="icon"

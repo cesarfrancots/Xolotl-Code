@@ -15,15 +15,16 @@ import { CommandsPalette } from "../chat/CommandsPalette";
  * Left column: session list + "New session" button.
  * Expanded: 256px (w-64).  Collapsed: 48px icon-rail.
  */
-export function SessionSidebar() {
+export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: boolean }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const { sessions, activeSessionId, loadSessions, deleteSession, setActiveSessionId } =
     useSessionStore();
   const clearSession = useChatStore((s) => s.clearSession);
   const hydrateSession = useChatStore((s) => s.hydrateSession);
-  const collapsed = useUiStore((s) => s.sessionsCollapsed);
+  const storedCollapsed = useUiStore((s) => s.sessionsCollapsed);
   const toggleCollapsed = useUiStore((s) => s.toggleSessions);
+  const collapsed = forceCollapsed || storedCollapsed;
 
   useEffect(() => {
     void loadSessions();
@@ -67,8 +68,8 @@ export function SessionSidebar() {
               variant="ghost"
               size="icon"
               className="h-8 w-8 mx-auto text-[oklch(0.64_0.035_190)] hover:text-[oklch(0.78_0.040_190)]"
-              title="Expand sessions"
-              onClick={toggleCollapsed}
+              title={forceCollapsed ? "Widen window to expand sessions" : "Expand sessions"}
+              onClick={forceCollapsed ? undefined : toggleCollapsed}
             >
               <FolderClock className="h-4 w-4" />
             </Button>
@@ -102,7 +103,7 @@ export function SessionSidebar() {
           >
             <SquarePen className="h-4 w-4" />
           </Button>
-          {collapsed && (
+          {collapsed && !forceCollapsed && (
             <Button
               variant="ghost"
               size="icon"

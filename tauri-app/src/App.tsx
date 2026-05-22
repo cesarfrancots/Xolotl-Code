@@ -16,8 +16,15 @@ const LazyEvalView = lazy(async () => {
   return { default: module.EvalView };
 });
 
+const COMPACT_SHELL_QUERY = "(max-width: 899px)";
+
+function isCompactShell() {
+  return typeof window.matchMedia === "function" && window.matchMedia(COMPACT_SHELL_QUERY).matches;
+}
+
 export default function App() {
   const [centerTab, setCenterTab] = useState<CenterTab>(() => centerTabFromSearch(window.location.search));
+  const [compactShell, setCompactShell] = useState(isCompactShell);
   const expandedAgentId = useAgentStore((s) => s.expandedAgentId);
   const mergeCheckpointGroupId = useAgentStore((s) => s.mergeCheckpointGroupId);
   const showAgentView = expandedAgentId || mergeCheckpointGroupId;
@@ -37,6 +44,15 @@ export default function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(COMPACT_SHELL_QUERY);
+    const syncCompactShell = () => setCompactShell(query.matches);
+    syncCompactShell();
+    query.addEventListener("change", syncCompactShell);
+    return () => query.removeEventListener("change", syncCompactShell);
+  }, []);
+
   function renderCenter() {
     if (mergeCheckpointGroupId) return <MergeCheckpointView groupId={mergeCheckpointGroupId} />;
     if (expandedAgentId) return <AgentOutputView agentId={expandedAgentId} />;
@@ -52,7 +68,7 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen flex flex-row overflow-hidden xolotl-shell">
-      <SessionSidebar />
+      <SessionSidebar forceCollapsed={compactShell} />
       <div className="flex-1 min-w-0 flex flex-col">
         {!showAgentView && (
           <div className="flex-none flex items-center gap-3 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]/94 px-3 h-12 shadow-[0_1px_0_oklch(1_0_0_/_0.025)]">
@@ -85,7 +101,7 @@ export default function App() {
         )}
         <div className="flex-1 min-h-0 flex flex-col">{renderCenter()}</div>
       </div>
-      <AgentPanel />
+      <AgentPanel forceCollapsed={compactShell} />
     </div>
   );
 }
