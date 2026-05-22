@@ -1047,6 +1047,10 @@ export function EvalView() {
     (mode === "goal"
       ? !goalReadiness.canRun
       : selectedModels.length === 0 || (mode === "single" && !prompt.trim()));
+  const goalRunDisabledTitle =
+    mode === "goal" && !goalReadiness.canRun
+      ? "Add a concrete goal with scope and success criteria, then select at least two models."
+      : undefined;
 
   // Subscribe to streaming eval events; survives multiple consecutive runs.
   const unlistenRef = useRef<UnlistenFn | null>(null);
@@ -1433,7 +1437,7 @@ export function EvalView() {
                                       runSuiteEval
                 }
                 disabled={runDisabled}
-                title={mode === "goal" && !goalReadiness.canRun ? "Add a goal and select at least two models." : undefined}
+                title={goalRunDisabledTitle}
                 className={`gap-1.5 text-white disabled:opacity-50 ${
                   mode === "goal"
                     ? "bg-[oklch(0.46_0.045_190)] hover:bg-[oklch(0.42_0.045_190)]"

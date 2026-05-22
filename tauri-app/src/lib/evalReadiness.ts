@@ -49,12 +49,12 @@ export function assessGoalEvalReadiness({
     {
       id: "goal",
       label: "Goal",
-      state: !hasGoal ? "blocked" : goalIsSpecific ? "ready" : "attention",
+      state: goalIsSpecific ? "ready" : "blocked",
       detail: !hasGoal
         ? "Add the production goal to evaluate."
         : goalIsSpecific
           ? "Specific enough to compare outcomes."
-          : "Short goals work, but more context improves scoring.",
+          : "Add context, scope, and success criteria.",
     },
     {
       id: "models",
@@ -83,7 +83,7 @@ export function assessGoalEvalReadiness({
   ];
 
   return {
-    canRun: hasGoal && hasComparison,
+    canRun: goalIsSpecific && hasComparison,
     items,
   };
 }

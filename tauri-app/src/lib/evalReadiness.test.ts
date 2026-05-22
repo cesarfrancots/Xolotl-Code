@@ -21,6 +21,18 @@ describe("assessGoalEvalReadiness", () => {
     expect(singleModel.items.find((item) => item.id === "models")?.state).toBe("blocked");
   });
 
+  it("blocks vague short goals before a model comparison can start", () => {
+    const readiness = assessGoalEvalReadiness({
+      goal: "Fix auth",
+      modelCount: 2,
+      blindMode: true,
+      liveSupervisor: true,
+    });
+
+    expect(readiness.canRun).toBe(false);
+    expect(readiness.items.find((item) => item.id === "goal")?.state).toBe("blocked");
+  });
+
   it("allows a comparison run while warning about non-blocking review settings", () => {
     const readiness = assessGoalEvalReadiness({
       goal: "Refactor the auth middleware without changing its public API",
