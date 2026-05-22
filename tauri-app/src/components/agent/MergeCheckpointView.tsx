@@ -42,6 +42,7 @@ export function MergeCheckpointView({ groupId }: { groupId: string }) {
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [diffsMap, setDiffsMap] = useState<Record<string, FileDiff[]>>({});
   const [conflictPaths, setConflictPaths] = useState<Set<string>>(new Set());
+  const [confirmArmed, setConfirmArmed] = useState(false);
 
   // Fetch diffs for all agents on mount
   useEffect(() => {
@@ -49,6 +50,7 @@ export function MergeCheckpointView({ groupId }: { groupId: string }) {
 
     const fetchAll = async () => {
       setLoadState("loading");
+      setConfirmArmed(false);
       const results = await Promise.all(
         agentsInGroup.map(async (agent) => {
           const result = await commands.getWorktreeDiff(agent.id);
@@ -77,6 +79,7 @@ export function MergeCheckpointView({ groupId }: { groupId: string }) {
 
   async function handleMerge() {
     if (!group) return;
+    setConfirmArmed(false);
     setLoadState("merging");
     setErrorMessage("");
     const result = await commands.mergeWorktrees(group.id, group.agentIds);
@@ -94,28 +97,28 @@ export function MergeCheckpointView({ groupId }: { groupId: string }) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[oklch(0.16_0_0)]">
+    <div className="flex h-full flex-col bg-[oklch(0.105_0.004_245)]">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 h-12 flex-none border-b border-neutral-800">
-        <span className="text-sm font-semibold text-[oklch(0.92_0_0)]">Merge Checkpoint</span>
+      <div className="flex h-12 flex-none items-center justify-between gap-3 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)] px-4">
+        <span className="text-sm font-semibold text-[oklch(0.90_0.015_220)]">Merge Checkpoint</span>
         <div className="flex items-center gap-2">
           {loadState === "loading" && (
             <>
-              <Loader2 className="h-3 w-3 animate-spin text-[oklch(0.55_0_0)]" />
-              <span className="text-xs text-[oklch(0.55_0_0)]">Loading…</span>
+              <Loader2 className="h-3 w-3 animate-spin text-[oklch(0.56_0.014_225)]" />
+              <span className="text-xs text-[oklch(0.56_0.014_225)]">Loading...</span>
             </>
           )}
           {loadState === "merging" && (
             <>
-              <Loader2 className="h-3 w-3 animate-spin text-[oklch(0.55_0_0)]" />
-              <span className="text-xs text-[oklch(0.55_0_0)]">Merging…</span>
+              <Loader2 className="h-3 w-3 animate-spin text-[oklch(0.56_0.014_225)]" />
+              <span className="text-xs text-[oklch(0.56_0.014_225)]">Merging...</span>
             </>
           )}
           {loadState === "merged" && (
-            <span className="text-xs text-emerald-400">Merged</span>
+            <span className="rounded-md border border-[oklch(0.34_0.025_170)] bg-[oklch(0.13_0.010_175)] px-2 py-1 text-xs text-[oklch(0.72_0.045_175)]">Merged</span>
           )}
           {loadState === "error" && (
-            <span className="text-xs text-red-400">{errorMessage}</span>
+            <span className="max-w-[240px] truncate rounded-md border border-[oklch(0.38_0.040_28)] bg-[oklch(0.13_0.014_28)] px-2 py-1 text-xs text-[oklch(0.72_0.060_28)]">{errorMessage}</span>
           )}
           <Button
             variant="ghost"
@@ -139,16 +142,16 @@ export function MergeCheckpointView({ groupId }: { groupId: string }) {
               <div key={agent.id} className="flex flex-col">
                 {/* Section heading */}
                 <div className="flex items-center gap-2 mb-2">
-                  <code className="text-xs font-mono text-[oklch(0.92_0_0)]">{agent.branch}</code>
-                  <span className="text-xs text-[oklch(0.55_0_0)]">·</span>
-                  <span className="text-xs text-[oklch(0.55_0_0)]">
+                  <code className="text-xs font-mono text-[oklch(0.84_0.015_220)]">{agent.branch}</code>
+                  <span className="text-xs text-[oklch(0.42_0.010_235)]">/</span>
+                  <span className="text-xs text-[oklch(0.54_0.012_225)]">
                     {diffs.length} file{diffs.length !== 1 ? "s" : ""}
                   </span>
                 </div>
 
                 {/* File accordion or empty state */}
                 {diffs.length === 0 ? (
-                  <div className="flex items-center gap-2 px-3 py-4 text-xs text-[oklch(0.55_0_0)] italic">
+                  <div className="flex items-center gap-2 px-3 py-4 text-xs text-[oklch(0.54_0.012_225)] italic">
                     No file changes in this worktree.
                   </div>
                 ) : (
@@ -157,13 +160,13 @@ export function MergeCheckpointView({ groupId }: { groupId: string }) {
                       <AccordionItem
                         key={file.path}
                         value={file.path}
-                        className="bg-[oklch(0.20_0_0)] rounded-md border border-neutral-800"
+                        className="rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)]"
                       >
-                        <AccordionTrigger className="px-3 py-2 text-xs font-mono text-[oklch(0.92_0_0)] hover:bg-[oklch(0.24_0_0)] rounded-md hover:no-underline">
+                        <AccordionTrigger className="rounded-md px-3 py-2 text-xs font-mono text-[oklch(0.86_0.015_220)] hover:bg-[oklch(0.15_0.006_245)] hover:no-underline">
                           <span className="flex items-center gap-2 min-w-0">
                             <span className="truncate">{file.path}</span>
                             {conflictPaths.has(file.path) && (
-                              <span className="flex-none text-xs bg-yellow-900/40 text-yellow-400 border border-yellow-800 px-2 py-1 rounded">
+                              <span className="flex-none rounded border border-[oklch(0.38_0.030_72)] bg-[oklch(0.13_0.010_72)] px-2 py-1 text-xs text-[oklch(0.70_0.045_72)]">
                                 conflict
                               </span>
                             )}
@@ -183,23 +186,33 @@ export function MergeCheckpointView({ groupId }: { groupId: string }) {
       </ScrollArea>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-4 py-3 flex-none border-t border-neutral-800">
-        {conflictPaths.size > 0 ? (
-          <span className="text-xs text-yellow-400">
-            {conflictPaths.size} conflict{conflictPaths.size !== 1 ? "s" : ""} detected
-          </span>
-        ) : (
-          <span className="text-xs text-[oklch(0.55_0_0)]">No conflicts</span>
-        )}
+      <div className="flex flex-none items-center justify-between gap-3 border-t border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)] px-4 py-3">
+        <div className="min-w-0">
+          {conflictPaths.size > 0 ? (
+            <span className="text-xs text-[oklch(0.70_0.045_72)]">
+              {conflictPaths.size} conflict{conflictPaths.size !== 1 ? "s" : ""} detected
+            </span>
+          ) : (
+            <span className="text-xs text-[oklch(0.54_0.012_225)]">No conflicts detected</span>
+          )}
+          {confirmArmed && (
+            <div className="mt-1 text-[11px] text-[oklch(0.64_0.035_72)]">
+              Review the combined diff, then confirm merge.
+            </div>
+          )}
+        </div>
         <Button
           disabled={loadState === "merging" || loadState === "merged" || anyAgentStillRunning}
           title={anyAgentStillRunning ? "All agents must finish before merging" : undefined}
           onClick={() => {
-            if (!window.confirm("Merge all worktree branches? This cannot be undone.")) return;
+            if (!confirmArmed) {
+              setConfirmArmed(true);
+              return;
+            }
             void handleMerge();
           }}
         >
-          {loadState === "merging" ? "Merging…" : "Approve & Merge"}
+          {loadState === "merging" ? "Merging..." : confirmArmed ? "Confirm Merge" : "Approve & Merge"}
         </Button>
       </div>
     </div>
