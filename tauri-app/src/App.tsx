@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import "./styles.css";
 import { SessionSidebar } from "./components/sidebar/SessionSidebar";
 import { ChatPane } from "./components/chat/ChatPane";
@@ -7,13 +7,9 @@ import { AgentOutputView } from "./components/agent/AgentOutputView";
 import { MergeCheckpointView } from "./components/agent/MergeCheckpointView";
 import { useAgentStore } from "./stores/agentStore";
 import { Loader2, MessagesSquare, TestTubeDiagonal, Waves } from "lucide-react";
-
-type CenterTab = "chat" | "eval";
+import { centerTabFromSearch, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
 
 const loadEvalView = () => import("./components/eval/EvalView");
-function initialCenterTab(): CenterTab {
-  return new URLSearchParams(window.location.search).get("tab") === "eval" ? "eval" : "chat";
-}
 
 const LazyEvalView = lazy(async () => {
   const module = await loadEvalView();
@@ -21,10 +17,25 @@ const LazyEvalView = lazy(async () => {
 });
 
 export default function App() {
-  const [centerTab, setCenterTab] = useState<CenterTab>(initialCenterTab);
+  const [centerTab, setCenterTab] = useState<CenterTab>(() => centerTabFromSearch(window.location.search));
   const expandedAgentId = useAgentStore((s) => s.expandedAgentId);
   const mergeCheckpointGroupId = useAgentStore((s) => s.mergeCheckpointGroupId);
   const showAgentView = expandedAgentId || mergeCheckpointGroupId;
+
+  const selectCenterTab = useCallback((tab: CenterTab) => {
+    setCenterTab(tab);
+    const nextUrl = urlForCenterTab(window.location.href, tab);
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.pushState(null, "", nextUrl);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => setCenterTab(centerTabFromSearch(window.location.search));
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   function renderCenter() {
     if (mergeCheckpointGroupId) return <MergeCheckpointView groupId={mergeCheckpointGroupId} />;
@@ -58,13 +69,13 @@ export default function App() {
             <div className="ml-auto flex items-center gap-1 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.10_0.004_250)] p-1">
               <PillTab
                 active={centerTab === "chat"}
-                onClick={() => setCenterTab("chat")}
+                onClick={() => selectCenterTab("chat")}
                 icon={<MessagesSquare className="w-3.5 h-3.5" />}
                 label="Chat"
               />
               <PillTab
                 active={centerTab === "eval"}
-                onClick={() => setCenterTab("eval")}
+                onClick={() => selectCenterTab("eval")}
                 onPreload={loadEvalView}
                 icon={<TestTubeDiagonal className="w-3.5 h-3.5" />}
                 label="Eval"
