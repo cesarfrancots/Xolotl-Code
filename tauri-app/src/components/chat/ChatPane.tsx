@@ -4,7 +4,7 @@ import { useChatStore } from "../../stores/chatStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useAgentEvents } from "../../hooks/useAgentEvents";
 import { formatCostBar, calcTurnCost } from "../../lib/cost";
-import { ChevronDown, Square, Sparkles, Check } from "lucide-react";
+import { BadgeCheck, ChevronDown, Square, Check } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   DropdownMenu,
@@ -64,8 +64,8 @@ export function ChatPane() {
   }, [availableModels]);
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col bg-[oklch(0.11_0_0)]">
-      <div className="h-12 flex-none flex items-center justify-between px-4 border-b border-neutral-800 bg-[oklch(0.12_0_0)]">
+    <div className="flex-1 min-w-0 flex flex-col bg-[oklch(0.105_0.004_245)]">
+      <div className="h-12 flex-none flex items-center justify-between px-4 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]/96">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="h-8 gap-2 text-sm font-semibold text-[oklch(0.92_0_0)] px-2.5 -ml-2.5">
@@ -89,10 +89,10 @@ export function ChatPane() {
                       onClick={() => setModel(m)}
                       className="font-mono text-xs flex items-center justify-between gap-2"
                     >
-                      <span className={m === model ? "text-[oklch(0.92_0_0)]" : "text-[oklch(0.78_0_0)]"}>
+                      <span className={m === model ? "text-[oklch(0.92_0.015_220)]" : "text-[oklch(0.78_0.012_225)]"}>
                         {m.replace(/^bedrock-/, "")}
                       </span>
-                      {m === model && <Check className="w-3 h-3 text-[oklch(0.65_0.18_250)]" />}
+                      {m === model && <Check className="w-3 h-3 text-[oklch(0.64_0.040_190)]" />}
                     </DropdownMenuItem>
                   ))}
                   <DropdownMenuSeparator />
@@ -105,10 +105,10 @@ export function ChatPane() {
         <div className="flex items-center gap-3">
           {enabledSkills.length > 0 && (
             <span
-              className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-[oklch(0.65_0.18_250)]/15 text-[oklch(0.78_0.18_250)] border border-[oklch(0.65_0.18_250)]/30"
+              className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-[oklch(0.30_0.018_195)] bg-[oklch(0.14_0.008_195)] text-[oklch(0.72_0.035_190)]"
               title={`Skills advertised to model: ${enabledSkills.join(", ")}`}
             >
-              <Sparkles className="w-3 h-3" />
+              <BadgeCheck className="w-3 h-3" />
               {enabledSkills.length} {enabledSkills.length === 1 ? "skill" : "skills"}
             </span>
           )}

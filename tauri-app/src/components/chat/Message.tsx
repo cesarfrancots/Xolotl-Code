@@ -42,8 +42,8 @@ function Avatar({
 }) {
   const bg =
     tone === "assistant"
-      ? "bg-[oklch(0.65_0.18_250)]" // accent blue for xolotl
-      : "bg-[oklch(0.30_0_0)]";
+      ? "bg-[oklch(0.34_0.040_190)]"
+      : "bg-[oklch(0.24_0.006_235)]";
   return (
     <div
       className={`flex-none w-8 h-8 rounded-md ${bg} flex items-center justify-center text-xs font-semibold text-white select-none`}
@@ -109,8 +109,8 @@ function MessageHeader({
       <span
         className={`text-sm font-semibold ${
           tone === "assistant"
-            ? "text-[oklch(0.78_0.12_250)]"
-            : "text-[oklch(0.92_0_0)]"
+            ? "text-[oklch(0.74_0.040_190)]"
+            : "text-[oklch(0.92_0.012_220)]"
         }`}
       >
         {name}
@@ -201,7 +201,7 @@ export function StreamingMessage({
           <div className="text-[15px] leading-relaxed text-[oklch(0.95_0_0)] relative">
             <MarkdownRenderer content={content} />
             <span
-              className="inline-block w-0.5 h-[14px] bg-[oklch(0.65_0.18_250)] animate-pulse ml-0.5 align-text-bottom"
+              className="inline-block w-0.5 h-[14px] bg-[oklch(0.62_0.040_190)] animate-pulse ml-0.5 align-text-bottom"
               aria-label="xolotl is typing"
             />
           </div>

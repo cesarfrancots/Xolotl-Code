@@ -361,8 +361,8 @@ export function MessageInput() {
       className={[
         "flex-none px-4 py-3 border-t transition-colors relative",
         dragOver
-          ? "border-[oklch(0.65_0.18_250)] bg-[oklch(0.65_0.18_250)]/5"
-          : "border-neutral-800",
+          ? "border-[oklch(0.42_0.025_195)] bg-[oklch(0.15_0.010_195)]/60"
+          : "border-[oklch(0.22_0.008_240)]",
       ].join(" ")}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
@@ -373,8 +373,8 @@ export function MessageInput() {
       }}
     >
       {dragOver && (
-        <div className="absolute inset-2 rounded-lg border-2 border-dashed border-[oklch(0.65_0.18_250)] flex items-center justify-center pointer-events-none bg-[oklch(0.12_0_0)]/80 z-10">
-          <span className="text-sm text-[oklch(0.78_0.18_250)] font-medium">Drop to attach</span>
+        <div className="absolute inset-2 rounded-md border border-dashed border-[oklch(0.44_0.030_195)] flex items-center justify-center pointer-events-none bg-[oklch(0.11_0.004_245)]/88 z-10">
+          <span className="text-sm text-[oklch(0.76_0.040_190)] font-medium">Drop to attach</span>
         </div>
       )}
       <input
@@ -394,10 +394,10 @@ export function MessageInput() {
           {attachments.map((a) => (
             <div
               key={a.id}
-              className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md bg-[oklch(0.20_0_0)] border border-neutral-700 text-xs"
+              className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md bg-[oklch(0.14_0.004_245)] border border-[oklch(0.24_0.010_235)] text-xs"
               title={`${a.name} · ${fmtSize(a.size)}${a.truncated ? " (truncated)" : ""}`}
             >
-              <FileText className="w-3 h-3 text-[oklch(0.65_0.18_250)] flex-none" />
+              <FileText className="w-3 h-3 text-[oklch(0.62_0.035_190)] flex-none" />
               <span className="text-[oklch(0.85_0_0)] max-w-[160px] truncate">{a.name}</span>
               <span className="text-[10px] text-[oklch(0.50_0_0)] tabular-nums">{fmtSize(a.size)}</span>
               {a.truncated && <span className="text-[10px] text-[oklch(0.72_0.18_30)]">trunc</span>}
@@ -417,9 +417,9 @@ export function MessageInput() {
         <PopoverAnchor asChild>
           <div
             className={[
-              "rounded-xl border bg-[oklch(0.155_0_0)] transition-colors",
-              "focus-within:border-[oklch(0.65_0.18_250)]/60 focus-within:shadow-[0_0_0_4px_oklch(0.65_0.18_250_/_0.08)]",
-              dragOver ? "border-[oklch(0.65_0.18_250)]" : "border-neutral-800",
+              "rounded-md border bg-[oklch(0.13_0.004_245)] transition-colors",
+              "focus-within:border-[oklch(0.42_0.025_195)] focus-within:shadow-[0_0_0_3px_oklch(0.55_0.030_195_/_0.08)]",
+              dragOver ? "border-[oklch(0.42_0.025_195)]" : "border-[oklch(0.22_0.008_240)]",
             ].join(" ")}
           >
             <textarea
@@ -427,7 +427,7 @@ export function MessageInput() {
               value={value}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder={attachments.length > 0 ? "Add a message about these files…" : "Message xolotl…"}
+              placeholder={attachments.length > 0 ? "Add a message about these files..." : "Message xolotl..."}
               rows={1}
               className={[
                 "w-full resize-none bg-transparent border-0",
@@ -466,8 +466,8 @@ export function MessageInput() {
                   className={[
                     "h-7 w-7 p-0 rounded-full transition-all",
                     canSend
-                      ? "bg-[oklch(0.65_0.18_250)] hover:bg-[oklch(0.60_0.18_250)] text-white shadow-md shadow-[oklch(0.65_0.18_250)]/30"
-                      : "bg-[oklch(0.20_0_0)] text-[oklch(0.40_0_0)] cursor-not-allowed",
+                      ? "bg-[oklch(0.58_0.040_190)] hover:bg-[oklch(0.54_0.040_190)] text-[oklch(0.98_0.006_190)] shadow-none"
+                      : "bg-[oklch(0.17_0.004_245)] text-[oklch(0.42_0.008_230)] cursor-not-allowed",
                   ].join(" ")}
                   disabled={!canSend}
                   title="Send message"
@@ -495,7 +495,7 @@ export function MessageInput() {
                     onSelect={() => executeSlashCommand(item.command)}
                     className="flex justify-between px-4 py-2 cursor-pointer"
                   >
-                    <span className="text-sm text-[oklch(0.65_0.18_250)] font-medium">
+                    <span className="text-sm text-[oklch(0.66_0.040_190)] font-medium">
                       {item.command}
                     </span>
                     <span className="text-xs text-[oklch(0.55_0_0)]">{item.description}</span>

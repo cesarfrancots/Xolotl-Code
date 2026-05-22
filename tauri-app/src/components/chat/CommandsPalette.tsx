@@ -199,12 +199,12 @@ function Section({
                   : "cursor-default",
               ].join(" ")}
             >
-              <Cmd className="w-4 h-4 mt-0.5 text-[oklch(0.65_0.18_250)] flex-none" />
+              <Cmd className="w-4 h-4 mt-0.5 text-[oklch(0.62_0.035_190)] flex-none" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-[oklch(0.90_0_0)]">{c.label}</span>
                   {c.syntax && (
-                    <code className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[oklch(0.18_0_0)] border border-neutral-700/60 text-[oklch(0.65_0.18_250)]">
+                    <code className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[oklch(0.15_0.004_245)] border border-[oklch(0.24_0.010_235)] text-[oklch(0.66_0.040_190)]">
                       {c.syntax}
                     </code>
                   )}
