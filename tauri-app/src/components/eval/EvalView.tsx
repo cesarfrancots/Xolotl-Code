@@ -919,6 +919,7 @@ export function EvalView() {
           }
           break;
         case "EvalComplete":    finalizeEval(evalId); setRunning(false); if (un) un(); unlistenRef.current = null; break;
+        case "EvalError":       console.error("eval run error:", p.error); setRunning(false); if (un) un(); unlistenRef.current = null; break;
       }
     });
     unlistenRef.current = un;

@@ -526,7 +526,7 @@ pub struct SessionMeta {
 
 // ── Eval commands ─────────────────────────────────────────────────────────────
 
-/// start_eval: runs selected models on the same prompt in parallel.
+/// start_eval: starts selected models on the same prompt in parallel.
 /// Emits "eval-event:{eval_id}" events as each model streams.
 /// Saves result to ~/.xolotl-code/evals/{eval_id}.json when all complete.
 #[tauri::command]
@@ -536,7 +536,18 @@ pub async fn start_eval(
     prompt: String,
     models: Vec<String>,
 ) -> Result<String, String> {
-    start_eval_inner(app_handle, prompt, models, "free".to_string(), None, None, None, false, false).await
+    enqueue_eval_run(
+        app_handle,
+        prompt,
+        models,
+        "free".to_string(),
+        None,
+        None,
+        None,
+        false,
+        None,
+    )
+    .await
 }
 
 /// start_goal_eval: like start_eval but tagged as a goal eval and (optionally)
@@ -556,11 +567,18 @@ pub async fn start_goal_eval(
     } else {
         None
     };
-    let eval_id = uuid::Uuid::new_v4().to_string();
-    start_eval_inner_full(
-        app_handle, eval_id, goal, models, "free".to_string(), None, None, None,
-        true, supervisor,
-    ).await
+    enqueue_eval_run(
+        app_handle,
+        goal,
+        models,
+        "free".to_string(),
+        None,
+        None,
+        None,
+        true,
+        supervisor,
+    )
+    .await
 }
 
 /// run_eval_suite: runs every prompt of a suite across selected models in parallel.
@@ -583,6 +601,7 @@ pub async fn run_eval_suite(
     let suite_run_clone = suite_run_id.clone();
     tokio::spawn(async move {
         let channel = format!("suite-event:{suite_run_clone}");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _ = app_handle.emit(
             &channel,
             serde_json::json!({
@@ -635,9 +654,9 @@ pub fn list_eval_suites() -> Vec<EvalSuite> {
     default_suites()
 }
 
-/// Inner impl shared by start_eval and run_eval_suite. Awaits all models, returns
-/// the eval_id once persisted. Generates a fresh id.
-async fn start_eval_inner(
+/// Starts a one-off eval in the background and returns the eval id immediately,
+/// so the frontend can subscribe to `eval-event:{id}` before model events stream.
+async fn enqueue_eval_run(
     app_handle: AppHandle,
     prompt: String,
     models: Vec<String>,
@@ -646,15 +665,39 @@ async fn start_eval_inner(
     suite_run_id: Option<String>,
     suite_prompt_id: Option<String>,
     is_goal_eval: bool,
-    live_supervisor_model: bool,
+    supervisor_model: Option<String>,
 ) -> Result<String, String> {
+    std::fs::create_dir_all(home_evals_dir()).map_err(|e| e.to_string())?;
     let eval_id = uuid::Uuid::new_v4().to_string();
-    start_eval_inner_full(
-        app_handle, eval_id, prompt, models, grader,
-        suite_id, suite_run_id, suite_prompt_id,
-        is_goal_eval,
-        if live_supervisor_model { Some("claude-haiku-4-5-20251001".to_string()) } else { None },
-    ).await
+    let eval_id_for_task = eval_id.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        if let Err(error) = start_eval_inner_full(
+            app_handle.clone(),
+            eval_id_for_task.clone(),
+            prompt,
+            models,
+            grader,
+            suite_id,
+            suite_run_id,
+            suite_prompt_id,
+            is_goal_eval,
+            supervisor_model,
+        )
+        .await
+        {
+            let channel = format!("eval-event:{eval_id_for_task}");
+            let _ = app_handle.emit(
+                &channel,
+                serde_json::json!({
+                    "type": "EvalError",
+                    "eval_id": eval_id_for_task,
+                    "error": error,
+                }),
+            );
+        }
+    });
+    Ok(eval_id)
 }
 
 /// Suite-runner shim — preserves the old 8-arg signature used by `run_eval_suite`.
