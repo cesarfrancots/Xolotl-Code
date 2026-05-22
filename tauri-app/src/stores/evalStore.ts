@@ -24,6 +24,8 @@ export interface ActiveEval {
   id: string;
   prompt: string;
   models: string[];
+  /** Stable per-eval anonymous labels used while human review is blinded. */
+  blindLabels: Record<string, string>;
   modelStates: Record<string, EvalModelState>;
   complete: boolean;
   created_at: number;
@@ -86,6 +88,49 @@ export interface EvalState {
   finishSuite: () => void;
 }
 
+function labelForIndex(index: number): string {
+  let n = index;
+  let label = "";
+  do {
+    label = String.fromCharCode(65 + (n % 26)) + label;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return `Model ${label}`;
+}
+
+function seedFrom(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function nextSeed(seed: number): number {
+  let x = seed || 0x9e3779b9;
+  x ^= x << 13;
+  x ^= x >>> 17;
+  x ^= x << 5;
+  return x >>> 0;
+}
+
+export function buildBlindLabels(evalId: string, models: string[]): Record<string, string> {
+  const shuffled = [...models];
+  let seed = seedFrom(`${evalId}\u0000${models.join("\u0000")}`);
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    seed = nextSeed(seed);
+    const j = seed % (i + 1);
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  if (shuffled.length > 1 && shuffled.every((model, index) => model === models[index])) {
+    shuffled.push(shuffled.shift() as string);
+  }
+
+  return Object.fromEntries(shuffled.map((model, index) => [model, labelForIndex(index)]));
+}
+
 export const useEvalStore = create<EvalState>()((set) => ({
   activeEval: null,
   humanScores: {},
@@ -112,6 +157,7 @@ export const useEvalStore = create<EvalState>()((set) => ({
         id,
         prompt,
         models,
+        blindLabels: buildBlindLabels(id, models),
         modelStates,
         complete: false,
         created_at: Date.now(),
@@ -270,6 +316,7 @@ export const useEvalStore = create<EvalState>()((set) => ({
         id: result.id,
         prompt: result.prompt,
         models: result.models,
+        blindLabels: buildBlindLabels(result.id, result.models),
         modelStates,
         complete: true,
         created_at: result.created_at * 1000,

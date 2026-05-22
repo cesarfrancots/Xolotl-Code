@@ -1,0 +1,62 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import type { EvalResult } from "../bindings";
+import { buildBlindLabels, useEvalStore } from "./evalStore";
+
+const MODELS = ["kimi-coding", "minimax2.7", "claude-sonnet-4-6"];
+
+beforeEach(() => {
+  useEvalStore.setState({
+    activeEval: null,
+    humanScores: {},
+    evalOpen: false,
+    blindMode: true,
+    activeSuite: null,
+  });
+});
+
+describe("buildBlindLabels", () => {
+  it("creates stable randomized labels for a given eval id", () => {
+    const first = buildBlindLabels("eval-123", MODELS);
+    const second = buildBlindLabels("eval-123", MODELS);
+
+    expect(second).toEqual(first);
+    expect(Object.keys(first).sort()).toEqual([...MODELS].sort());
+    expect(Object.values(first).sort()).toEqual(["Model A", "Model B", "Model C"]);
+    expect(
+      MODELS.every((model, index) => first[model] === `Model ${String.fromCharCode(65 + index)}`)
+    ).toBe(false);
+  });
+});
+
+describe("eval blind review state", () => {
+  it("stores blind labels when starting an eval", () => {
+    useEvalStore.getState().startEval("eval-live", "Ship a feature", MODELS, { is_goal_eval: true });
+
+    const activeEval = useEvalStore.getState().activeEval;
+    expect(activeEval?.blindLabels).toEqual(buildBlindLabels("eval-live", MODELS));
+    expect(useEvalStore.getState().blindMode).toBe(true);
+  });
+
+  it("rebuilds the same blind labels when loading a stored eval", () => {
+    const result: EvalResult = {
+      id: "eval-stored",
+      prompt: "Ship a feature",
+      models: MODELS,
+      results: MODELS.map((model) => ({
+        model,
+        content: `${model} output`,
+        input_tokens: 10,
+        output_tokens: 20,
+        duration_ms: 1000,
+        error: null,
+      })),
+      human_scores: {},
+      created_at: 123,
+      is_goal_eval: true,
+    };
+
+    useEvalStore.getState().loadEval(result);
+
+    expect(useEvalStore.getState().activeEval?.blindLabels).toEqual(buildBlindLabels("eval-stored", MODELS));
+  });
+});

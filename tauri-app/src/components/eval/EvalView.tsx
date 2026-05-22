@@ -698,7 +698,7 @@ function BlindReviewBanner({ blindMode, onToggle }: { blindMode: boolean; onTogg
           <div className="min-w-0">
             <div className="text-sm font-semibold text-[oklch(0.90_0.025_220)]">Blind human review</div>
             <div className="mt-0.5 text-xs leading-relaxed text-[oklch(0.62_0.025_225)]">
-              Responses are labeled Model A, B, C while scoring. Reveal names only after the review pass.
+              Responses get stable randomized labels while scoring. Reveal names only after the review pass.
             </div>
           </div>
         </div>
@@ -720,7 +720,7 @@ function BlindReviewBanner({ blindMode, onToggle }: { blindMode: boolean; onTogg
   );
 }
 
-function EvalRunStrip({ blindNames }: { blindNames: Record<string, string> }) {
+function EvalRunStrip({ blindMode }: { blindMode: boolean }) {
   const activeEval = useEvalStore((s) => s.activeEval);
   if (!activeEval) return null;
 
@@ -736,6 +736,8 @@ function EvalRunStrip({ blindNames }: { blindNames: Record<string, string> }) {
     const s = activeEval.modelStates[model];
     return sum + calcCost(model, s?.input_tokens ?? 0, s?.output_tokens ?? 0);
   }, 0);
+
+  const orderedBlindLabels = Object.entries(activeEval.blindLabels).sort((a, b) => a[1].localeCompare(b[1]));
 
   return (
     <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
@@ -756,7 +758,9 @@ function EvalRunStrip({ blindNames }: { blindNames: Record<string, string> }) {
       </div>
       {activeEval.complete && (
         <div className="md:col-span-3 rounded-lg border border-[oklch(0.31_0.04_185)] bg-[oklch(0.16_0.035_185)]/50 px-3 py-2 text-xs text-[oklch(0.74_0.06_185)]">
-          Review order: {activeEval.models.map((m) => blindNames[m] ?? m).join(", ")}
+          {blindMode
+            ? `Blind labels locked: ${orderedBlindLabels.map(([, label]) => label).join(", ")}`
+            : `Revealed mapping: ${orderedBlindLabels.map(([model, label]) => `${label} = ${model}`).join(", ")}`}
         </div>
       )}
     </div>
@@ -796,11 +800,7 @@ export function EvalView() {
   // Map model -> display name (blind A/B/C or real name)
   const blindNames = useMemo<Record<string, string>>(() => {
     if (!blindMode || !activeEval) return {};
-    const out: Record<string, string> = {};
-    activeEval.models.forEach((m, i) => {
-      out[m] = `Model ${String.fromCharCode(65 + i)}`;
-    });
-    return out;
+    return activeEval.blindLabels;
   }, [blindMode, activeEval]);
 
   // Subscribe to streaming eval events; survives multiple consecutive runs.
@@ -1198,7 +1198,7 @@ export function EvalView() {
           {/* Active eval body */}
           {activeEval && (
             <div className="px-4 py-4 flex flex-col gap-4">
-              <EvalRunStrip blindNames={blindNames} />
+              <EvalRunStrip blindMode={blindMode} />
               {/* Live race-track */}
               {!activeEval.complete && (
                 <div className="rounded-lg border border-neutral-800 overflow-hidden bg-[oklch(0.12_0_0)]">
