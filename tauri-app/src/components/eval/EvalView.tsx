@@ -140,20 +140,11 @@ function ScoreSlider({ label, color, value, onChange }: { label: string; color: 
           value={isUnset ? 5 : value}
           aria-label={`${label} score`}
           aria-valuetext={isUnset ? "unset" : value.toFixed(1)}
+          title={isUnset ? "Move to set this score" : `${label}: ${value.toFixed(1)}`}
           onChange={(e) => onChange(Number(e.target.value))}
           className={`h-1 w-full rounded appearance-none cursor-pointer ${isUnset ? "opacity-45" : ""}`}
           style={{ accentColor: color }}
         />
-        {isUnset && (
-          <button
-            type="button"
-            onClick={() => onChange(5)}
-            className="h-5 flex-none rounded border border-[oklch(0.26_0.010_240)] px-1.5 text-[10px] text-[oklch(0.58_0.014_225)] transition-colors hover:border-[oklch(0.34_0.018_220)] hover:text-[oklch(0.78_0.018_220)]"
-            title="Set a neutral score"
-          >
-            Set 5
-          </button>
-        )}
       </div>
     </div>
   );
