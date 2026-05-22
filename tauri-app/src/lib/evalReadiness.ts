@@ -19,6 +19,16 @@ export interface BlindReviewGate {
   detail: string;
 }
 
+export type GoalWorkflowStepId = "setup" | "run" | "score" | "save" | "review";
+export type GoalWorkflowStepState = "done" | "current" | "locked";
+
+export interface GoalWorkflowStep {
+  id: GoalWorkflowStepId;
+  label: string;
+  detail: string;
+  state: GoalWorkflowStepState;
+}
+
 export function assessGoalEvalReadiness({
   goal,
   modelCount,
@@ -76,6 +86,66 @@ export function assessGoalEvalReadiness({
     canRun: hasGoal && hasComparison,
     items,
   };
+}
+
+export function assessGoalWorkflowSteps({
+  canRun,
+  hasActiveEval,
+  evalComplete,
+  reviewComplete,
+  scoresDirty,
+  blindMode,
+}: {
+  canRun: boolean;
+  hasActiveEval: boolean;
+  evalComplete: boolean;
+  reviewComplete: boolean;
+  scoresDirty: boolean;
+  blindMode: boolean;
+}): GoalWorkflowStep[] {
+  const setupDone = hasActiveEval || canRun;
+  const runDone = hasActiveEval && evalComplete;
+  const runCurrent = (!hasActiveEval && canRun) || (hasActiveEval && !evalComplete);
+  const scoreDone = runDone && reviewComplete;
+  const saveDone = scoreDone && !scoresDirty;
+  const reviewUnlocked = saveDone;
+
+  return [
+    {
+      id: "setup",
+      label: "Setup",
+      detail: setupDone ? "Goal and comparison set." : "Add a goal and select models.",
+      state: setupDone ? "done" : "current",
+    },
+    {
+      id: "run",
+      label: "Run",
+      detail: runDone ? "Model outputs are ready." : runCurrent ? "Run the selected models." : "Setup is required first.",
+      state: runDone ? "done" : runCurrent ? "current" : "locked",
+    },
+    {
+      id: "score",
+      label: "Blind score",
+      detail: scoreDone ? "Human scoring is complete." : runDone ? "Score every model while names are hidden." : "Outputs are required first.",
+      state: scoreDone ? "done" : runDone ? "current" : "locked",
+    },
+    {
+      id: "save",
+      label: "Save",
+      detail: saveDone ? "Blind scores are saved." : scoreDone ? "Save the completed blind scores." : "Finish blind scoring first.",
+      state: saveDone ? "done" : scoreDone ? "current" : "locked",
+    },
+    {
+      id: "review",
+      label: "Review",
+      detail: reviewUnlocked
+        ? blindMode
+          ? "Reveal names or run machine review."
+          : "Names are revealed; machine review can run."
+        : "Save blind scores first.",
+      state: reviewUnlocked ? blindMode ? "current" : "done" : "locked",
+    },
+  ];
 }
 
 export function assessBlindReviewGate({

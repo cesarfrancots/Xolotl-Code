@@ -11,7 +11,14 @@ import { commands } from "../../bindings";
 import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalGrade } from "../../bindings";
 import { HUMAN_SCORE_KEYS, getBlindReviewProgress, getReviewOrder, useEvalStore } from "../../stores/evalStore";
 import { MarkdownRenderer } from "../chat/MarkdownRenderer";
-import { assessBlindReviewGate, assessGoalEvalReadiness, type GoalEvalReadiness, type GoalReadinessState } from "../../lib/evalReadiness";
+import {
+  assessBlindReviewGate,
+  assessGoalEvalReadiness,
+  assessGoalWorkflowSteps,
+  type GoalEvalReadiness,
+  type GoalReadinessState,
+  type GoalWorkflowStep,
+} from "../../lib/evalReadiness";
 
 const UI_ACCENT = "oklch(0.70 0.07 190)";
 const UI_ACCENT_DIM = "oklch(0.58 0.045 205)";
@@ -861,6 +868,43 @@ function GoalReadinessPanel({ readiness }: { readiness: GoalEvalReadiness }) {
   );
 }
 
+function workflowTone(state: GoalWorkflowStep["state"]): string {
+  if (state === "done") return "border-[oklch(0.30_0.016_175)] text-[oklch(0.68_0.035_180)]";
+  if (state === "current") return "border-[oklch(0.42_0.025_195)] bg-[oklch(0.13_0.008_205)] text-[oklch(0.78_0.035_200)]";
+  return "border-[oklch(0.22_0.008_245)] text-[oklch(0.42_0.010_235)]";
+}
+
+function workflowIcon(step: GoalWorkflowStep) {
+  if (step.state === "done") return <CheckCircle2 className="h-3.5 w-3.5" />;
+  return <CircleDot className="h-3.5 w-3.5" />;
+}
+
+function GoalWorkflowStrip({ steps }: { steps: GoalWorkflowStep[] }) {
+  return (
+    <div className="rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.105_0.004_245)] px-3 py-2">
+      <div className="mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.15em] text-[oklch(0.52_0.012_230)]">
+        <ShieldCheck className="h-3 w-3 text-[oklch(0.62_0.030_195)]" />
+        Review sequence
+      </div>
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-5">
+        {steps.map((step) => (
+          <div
+            key={step.id}
+            className={`min-h-[54px] rounded border px-2 py-1.5 transition-colors ${workflowTone(step.state)}`}
+            title={step.detail}
+          >
+            <div className="flex items-center gap-1.5 text-[11px] font-medium">
+              {workflowIcon(step)}
+              {step.label}
+            </div>
+            <div className="mt-1 text-[10px] leading-snug opacity-70">{step.detail}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function EvalRunStrip({ blindMode }: { blindMode: boolean }) {
   const activeEval = useEvalStore((s) => s.activeEval);
   if (!activeEval) return null;
@@ -986,6 +1030,17 @@ export function EvalView() {
       liveSupervisor,
     }),
     [prompt, selectedModels.length, blindMode, liveSupervisor]
+  );
+  const goalWorkflowSteps = useMemo(
+    () => assessGoalWorkflowSteps({
+      canRun: goalReadiness.canRun,
+      hasActiveEval: Boolean(activeEval),
+      evalComplete: Boolean(activeEval?.complete),
+      reviewComplete: Boolean(blindReviewProgress?.complete),
+      scoresDirty,
+      blindMode,
+    }),
+    [goalReadiness.canRun, activeEval, blindReviewProgress?.complete, scoresDirty, blindMode]
   );
   const runDisabled =
     running ||
@@ -1252,6 +1307,9 @@ export function EvalView() {
                 hint="Run a saved prompt set across selected models."
               />
             </div>
+            {(mode === "goal" || activeEval?.is_goal_eval) && (
+              <GoalWorkflowStrip steps={goalWorkflowSteps} />
+            )}
             {(mode === "goal" || activeEval?.is_goal_eval) && (
               <BlindReviewBanner
                 blindMode={blindMode}

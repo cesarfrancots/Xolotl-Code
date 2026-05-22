@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessBlindReviewGate, assessGoalEvalReadiness } from "./evalReadiness";
+import { assessBlindReviewGate, assessGoalEvalReadiness, assessGoalWorkflowSteps } from "./evalReadiness";
 
 describe("assessGoalEvalReadiness", () => {
   it("blocks goal evals until a goal and at least two models are selected", () => {
@@ -86,5 +86,83 @@ describe("assessBlindReviewGate", () => {
       reviewComplete: false,
       scoresDirty: true,
     }).machineReviewLocked).toBe(false);
+  });
+});
+
+describe("assessGoalWorkflowSteps", () => {
+  it("starts on setup until the goal eval is runnable", () => {
+    const steps = assessGoalWorkflowSteps({
+      canRun: false,
+      hasActiveEval: false,
+      evalComplete: false,
+      reviewComplete: false,
+      scoresDirty: false,
+      blindMode: true,
+    });
+
+    expect(steps.map((step) => [step.id, step.state])).toEqual([
+      ["setup", "current"],
+      ["run", "locked"],
+      ["score", "locked"],
+      ["save", "locked"],
+      ["review", "locked"],
+    ]);
+  });
+
+  it("moves to blind scoring after model outputs complete", () => {
+    const steps = assessGoalWorkflowSteps({
+      canRun: true,
+      hasActiveEval: true,
+      evalComplete: true,
+      reviewComplete: false,
+      scoresDirty: false,
+      blindMode: true,
+    });
+
+    expect(steps.map((step) => [step.id, step.state])).toEqual([
+      ["setup", "done"],
+      ["run", "done"],
+      ["score", "current"],
+      ["save", "locked"],
+      ["review", "locked"],
+    ]);
+  });
+
+  it("requires saving completed blind scores before review tools unlock", () => {
+    const steps = assessGoalWorkflowSteps({
+      canRun: true,
+      hasActiveEval: true,
+      evalComplete: true,
+      reviewComplete: true,
+      scoresDirty: true,
+      blindMode: true,
+    });
+
+    expect(steps.find((step) => step.id === "save")?.state).toBe("current");
+    expect(steps.find((step) => step.id === "review")?.state).toBe("locked");
+  });
+
+  it("unlocks review after saved blind scores and marks it done after reveal", () => {
+    const blindSteps = assessGoalWorkflowSteps({
+      canRun: true,
+      hasActiveEval: true,
+      evalComplete: true,
+      reviewComplete: true,
+      scoresDirty: false,
+      blindMode: true,
+    });
+
+    expect(blindSteps.find((step) => step.id === "review")?.state).toBe("current");
+
+    const revealedSteps = assessGoalWorkflowSteps({
+      canRun: true,
+      hasActiveEval: true,
+      evalComplete: true,
+      reviewComplete: true,
+      scoresDirty: false,
+      blindMode: false,
+    });
+
+    expect(revealedSteps.find((step) => step.id === "review")?.state).toBe("done");
   });
 });
