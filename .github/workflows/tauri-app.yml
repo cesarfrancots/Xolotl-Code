@@ -1,0 +1,45 @@
+name: Tauri App
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "tauri-app/**"
+      - ".github/workflows/tauri-app.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "tauri-app/**"
+      - ".github/workflows/tauri-app.yml"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  frontend:
+    name: Frontend test and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tauri-app
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tauri-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build
