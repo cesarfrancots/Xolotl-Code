@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { assessBlindResultsGate, assessBlindReviewGate, assessGoalEvalReadiness, assessGoalWorkflowSteps } from "./evalReadiness";
+import {
+  assessBlindResultsGate,
+  assessBlindReviewGate,
+  assessGoalEvalReadiness,
+  assessGoalWorkflowSteps,
+  canShowHumanScoreAggregate,
+} from "./evalReadiness";
 
 describe("assessGoalEvalReadiness", () => {
   it("blocks goal evals until a goal and at least two models are selected", () => {
@@ -153,6 +159,17 @@ describe("assessBlindResultsGate", () => {
       reviewComplete: false,
       scoresDirty: true,
     }).resultsLocked).toBe(false);
+  });
+});
+
+describe("canShowHumanScoreAggregate", () => {
+  it("hides human score aggregates while blind results are locked", () => {
+    expect(canShowHumanScoreAggregate({ aggregate: 7.5, resultsLocked: true })).toBe(false);
+  });
+
+  it("shows human score aggregates only when present and unlocked", () => {
+    expect(canShowHumanScoreAggregate({ aggregate: 0, resultsLocked: false })).toBe(false);
+    expect(canShowHumanScoreAggregate({ aggregate: 7.5, resultsLocked: false })).toBe(true);
   });
 });
 

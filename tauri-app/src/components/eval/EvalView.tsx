@@ -16,6 +16,7 @@ import {
   assessBlindReviewGate,
   assessGoalEvalReadiness,
   assessGoalWorkflowSteps,
+  canShowHumanScoreAggregate,
   type BlindResultsGate,
   type GoalEvalReadiness,
   type GoalReadinessState,
@@ -223,7 +224,17 @@ function StatusDot({ status }: { status: string }) {
 // ════════════════════════════════════════════════════════════════════════════
 // MODEL RESPONSE CARD (full markdown rendering + HIL sliders)
 // ════════════════════════════════════════════════════════════════════════════
-function ResponseCard({ model, displayName, blindMode }: { model: string; displayName: string; blindMode: boolean }) {
+function ResponseCard({
+  model,
+  displayName,
+  blindMode,
+  resultsLocked,
+}: {
+  model: string;
+  displayName: string;
+  blindMode: boolean;
+  resultsLocked: boolean;
+}) {
   const state = useEvalStore((s) => s.activeEval?.modelStates[model]);
   const humanScores = useEvalStore((s) => s.humanScores[model] ?? {});
   const setHumanScore = useEvalStore((s) => s.setHumanScore);
@@ -249,6 +260,7 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
   const humanAvg = filledDims.length > 0
     ? filledDims.reduce((sum, d) => sum + (humanScores[d.key] ?? 0), 0) / filledDims.length
     : 0;
+  const showHumanAggregate = canShowHumanScoreAggregate({ aggregate: humanAvg, resultsLocked });
 
   const judgeScores = judge?.scores[model];
   const judgeAvg = judgeScores
@@ -261,7 +273,7 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
         <div className="flex items-center gap-2">
           <StatusDot status={state.status} />
           <span className="text-sm font-medium text-[oklch(0.88_0.015_220)]">{displayName}</span>
-          {humanAvg > 0 && (
+          {showHumanAggregate && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[oklch(0.14_0.010_205)] text-[oklch(0.72_0.045_195)]" title="Human avg">
               ★ {humanAvg.toFixed(1)}
             </span>
@@ -1650,7 +1662,13 @@ export function EvalView() {
                 "grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3"
               }`}>
                 {reviewModels.map((m) => (
-                  <ResponseCard key={m} model={m} displayName={blindNames[m] ?? m} blindMode={blindMode} />
+                  <ResponseCard
+                    key={m}
+                    model={m}
+                    displayName={blindNames[m] ?? m}
+                    blindMode={blindMode}
+                    resultsLocked={resultsGate.resultsLocked}
+                  />
                 ))}
               </div>
 

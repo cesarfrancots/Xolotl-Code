@@ -26,6 +26,16 @@ export interface BlindResultsGate {
   detail: string;
 }
 
+export function canShowHumanScoreAggregate({
+  aggregate,
+  resultsLocked,
+}: {
+  aggregate: number;
+  resultsLocked: boolean;
+}): boolean {
+  return aggregate > 0 && !resultsLocked;
+}
+
 export type GoalWorkflowStepId = "setup" | "run" | "score" | "save" | "review";
 export type GoalWorkflowStepState = "done" | "current" | "locked";
 
