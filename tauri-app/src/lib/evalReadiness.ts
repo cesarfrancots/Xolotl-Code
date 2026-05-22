@@ -1,7 +1,7 @@
 export type GoalReadinessState = "ready" | "attention" | "blocked";
 
 export interface GoalReadinessItem {
-  id: "goal" | "models" | "blind" | "supervisor";
+  id: "goal" | "scope" | "criteria" | "models" | "blind" | "supervisor";
   label: string;
   detail: string;
   state: GoalReadinessState;
@@ -42,19 +42,37 @@ export function assessGoalEvalReadiness({
 }): GoalEvalReadiness {
   const trimmedGoal = goal.trim();
   const hasGoal = trimmedGoal.length > 0;
-  const goalIsSpecific = trimmedGoal.length >= 24;
+  const hasEnoughDetail = trimmedGoal.length >= 40;
+  const hasScopedTarget = hasScopeSignal(trimmedGoal);
+  const hasSuccessCriteria = hasCriteriaSignal(trimmedGoal);
   const hasComparison = modelCount >= 2;
 
   const items: GoalReadinessItem[] = [
     {
       id: "goal",
       label: "Goal",
-      state: goalIsSpecific ? "ready" : "blocked",
+      state: hasEnoughDetail ? "ready" : "blocked",
       detail: !hasGoal
         ? "Add the production goal to evaluate."
-        : goalIsSpecific
-          ? "Specific enough to compare outcomes."
-          : "Add context, scope, and success criteria.",
+        : hasEnoughDetail
+          ? "Goal has enough detail for comparison."
+          : "Add context before comparing models.",
+    },
+    {
+      id: "scope",
+      label: "Scope",
+      state: hasScopedTarget ? "ready" : "blocked",
+      detail: hasScopedTarget
+        ? "Target area is named."
+        : "Name the file, feature, workflow, or component.",
+    },
+    {
+      id: "criteria",
+      label: "Criteria",
+      state: hasSuccessCriteria ? "ready" : "blocked",
+      detail: hasSuccessCriteria
+        ? "Outcome or constraint is explicit."
+        : "Add success criteria, constraints, or verification.",
     },
     {
       id: "models",
@@ -83,9 +101,17 @@ export function assessGoalEvalReadiness({
   ];
 
   return {
-    canRun: goalIsSpecific && hasComparison,
+    canRun: hasEnoughDetail && hasScopedTarget && hasSuccessCriteria && hasComparison,
     items,
   };
+}
+
+function hasScopeSignal(goal: string): boolean {
+  return /(?:\b(?:src|app|lib|components?|modules?|views?|screen|workflow|feature|endpoint|command|panel|store|hook|dialog|page|route|api|ui|ux)\b|[\\/]|[A-Za-z0-9_-]+\.(?:ts|tsx|js|jsx|rs|py|json|md)\b)/i.test(goal);
+}
+
+function hasCriteriaSignal(goal: string): boolean {
+  return /\b(?:acceptance|criteria|done|ensure|preserve|without|verify|test|pass|must|should|so that|when|success|constraint|regression|public api|expected)\b/i.test(goal);
 }
 
 export function assessGoalWorkflowSteps({

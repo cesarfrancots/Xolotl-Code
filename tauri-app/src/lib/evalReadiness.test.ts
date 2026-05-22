@@ -33,9 +33,22 @@ describe("assessGoalEvalReadiness", () => {
     expect(readiness.items.find((item) => item.id === "goal")?.state).toBe("blocked");
   });
 
+  it("requires a scoped target and success criteria before a goal eval can start", () => {
+    const broad = assessGoalEvalReadiness({
+      goal: "Improve reviewer confidence and ensure the results stay objective",
+      modelCount: 2,
+      blindMode: true,
+      liveSupervisor: true,
+    });
+
+    expect(broad.canRun).toBe(false);
+    expect(broad.items.find((item) => item.id === "scope")?.state).toBe("blocked");
+    expect(broad.items.find((item) => item.id === "criteria")?.state).toBe("ready");
+  });
+
   it("allows a comparison run while warning about non-blocking review settings", () => {
     const readiness = assessGoalEvalReadiness({
-      goal: "Refactor the auth middleware without changing its public API",
+      goal: "Refactor src/auth/middleware.ts without changing its public API",
       modelCount: 3,
       blindMode: false,
       liveSupervisor: false,

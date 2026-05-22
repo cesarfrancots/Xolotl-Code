@@ -825,43 +825,44 @@ function BlindReviewBanner({
 }
 
 function readinessTone(state: GoalReadinessState): string {
-  if (state === "ready") return "border-[oklch(0.34_0.025_170)] bg-[oklch(0.13_0.010_175)] text-[oklch(0.72_0.045_175)]";
-  if (state === "blocked") return "border-[oklch(0.40_0.055_28)] bg-[oklch(0.14_0.018_28)] text-[oklch(0.72_0.060_28)]";
-  return "border-[oklch(0.38_0.040_72)] bg-[oklch(0.14_0.014_72)] text-[oklch(0.72_0.050_72)]";
+  if (state === "ready") return "border-[oklch(0.34_0.020_170)] bg-[oklch(0.13_0.008_175)] text-[oklch(0.68_0.035_175)]";
+  if (state === "blocked") return "border-[oklch(0.36_0.035_28)] bg-[oklch(0.13_0.010_28)] text-[oklch(0.68_0.045_28)]";
+  return "border-[oklch(0.34_0.026_72)] bg-[oklch(0.13_0.010_72)] text-[oklch(0.68_0.040_72)]";
 }
 
 function readinessIcon(state: GoalReadinessState) {
-  if (state === "ready") return <CheckCircle2 className="h-3.5 w-3.5" />;
-  if (state === "blocked") return <AlertTriangle className="h-3.5 w-3.5" />;
-  return <CircleDot className="h-3.5 w-3.5" />;
+  if (state === "ready") return <CheckCircle2 className="h-3 w-3" />;
+  if (state === "blocked") return <AlertTriangle className="h-3 w-3" />;
+  return <CircleDot className="h-3 w-3" />;
 }
 
 function GoalReadinessPanel({ readiness }: { readiness: GoalEvalReadiness }) {
   const blocked = readiness.items.filter((item) => item.state === "blocked").length;
 
   return (
-    <div className="rounded-md border border-[oklch(0.24_0.010_245)] bg-[oklch(0.112_0.004_245)] px-3 py-2">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs font-semibold text-[oklch(0.86_0.018_225)]">
-          <Gauge className="h-3.5 w-3.5 text-[oklch(0.70_0.055_190)]" />
-          Goal eval readiness
+    <div className="rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)] px-3 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-[oklch(0.84_0.016_225)]">
+          <Gauge className="h-3.5 w-3.5 flex-none text-[oklch(0.62_0.030_195)]" />
+          <span>Goal brief</span>
+          <span className="hidden text-[11px] font-normal text-[oklch(0.50_0.012_230)] sm:inline">
+            Scope, criteria, comparison, then blind review.
+          </span>
         </div>
-        <span className={`rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${
-          readiness.canRun
-            ? "border-[oklch(0.34_0.025_170)] bg-[oklch(0.13_0.010_175)] text-[oklch(0.72_0.045_175)]"
-            : "border-[oklch(0.40_0.055_28)] bg-[oklch(0.14_0.018_28)] text-[oklch(0.72_0.060_28)]"
-        }`}>
+        <span className="rounded border border-[oklch(0.28_0.012_235)] bg-[oklch(0.12_0.004_245)] px-2 py-0.5 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.60_0.018_220)]">
           {readiness.canRun ? "Ready" : `${blocked} blocking`}
         </span>
       </div>
-      <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-4">
+      <div className="mt-2 grid grid-cols-1 gap-x-3 gap-y-1.5 lg:grid-cols-3">
         {readiness.items.map((item) => (
-          <div key={item.id} className={`min-h-[58px] rounded border px-2.5 py-2 ${readinessTone(item.state)}`}>
-            <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold">
+          <div key={item.id} className="flex min-h-9 items-start gap-2 rounded px-1.5 py-1">
+            <div className={`mt-0.5 flex h-4 w-4 flex-none items-center justify-center rounded-full border ${readinessTone(item.state)}`}>
               {readinessIcon(item.state)}
-              {item.label}
             </div>
-            <div className="text-[10px] leading-snug opacity-80">{item.detail}</div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-medium text-[oklch(0.78_0.014_225)]">{item.label}</div>
+              <div className="text-[10px] leading-snug text-[oklch(0.50_0.012_230)]">{item.detail}</div>
+            </div>
           </div>
         ))}
       </div>
@@ -1076,7 +1077,7 @@ export function EvalView() {
       : selectedModels.length === 0 || (mode === "single" && !prompt.trim()));
   const goalRunDisabledTitle =
     mode === "goal" && !goalReadiness.canRun
-      ? "Add a concrete goal with scope and success criteria, then select at least two models."
+      ? "Add a scoped target, success criteria, and at least two models."
       : undefined;
 
   // Subscribe to streaming eval events; survives multiple consecutive runs.
