@@ -934,16 +934,34 @@ function ModeButton({
 function BlindReviewBanner({
   blindMode,
   onToggle,
+  hasActiveEval,
   revealLocked,
   revealLockTitle,
   progressLabel,
 }: {
   blindMode: boolean;
   onToggle: () => void;
+  hasActiveEval: boolean;
   revealLocked: boolean;
   revealLockTitle: string;
   progressLabel: string;
 }) {
+  const toggleDisabled = !hasActiveEval || revealLocked;
+  const toggleTitle = !hasActiveEval
+    ? "Goal evals start in blind mode"
+    : revealLocked
+      ? revealLockTitle
+      : blindMode
+        ? "Reveal model names"
+        : "Hide model names";
+  const toggleLabel = !hasActiveEval
+    ? "Blind on"
+    : revealLocked
+      ? "Locked"
+      : blindMode
+        ? "Reveal names"
+        : "Hide names";
+
   return (
     <div className="relative overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)] px-3 py-3">
       <div className="absolute inset-y-3 left-0 w-px bg-[oklch(0.62_0.035_190)]/55" aria-hidden="true" />
@@ -968,20 +986,23 @@ function BlindReviewBanner({
           </div>
         </div>
         <button
+          type="button"
           onClick={onToggle}
-          disabled={revealLocked}
+          disabled={toggleDisabled}
+          aria-pressed={blindMode}
+          aria-label={toggleTitle}
           className={[
             "flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
-            revealLocked
+            toggleDisabled
               ? "cursor-not-allowed border-[oklch(0.27_0.010_240)] bg-[oklch(0.105_0.004_245)] text-[oklch(0.46_0.012_245)]"
             : blindMode
               ? "border-[oklch(0.34_0.018_190)] bg-[oklch(0.13_0.006_200)] text-[oklch(0.70_0.040_190)]"
               : "border-[oklch(0.32_0.012_245)] bg-[oklch(0.12_0.006_245)] text-[oklch(0.62_0.012_245)]",
           ].join(" ")}
-          title={revealLocked ? revealLockTitle : blindMode ? "Reveal model names" : "Hide model names"}
+          title={toggleTitle}
         >
           {blindMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-          {revealLocked ? "Locked" : blindMode ? "Reveal names" : "Hide names"}
+          {toggleLabel}
         </button>
       </div>
     </div>
@@ -1264,7 +1285,9 @@ export function EvalView() {
         ? "Review complete - save to reveal"
         : "Review saved"
       : `${blindReviewProgress.completedScores}/${blindReviewProgress.totalScores} scores complete`
-    : `${SCORE_DIMENSION_COUNT} score axes`;
+    : mode === "goal"
+      ? "Blind by default"
+      : `${SCORE_DIMENSION_COUNT} score axes`;
   const revealLockTitle = saveRequiredForReveal
     ? "Save blind scores before revealing model names"
     : "Finish blind scores before revealing model names";
@@ -1315,6 +1338,7 @@ export function EvalView() {
     }),
     [goalReadiness.canRun, activeEval, blindReviewProgress?.complete, scoresDirty, blindMode]
   );
+  const goalBlindSurface = mode === "goal" || Boolean(activeEval?.is_goal_eval);
   const runDisabled =
     running ||
     (mode === "goal"
@@ -1693,17 +1717,21 @@ export function EvalView() {
                 <History className="w-3.5 h-3.5" /> History
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleBlindToggle}
-              disabled={revealLocked}
-              className={`text-xs h-7 gap-1 ${blindMode ? "text-[oklch(0.70_0.055_190)]" : "text-[oklch(0.58_0.012_230)]"}`}
-              title={blindToggleTitle}
-            >
-              {blindMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              {revealLocked ? "Blind" : blindMode ? "Reveal" : "Hide"}
-            </Button>
+            {!goalBlindSurface && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleBlindToggle}
+                disabled={revealLocked}
+                aria-pressed={blindMode}
+                aria-label={blindToggleTitle}
+                className={`text-xs h-7 gap-1 ${blindMode ? "text-[oklch(0.70_0.055_190)]" : "text-[oklch(0.58_0.012_230)]"}`}
+                title={blindToggleTitle}
+              >
+                {blindMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                {revealLocked ? "Blind" : blindMode ? "Reveal" : "Hide"}
+              </Button>
+            )}
             {activeEval && hasScores && (
               <Button size="sm" variant="ghost" onClick={saveScores} disabled={savingScores || !scoresDirty} className={`text-xs h-7 gap-1 ${scoresDirty ? "text-[oklch(0.70_0.055_190)]" : "text-[oklch(0.50_0.012_230)]"}`}>
                 <Save className="w-3.5 h-3.5" /> {savingScores ? "Saving..." : scoresDirty ? "Save scores" : "Scores saved"}
@@ -1746,6 +1774,7 @@ export function EvalView() {
               <BlindReviewBanner
                 blindMode={blindMode}
                 onToggle={handleBlindToggle}
+                hasActiveEval={Boolean(activeEval)}
                 revealLocked={revealLocked}
                 revealLockTitle={revealLockTitle}
                 progressLabel={blindProgressLabel}
