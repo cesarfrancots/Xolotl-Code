@@ -37,4 +37,24 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "markdown-vendor": ["react-markdown", "rehype-highlight", "highlight.js"],
+          "icons-vendor": ["lucide-react"],
+          "ui-vendor": ["radix-ui", "cmdk"],
+          "tauri-vendor": [
+            "@tauri-apps/api",
+            "@tauri-apps/plugin-clipboard-manager",
+            "@tauri-apps/plugin-fs",
+            "@tauri-apps/plugin-notification",
+            "@tauri-apps/plugin-opener",
+            "@tauri-apps/plugin-window-state",
+          ],
+        },
+      },
+    },
+  },
 }));

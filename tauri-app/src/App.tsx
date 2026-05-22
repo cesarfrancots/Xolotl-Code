@@ -1,15 +1,20 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import "./styles.css";
 import { SessionSidebar } from "./components/sidebar/SessionSidebar";
 import { ChatPane } from "./components/chat/ChatPane";
 import { AgentPanel } from "./components/agent/AgentPanel";
 import { AgentOutputView } from "./components/agent/AgentOutputView";
 import { MergeCheckpointView } from "./components/agent/MergeCheckpointView";
-import { EvalView } from "./components/eval/EvalView";
 import { useAgentStore } from "./stores/agentStore";
-import { MessagesSquare, TestTubeDiagonal, Waves } from "lucide-react";
+import { Loader2, MessagesSquare, TestTubeDiagonal, Waves } from "lucide-react";
 
 type CenterTab = "chat" | "eval";
+
+const loadEvalView = () => import("./components/eval/EvalView");
+const LazyEvalView = lazy(async () => {
+  const module = await loadEvalView();
+  return { default: module.EvalView };
+});
 
 export default function App() {
   const [centerTab, setCenterTab] = useState<CenterTab>("chat");
@@ -20,7 +25,13 @@ export default function App() {
   function renderCenter() {
     if (mergeCheckpointGroupId) return <MergeCheckpointView groupId={mergeCheckpointGroupId} />;
     if (expandedAgentId) return <AgentOutputView agentId={expandedAgentId} />;
-    if (centerTab === "eval") return <EvalView />;
+    if (centerTab === "eval") {
+      return (
+        <Suspense fallback={<EvalLoading />}>
+          <LazyEvalView />
+        </Suspense>
+      );
+    }
     return <ChatPane />;
   }
 
@@ -50,6 +61,7 @@ export default function App() {
               <PillTab
                 active={centerTab === "eval"}
                 onClick={() => setCenterTab("eval")}
+                onPreload={loadEvalView}
                 icon={<TestTubeDiagonal className="w-3.5 h-3.5" />}
                 label="Eval"
               />
@@ -63,17 +75,37 @@ export default function App() {
   );
 }
 
+function EvalLoading() {
+  return (
+    <div className="flex flex-1 items-center justify-center bg-[oklch(0.105_0.012_250)]">
+      <div className="flex items-center gap-3 rounded-lg border border-[oklch(0.25_0.025_230)] bg-[oklch(0.12_0.012_245)] px-4 py-3 text-sm text-[oklch(0.70_0.035_210)] shadow-[0_18px_48px_oklch(0_0_0_/_0.22)]">
+        <div className="xolotl-mark scale-90" aria-hidden="true" />
+        <div>
+          <div className="font-semibold text-[oklch(0.88_0.025_220)]">Preparing Eval Lab</div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[oklch(0.55_0.035_205)]">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Loading review tools
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PillTab({
-  active, onClick, icon, label,
+  active, onClick, onPreload, icon, label,
 }: {
   active: boolean;
   onClick: () => void;
+  onPreload?: () => void;
   icon: React.ReactNode;
   label: string;
 }) {
   return (
     <button
       onClick={onClick}
+      onFocus={onPreload}
+      onMouseEnter={onPreload}
       className={[
         "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all",
         active
