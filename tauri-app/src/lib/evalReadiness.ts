@@ -19,6 +19,13 @@ export interface BlindReviewGate {
   detail: string;
 }
 
+export interface BlindResultsGate {
+  resultsLocked: boolean;
+  reason: "score" | "save" | null;
+  label: string;
+  detail: string;
+}
+
 export type GoalWorkflowStepId = "setup" | "run" | "score" | "save" | "review";
 export type GoalWorkflowStepState = "done" | "current" | "locked";
 
@@ -217,5 +224,51 @@ export function assessBlindReviewGate({
     reason: null,
     label: "Blind review saved",
     detail: "Judge and goal-grade passes can run.",
+  };
+}
+
+export function assessBlindResultsGate({
+  isGoalEval,
+  blindMode,
+  reviewComplete,
+  scoresDirty,
+}: {
+  isGoalEval: boolean;
+  blindMode: boolean;
+  reviewComplete: boolean;
+  scoresDirty: boolean;
+}): BlindResultsGate {
+  if (!isGoalEval || !blindMode) {
+    return {
+      resultsLocked: false,
+      reason: null,
+      label: "Ranking available",
+      detail: "Leaderboard and aggregate comparisons can be shown.",
+    };
+  }
+
+  if (!reviewComplete) {
+    return {
+      resultsLocked: true,
+      reason: "score",
+      label: "Ranking hidden",
+      detail: "Complete blind scores before seeing aggregate rankings.",
+    };
+  }
+
+  if (scoresDirty) {
+    return {
+      resultsLocked: true,
+      reason: "save",
+      label: "Save review first",
+      detail: "Save completed blind scores before showing aggregate rankings.",
+    };
+  }
+
+  return {
+    resultsLocked: false,
+    reason: null,
+    label: "Ranking available",
+    detail: "Blind review is saved; aggregate comparisons can be shown.",
   };
 }

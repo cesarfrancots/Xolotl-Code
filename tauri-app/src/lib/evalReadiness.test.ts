@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessBlindReviewGate, assessGoalEvalReadiness, assessGoalWorkflowSteps } from "./evalReadiness";
+import { assessBlindResultsGate, assessBlindReviewGate, assessGoalEvalReadiness, assessGoalWorkflowSteps } from "./evalReadiness";
 
 describe("assessGoalEvalReadiness", () => {
   it("blocks goal evals until a goal and at least two models are selected", () => {
@@ -111,6 +111,48 @@ describe("assessBlindReviewGate", () => {
       reviewComplete: false,
       scoresDirty: true,
     }).machineReviewLocked).toBe(false);
+  });
+});
+
+describe("assessBlindResultsGate", () => {
+  it("hides aggregate rankings until blind goal scores are complete", () => {
+    const gate = assessBlindResultsGate({
+      isGoalEval: true,
+      blindMode: true,
+      reviewComplete: false,
+      scoresDirty: false,
+    });
+
+    expect(gate.resultsLocked).toBe(true);
+    expect(gate.reason).toBe("score");
+  });
+
+  it("keeps rankings hidden until completed blind scores are saved", () => {
+    const gate = assessBlindResultsGate({
+      isGoalEval: true,
+      blindMode: true,
+      reviewComplete: true,
+      scoresDirty: true,
+    });
+
+    expect(gate.resultsLocked).toBe(true);
+    expect(gate.reason).toBe("save");
+  });
+
+  it("shows rankings after saved blind review or outside blind goal mode", () => {
+    expect(assessBlindResultsGate({
+      isGoalEval: true,
+      blindMode: true,
+      reviewComplete: true,
+      scoresDirty: false,
+    }).resultsLocked).toBe(false);
+
+    expect(assessBlindResultsGate({
+      isGoalEval: false,
+      blindMode: true,
+      reviewComplete: false,
+      scoresDirty: true,
+    }).resultsLocked).toBe(false);
   });
 });
 

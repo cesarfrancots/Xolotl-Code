@@ -12,9 +12,11 @@ import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalG
 import { HUMAN_SCORE_KEYS, getBlindReviewProgress, getReviewOrder, useEvalStore } from "../../stores/evalStore";
 import { MarkdownRenderer } from "../chat/MarkdownRenderer";
 import {
+  assessBlindResultsGate,
   assessBlindReviewGate,
   assessGoalEvalReadiness,
   assessGoalWorkflowSteps,
+  type BlindResultsGate,
   type GoalEvalReadiness,
   type GoalReadinessState,
   type GoalWorkflowStep,
@@ -955,6 +957,35 @@ function ReviewNoticeBanner({
   );
 }
 
+function BlindResultsLockPanel({
+  gate,
+  progressLabel,
+}: {
+  gate: BlindResultsGate;
+  progressLabel: string;
+}) {
+  return (
+    <div className="rounded-md border border-[oklch(0.24_0.010_245)] bg-[oklch(0.112_0.004_245)] px-3 py-3">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-md border border-[oklch(0.30_0.014_235)] bg-[oklch(0.10_0.004_245)] text-[oklch(0.62_0.030_195)]">
+          <ShieldCheck className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-[oklch(0.86_0.016_225)]">{gate.label}</span>
+            <span className="rounded border border-[oklch(0.30_0.014_235)] bg-[oklch(0.12_0.004_245)] px-2 py-0.5 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.58_0.018_220)]">
+              {progressLabel}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-[oklch(0.56_0.014_225)]">
+            {gate.detail} Response cards stay available so each anonymous model can be scored without seeing a ranked summary.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EvalRunStrip({ blindMode }: { blindMode: boolean }) {
   const activeEval = useEvalStore((s) => s.activeEval);
   if (!activeEval) return null;
@@ -1062,6 +1093,15 @@ export function EvalView() {
     : "Finish blind scores before revealing model names";
   const reviewGate = useMemo(
     () => assessBlindReviewGate({
+      isGoalEval: Boolean(activeEval?.is_goal_eval),
+      blindMode,
+      reviewComplete: Boolean(blindReviewProgress?.complete),
+      scoresDirty,
+    }),
+    [activeEval?.is_goal_eval, blindMode, blindReviewProgress?.complete, scoresDirty]
+  );
+  const resultsGate = useMemo(
+    () => assessBlindResultsGate({
       isGoalEval: Boolean(activeEval?.is_goal_eval),
       blindMode,
       reviewComplete: Boolean(blindReviewProgress?.complete),
@@ -1597,7 +1637,11 @@ export function EvalView() {
               )}
 
               {/* Leaderboard */}
-              {activeEval.complete && <Leaderboard blindNames={blindNames} blindMode={blindMode} />}
+              {activeEval.complete && (
+                resultsGate.resultsLocked
+                  ? <BlindResultsLockPanel gate={resultsGate} progressLabel={blindProgressLabel} />
+                  : <Leaderboard blindNames={blindNames} blindMode={blindMode} />
+              )}
 
               {/* Response cards */}
               <div className={`grid gap-3 ${
