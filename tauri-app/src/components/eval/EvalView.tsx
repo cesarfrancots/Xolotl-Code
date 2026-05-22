@@ -8,7 +8,7 @@ import {
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
 import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalGrade } from "../../bindings";
-import { useEvalStore } from "../../stores/evalStore";
+import { getReviewOrder, useEvalStore } from "../../stores/evalStore";
 import { MarkdownRenderer } from "../chat/MarkdownRenderer";
 
 const GOAL_AXES: { key: string; label: string; color: string; hint: string }[] = [
@@ -122,7 +122,7 @@ function ScoreSlider({ label, color, value, onChange }: { label: string; color: 
 // ════════════════════════════════════════════════════════════════════════════
 // LIVE RACE-TRACK ROW: shows what each model is doing in real time
 // ════════════════════════════════════════════════════════════════════════════
-function RaceTrackRow({ model, displayName, color }: { model: string; displayName: string; color: string }) {
+function RaceTrackRow({ model, displayName, color, blindMode }: { model: string; displayName: string; color: string; blindMode: boolean }) {
   const state = useEvalStore((s) => s.activeEval?.modelStates[model]);
   const [, forceRerender] = useState(0);
 
@@ -147,7 +147,10 @@ function RaceTrackRow({ model, displayName, color }: { model: string; displayNam
           <span className="text-sm font-medium text-[oklch(0.88_0_0)] truncate" style={{ maxWidth: "240px" }}>{displayName}</span>
           <StatusDot status={state.status} />
           <span className="ml-auto flex items-center gap-3 text-xs text-[oklch(0.50_0_0)] tabular-nums whitespace-nowrap">
-            {state.status !== "pending" && (
+            {blindMode && state.status !== "pending" && (
+              <span className="text-[oklch(0.50_0.025_230)]">telemetry hidden</span>
+            )}
+            {!blindMode && state.status !== "pending" && (
               <>
                 <span title="time"><Clock className="inline w-3 h-3" /> {fmtDur(state.duration_ms || (state.started_at ? Date.now() - state.started_at : 0))}</span>
                 <span title="tokens">{state.output_tokens || Math.round(state.content.length / 4)} tok</span>
@@ -182,7 +185,7 @@ function StatusDot({ status }: { status: string }) {
 // ════════════════════════════════════════════════════════════════════════════
 // MODEL RESPONSE CARD (full markdown rendering + HIL sliders)
 // ════════════════════════════════════════════════════════════════════════════
-function ResponseCard({ model, displayName }: { model: string; displayName: string }) {
+function ResponseCard({ model, displayName, blindMode }: { model: string; displayName: string; blindMode: boolean }) {
   const state = useEvalStore((s) => s.activeEval?.modelStates[model]);
   const humanScores = useEvalStore((s) => s.humanScores[model] ?? {});
   const setHumanScore = useEvalStore((s) => s.setHumanScore);
@@ -193,6 +196,7 @@ function ResponseCard({ model, displayName }: { model: string; displayName: stri
   if (!state) return null;
 
   const cost = calcCost(model, state.input_tokens, state.output_tokens);
+  const showMachineContext = !blindMode;
   const filledDims = SCORE_DIMENSIONS.filter((d) => (humanScores[d.key] ?? 0) > 0);
   const humanAvg = filledDims.length > 0
     ? filledDims.reduce((sum, d) => sum + (humanScores[d.key] ?? 0), 0) / filledDims.length
@@ -214,19 +218,24 @@ function ResponseCard({ model, displayName }: { model: string; displayName: stri
               ★ {humanAvg.toFixed(1)}
             </span>
           )}
-          {judgeAvg > 0 && (
+          {showMachineContext && judgeAvg > 0 && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[oklch(0.65_0.18_100)]/20 text-[oklch(0.78_0.18_100)]" title="Judge avg">
               ⚖ {judgeAvg.toFixed(1)}
             </span>
           )}
-          {state.auto && (
+          {showMachineContext && state.auto && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-neutral-800 text-[oklch(0.6_0_0)]" title="Auto-graded">
               auto {state.auto.ai_slop_score?.toFixed(1) ?? "—"} / {state.auto.brevity_score?.toFixed(1) ?? "—"}
             </span>
           )}
         </div>
         <div className="flex items-center gap-3 text-xs text-[oklch(0.50_0_0)] tabular-nums">
-          {state.status !== "pending" && (
+          {blindMode && state.status !== "pending" && (
+            <span className="rounded bg-[oklch(0.70_0.12_185)]/10 px-1.5 py-0.5 text-[oklch(0.70_0.08_185)]">
+              telemetry hidden
+            </span>
+          )}
+          {!blindMode && state.status !== "pending" && (
             <>
               <span><Clock className="inline w-3 h-3" /> {fmtDur(state.duration_ms)}</span>
               <span><Hash className="inline w-3 h-3" /> {state.input_tokens}↑ {state.output_tokens}↓</span>
@@ -251,7 +260,7 @@ function ResponseCard({ model, displayName }: { model: string; displayName: stri
       </div>
 
       {/* Auto + Judge details */}
-      {state.auto && (state.status === "done" || state.status === "error") && (
+      {showMachineContext && state.auto && (state.status === "done" || state.status === "error") && (
         <div className="border-t border-neutral-800 px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[oklch(0.55_0_0)] bg-[oklch(0.115_0_0)]">
           <span>{state.auto.word_count} words · {state.auto.char_count} chars</span>
           <span>· {state.auto.code_block_count} code blocks</span>
@@ -268,13 +277,19 @@ function ResponseCard({ model, displayName }: { model: string; displayName: stri
       )}
 
       {/* Goal eval surface: reasoning trace + supervisor flags + 5-axis grade */}
-      <ReasoningTrace model={model} />
-      {state.flags.length > 0 && <FlagList flags={state.flags} />}
-      {state.goalGrade && <GoalGradeCard grade={state.goalGrade} />}
+      {showMachineContext && <ReasoningTrace model={model} />}
+      {showMachineContext && state.flags.length > 0 && <FlagList flags={state.flags} />}
+      {showMachineContext && state.goalGrade && <GoalGradeCard grade={state.goalGrade} />}
 
-      {judge?.rationale?.[model] && (
+      {showMachineContext && judge?.rationale?.[model] && (
         <div className="border-t border-neutral-800 px-3 py-2 text-xs text-[oklch(0.65_0_0)] bg-[oklch(0.125_0_0)] italic">
           <Gavel className="inline w-3 h-3 mr-1 text-[oklch(0.65_0.18_100)]" /> {judge.rationale[model]}
+        </div>
+      )}
+
+      {blindMode && (state.auto || state.goalGrade || state.flags.length > 0 || judge?.rationale?.[model]) && (
+        <div className="border-t border-[oklch(0.24_0.025_245)] bg-[oklch(0.10_0.012_245)] px-3 py-2 text-xs text-[oklch(0.52_0.025_230)]">
+          Automated scores, judge notes, flags, and telemetry are hidden until model names are revealed.
         </div>
       )}
 
@@ -455,7 +470,7 @@ function GoalGradeCard({ grade }: { grade: GoalGrade }) {
 // ════════════════════════════════════════════════════════════════════════════
 // LEADERBOARD: composite scores + per-dimension bar chart
 // ════════════════════════════════════════════════════════════════════════════
-function Leaderboard({ blindNames }: { blindNames: Record<string, string> }) {
+function Leaderboard({ blindNames, blindMode }: { blindNames: Record<string, string>; blindMode: boolean }) {
   const activeEval = useEvalStore((s) => s.activeEval);
   const humanScores = useEvalStore((s) => s.humanScores);
   const [costWeight, setCostWeight] = useState(0);
@@ -463,9 +478,10 @@ function Leaderboard({ blindNames }: { blindNames: Record<string, string> }) {
   if (!activeEval) return null;
 
   const judge = activeEval.judge;
+  const modelOrder = getReviewOrder(activeEval.models, activeEval.blindLabels, blindMode);
 
   // Composite per model: average of (filled human dims) blended with judge if present.
-  const rows = activeEval.models.map((model) => {
+  const rows = modelOrder.map((model) => {
     const state = activeEval.modelStates[model];
     const human = humanScores[model] ?? {};
     const humanFilled = SCORE_DIMENSIONS.filter((d) => (human[d.key] ?? 0) > 0);
@@ -490,15 +506,17 @@ function Leaderboard({ blindNames }: { blindNames: Record<string, string> }) {
   // Normalize cost/latency for composite (higher is better → invert).
   const maxCost = Math.max(...rows.map((r) => r.cost), 0.0001);
   const maxDur = Math.max(...rows.map((r) => r.dur), 1);
+  const effectiveCostWeight = blindMode ? 0 : costWeight;
+  const effectiveLatencyWeight = blindMode ? 0 : latencyWeight;
   const composites = rows.map((r) => {
     const q = r.quality;
     const costScore = maxCost > 0 ? 10 * (1 - r.cost / maxCost) : 0;
     const speedScore = maxDur > 0 ? 10 * (1 - r.dur / maxDur) : 0;
-    const w = 1 + costWeight + latencyWeight;
-    const composite = (q + costScore * costWeight + speedScore * latencyWeight) / w;
+    const w = 1 + effectiveCostWeight + effectiveLatencyWeight;
+    const composite = (q + costScore * effectiveCostWeight + speedScore * effectiveLatencyWeight) / w;
     return { ...r, composite };
   });
-  composites.sort((a, b) => b.composite - a.composite);
+  composites.sort((a, b) => b.composite - a.composite || (blindNames[a.model] ?? a.model).localeCompare(blindNames[b.model] ?? b.model));
   const winner = composites[0];
 
   return (
@@ -507,16 +525,22 @@ function Leaderboard({ blindNames }: { blindNames: Record<string, string> }) {
         <Trophy className="w-4 h-4 text-[oklch(0.78_0.18_60)]" />
         <span className="text-xs font-semibold text-[oklch(0.88_0_0)] uppercase tracking-wider">Leaderboard</span>
         <div className="ml-auto flex items-center gap-3 text-xs">
-          <label className="flex items-center gap-1 text-[oklch(0.55_0_0)]">
-            Cost weight
-            <input type="range" min={0} max={2} step={0.25} value={costWeight} onChange={(e) => setCostWeight(Number(e.target.value))} className="w-16 accent-[oklch(0.65_0.18_30)]" />
-            <span className="tabular-nums w-6 text-right">{costWeight.toFixed(1)}</span>
-          </label>
-          <label className="flex items-center gap-1 text-[oklch(0.55_0_0)]">
-            Speed weight
-            <input type="range" min={0} max={2} step={0.25} value={latencyWeight} onChange={(e) => setLatencyWeight(Number(e.target.value))} className="w-16 accent-[oklch(0.65_0.18_200)]" />
-            <span className="tabular-nums w-6 text-right">{latencyWeight.toFixed(1)}</span>
-          </label>
+          {blindMode ? (
+            <span className="text-[oklch(0.52_0.025_230)]">Cost and speed hidden during blind review</span>
+          ) : (
+            <>
+              <label className="flex items-center gap-1 text-[oklch(0.55_0_0)]">
+                Cost weight
+                <input type="range" min={0} max={2} step={0.25} value={costWeight} onChange={(e) => setCostWeight(Number(e.target.value))} className="w-16 accent-[oklch(0.65_0.18_30)]" />
+                <span className="tabular-nums w-6 text-right">{costWeight.toFixed(1)}</span>
+              </label>
+              <label className="flex items-center gap-1 text-[oklch(0.55_0_0)]">
+                Speed weight
+                <input type="range" min={0} max={2} step={0.25} value={latencyWeight} onChange={(e) => setLatencyWeight(Number(e.target.value))} className="w-16 accent-[oklch(0.65_0.18_200)]" />
+                <span className="tabular-nums w-6 text-right">{latencyWeight.toFixed(1)}</span>
+              </label>
+            </>
+          )}
         </div>
       </div>
       <table className="w-full text-xs">
@@ -536,8 +560,8 @@ function Leaderboard({ blindNames }: { blindNames: Record<string, string> }) {
               <td className="px-3 py-1.5 text-[oklch(0.55_0_0)]">{i + 1}{r === winner ? " 🏆" : ""}</td>
               <td className="px-3 py-1.5 text-[oklch(0.85_0_0)]">{blindNames[r.model] ?? r.model}</td>
               <td className="px-3 py-1.5 text-right tabular-nums text-[oklch(0.72_0.18_250)]">{r.quality > 0 ? r.quality.toFixed(1) : "—"}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-[oklch(0.65_0_0)]">${r.cost.toFixed(4)}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-[oklch(0.65_0_0)]">{fmtDur(r.dur)}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-[oklch(0.65_0_0)]">{blindMode ? "hidden" : `$${r.cost.toFixed(4)}`}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-[oklch(0.65_0_0)]">{blindMode ? "hidden" : fmtDur(r.dur)}</td>
               <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-[oklch(0.78_0.18_60)]">{r.composite.toFixed(2)}</td>
             </tr>
           ))}
@@ -545,16 +569,17 @@ function Leaderboard({ blindNames }: { blindNames: Record<string, string> }) {
       </table>
 
       {/* Per-dimension bar chart */}
-      <DimensionBars blindNames={blindNames} />
+      <DimensionBars blindNames={blindNames} blindMode={blindMode} />
     </div>
   );
 }
 
-function DimensionBars({ blindNames }: { blindNames: Record<string, string> }) {
+function DimensionBars({ blindNames, blindMode }: { blindNames: Record<string, string>; blindMode: boolean }) {
   const activeEval = useEvalStore((s) => s.activeEval);
   const humanScores = useEvalStore((s) => s.humanScores);
   if (!activeEval) return null;
   const judge = activeEval.judge;
+  const modelOrder = getReviewOrder(activeEval.models, activeEval.blindLabels, blindMode);
   const hasAnyScore = Object.values(humanScores).some((s) => Object.values(s).some((v) => (v ?? 0) > 0)) || !!judge;
   if (!hasAnyScore) return null;
 
@@ -564,7 +589,7 @@ function DimensionBars({ blindNames }: { blindNames: Record<string, string> }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
         {SCORE_DIMENSIONS.map((dim) => {
           // For each model, prefer human; fall back to judge.
-          const vals = activeEval.models.map((m) => {
+          const vals = modelOrder.map((m) => {
             const h = (humanScores[m]?.[dim.key] ?? 0) as number;
             if (h > 0) return { model: m, v: h, src: "h" as const };
             const j = (judge?.scores[m]?.[dim.key] ?? 0) as number;
@@ -802,6 +827,11 @@ export function EvalView() {
     if (!blindMode || !activeEval) return {};
     return activeEval.blindLabels;
   }, [blindMode, activeEval]);
+
+  const reviewModels = useMemo(
+    () => activeEval ? getReviewOrder(activeEval.models, activeEval.blindLabels, blindMode) : [],
+    [activeEval, blindMode]
+  );
 
   // Subscribe to streaming eval events; survives multiple consecutive runs.
   const unlistenRef = useRef<UnlistenFn | null>(null);
@@ -1205,28 +1235,29 @@ export function EvalView() {
                   <div className="px-3 py-2 border-b border-neutral-800 bg-[oklch(0.14_0_0)] text-xs text-[oklch(0.55_0_0)] uppercase tracking-wider">
                     Live · {activeEval.models.length} models racing
                   </div>
-                  {activeEval.models.map((m, i) => (
+                  {reviewModels.map((m, i) => (
                     <RaceTrackRow
                       key={m}
                       model={m}
                       displayName={blindNames[m] ?? m}
                       color={SCORE_DIMENSIONS[i % SCORE_DIMENSIONS.length].color}
+                      blindMode={blindMode}
                     />
                   ))}
                 </div>
               )}
 
               {/* Leaderboard */}
-              {activeEval.complete && <Leaderboard blindNames={blindNames} />}
+              {activeEval.complete && <Leaderboard blindNames={blindNames} blindMode={blindMode} />}
 
               {/* Response cards */}
               <div className={`grid gap-3 ${
-                activeEval.models.length === 1 ? "grid-cols-1" :
-                activeEval.models.length === 2 ? "grid-cols-1 lg:grid-cols-2" :
+                reviewModels.length === 1 ? "grid-cols-1" :
+                reviewModels.length === 2 ? "grid-cols-1 lg:grid-cols-2" :
                 "grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3"
               }`}>
-                {activeEval.models.map((m) => (
-                  <ResponseCard key={m} model={m} displayName={blindNames[m] ?? m} />
+                {reviewModels.map((m) => (
+                  <ResponseCard key={m} model={m} displayName={blindNames[m] ?? m} blindMode={blindMode} />
                 ))}
               </div>
 

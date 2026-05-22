@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { EvalResult } from "../bindings";
-import { buildBlindLabels, useEvalStore } from "./evalStore";
+import { buildBlindLabels, getReviewOrder, useEvalStore } from "./evalStore";
 
 const MODELS = ["kimi-coding", "minimax2.7", "claude-sonnet-4-6"];
 
@@ -25,6 +25,23 @@ describe("buildBlindLabels", () => {
     expect(
       MODELS.every((model, index) => first[model] === `Model ${String.fromCharCode(65 + index)}`)
     ).toBe(false);
+  });
+});
+
+describe("getReviewOrder", () => {
+  it("sorts by anonymous label only while blind mode is active", () => {
+    const labels = {
+      "kimi-coding": "Model C",
+      "minimax2.7": "Model A",
+      "claude-sonnet-4-6": "Model B",
+    };
+
+    expect(getReviewOrder(MODELS, labels, true)).toEqual([
+      "minimax2.7",
+      "claude-sonnet-4-6",
+      "kimi-coding",
+    ]);
+    expect(getReviewOrder(MODELS, labels, false)).toEqual(MODELS);
   });
 });
 

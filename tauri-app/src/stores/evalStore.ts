@@ -131,6 +131,11 @@ export function buildBlindLabels(evalId: string, models: string[]): Record<strin
   return Object.fromEntries(shuffled.map((model, index) => [model, labelForIndex(index)]));
 }
 
+export function getReviewOrder(models: string[], blindLabels: Record<string, string>, blindMode: boolean): string[] {
+  if (!blindMode) return models;
+  return [...models].sort((a, b) => (blindLabels[a] ?? a).localeCompare(blindLabels[b] ?? b));
+}
+
 export const useEvalStore = create<EvalState>()((set) => ({
   activeEval: null,
   humanScores: {},
