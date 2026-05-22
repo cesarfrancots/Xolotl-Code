@@ -1233,6 +1233,11 @@ export function EvalView() {
   const revealLockTitle = saveRequiredForReveal
     ? "Save blind scores before revealing model names"
     : "Finish blind scores before revealing model names";
+  const blindToggleTitle = revealLocked
+    ? revealLockTitle
+    : blindMode
+      ? "Reveal model names"
+      : "Hide model names";
   const reviewGate = useMemo(
     () => assessBlindReviewGate({
       isGoalEval: Boolean(activeEval?.is_goal_eval),
@@ -1659,7 +1664,7 @@ export function EvalView() {
               onClick={handleBlindToggle}
               disabled={revealLocked}
               className={`text-xs h-7 gap-1 ${blindMode ? "text-[oklch(0.70_0.055_190)]" : "text-[oklch(0.58_0.012_230)]"}`}
-              title={revealLocked ? revealLockTitle : "Hide model names during scoring"}
+              title={blindToggleTitle}
             >
               {blindMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               {revealLocked ? "Blind" : blindMode ? "Reveal" : "Hide"}
