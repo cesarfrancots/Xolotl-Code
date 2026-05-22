@@ -1800,7 +1800,12 @@ export function EvalView() {
                 <label className="text-[10px] text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider">
                   Models to compare ({selectedModels.length})
                 </label>
-                <button onClick={() => setSelectedModels(selectedModels.length === allModels.length ? [] : [...allModels])} className="text-[10px] text-[oklch(0.45_0_0)] hover:text-[oklch(0.7_0_0)]">
+                <button
+                  type="button"
+                  onClick={() => setSelectedModels(selectedModels.length === allModels.length ? [] : [...allModels])}
+                  className="text-[10px] text-[oklch(0.45_0.010_230)] transition-colors hover:text-[oklch(0.68_0.016_220)]"
+                  title={selectedModels.length === allModels.length ? "Clear selected models" : "Select every available model"}
+                >
                   {selectedModels.length === allModels.length ? "Clear all" : "Select all"}
                 </button>
               </div>
@@ -1808,20 +1813,27 @@ export function EvalView() {
                 {Object.entries(grouped).map(([provider, models]) => (
                   <div key={provider} className="flex flex-wrap items-center gap-1.5">
                     <span className="text-[10px] text-[oklch(0.44_0.008_225)] w-24 flex-none uppercase tracking-wider">{provider}</span>
-                    {models.map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => toggleModel(m)}
-                        disabled={running}
-                        className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors disabled:opacity-60 ${
-                          selectedModels.includes(m)
-                            ? "bg-[oklch(0.14_0.010_205)] border-[oklch(0.42_0.025_195)] text-[oklch(0.74_0.045_195)]"
-                            : "bg-transparent border-[oklch(0.24_0.010_235)] text-[oklch(0.55_0.010_225)] hover:border-[oklch(0.32_0.016_215)]"
-                        }`}
-                      >
-                        {m.replace(/^bedrock-/, "")}
-                      </button>
-                    ))}
+                    {models.map((m) => {
+                      const selected = selectedModels.includes(m);
+                      const label = m.replace(/^bedrock-/, "");
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => toggleModel(m)}
+                          disabled={running}
+                          aria-pressed={selected}
+                          title={`${selected ? "Remove" : "Add"} ${m} ${selected ? "from" : "to"} this comparison`}
+                          className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors disabled:opacity-60 ${
+                            selected
+                              ? "bg-[oklch(0.128_0.006_205)] border-[oklch(0.34_0.016_195)] text-[oklch(0.70_0.030_195)]"
+                              : "bg-transparent border-[oklch(0.22_0.008_235)] text-[oklch(0.52_0.010_225)] hover:border-[oklch(0.30_0.012_215)] hover:text-[oklch(0.68_0.014_220)]"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
                   </div>
                 ))}
               </div>
