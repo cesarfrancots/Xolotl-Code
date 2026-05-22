@@ -260,14 +260,14 @@ export function MessageInput() {
         chatStore.clearSession();
         break;
       case "/model":
-        // Model picker is in the top bar — this just closes palette
+        // Model picker is in the top bar; this just closes the palette.
         break;
       case "/help": {
         chatStore.appendItem({
           id: `${Date.now()}-help`,
           role: "assistant",
           content: SLASH_COMMANDS.map(
-            (c) => `**${c.command}** — ${c.description}`
+            (c) => `**${c.command}** - ${c.description}`
           ).join("\n\n"),
           toolCalls: [],
         });
@@ -288,7 +288,7 @@ export function MessageInput() {
         break;
       }
       case "/load":
-        // Wave 3 wiring: trigger session sidebar focus — no-op for now
+        // Wave 3 wiring: trigger session sidebar focus; no-op for now.
         break;
     }
   }
@@ -395,7 +395,7 @@ export function MessageInput() {
             <div
               key={a.id}
               className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md bg-[oklch(0.14_0.004_245)] border border-[oklch(0.24_0.010_235)] text-xs"
-              title={`${a.name} · ${fmtSize(a.size)}${a.truncated ? " (truncated)" : ""}`}
+              title={`${a.name} - ${fmtSize(a.size)}${a.truncated ? " (truncated)" : ""}`}
             >
               <FileText className="w-3 h-3 text-[oklch(0.62_0.035_190)] flex-none" />
               <span className="text-[oklch(0.85_0_0)] max-w-[160px] truncate">{a.name}</span>
@@ -458,7 +458,7 @@ export function MessageInput() {
               <span className="text-[10px] text-[oklch(0.38_0_0)] ml-1 select-none">
                 {attachments.length > 0
                   ? `${attachments.length} attached`
-                  : <><kbd className="font-mono text-[10px] px-1 py-0.5 rounded bg-[oklch(0.18_0_0)] border border-neutral-800 text-[oklch(0.55_0_0)]">⏎</kbd> to send · <kbd className="font-mono text-[10px] px-1 py-0.5 rounded bg-[oklch(0.18_0_0)] border border-neutral-800 text-[oklch(0.55_0_0)]">⇧⏎</kbd> for newline</>}
+                  : <><kbd className="font-mono text-[10px] px-1 py-0.5 rounded bg-[oklch(0.145_0.004_245)] border border-[oklch(0.24_0.010_235)] text-[oklch(0.55_0.010_225)]">Enter</kbd> to send <span className="text-[oklch(0.30_0.008_235)]">/</span> <kbd className="font-mono text-[10px] px-1 py-0.5 rounded bg-[oklch(0.145_0.004_245)] border border-[oklch(0.24_0.010_235)] text-[oklch(0.55_0.010_225)]">Shift Enter</kbd> for newline</>}
               </span>
               <div className="ml-auto">
                 <Button
@@ -480,7 +480,7 @@ export function MessageInput() {
           </div>
         </PopoverAnchor>
         {/* Slash command palette (D-12) — opens above input when "/" typed */}
-        <PopoverContent side="top" align="start" className="p-0 w-72 border-neutral-700">
+        <PopoverContent side="top" align="start" className="p-0 w-72 border-[oklch(0.24_0.010_235)] bg-[oklch(0.115_0.004_245)]">
           <Command shouldFilter={false}>
             <CommandList>
               {filteredCommands.length === 0 ? (

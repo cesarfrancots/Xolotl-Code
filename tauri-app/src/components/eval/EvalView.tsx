@@ -1098,7 +1098,7 @@ export function EvalView() {
   }, [prompt, selectedModels, running]);
 
   const runGoalEval = useCallback(async () => {
-    if (!prompt.trim() || selectedModels.length < 2 || running) return;
+    if (!goalReadiness.canRun || running) return;
     setBlindMode(true);
     setRunning(true);
     const supervisor = liveSupervisor ? judgeModel : null;
@@ -1111,7 +1111,7 @@ export function EvalView() {
     const evalId = result.data;
     startEval(evalId, prompt.trim(), selectedModels, { is_goal_eval: true, live_supervisor: liveSupervisor });
     await subscribeToEval(evalId);
-  }, [prompt, selectedModels, running, liveSupervisor, judgeModel, setBlindMode]);
+  }, [goalReadiness.canRun, prompt, selectedModels, running, liveSupervisor, judgeModel, setBlindMode]);
 
   const runSuiteEval = useCallback(async () => {
     if (selectedModels.length === 0 || running) return;
@@ -1358,7 +1358,7 @@ export function EvalView() {
                   </div>
                   <button
                     onClick={() => setLiveSupervisor((v) => !v)}
-                    className={`w-9 h-5 flex-none rounded-full transition-colors relative ${liveSupervisor ? "bg-[oklch(0.48_0.045_190)]" : "bg-neutral-700"}`}
+                    className={`w-9 h-5 flex-none rounded-full transition-colors relative ${liveSupervisor ? "bg-[oklch(0.48_0.045_190)]" : "bg-[oklch(0.24_0.010_235)]"}`}
                   >
                     <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${liveSupervisor ? "translate-x-4" : "translate-x-0.5"}`} />
                   </button>
