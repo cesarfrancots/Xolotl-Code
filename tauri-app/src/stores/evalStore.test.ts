@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { EvalResult } from "../bindings";
-import { buildBlindLabels, getReviewOrder, useEvalStore } from "./evalStore";
+import { HUMAN_SCORE_KEYS, buildBlindLabels, getBlindReviewProgress, getReviewOrder, useEvalStore } from "./evalStore";
 
 const MODELS = ["kimi-coding", "minimax2.7", "claude-sonnet-4-6"];
 
@@ -42,6 +42,30 @@ describe("getReviewOrder", () => {
       "kimi-coding",
     ]);
     expect(getReviewOrder(MODELS, labels, false)).toEqual(MODELS);
+  });
+});
+
+describe("getBlindReviewProgress", () => {
+  it("requires every score dimension on every model before review is complete", () => {
+    const partial = getBlindReviewProgress(MODELS, {
+      "kimi-coding": { accuracy: 8, helpfulness: 7 },
+      "minimax2.7": Object.fromEntries(HUMAN_SCORE_KEYS.map((key) => [key, 8])),
+    });
+
+    expect(partial.totalScores).toBe(MODELS.length * HUMAN_SCORE_KEYS.length);
+    expect(partial.completedModels).toBe(1);
+    expect(partial.complete).toBe(false);
+
+    const full = getBlindReviewProgress(
+      MODELS,
+      Object.fromEntries(
+        MODELS.map((model) => [model, Object.fromEntries(HUMAN_SCORE_KEYS.map((key) => [key, 8]))])
+      )
+    );
+
+    expect(full.completedScores).toBe(full.totalScores);
+    expect(full.completedModels).toBe(MODELS.length);
+    expect(full.complete).toBe(true);
   });
 });
 

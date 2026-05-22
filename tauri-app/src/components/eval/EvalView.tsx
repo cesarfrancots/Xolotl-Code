@@ -9,7 +9,7 @@ import {
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
 import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalGrade } from "../../bindings";
-import { getReviewOrder, useEvalStore } from "../../stores/evalStore";
+import { HUMAN_SCORE_KEYS, getBlindReviewProgress, getReviewOrder, useEvalStore } from "../../stores/evalStore";
 import { MarkdownRenderer } from "../chat/MarkdownRenderer";
 import { assessGoalEvalReadiness, type GoalEvalReadiness, type GoalReadinessState } from "../../lib/evalReadiness";
 
@@ -44,6 +44,8 @@ const SCORE_DIMENSIONS: { key: keyof HumanScores; label: string; color: string }
   { key: "ai_slop",     label: "Anti-Slop",   color: "oklch(0.72 0.18 100)" },
   { key: "brevity",     label: "Brevity",     color: "oklch(0.72 0.18 340)" },
 ];
+
+const SCORE_DIMENSION_COUNT = HUMAN_SCORE_KEYS.length;
 
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "claude-sonnet-4-6":           { input: 3,   output: 15 },
@@ -713,7 +715,17 @@ function ModeButton({
   );
 }
 
-function BlindReviewBanner({ blindMode, onToggle }: { blindMode: boolean; onToggle: () => void }) {
+function BlindReviewBanner({
+  blindMode,
+  onToggle,
+  revealLocked,
+  progressLabel,
+}: {
+  blindMode: boolean;
+  onToggle: () => void;
+  revealLocked: boolean;
+  progressLabel: string;
+}) {
   return (
     <div className="relative overflow-hidden rounded-lg border border-[oklch(0.27_0.035_205)] xolotl-panel px-3 py-3">
       <div className="absolute inset-0 eval-topography opacity-70" aria-hidden="true" />
@@ -727,20 +739,31 @@ function BlindReviewBanner({ blindMode, onToggle }: { blindMode: boolean; onTogg
             <div className="mt-0.5 text-xs leading-relaxed text-[oklch(0.62_0.025_225)]">
               Responses get stable randomized labels while scoring. Reveal names only after the review pass.
             </div>
+            <div className={`mt-2 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] uppercase tracking-[0.14em] ${
+              revealLocked
+                ? "border-[oklch(0.42_0.07_72)] bg-[oklch(0.16_0.04_72)]/45 text-[oklch(0.78_0.08_72)]"
+                : "border-[oklch(0.40_0.06_165)] bg-[oklch(0.15_0.035_165)]/45 text-[oklch(0.78_0.08_165)]"
+            }`}>
+              {revealLocked ? <AlertTriangle className="h-3 w-3" /> : <ShieldCheck className="h-3 w-3" />}
+              {progressLabel}
+            </div>
           </div>
         </div>
         <button
           onClick={onToggle}
+          disabled={revealLocked}
           className={[
             "flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
-            blindMode
+            revealLocked
+              ? "cursor-not-allowed border-[oklch(0.28_0.018_245)] bg-[oklch(0.11_0.01_245)] text-[oklch(0.46_0.02_245)]"
+              : blindMode
               ? "border-[oklch(0.70_0.12_185)]/40 bg-[oklch(0.70_0.12_185)]/14 text-[oklch(0.84_0.08_185)]"
               : "border-[oklch(0.32_0.018_245)] bg-[oklch(0.12_0.01_245)] text-[oklch(0.62_0.02_245)]",
           ].join(" ")}
-          title={blindMode ? "Reveal model names" : "Hide model names"}
+          title={revealLocked ? "Finish blind scores before revealing model names" : blindMode ? "Reveal model names" : "Hide model names"}
         >
           {blindMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-          {blindMode ? "Blind on" : "Names shown"}
+          {revealLocked ? "Locked" : blindMode ? "Blind on" : "Names shown"}
         </button>
       </div>
     </div>
@@ -879,6 +902,20 @@ export function EvalView() {
     () => activeEval ? getReviewOrder(activeEval.models, activeEval.blindLabels, blindMode) : [],
     [activeEval, blindMode]
   );
+  const blindReviewProgress = useMemo(
+    () => activeEval ? getBlindReviewProgress(activeEval.models, humanScores) : null,
+    [activeEval, humanScores]
+  );
+  const revealLocked = Boolean(activeEval && blindMode && blindReviewProgress && !blindReviewProgress.complete);
+  const blindProgressLabel = blindReviewProgress
+    ? blindReviewProgress.complete
+      ? "Review complete"
+      : `${blindReviewProgress.completedScores}/${blindReviewProgress.totalScores} scores complete`
+    : `${SCORE_DIMENSION_COUNT} score axes`;
+  const handleBlindToggle = useCallback(() => {
+    if (revealLocked) return;
+    toggleBlind();
+  }, [revealLocked, toggleBlind]);
   const goalReadiness = useMemo(
     () => assessGoalEvalReadiness({
       goal: prompt,
@@ -1097,7 +1134,14 @@ export function EvalView() {
                 <History className="w-3.5 h-3.5" /> History
               </Button>
             )}
-            <Button size="sm" variant="ghost" onClick={toggleBlind} className={`text-xs h-7 gap-1 ${blindMode ? "text-[oklch(0.78_0.12_185)]" : "text-[oklch(0.58_0.025_230)]"}`} title="Hide model names during scoring">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleBlindToggle}
+              disabled={revealLocked}
+              className={`text-xs h-7 gap-1 ${blindMode ? "text-[oklch(0.78_0.12_185)]" : "text-[oklch(0.58_0.025_230)]"}`}
+              title={revealLocked ? "Finish blind scores before revealing model names" : "Hide model names during scoring"}
+            >
               {blindMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />} Blind
             </Button>
             {activeEval && hasScores && (
@@ -1136,7 +1180,12 @@ export function EvalView() {
               />
             </div>
             {(mode === "goal" || activeEval?.is_goal_eval) && (
-              <BlindReviewBanner blindMode={blindMode} onToggle={toggleBlind} />
+              <BlindReviewBanner
+                blindMode={blindMode}
+                onToggle={handleBlindToggle}
+                revealLocked={revealLocked}
+                progressLabel={blindProgressLabel}
+              />
             )}
 
             {mode === "single" ? (

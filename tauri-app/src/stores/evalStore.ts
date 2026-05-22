@@ -1,6 +1,17 @@
 import { create } from "zustand";
 import type { EvalResult, HumanScores, AutoScores, JudgeScores, ReasoningFlag, GoalGrade } from "../bindings";
 
+export const HUMAN_SCORE_KEYS: (keyof HumanScores)[] = [
+  "accuracy",
+  "helpfulness",
+  "quality",
+  "creativity",
+  "design",
+  "aesthetics",
+  "ai_slop",
+  "brevity",
+];
+
 export interface EvalModelState {
   model: string;
   status: "pending" | "running" | "done" | "error";
@@ -134,6 +145,33 @@ export function buildBlindLabels(evalId: string, models: string[]): Record<strin
 export function getReviewOrder(models: string[], blindLabels: Record<string, string>, blindMode: boolean): string[] {
   if (!blindMode) return models;
   return [...models].sort((a, b) => (blindLabels[a] ?? a).localeCompare(blindLabels[b] ?? b));
+}
+
+export function getBlindReviewProgress(
+  models: string[],
+  humanScores: Record<string, Partial<HumanScores>>
+): {
+  completedScores: number;
+  totalScores: number;
+  completedModels: number;
+  totalModels: number;
+  complete: boolean;
+} {
+  const totalScores = models.length * HUMAN_SCORE_KEYS.length;
+  const completedByModel = models.map((model) => {
+    const scores = humanScores[model] ?? {};
+    return HUMAN_SCORE_KEYS.filter((key) => (scores[key] ?? 0) > 0).length;
+  });
+  const completedScores = completedByModel.reduce((sum, count) => sum + count, 0);
+  const completedModels = completedByModel.filter((count) => count === HUMAN_SCORE_KEYS.length).length;
+
+  return {
+    completedScores,
+    totalScores,
+    completedModels,
+    totalModels: models.length,
+    complete: models.length > 0 && completedModels === models.length,
+  };
 }
 
 export const useEvalStore = create<EvalState>()((set) => ({
