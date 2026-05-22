@@ -908,8 +908,11 @@ function ModeButton({
       : "text-[oklch(0.46_0.010_235)] group-hover:text-[oklch(0.66_0.018_220)]";
   return (
     <button
+      type="button"
       onClick={onClick}
       aria-pressed={active}
+      aria-label={title}
+      title={hint}
       className={[
         "group flex min-w-0 flex-1 items-center gap-2 rounded px-2.5 py-1.5 text-left transition-colors sm:w-auto",
         active
@@ -999,9 +1002,14 @@ function readinessIcon(state: GoalReadinessState) {
 
 function GoalReadinessPanel({ readiness }: { readiness: GoalEvalReadiness }) {
   const blocked = readiness.items.filter((item) => item.state === "blocked").length;
+  const readinessLabel = readiness.canRun ? "Goal brief ready" : `Goal brief has ${blocked} blocking item${blocked === 1 ? "" : "s"}`;
 
   return (
-    <div className="rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)] px-3 py-2">
+    <div
+      role="group"
+      aria-label={readinessLabel}
+      className="rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)] px-3 py-2"
+    >
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-[oklch(0.84_0.016_225)]">
           <Gauge className="h-3.5 w-3.5 flex-none text-[oklch(0.62_0.030_195)]" />
@@ -1016,7 +1024,12 @@ function GoalReadinessPanel({ readiness }: { readiness: GoalEvalReadiness }) {
       </div>
       <div className="mt-2 grid grid-cols-1 gap-x-3 gap-y-1.5 lg:grid-cols-3">
         {readiness.items.map((item) => (
-          <div key={item.id} className="flex min-h-9 items-start gap-2 rounded px-1.5 py-1">
+          <div
+            key={item.id}
+            className="flex min-h-9 items-start gap-2 rounded px-1.5 py-1"
+            title={`${item.label}: ${item.detail}`}
+            aria-label={`${item.label}: ${item.state}. ${item.detail}`}
+          >
             <div className={`mt-0.5 flex h-4 w-4 flex-none items-center justify-center rounded-full border ${readinessTone(item.state)}`}>
               {readinessIcon(item.state)}
             </div>
@@ -1894,12 +1907,15 @@ export function EvalView() {
                   <select
                     value={judgeModel}
                     onChange={(e) => setJudgeModel(e.target.value)}
+                    aria-label="Judge model"
+                    title="Judge model"
                     className="bg-[oklch(0.125_0.004_245)] border border-[oklch(0.24_0.010_235)] rounded text-xs px-2 py-1 text-[oklch(0.78_0.012_220)]"
                   >
                     {allModels.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
                   {reviewGate.machineReviewLocked && (
                     <span
+                      role="status"
                       className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[oklch(0.38_0.030_72)] bg-[oklch(0.13_0.010_72)] px-2 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.70_0.045_72)]"
                       title={reviewGate.detail}
                     >
@@ -1913,8 +1929,9 @@ export function EvalView() {
                     onClick={runJudge}
                     disabled={judgeRunning || reviewGate.machineReviewLocked}
                     title={reviewGate.machineReviewLocked ? reviewGate.detail : "Run anonymized LLM judge"}
+                    aria-label={reviewGate.machineReviewLocked ? reviewGate.detail : "Run anonymized LLM judge"}
                     className="gap-1 text-xs h-7 text-[oklch(0.68_0.040_205)]">
-                    <Gavel className="w-3.5 h-3.5" /> {judgeRunning ? "Judging…" : "Run LLM Judge"}
+                    <Gavel className="w-3.5 h-3.5" /> {judgeRunning ? "Judging…" : "Judge"}
                   </Button>
                   {(activeEval.is_goal_eval || mode === "goal") && (
                     <Button
@@ -1923,8 +1940,9 @@ export function EvalView() {
                       onClick={runGoalGrade}
                       disabled={goalGrading || reviewGate.machineReviewLocked}
                       title={reviewGate.machineReviewLocked ? reviewGate.detail : "Run goal-grade pass"}
+                      aria-label={reviewGate.machineReviewLocked ? reviewGate.detail : "Run goal-grade pass"}
                       className="gap-1 text-xs h-7 text-[oklch(0.70_0.055_190)]">
-                      <Target className="w-3.5 h-3.5" /> {goalGrading ? "Grading…" : "Grade Goal"}
+                      <Target className="w-3.5 h-3.5" /> {goalGrading ? "Grading…" : "Grade"}
                     </Button>
                   )}
                   <Button size="sm" variant="ghost"
