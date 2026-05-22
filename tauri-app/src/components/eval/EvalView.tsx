@@ -1026,10 +1026,16 @@ function GoalReadinessPanel({ readiness }: { readiness: GoalEvalReadiness }) {
   );
 }
 
-function workflowTone(state: GoalWorkflowStep["state"]): string {
-  if (state === "done") return "border-[oklch(0.30_0.016_175)] text-[oklch(0.68_0.035_180)]";
-  if (state === "current") return "border-[oklch(0.42_0.025_195)] bg-[oklch(0.13_0.008_205)] text-[oklch(0.78_0.035_200)]";
-  return "border-[oklch(0.22_0.008_245)] text-[oklch(0.42_0.010_235)]";
+function workflowMarkerTone(state: GoalWorkflowStep["state"]): string {
+  if (state === "done") return "border-[oklch(0.31_0.014_180)] bg-[oklch(0.13_0.006_190)] text-[oklch(0.68_0.030_185)]";
+  if (state === "current") return "border-[oklch(0.42_0.022_195)] bg-[oklch(0.145_0.008_205)] text-[oklch(0.78_0.032_200)] shadow-[0_0_0_3px_oklch(0.16_0.010_205)]";
+  return "border-[oklch(0.23_0.008_245)] bg-[oklch(0.105_0.004_245)] text-[oklch(0.42_0.010_235)]";
+}
+
+function workflowLabelTone(state: GoalWorkflowStep["state"]): string {
+  if (state === "done") return "text-[oklch(0.70_0.022_190)]";
+  if (state === "current") return "text-[oklch(0.86_0.018_210)]";
+  return "text-[oklch(0.48_0.012_230)]";
 }
 
 function workflowIcon(step: GoalWorkflowStep) {
@@ -1041,27 +1047,38 @@ function GoalWorkflowStrip({ steps }: { steps: GoalWorkflowStep[] }) {
   const currentStep = steps.find((step) => step.state === "current") ?? steps.find((step) => step.state === "locked") ?? steps[steps.length - 1];
 
   return (
-    <div className="rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.105_0.004_245)] px-3 py-2">
+    <div className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.104_0.003_245)] px-3 py-2.5">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.15em] text-[oklch(0.52_0.012_230)]">
           <ShieldCheck className="h-3 w-3 text-[oklch(0.58_0.025_195)]" />
           Review protocol
         </div>
-        <div className="text-[11px] leading-snug text-[oklch(0.58_0.014_225)]">
-          {currentStep?.label}: {currentStep?.detail}
+        <div className="text-[11px] leading-snug text-[oklch(0.60_0.014_225)]">
+          <span className="text-[oklch(0.72_0.020_210)]">{currentStep?.label}</span>
+          <span className="text-[oklch(0.45_0.010_230)]"> / </span>
+          {currentStep?.detail}
         </div>
       </div>
-      <div className="mt-2 grid grid-cols-5 gap-1.5">
-        {steps.map((step) => (
-          <div
-            key={step.id}
-            className={`flex h-7 items-center justify-center gap-1.5 rounded border px-1.5 text-[11px] transition-colors ${workflowTone(step.state)}`}
-            title={step.detail}
-          >
-            {workflowIcon(step)}
-            <span className="hidden truncate sm:inline">{step.label}</span>
-          </div>
-        ))}
+      <div className="relative mt-3">
+        <div className="absolute left-3 right-3 top-3 hidden h-px bg-[oklch(0.22_0.008_245)] sm:block" aria-hidden="true" />
+        <ol className="relative grid grid-cols-1 gap-2 sm:grid-cols-5" aria-label="Goal eval review protocol">
+          {steps.map((step, index) => (
+            <li
+              key={step.id}
+              className="relative z-10 flex min-w-0 items-center gap-2 sm:flex-col sm:gap-1.5 sm:text-center"
+              aria-current={step.state === "current" ? "step" : undefined}
+              aria-label={`${step.label}: ${step.detail}`}
+              title={step.detail}
+            >
+              <span aria-hidden="true" className={`flex h-6 w-6 flex-none items-center justify-center rounded-full border text-[10px] transition-colors ${workflowMarkerTone(step.state)}`}>
+                {step.state === "locked" ? <span className="font-mono text-[10px]">{index + 1}</span> : workflowIcon(step)}
+              </span>
+              <span className={`block min-w-0 truncate text-[11px] font-medium ${workflowLabelTone(step.state)}`}>
+                {step.label}
+              </span>
+            </li>
+          ))}
+        </ol>
       </div>
     </div>
   );
