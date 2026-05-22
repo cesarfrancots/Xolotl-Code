@@ -1996,10 +1996,10 @@ export function EvalView() {
 
           {!activeEval && (
             <div className="px-4 py-5">
-              <div className="relative overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.112_0.004_245)] px-4 py-3">
+              <div className="relative overflow-hidden rounded-md border border-[oklch(0.20_0.006_240)] bg-[oklch(0.106_0.003_245)] px-4 py-3">
                 <div className="relative flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div className="min-w-0">
-                    <div className="mb-1.5 inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">
+                    <div className="mb-1.5 inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-[oklch(0.54_0.016_205)]">
                       <ShieldCheck className="h-3 w-3" />
                       No active trial
                     </div>
@@ -2008,12 +2008,14 @@ export function EvalView() {
                       Rankings, model names, judge notes, and telemetry stay out of the way until the human review is saved.
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-1.5 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.50_0.012_230)]">
-                    <span className="rounded border border-[oklch(0.24_0.010_245)] px-2 py-1">Goal</span>
-                    <span className="rounded border border-[oklch(0.24_0.010_245)] px-2 py-1">Compare</span>
-                    <span className="rounded border border-[oklch(0.24_0.010_245)] px-2 py-1">Blind score</span>
-                    <span className="rounded border border-[oklch(0.24_0.010_245)] px-2 py-1">Reveal</span>
-                  </div>
+                  <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.12em] text-[oklch(0.50_0.012_230)]" aria-label="Goal eval setup sequence">
+                    {["Goal", "Compare", "Blind score", "Reveal"].map((step, index) => (
+                      <li key={step} className="flex items-center gap-2">
+                        {index > 0 && <span className="h-px w-5 bg-[oklch(0.24_0.008_240)]" aria-hidden="true" />}
+                        <span>{step}</span>
+                      </li>
+                    ))}
+                  </ol>
                 </div>
               </div>
             </div>
