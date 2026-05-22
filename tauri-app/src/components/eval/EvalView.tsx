@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   FlaskConical, Play, RotateCcw, ChevronDown, ChevronUp, Save, Clock, Coins, Hash,
-  Eye, EyeOff, Trophy, Sparkles, History, ListChecks, Gavel, Trash2,
+  Eye, EyeOff, Trophy, History, ListChecks, Gavel, Trash2,
   Target, Brain, AlertTriangle, Activity, ShieldCheck, ScanSearch, Gauge,
   CheckCircle2, CircleDot,
 } from "lucide-react";
@@ -158,13 +158,13 @@ function RaceTrackRow({ model, displayName, color, blindMode }: { model: string;
   const previewText = state.content.slice(0, 220).replace(/\s+/g, " ");
 
   return (
-    <div className="flex items-stretch gap-2 px-3 py-2 border-b border-neutral-800/50 last:border-0 hover:bg-[oklch(0.14_0_0)]/50">
+    <div className="flex items-stretch gap-2 px-3 py-2 border-b border-[oklch(0.22_0.008_240)]/70 last:border-0 hover:bg-[oklch(0.135_0.004_245)]">
       <div className="w-1 flex-none rounded" style={{ background: color }} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-sm font-medium text-[oklch(0.88_0_0)] truncate" style={{ maxWidth: "240px" }}>{displayName}</span>
+          <span className="text-sm font-medium text-[oklch(0.88_0.015_220)] truncate" style={{ maxWidth: "240px" }}>{displayName}</span>
           <StatusDot status={state.status} />
-          <span className="ml-auto flex items-center gap-3 text-xs text-[oklch(0.50_0_0)] tabular-nums whitespace-nowrap">
+          <span className="ml-auto flex items-center gap-3 text-xs text-[oklch(0.50_0.010_225)] tabular-nums whitespace-nowrap">
             {blindMode && state.status !== "pending" && (
               <span className="text-[oklch(0.50_0.025_230)]">telemetry hidden</span>
             )}
@@ -179,7 +179,7 @@ function RaceTrackRow({ model, displayName, color, blindMode }: { model: string;
           </span>
         </div>
         {/* Streaming preview */}
-        <div className="text-xs text-[oklch(0.55_0_0)] line-clamp-2 leading-relaxed font-mono">
+        <div className="text-xs text-[oklch(0.56_0.012_225)] line-clamp-2 leading-relaxed font-mono">
           {state.status === "pending" && <span className="opacity-50">waiting…</span>}
           {state.status === "running" && !previewText && <span className="opacity-60 animate-pulse">▌</span>}
           {state.status === "running" && previewText && <>{previewText}<span className="animate-pulse">▌</span></>}
@@ -193,10 +193,10 @@ function RaceTrackRow({ model, displayName, color, blindMode }: { model: string;
 
 function StatusDot({ status }: { status: string }) {
   const cls =
-    status === "running" ? "bg-yellow-400 animate-pulse" :
-    status === "done"    ? "bg-green-500" :
+    status === "running" ? "bg-[oklch(0.72_0.080_70)] animate-pulse" :
+    status === "done"    ? "bg-[oklch(0.66_0.075_155)]" :
     status === "error"   ? "bg-red-500" :
-                           "bg-neutral-600";
+                           "bg-[oklch(0.34_0.010_235)]";
   return <div className={`w-2 h-2 rounded-full flex-none ${cls}`} />;
 }
 
@@ -236,11 +236,11 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
     : 0;
 
   return (
-    <div className="flex flex-col border border-neutral-800 rounded-lg overflow-hidden bg-[oklch(0.13_0_0)]">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-800 bg-[oklch(0.155_0_0)]">
+    <div className="flex flex-col overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)]">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.135_0.004_245)]">
         <div className="flex items-center gap-2">
           <StatusDot status={state.status} />
-          <span className="text-sm font-medium text-[oklch(0.88_0_0)]">{displayName}</span>
+          <span className="text-sm font-medium text-[oklch(0.88_0.015_220)]">{displayName}</span>
           {humanAvg > 0 && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[oklch(0.14_0.010_205)] text-[oklch(0.72_0.045_195)]" title="Human avg">
               ★ {humanAvg.toFixed(1)}
@@ -264,12 +264,12 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
             </span>
           )}
           {showMachineContext && state.auto && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-neutral-800 text-[oklch(0.6_0_0)]" title="Auto-graded">
+            <span className="text-xs px-1.5 py-0.5 rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] text-[oklch(0.60_0.012_225)]" title="Auto-graded">
               auto {state.auto.ai_slop_score?.toFixed(1) ?? "—"} / {state.auto.brevity_score?.toFixed(1) ?? "—"}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3 text-xs text-[oklch(0.50_0_0)] tabular-nums">
+        <div className="flex items-center gap-3 text-xs text-[oklch(0.50_0.010_225)] tabular-nums">
           {blindMode && state.status !== "pending" && (
             <span className="rounded bg-[oklch(0.13_0.006_220)] px-1.5 py-0.5 text-[oklch(0.62_0.035_195)]">
               telemetry hidden
@@ -292,17 +292,17 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
             } disabled:cursor-not-allowed disabled:opacity-45`}
             title={canScore ? "Score this response" : "Scoring unlocks after the response finishes"}
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            <ScanSearch className="w-3.5 h-3.5" />
             Score
           </button>
-          <button onClick={() => setExpanded((v) => !v)} className="text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)]">
+          <button onClick={() => setExpanded((v) => !v)} className="text-[oklch(0.54_0.010_225)] hover:text-[oklch(0.84_0.015_220)]">
             {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
         </div>
       </div>
 
       {/* Response */}
-      <div className="px-3 py-3 text-sm text-[oklch(0.84_0_0)] leading-relaxed overflow-y-auto" style={{ maxHeight: expanded ? "none" : "320px", minHeight: "60px" }}>
+      <div className="px-3 py-3 text-sm text-[oklch(0.84_0.012_220)] leading-relaxed overflow-y-auto" style={{ maxHeight: expanded ? "none" : "320px", minHeight: "60px" }}>
         {state.status === "pending" && <span className="text-[oklch(0.40_0_0)]">Waiting…</span>}
         {state.status === "running" && !state.content && <span className="text-[oklch(0.55_0_0)] animate-pulse">Generating…</span>}
         {state.content && <MarkdownRenderer content={state.content} />}
@@ -311,7 +311,7 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
 
       {/* Auto + Judge details */}
       {showMachineContext && state.auto && (state.status === "done" || state.status === "error") && (
-        <div className="border-t border-neutral-800 px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[oklch(0.55_0_0)] bg-[oklch(0.115_0_0)]">
+        <div className="border-t border-[oklch(0.22_0.008_240)] px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[oklch(0.56_0.012_225)] bg-[oklch(0.112_0.003_245)]">
           <span>{state.auto.word_count} words · {state.auto.char_count} chars</span>
           <span>· {state.auto.code_block_count} code blocks</span>
           <span>· {state.auto.em_dash_count} em-dashes</span>
@@ -332,7 +332,7 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
       {showMachineContext && state.goalGrade && <GoalGradeCard grade={state.goalGrade} />}
 
       {showMachineContext && judge?.rationale?.[model] && (
-        <div className="border-t border-neutral-800 px-3 py-2 text-xs text-[oklch(0.65_0_0)] bg-[oklch(0.125_0_0)] italic">
+        <div className="border-t border-[oklch(0.22_0.008_240)] px-3 py-2 text-xs text-[oklch(0.64_0.012_225)] bg-[oklch(0.118_0.004_245)] italic">
           <Gavel className="inline w-3 h-3 mr-1 text-[oklch(0.68_0.040_205)]" /> {judge.rationale[model]}
         </div>
       )}
@@ -345,7 +345,7 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
 
       {/* HIL panel */}
       {scoring && (state.status === "done" || state.status === "error") && (
-        <div className="border-t border-neutral-800 px-3 py-3 grid grid-cols-2 gap-x-4 gap-y-2 bg-[oklch(0.10_0_0)]">
+        <div className="border-t border-[oklch(0.22_0.008_240)] px-3 py-3 grid grid-cols-2 gap-x-4 gap-y-2 bg-[oklch(0.105_0.003_245)]">
           <div className="col-span-2 mb-1 flex items-center justify-between gap-3">
             <p className="text-xs text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider">
               Human Evaluation (1–10)
@@ -379,10 +379,10 @@ function ReasoningTrace({ model }: { model: string }) {
   if (!state.reasoning && state.flags.length === 0) return null;
 
   return (
-    <div className="border-t border-neutral-800 bg-[oklch(0.105_0_0)]">
+    <div className="border-t border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.003_245)]">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wider text-[oklch(0.55_0_0)] hover:bg-[oklch(0.14_0_0)]"
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wider text-[oklch(0.56_0.012_225)] hover:bg-[oklch(0.135_0.004_245)]"
       >
         <Brain className="w-3 h-3 text-[oklch(0.62_0.035_220)]" />
         <span>Reasoning trace</span>
@@ -442,8 +442,8 @@ function FlaggedText({ text, flags }: { text: string; flags: ReasoningFlag[] }) 
 function FlagList({ flags }: { flags: ReasoningFlag[] }) {
   if (flags.length === 0) return null;
   return (
-    <div className="border-t border-neutral-800 px-3 py-2 bg-[oklch(0.115_0_0)] flex flex-col gap-1.5">
-      <div className="text-[10px] uppercase tracking-wider text-[oklch(0.50_0_0)] flex items-center gap-1">
+    <div className="border-t border-[oklch(0.22_0.008_240)] px-3 py-2 bg-[oklch(0.112_0.003_245)] flex flex-col gap-1.5">
+      <div className="text-[10px] uppercase tracking-wider text-[oklch(0.50_0.010_225)] flex items-center gap-1">
         <AlertTriangle className="w-3 h-3" /> Supervisor flags
       </div>
       {flags.map((f, i) => {
@@ -477,7 +477,7 @@ function GoalGradeCard({ grade }: { grade: GoalGrade }) {
   }, [grade]);
 
   return (
-    <div className="border-t border-neutral-800 px-3 py-3 bg-[oklch(0.115_0_0)]">
+    <div className="border-t border-[oklch(0.22_0.008_240)] px-3 py-3 bg-[oklch(0.112_0.003_245)]">
       <div className="flex items-center gap-2 mb-2">
         <Target className="w-3.5 h-3.5 text-[oklch(0.70_0.055_190)]" />
         <span className="text-[10px] uppercase tracking-wider text-[oklch(0.55_0_0)] font-medium">Goal Grade</span>
@@ -498,7 +498,7 @@ function GoalGradeCard({ grade }: { grade: GoalGrade }) {
                 <span className="uppercase tracking-wider">{axis.label}</span>
                 <span className="tabular-nums">{score > 0 ? score.toFixed(1) : "—"}/5</span>
               </div>
-              <div className="h-1.5 bg-neutral-900 rounded overflow-hidden">
+              <div className="h-1.5 bg-[oklch(0.095_0.003_245)] rounded overflow-hidden">
                 <div
                   className="h-full rounded transition-[width] duration-200"
                   style={{ width: `${(score / 5) * 100}%`, background: axis.color }}
@@ -514,7 +514,7 @@ function GoalGradeCard({ grade }: { grade: GoalGrade }) {
         })}
       </div>
       {grade.summary && (
-        <div className="mt-2 pt-2 border-t border-neutral-800 text-xs text-[oklch(0.72_0_0)] italic leading-relaxed">
+        <div className="mt-2 pt-2 border-t border-[oklch(0.22_0.008_240)] text-xs text-[oklch(0.68_0.012_225)] italic leading-relaxed">
           {grade.summary}
         </div>
       )}
@@ -575,21 +575,21 @@ function Leaderboard({ blindNames, blindMode }: { blindNames: Record<string, str
   const winner = composites[0];
 
   return (
-    <div className="rounded-lg border border-neutral-800 overflow-hidden bg-[oklch(0.13_0_0)]">
-      <div className="px-3 py-2 border-b border-neutral-800 bg-[oklch(0.155_0_0)] flex items-center gap-2">
+    <div className="overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)]">
+      <div className="px-3 py-2 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.135_0.004_245)] flex items-center gap-2">
         <Trophy className="w-4 h-4 text-[oklch(0.70_0.055_190)]" />
-        <span className="text-xs font-semibold text-[oklch(0.88_0_0)] uppercase tracking-wider">Leaderboard</span>
+        <span className="text-xs font-semibold text-[oklch(0.88_0.015_220)] uppercase tracking-wider">Leaderboard</span>
         <div className="ml-auto flex items-center gap-3 text-xs">
           {blindMode ? (
             <span className="text-[oklch(0.52_0.025_230)]">Cost and speed hidden during blind review</span>
           ) : (
             <>
-              <label className="flex items-center gap-1 text-[oklch(0.55_0_0)]">
+              <label className="flex items-center gap-1 text-[oklch(0.56_0.012_225)]">
                 Cost weight
                 <input type="range" min={0} max={2} step={0.25} value={costWeight} onChange={(e) => setCostWeight(Number(e.target.value))} className="w-16 accent-[oklch(0.60_0.045_190)]" />
                 <span className="tabular-nums w-6 text-right">{costWeight.toFixed(1)}</span>
               </label>
-              <label className="flex items-center gap-1 text-[oklch(0.55_0_0)]">
+              <label className="flex items-center gap-1 text-[oklch(0.56_0.012_225)]">
                 Speed weight
                 <input type="range" min={0} max={2} step={0.25} value={latencyWeight} onChange={(e) => setLatencyWeight(Number(e.target.value))} className="w-16 accent-[oklch(0.60_0.045_190)]" />
                 <span className="tabular-nums w-6 text-right">{latencyWeight.toFixed(1)}</span>
@@ -600,7 +600,7 @@ function Leaderboard({ blindNames, blindMode }: { blindNames: Record<string, str
       </div>
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-neutral-800 text-[oklch(0.45_0_0)]">
+          <tr className="border-b border-[oklch(0.22_0.008_240)] text-[oklch(0.46_0.010_225)]">
             <th className="px-3 py-1.5 text-left font-medium">#</th>
             <th className="px-3 py-1.5 text-left font-medium">Model</th>
             <th className="px-3 py-1.5 text-right font-medium">Quality</th>
@@ -611,9 +611,9 @@ function Leaderboard({ blindNames, blindMode }: { blindNames: Record<string, str
         </thead>
         <tbody>
           {composites.map((r, i) => (
-            <tr key={r.model} className={`border-b border-neutral-800/40 last:border-0 ${r === winner ? "bg-[oklch(0.14_0.010_205)]" : ""}`}>
-              <td className="px-3 py-1.5 text-[oklch(0.55_0_0)]">{i + 1}{r === winner ? " 🏆" : ""}</td>
-              <td className="px-3 py-1.5 text-[oklch(0.85_0_0)]">{blindNames[r.model] ?? r.model}</td>
+            <tr key={r.model} className={`border-b border-[oklch(0.22_0.008_240)]/60 last:border-0 ${r === winner ? "bg-[oklch(0.14_0.010_205)]" : ""}`}>
+              <td className="px-3 py-1.5 text-[oklch(0.55_0.010_225)]">{i + 1}{r === winner ? " *" : ""}</td>
+              <td className="px-3 py-1.5 text-[oklch(0.85_0.012_220)]">{blindNames[r.model] ?? r.model}</td>
               <td className="px-3 py-1.5 text-right tabular-nums text-[oklch(0.70_0.055_190)]">{r.quality > 0 ? r.quality.toFixed(1) : "—"}</td>
               <td className="px-3 py-1.5 text-right tabular-nums text-[oklch(0.65_0_0)]">{blindMode ? "hidden" : `$${r.cost.toFixed(4)}`}</td>
               <td className="px-3 py-1.5 text-right tabular-nums text-[oklch(0.65_0_0)]">{blindMode ? "hidden" : fmtDur(r.dur)}</td>
@@ -639,8 +639,8 @@ function DimensionBars({ blindNames, blindMode }: { blindNames: Record<string, s
   if (!hasAnyScore) return null;
 
   return (
-    <div className="border-t border-neutral-800 p-3 bg-[oklch(0.12_0_0)]">
-      <div className="text-xs text-[oklch(0.50_0_0)] uppercase tracking-wider mb-2">Per-dimension breakdown</div>
+    <div className="border-t border-[oklch(0.22_0.008_240)] p-3 bg-[oklch(0.112_0.003_245)]">
+      <div className="text-xs text-[oklch(0.50_0.010_225)] uppercase tracking-wider mb-2">Per-dimension breakdown</div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
         {SCORE_DIMENSIONS.map((dim) => {
           // For each model, prefer human; fall back to judge.
@@ -658,10 +658,10 @@ function DimensionBars({ blindNames, blindMode }: { blindNames: Record<string, s
               </div>
               {vals.map((v) => (
                 <div key={v.model} className="flex items-center gap-1.5 text-[10px]">
-                  <span className="text-[oklch(0.55_0_0)] truncate" style={{ width: "120px" }}>
+                  <span className="text-[oklch(0.55_0.010_225)] truncate" style={{ width: "120px" }}>
                     {(blindNames[v.model] ?? v.model)}
                   </span>
-                  <div className="flex-1 h-2 bg-neutral-900 rounded overflow-hidden">
+                  <div className="flex-1 h-2 bg-[oklch(0.095_0.003_245)] rounded overflow-hidden">
                     <div
                       className="h-full rounded"
                       style={{
@@ -680,7 +680,7 @@ function DimensionBars({ blindNames, blindMode }: { blindNames: Record<string, s
           );
         })}
       </div>
-      <div className="text-[10px] text-[oklch(0.40_0_0)] mt-2">
+      <div className="text-[10px] text-[oklch(0.44_0.008_225)] mt-2">
         Solid bars = your human scores · faded = LLM-judge fallback
       </div>
     </div>
@@ -703,15 +703,15 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
   }
 
   if (items.length === 0) {
-    return <div className="text-xs text-[oklch(0.40_0_0)] p-3">No past evals.</div>;
+    return <div className="text-xs text-[oklch(0.44_0.008_225)] p-3">No past evals.</div>;
   }
   return (
     <div className="flex flex-col gap-1 p-2 overflow-y-auto">
       {items.map((m) => (
-        <div key={m.id} className="group flex items-start gap-2 px-2 py-2 rounded hover:bg-[oklch(0.15_0_0)] cursor-pointer">
+        <div key={m.id} className="group flex items-start gap-2 px-2 py-2 rounded hover:bg-[oklch(0.135_0.004_245)] cursor-pointer">
           <button onClick={() => onLoad(m.id)} className="flex-1 text-left min-w-0">
-            <div className="text-xs text-[oklch(0.82_0_0)] line-clamp-2">{m.prompt}</div>
-            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-[oklch(0.45_0_0)]">
+            <div className="text-xs text-[oklch(0.82_0.012_220)] line-clamp-2">{m.prompt}</div>
+            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-[oklch(0.46_0.010_225)]">
               {m.suite_id && <span className="text-[oklch(0.68_0.040_205)]">[{m.suite_id}]</span>}
               <span>{m.models.length} models</span>
               <span>·</span>
@@ -1221,11 +1221,11 @@ export function EvalView() {
   }, [allModels]);
 
   return (
-    <div className="flex-1 flex h-full overflow-hidden bg-[oklch(0.105_0_0)]">
+    <div className="flex-1 flex h-full overflow-hidden bg-[oklch(0.105_0.004_245)]">
       {/* History sidebar */}
       {historyOpen && (
-        <div className="w-72 flex-none border-r border-neutral-800 bg-[oklch(0.10_0_0)] flex flex-col">
-          <div className="flex-none px-3 py-2 border-b border-neutral-800 flex items-center gap-2">
+        <div className="w-72 flex-none border-r border-[oklch(0.22_0.008_240)] bg-[oklch(0.102_0.003_245)] flex flex-col">
+          <div className="flex-none px-3 py-2 border-b border-[oklch(0.22_0.008_240)] flex items-center gap-2">
             <History className="w-4 h-4 text-[oklch(0.68_0.040_205)]" />
             <span className="text-xs font-semibold text-[oklch(0.85_0_0)] uppercase tracking-wider">History</span>
             <button onClick={() => setHistoryOpen(false)} className="ml-auto text-[oklch(0.45_0_0)] hover:text-[oklch(0.85_0_0)]">
@@ -1374,14 +1374,14 @@ export function EvalView() {
                       key={s.id}
                       onClick={() => setSelectedSuite(s.id)}
                       disabled={running}
-                      className={`text-left px-3 py-2 rounded-lg border transition-colors disabled:opacity-60 ${
+                      className={`text-left px-3 py-2 rounded-md border transition-colors disabled:opacity-60 ${
                         selectedSuite === s.id
                           ? "bg-[oklch(0.14_0.010_205)] border-[oklch(0.42_0.025_195)]"
-                          : "bg-transparent border-neutral-800 hover:border-neutral-600"
+                          : "bg-transparent border-[oklch(0.22_0.008_240)] hover:border-[oklch(0.30_0.016_215)]"
                       }`}
                     >
-                      <div className="text-xs font-semibold text-[oklch(0.88_0_0)]">{s.name}</div>
-                      <div className="text-[10px] text-[oklch(0.50_0_0)] mt-0.5">{s.prompts.length} prompts · {s.description}</div>
+                      <div className="text-xs font-semibold text-[oklch(0.88_0.015_220)]">{s.name}</div>
+                      <div className="text-[10px] text-[oklch(0.50_0.010_225)] mt-0.5">{s.prompts.length} prompts · {s.description}</div>
                     </button>
                   ))}
                 </div>
@@ -1400,7 +1400,7 @@ export function EvalView() {
               <div className="flex flex-col gap-1.5">
                 {Object.entries(grouped).map(([provider, models]) => (
                   <div key={provider} className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[10px] text-[oklch(0.42_0_0)] w-24 flex-none uppercase tracking-wider">{provider}</span>
+                    <span className="text-[10px] text-[oklch(0.44_0.008_225)] w-24 flex-none uppercase tracking-wider">{provider}</span>
                     {models.map((m) => (
                       <button
                         key={m}
@@ -1409,7 +1409,7 @@ export function EvalView() {
                         className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors disabled:opacity-60 ${
                           selectedModels.includes(m)
                             ? "bg-[oklch(0.14_0.010_205)] border-[oklch(0.42_0.025_195)] text-[oklch(0.74_0.045_195)]"
-                            : "bg-transparent border-neutral-700 text-[oklch(0.55_0_0)] hover:border-neutral-500"
+                            : "bg-transparent border-[oklch(0.24_0.010_235)] text-[oklch(0.55_0.010_225)] hover:border-[oklch(0.32_0.016_215)]"
                         }`}
                       >
                         {m.replace(/^bedrock-/, "")}
@@ -1449,7 +1449,7 @@ export function EvalView() {
                   <select
                     value={judgeModel}
                     onChange={(e) => setJudgeModel(e.target.value)}
-                    className="bg-[oklch(0.155_0_0)] border border-neutral-700 rounded text-xs px-2 py-1 text-[oklch(0.78_0_0)]"
+                    className="bg-[oklch(0.125_0.004_245)] border border-[oklch(0.24_0.010_235)] rounded text-xs px-2 py-1 text-[oklch(0.78_0.012_220)]"
                   >
                     {allModels.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
@@ -1498,8 +1498,8 @@ export function EvalView() {
               <EvalRunStrip blindMode={blindMode} />
               {/* Live race-track */}
               {!activeEval.complete && (
-                <div className="rounded-lg border border-neutral-800 overflow-hidden bg-[oklch(0.12_0_0)]">
-                  <div className="px-3 py-2 border-b border-neutral-800 bg-[oklch(0.14_0_0)] text-xs text-[oklch(0.55_0_0)] uppercase tracking-wider">
+                <div className="overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)]">
+                  <div className="px-3 py-2 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.135_0.004_245)] text-xs text-[oklch(0.55_0.010_225)] uppercase tracking-wider">
                     Live · {activeEval.models.length} models racing
                   </div>
                   {reviewModels.map((m, i) => (
@@ -1538,8 +1538,7 @@ export function EvalView() {
 
           {!activeEval && (
             <div className="px-4 py-5">
-              <div className="relative overflow-hidden rounded-lg border border-[oklch(0.24_0.010_245)] xolotl-panel p-5">
-                <div className="absolute inset-0 eval-topography opacity-30" aria-hidden="true" />
+              <div className="relative overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.118_0.004_245)] p-5">
                 <div className="relative max-w-3xl">
                   <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-[oklch(0.38_0.018_205)] bg-[oklch(0.13_0.006_220)] px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-[oklch(0.66_0.035_195)]">
                     <ShieldCheck className="h-3 w-3" />
