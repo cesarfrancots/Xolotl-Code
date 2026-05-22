@@ -11,13 +11,17 @@ import { Loader2, MessagesSquare, TestTubeDiagonal, Waves } from "lucide-react";
 type CenterTab = "chat" | "eval";
 
 const loadEvalView = () => import("./components/eval/EvalView");
+function initialCenterTab(): CenterTab {
+  return new URLSearchParams(window.location.search).get("tab") === "eval" ? "eval" : "chat";
+}
+
 const LazyEvalView = lazy(async () => {
   const module = await loadEvalView();
   return { default: module.EvalView };
 });
 
 export default function App() {
-  const [centerTab, setCenterTab] = useState<CenterTab>("chat");
+  const [centerTab, setCenterTab] = useState<CenterTab>(initialCenterTab);
   const expandedAgentId = useAgentStore((s) => s.expandedAgentId);
   const mergeCheckpointGroupId = useAgentStore((s) => s.mergeCheckpointGroupId);
   const showAgentView = expandedAgentId || mergeCheckpointGroupId;
@@ -40,18 +44,18 @@ export default function App() {
       <SessionSidebar />
       <div className="flex-1 min-w-0 flex flex-col">
         {!showAgentView && (
-          <div className="flex-none flex items-center gap-3 border-b border-[oklch(0.25_0.025_230)] bg-[oklch(0.12_0.012_250)]/92 px-3 h-12 shadow-[0_1px_0_oklch(1_0_0_/_0.03)]">
+          <div className="flex-none flex items-center gap-3 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]/94 px-3 h-12 shadow-[0_1px_0_oklch(1_0_0_/_0.025)]">
             <div className="flex items-center gap-2 min-w-0">
               <div className="xolotl-mark flex-none" aria-hidden="true" />
               <div className="min-w-0">
                 <div className="text-[13px] font-semibold leading-none text-[oklch(0.92_0.015_230)]">xolotl</div>
-                <div className="mt-0.5 flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] text-[oklch(0.55_0.04_205)]">
+                <div className="mt-0.5 flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] text-[oklch(0.55_0.018_205)]">
                   <Waves className="h-3 w-3" />
                   Workbench
                 </div>
               </div>
             </div>
-            <div className="ml-auto flex items-center gap-1 rounded-lg border border-[oklch(0.25_0.025_230)] bg-[oklch(0.10_0.01_250)] p-1">
+            <div className="ml-auto flex items-center gap-1 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.10_0.004_250)] p-1">
               <PillTab
                 active={centerTab === "chat"}
                 onClick={() => setCenterTab("chat")}
@@ -77,12 +81,12 @@ export default function App() {
 
 function EvalLoading() {
   return (
-    <div className="flex flex-1 items-center justify-center bg-[oklch(0.105_0.012_250)]">
-      <div className="flex items-center gap-3 rounded-lg border border-[oklch(0.25_0.025_230)] bg-[oklch(0.12_0.012_245)] px-4 py-3 text-sm text-[oklch(0.70_0.035_210)] shadow-[0_18px_48px_oklch(0_0_0_/_0.22)]">
+    <div className="flex flex-1 items-center justify-center bg-[oklch(0.105_0.004_250)]">
+      <div className="flex items-center gap-3 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.12_0.004_245)] px-4 py-3 text-sm text-[oklch(0.66_0.025_210)] shadow-[0_18px_48px_oklch(0_0_0_/_0.18)]">
         <div className="xolotl-mark scale-90" aria-hidden="true" />
         <div>
           <div className="font-semibold text-[oklch(0.88_0.025_220)]">Preparing Eval Lab</div>
-          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[oklch(0.55_0.035_205)]">
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[oklch(0.55_0.018_205)]">
             <Loader2 className="h-3 w-3 animate-spin" />
             Loading review tools
           </div>
@@ -109,8 +113,8 @@ function PillTab({
       className={[
         "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all",
         active
-          ? "bg-[oklch(0.60_0.14_190)]/18 text-[oklch(0.84_0.10_190)] shadow-[inset_0_0_0_1px_oklch(0.70_0.12_190_/_0.35),0_0_18px_oklch(0.62_0.13_190_/_0.12)]"
-          : "text-[oklch(0.54_0.02_235)] hover:text-[oklch(0.82_0.03_220)] hover:bg-[oklch(0.18_0.015_245)]",
+          ? "bg-[oklch(0.14_0.010_205)] text-[oklch(0.74_0.045_195)] shadow-[inset_0_0_0_1px_oklch(0.42_0.025_195)]"
+          : "text-[oklch(0.54_0.012_235)] hover:text-[oklch(0.82_0.015_220)] hover:bg-[oklch(0.16_0.006_245)]",
       ].join(" ")}
     >
       {icon}

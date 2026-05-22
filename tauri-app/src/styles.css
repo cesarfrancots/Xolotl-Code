@@ -21,7 +21,7 @@
   --color-border: oklch(0.22 0 0);
 
   /* Accent */
-  --color-accent: oklch(0.65 0.18 250);
+  --color-accent: oklch(0.70 0.07 190);
 
   /* Semantic */
   --color-destructive: oklch(0.60 0.20 25);
@@ -34,10 +34,10 @@
   /* Typography prose overrides (dark-only — no invert needed) */
   --tw-prose-body: oklch(0.92 0 0);
   --tw-prose-headings: oklch(0.92 0 0);
-  --tw-prose-code: oklch(0.85 0.04 250);
+  --tw-prose-code: oklch(0.84 0.025 210);
   --tw-prose-pre-bg: oklch(0.16 0 0);
   --tw-prose-pre-code: oklch(0.85 0 0);
-  --tw-prose-links: oklch(0.65 0.18 250);
+  --tw-prose-links: oklch(0.70 0.07 190);
   --tw-prose-quotes: oklch(0.55 0 0);
   --tw-prose-quote-borders: oklch(0.22 0 0);
   --tw-prose-hr: oklch(0.22 0 0);
@@ -67,28 +67,28 @@ button {
 
 .xolotl-shell {
   background:
-    radial-gradient(circle at 16px 16px, oklch(0.70 0.09 185 / 0.08) 0 1px, transparent 1.4px),
-    linear-gradient(135deg, oklch(0.12 0.018 210), oklch(0.105 0.012 300) 42%, oklch(0.10 0.01 25));
-  background-size: 28px 28px, auto;
+    radial-gradient(circle at 18px 18px, oklch(0.70 0.04 190 / 0.035) 0 1px, transparent 1.5px),
+    linear-gradient(135deg, oklch(0.115 0.006 220), oklch(0.105 0.004 240) 48%, oklch(0.10 0.003 260));
+  background-size: 32px 32px, auto;
 }
 
 .xolotl-panel {
   background:
-    linear-gradient(180deg, oklch(0.17 0.018 230 / 0.92), oklch(0.12 0.012 260 / 0.96)),
-    radial-gradient(circle at top right, oklch(0.73 0.13 185 / 0.12), transparent 34%);
+    linear-gradient(180deg, oklch(0.145 0.006 230 / 0.96), oklch(0.118 0.004 240 / 0.98)),
+    radial-gradient(circle at top right, oklch(0.70 0.045 190 / 0.055), transparent 36%);
 }
 
 .xolotl-mark {
   position: relative;
   width: 28px;
   height: 22px;
-  border: 1px solid oklch(0.74 0.12 185 / 0.60);
+  border: 1px solid oklch(0.68 0.05 190 / 0.60);
   border-radius: 999px 999px 9px 9px;
   background:
     radial-gradient(circle at 8px 8px, oklch(0.98 0 0) 0 1.5px, transparent 1.8px),
     radial-gradient(circle at 20px 8px, oklch(0.98 0 0) 0 1.5px, transparent 1.8px),
-    linear-gradient(135deg, oklch(0.50 0.14 188), oklch(0.49 0.15 342));
-  box-shadow: 0 0 22px oklch(0.64 0.14 190 / 0.22);
+    linear-gradient(135deg, oklch(0.34 0.055 190), oklch(0.25 0.025 220));
+  box-shadow: 0 0 14px oklch(0.64 0.05 190 / 0.12);
 }
 
 .xolotl-mark::before,
@@ -99,8 +99,8 @@ button {
   width: 9px;
   height: 14px;
   border-radius: 999px;
-  border: 1px solid oklch(0.74 0.12 185 / 0.55);
-  background: oklch(0.15 0.04 220);
+  border: 1px solid oklch(0.68 0.05 190 / 0.48);
+  background: oklch(0.13 0.012 220);
 }
 
 .xolotl-mark::before {
@@ -115,10 +115,10 @@ button {
 
 .eval-topography {
   background:
-    linear-gradient(90deg, oklch(0.72 0.12 185 / 0.11) 1px, transparent 1px),
-    linear-gradient(180deg, oklch(0.72 0.12 185 / 0.07) 1px, transparent 1px);
-  background-size: 28px 28px;
-  mask-image: linear-gradient(180deg, black, transparent 78%);
+    linear-gradient(90deg, oklch(0.70 0.045 190 / 0.055) 1px, transparent 1px),
+    linear-gradient(180deg, oklch(0.70 0.045 190 / 0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(180deg, black, transparent 72%);
 }
 
 /* highlight.js github-dark theme CSS is imported in MarkdownRenderer component (Wave 2)
