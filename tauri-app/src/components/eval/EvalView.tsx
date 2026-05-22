@@ -196,6 +196,16 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
   const judge = useEvalStore((s) => s.activeEval?.judge);
   const [expanded, setExpanded] = useState(false);
   const [scoring, setScoring] = useState(false);
+  const autoOpenedScoring = useRef(false);
+  const scoreCount = HUMAN_SCORE_KEYS.filter((key) => (humanScores[key] ?? 0) > 0).length;
+  const scoreComplete = scoreCount === SCORE_DIMENSION_COUNT;
+  const canScore = state?.status === "done" || state?.status === "error";
+
+  useEffect(() => {
+    if (autoOpenedScoring.current || !blindMode || !canScore || scoreComplete) return;
+    setScoring(true);
+    autoOpenedScoring.current = true;
+  }, [blindMode, canScore, scoreComplete]);
 
   if (!state) return null;
 
@@ -222,6 +232,18 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
               ★ {humanAvg.toFixed(1)}
             </span>
           )}
+          {canScore && (
+            <span
+              className={`text-xs px-1.5 py-0.5 rounded border ${
+                scoreComplete
+                  ? "border-[oklch(0.58_0.10_155)]/35 bg-[oklch(0.58_0.10_155)]/12 text-[oklch(0.78_0.08_155)]"
+                  : "border-[oklch(0.72_0.10_72)]/35 bg-[oklch(0.72_0.10_72)]/12 text-[oklch(0.80_0.08_72)]"
+              }`}
+              title="Blind review score progress"
+            >
+              {scoreCount}/{SCORE_DIMENSION_COUNT}
+            </span>
+          )}
           {showMachineContext && judgeAvg > 0 && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-[oklch(0.65_0.18_100)]/20 text-[oklch(0.78_0.18_100)]" title="Judge avg">
               ⚖ {judgeAvg.toFixed(1)}
@@ -246,8 +268,18 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
               <span><Coins className="inline w-3 h-3" /> ${cost.toFixed(4)}</span>
             </>
           )}
-          <button onClick={() => setScoring((v) => !v)} className="ml-1 text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)]" title="Score">
+          <button
+            onClick={() => setScoring((v) => !v)}
+            disabled={!canScore}
+            className={`ml-1 flex h-6 items-center gap-1 rounded-md border px-2 text-[11px] transition-colors ${
+              scoring
+                ? "border-[oklch(0.70_0.12_185)]/35 bg-[oklch(0.70_0.12_185)]/12 text-[oklch(0.82_0.08_185)]"
+                : "border-[oklch(0.27_0.018_245)] bg-[oklch(0.11_0.01_245)] text-[oklch(0.55_0.02_235)] hover:text-[oklch(0.85_0.02_220)]"
+            } disabled:cursor-not-allowed disabled:opacity-45`}
+            title={canScore ? "Score this response" : "Scoring unlocks after the response finishes"}
+          >
             <Sparkles className="w-3.5 h-3.5" />
+            Score
           </button>
           <button onClick={() => setExpanded((v) => !v)} className="text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)]">
             {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -300,9 +332,14 @@ function ResponseCard({ model, displayName, blindMode }: { model: string; displa
       {/* HIL panel */}
       {scoring && (state.status === "done" || state.status === "error") && (
         <div className="border-t border-neutral-800 px-3 py-3 grid grid-cols-2 gap-x-4 gap-y-2 bg-[oklch(0.10_0_0)]">
-          <p className="col-span-2 text-xs text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider mb-1">
-            Human Evaluation (1–10)
-          </p>
+          <div className="col-span-2 mb-1 flex items-center justify-between gap-3">
+            <p className="text-xs text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider">
+              Human Evaluation (1–10)
+            </p>
+            <span className="text-[10px] uppercase tracking-[0.14em] text-[oklch(0.55_0.03_220)]">
+              {scoreComplete ? "Complete" : `${scoreCount}/${SCORE_DIMENSION_COUNT} scored`}
+            </span>
+          </div>
           {SCORE_DIMENSIONS.map((dim) => (
             <ScoreSlider
               key={dim.key}
