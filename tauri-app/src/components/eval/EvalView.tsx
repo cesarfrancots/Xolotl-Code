@@ -973,7 +973,7 @@ function BlindReviewBanner({
           title={revealLocked ? revealLockTitle : blindMode ? "Reveal model names" : "Hide model names"}
         >
           {blindMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-          {revealLocked ? "Locked" : blindMode ? "Blind on" : "Names shown"}
+          {revealLocked ? "Locked" : blindMode ? "Reveal names" : "Hide names"}
         </button>
       </div>
     </div>
@@ -1661,7 +1661,8 @@ export function EvalView() {
               className={`text-xs h-7 gap-1 ${blindMode ? "text-[oklch(0.70_0.055_190)]" : "text-[oklch(0.58_0.012_230)]"}`}
               title={revealLocked ? revealLockTitle : "Hide model names during scoring"}
             >
-              {blindMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />} Blind
+              {blindMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              {revealLocked ? "Blind" : blindMode ? "Reveal" : "Hide"}
             </Button>
             {activeEval && hasScores && (
               <Button size="sm" variant="ghost" onClick={saveScores} disabled={savingScores || !scoresDirty} className={`text-xs h-7 gap-1 ${scoresDirty ? "text-[oklch(0.70_0.055_190)]" : "text-[oklch(0.50_0.012_230)]"}`}>
