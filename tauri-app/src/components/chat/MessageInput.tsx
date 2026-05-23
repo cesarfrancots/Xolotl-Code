@@ -1,8 +1,16 @@
-import { useState, useRef, useCallback } from "react";
-import { ArrowUp, Paperclip, X, FileText, Command as CommandIcon } from "lucide-react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { ArrowUp, Check, ChevronDown, Command as CommandIcon, FileText, Gauge, Paperclip, ShieldCheck, X } from "lucide-react";
 import { CommandsPalette } from "./CommandsPalette";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { Popover, PopoverAnchor, PopoverContent } from "../ui/popover";
 import {
   Command,
@@ -15,6 +23,8 @@ import { commands } from "../../bindings";
 import type { AgentEvent, TokenUsage } from "../../bindings";
 import { useSessionStore, serializeSession } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
+import { extractThinkBlocks, stripThinkBlocks } from "../../lib/reasoning";
+import type { Message, ReasoningEffort } from "../../stores/chatStore";
 
 const ZERO_USAGE: TokenUsage = {
   input_tokens: 0,
@@ -22,6 +32,55 @@ const ZERO_USAGE: TokenUsage = {
   cache_creation_input_tokens: 0,
   cache_read_input_tokens: 0,
 };
+
+const PROVIDER_OF: Record<string, string> = {
+  "claude-sonnet-4-6": "Anthropic",
+  "claude-haiku-4-5-20251001": "Anthropic",
+  "claude-opus-4-7": "Anthropic",
+  "kimi2.6": "Moonshot",
+  "kimi-coding": "Kimi For Coding",
+  "minimax2.7": "MiniMax",
+  "bedrock-claude-sonnet-4-5": "AWS Bedrock",
+  "bedrock-claude-opus-4-5": "AWS Bedrock",
+  "bedrock-claude-haiku-4-5": "AWS Bedrock",
+  "bedrock-nova-pro": "AWS Bedrock",
+  "bedrock-nova-lite": "AWS Bedrock",
+  "bedrock-llama-3.3-70b": "AWS Bedrock",
+};
+const PROVIDER_ORDER = ["Anthropic", "AWS Bedrock", "Moonshot", "Kimi For Coding", "MiniMax", "Other"];
+const EFFORTS: ReasoningEffort[] = ["low", "medium", "high", "max"];
+
+function isStandaloneGreeting(text: string): boolean {
+  return /^(hi|hello|hey|yo|hiya|howdy|good morning|good afternoon|good evening)[!. ]*$/i.test(
+    text.trim(),
+  );
+}
+
+function assistantHistoryContent(item: Message, model: string): string {
+  const extracted = extractThinkBlocks(item.content);
+  const visible = stripThinkBlocks(item.content);
+  const reasoning = [item.reasoning, extracted.reasoning]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
+  if (model.startsWith("minimax") && reasoning) {
+    return `<think>\n${reasoning}\n</think>\n${visible}`;
+  }
+
+  return visible;
+}
+
+function modelLabel(model: string): string {
+  return model
+    .replace(/^bedrock-/, "")
+    .replace(/^claude-/, "")
+    .replace(/-20\d{6,}$/, "");
+}
+
+function effortLabel(effort: ReasoningEffort): string {
+  return effort === "max" ? "Max" : effort[0].toUpperCase() + effort.slice(1);
+}
 
 /**
  * Stream one chat turn using the chat_turn Tauri command.
@@ -34,6 +93,7 @@ async function streamChatTurn(
   messages: Array<{ role: string; content: string }>,
   model: string,
   enabledSkills: string[],
+  reasoningEffort: ReasoningEffort,
 ): Promise<void> {
   const turnId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const channel = `chat-event:${turnId}`;
@@ -106,8 +166,12 @@ async function streamChatTurn(
       }
       if ("Error" in payload && payload.Error) {
         cleanup();
-        // Preserve any partial streaming content as a stopped message
-        useChatStore.getState().finalizeStream(ZERO_USAGE);
+        const state = useChatStore.getState();
+        if (state.streamingContent || state.streamingReasoning) {
+          state.finalizeStream(ZERO_USAGE);
+        } else {
+          state.clearStreaming();
+        }
         useChatStore.getState().appendItem({
           id: `${Date.now()}-err`,
           role: "assistant",
@@ -120,14 +184,22 @@ async function streamChatTurn(
       .then(async (unlistenFn) => {
         unlisten = unlistenFn;
         // Subscription is live — now safe to start the turn.
-        const result = await commands.chatTurn(turnId, messages, model, enabledSkills);
+        const result = await commands.chatTurn(
+          turnId,
+          messages,
+          model,
+          enabledSkills,
+          reasoningEffort,
+        );
         if (result.status === "error") {
           cleanup();
+          useChatStore.getState().clearStreaming();
           reject(new Error(result.error));
         }
       })
       .catch((err) => {
         cleanup();
+        useChatStore.getState().clearStreaming();
         reject(err);
       });
   });
@@ -197,8 +269,30 @@ export function MessageInput() {
   const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { isStreaming } = useChatStore();
+  const {
+    isStreaming,
+    model,
+    setModel,
+    reasoningEffort,
+    setReasoningEffort,
+  } = useChatStore();
   const { activeSessionId } = useSessionStore();
+  const [availableModels, setAvailableModels] = useState<string[]>([model]);
+
+  useEffect(() => {
+    void commands.listModels().then((models) => {
+      if (models.length > 0) setAvailableModels(models);
+    });
+  }, []);
+
+  const groupedModels = useMemo(() => {
+    const grouped: Record<string, string[]> = {};
+    for (const candidate of availableModels) {
+      const provider = PROVIDER_OF[candidate] ?? "Other";
+      (grouped[provider] ??= []).push(candidate);
+    }
+    return grouped;
+  }, [availableModels]);
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const fileArr = Array.from(files);
@@ -316,10 +410,24 @@ export function MessageInput() {
 
     const chatState = useChatStore.getState();
     const currentModel = chatState.model;
+    const currentReasoningEffort = chatState.reasoningEffort;
+
+    if (!block && isStandaloneGreeting(typed)) {
+      useChatStore.getState().appendItem({
+        id: `${Date.now()}-assistant`,
+        role: "assistant",
+        content: "Hi! How can I help?",
+        toolCalls: [],
+      });
+      return;
+    }
+
+    useChatStore.getState().beginStream();
 
     function showInlineError(prefix: string, err: unknown) {
       const text = err instanceof Error ? err.message : String(err);
       console.error(`${prefix}:`, err);
+      useChatStore.getState().clearStreaming();
       useChatStore.getState().appendItem({
         id: `${Date.now()}-err`,
         role: "assistant",
@@ -333,11 +441,22 @@ export function MessageInput() {
       .filter((item): item is import("../../stores/chatStore").Message =>
         "role" in item && (item.role === "user" || item.role === "assistant")
       )
-      .map((item) => ({ role: item.role, content: item.content }));
+      .map((item) => ({
+        role: item.role,
+        content:
+          item.role === "assistant"
+            ? assistantHistoryContent(item, currentModel)
+            : item.content,
+      }));
 
     try {
       const enabledSkills = useUiStore.getState().enabledSkills;
-      await streamChatTurn(historyMessages, currentModel, enabledSkills);
+      await streamChatTurn(
+        historyMessages,
+        currentModel,
+        enabledSkills,
+        currentReasoningEffort,
+      );
     } catch (err) {
       showInlineError("chat_turn error", err);
     }
@@ -359,10 +478,10 @@ export function MessageInput() {
   return (
     <div
       className={[
-        "flex-none px-4 py-3 border-t transition-colors relative",
+        "flex-none px-4 pt-2 pb-4 transition-colors relative",
         dragOver
-          ? "border-[oklch(0.42_0.025_195)] bg-[oklch(0.15_0.010_195)]/60"
-          : "border-[oklch(0.22_0.008_240)]",
+          ? "bg-[oklch(0.15_0.010_195)]/60"
+          : "",
       ].join(" ")}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
@@ -417,9 +536,9 @@ export function MessageInput() {
         <PopoverAnchor asChild>
           <div
             className={[
-              "rounded-md border bg-[oklch(0.13_0.004_245)] transition-colors",
-              "focus-within:border-[oklch(0.42_0.025_195)] focus-within:shadow-[0_0_0_3px_oklch(0.55_0.030_195_/_0.08)]",
-              dragOver ? "border-[oklch(0.42_0.025_195)]" : "border-[oklch(0.22_0.008_240)]",
+              "mx-auto max-w-[760px] rounded-[22px] border bg-[oklch(0.185_0_0)] transition-colors shadow-[0_18px_45px_oklch(0_0_0_/_0.22)]",
+              "focus-within:border-[oklch(1_0_0_/_0.18)] focus-within:shadow-[0_18px_45px_oklch(0_0_0_/_0.26),0_0_0_1px_oklch(1_0_0_/_0.045)]",
+              dragOver ? "border-[oklch(0.58_0.12_65)]" : "border-[oklch(1_0_0_/_0.10)]",
             ].join(" ")}
           >
             <textarea
@@ -438,10 +557,10 @@ export function MessageInput() {
               style={{ height: "44px" }}
             />
             {/* Action row */}
-            <div className="flex items-center gap-1 px-2 pb-2">
+            <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
               <Button
                 size="icon-sm" variant="ghost" type="button"
-                className="text-[oklch(0.55_0_0)] hover:text-[oklch(0.88_0_0)]"
+                className="text-[oklch(0.63_0_0)] hover:text-[oklch(0.88_0_0)]"
                 title="Attach files (drag-drop also works)"
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -449,25 +568,38 @@ export function MessageInput() {
               </Button>
               <Button
                 size="icon-sm" variant="ghost" type="button"
-                className="text-[oklch(0.55_0_0)] hover:text-[oklch(0.88_0_0)]"
+                className="text-[oklch(0.63_0_0)] hover:text-[oklch(0.88_0_0)]"
                 title="Commands & shortcuts (Ctrl+K)"
                 onClick={() => setCommandsOpen(true)}
               >
                 <CommandIcon className="h-3.5 w-3.5" />
               </Button>
-              <span className="text-[10px] text-[oklch(0.38_0_0)] ml-1 select-none">
-                {attachments.length > 0
-                  ? `${attachments.length} attached`
-                  : <><kbd className="font-mono text-[10px] px-1 py-0.5 rounded bg-[oklch(0.145_0.004_245)] border border-[oklch(0.24_0.010_235)] text-[oklch(0.55_0.010_225)]">Enter</kbd> to send <span className="text-[oklch(0.30_0.008_235)]">/</span> <kbd className="font-mono text-[10px] px-1 py-0.5 rounded bg-[oklch(0.145_0.004_245)] border border-[oklch(0.24_0.010_235)] text-[oklch(0.55_0.010_225)]">Shift Enter</kbd> for newline</>}
-              </span>
-              <div className="ml-auto">
+              <button
+                type="button"
+                className="ml-0.5 flex h-7 items-center gap-1 rounded-md px-2 text-xs text-[oklch(0.78_0.12_55)] hover:bg-[oklch(0.24_0.015_55)]"
+                title="Current permission mode"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                <span>Full access</span>
+                <ChevronDown className="h-3 w-3" />
+              </button>
+              <div className="ml-auto flex items-center gap-1.5">
+                <ModelMenu
+                  model={model}
+                  groupedModels={groupedModels}
+                  onModel={setModel}
+                />
+                <EffortMenu
+                  effort={reasoningEffort}
+                  onEffort={setReasoningEffort}
+                />
                 <Button
                   size="sm"
                   className={[
-                    "h-7 w-7 p-0 rounded-full transition-all",
+                    "h-8 w-8 p-0 rounded-full transition-all",
                     canSend
-                      ? "bg-[oklch(0.58_0.040_190)] hover:bg-[oklch(0.54_0.040_190)] text-[oklch(0.98_0.006_190)] shadow-none"
-                      : "bg-[oklch(0.17_0.004_245)] text-[oklch(0.42_0.008_230)] cursor-not-allowed",
+                      ? "bg-[oklch(0.96_0_0)] hover:bg-[oklch(0.88_0_0)] text-[oklch(0.12_0_0)] shadow-none"
+                      : "bg-[oklch(0.30_0_0)] text-[oklch(0.55_0_0)] cursor-not-allowed",
                   ].join(" ")}
                   disabled={!canSend}
                   title="Send message"
@@ -508,5 +640,93 @@ export function MessageInput() {
       </Popover>
       <CommandsPalette open={commandsOpen} onOpenChange={setCommandsOpen} />
     </div>
+  );
+}
+
+function ModelMenu({
+  model,
+  groupedModels,
+  onModel,
+}: {
+  model: string;
+  groupedModels: Record<string, string[]>;
+  onModel: (model: string) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex h-7 max-w-[170px] items-center gap-1 rounded-md px-2 text-xs text-[oklch(0.72_0_0)] hover:bg-[oklch(0.25_0_0)] hover:text-[oklch(0.90_0_0)]"
+          title="Model"
+        >
+          <span className="truncate font-mono">{modelLabel(model)}</span>
+          <ChevronDown className="h-3 w-3 flex-none text-[oklch(0.52_0_0)]" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[280px]">
+        {PROVIDER_ORDER.map((provider) => {
+          const models = groupedModels[provider];
+          if (!models || models.length === 0) return null;
+          return (
+            <div key={provider}>
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.14em] text-[oklch(0.52_0_0)]">
+                {provider}
+              </DropdownMenuLabel>
+              {models.map((candidate) => (
+                <DropdownMenuItem
+                  key={candidate}
+                  onClick={() => onModel(candidate)}
+                  className="flex items-center justify-between gap-3 font-mono text-xs"
+                >
+                  <span className="truncate">{modelLabel(candidate)}</span>
+                  {candidate === model && <Check className="h-3.5 w-3.5" />}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+            </div>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function EffortMenu({
+  effort,
+  onEffort,
+}: {
+  effort: ReasoningEffort;
+  onEffort: (effort: ReasoningEffort) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-[oklch(0.72_0_0)] hover:bg-[oklch(0.25_0_0)] hover:text-[oklch(0.90_0_0)]"
+          title="Thinking effort"
+        >
+          <Gauge className="h-3.5 w-3.5" />
+          <span>{effortLabel(effort)}</span>
+          <ChevronDown className="h-3 w-3 text-[oklch(0.52_0_0)]" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[180px]">
+        <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.14em] text-[oklch(0.52_0_0)]">
+          Thinking effort
+        </DropdownMenuLabel>
+        {EFFORTS.map((candidate) => (
+          <DropdownMenuItem
+            key={candidate}
+            onClick={() => onEffort(candidate)}
+            className="flex items-center justify-between gap-3 text-xs"
+          >
+            <span>{effortLabel(candidate)}</span>
+            {candidate === effort && <Check className="h-3.5 w-3.5" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

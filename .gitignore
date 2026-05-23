@@ -19,6 +19,9 @@ graphify-out/
 .codex/
 .playwright-mcp/
 
+# Production build copied to root for easy launch (rebuilt by build.bat)
+/xolotl.exe
+
 # Secrets and local config
 *.env
 .env*

@@ -43,12 +43,11 @@ export function MessageList() {
 
   if (items.length === 0 && !isStreaming) {
     return (
-      <div ref={parentRef} className="h-full overflow-y-auto flex items-center justify-center px-8">
-        <div className="w-full max-w-xl border-t border-[oklch(0.24_0.010_235)] pt-5">
-          <div className="mb-3 h-1 w-16 rounded-full bg-[oklch(0.54_0.030_195)]/60" />
-          <p className="text-base font-semibold text-[oklch(0.90_0.015_220)]">Ready for a new thread</p>
-          <p className="text-sm text-[oklch(0.54_0.012_225)] mt-1">
-            Context, files, and model output stay in this workspace.
+      <div ref={parentRef} className="h-full overflow-y-auto flex items-center justify-center px-8 pb-28">
+        <div className="w-full max-w-[760px] pt-5 text-center">
+          <p className="text-base font-semibold text-[oklch(0.90_0_0)]">What should we work on?</p>
+          <p className="text-sm text-[oklch(0.54_0_0)] mt-1">
+            Ask a question, paste code, or attach files.
           </p>
         </div>
       </div>
@@ -58,7 +57,7 @@ export function MessageList() {
   return (
     <div
       ref={parentRef}
-      className="h-full overflow-y-auto"
+      className="h-full overflow-y-auto pb-28"
       style={{ contain: "strict" }}
     >
       <div

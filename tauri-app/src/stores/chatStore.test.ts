@@ -15,8 +15,10 @@ beforeEach(() => {
     agentId: null,
     items: [],
     streamingContent: "",
+    streamingReasoning: "",
     isStreaming: false,
     model: "claude-sonnet-4-5",
+    reasoningEffort: "high",
     sessionUsage: ZERO_USAGE,
     alwaysAllowedTools: new Set(),
   });
@@ -32,6 +34,16 @@ describe("appendStreamingContent", () => {
   });
 });
 
+describe("beginStream", () => {
+  it("shows an active turn before the first model delta arrives", () => {
+    useChatStore.getState().beginStream();
+    const state = useChatStore.getState();
+    expect(state.isStreaming).toBe(true);
+    expect(state.streamingContent).toBe("");
+    expect(state.streamingReasoning).toBe("");
+  });
+});
+
 describe("finalizeStream", () => {
   it("moves streamingContent to items and clears it", () => {
     useChatStore.getState().appendStreamingContent("hello world");
@@ -43,6 +55,14 @@ describe("finalizeStream", () => {
     const msg = state.items[0] as any;
     expect(msg.role).toBe("assistant");
     expect(msg.content).toBe("hello world");
+  });
+
+  it("does not commit an empty assistant message when no deltas arrived", () => {
+    useChatStore.getState().beginStream();
+    useChatStore.getState().finalizeStream(ZERO_USAGE);
+    const state = useChatStore.getState();
+    expect(state.isStreaming).toBe(false);
+    expect(state.items).toHaveLength(0);
   });
 });
 

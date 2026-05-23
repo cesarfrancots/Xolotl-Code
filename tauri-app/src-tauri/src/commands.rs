@@ -16,6 +16,47 @@ pub struct ChatMessage {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ModelCallOptions {
+    reasoning_effort: ReasoningEffort,
+}
+
+impl Default for ModelCallOptions {
+    fn default() -> Self {
+        Self {
+            reasoning_effort: ReasoningEffort::High,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReasoningEffort {
+    Low,
+    Medium,
+    High,
+    Max,
+}
+
+impl ReasoningEffort {
+    fn parse(value: Option<&str>) -> Self {
+        match value.unwrap_or("high").to_ascii_lowercase().as_str() {
+            "low" => Self::Low,
+            "medium" => Self::Medium,
+            "max" => Self::Max,
+            _ => Self::High,
+        }
+    }
+
+    fn as_api_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Max => "max",
+        }
+    }
+}
+
 // ── Eval types ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -314,10 +355,14 @@ pub async fn chat_turn(
     messages: Vec<ChatMessage>,
     model: String,
     enabled_skills: Option<Vec<String>>,
+    reasoning_effort: Option<String>,
 ) -> Result<(), String> {
     let channel = format!("chat-event:{turn_id}");
     eprintln!("[chat_turn] start turn_id={turn_id} model={model} msgs={} skills={:?}",
         messages.len(), enabled_skills.as_ref().map(|s| s.len()));
+    let options = ModelCallOptions {
+        reasoning_effort: ReasoningEffort::parse(reasoning_effort.as_deref()),
+    };
 
     // Prepend an enabled-skills awareness fragment to the first user message,
     // OpenAI/Kimi style (no system role in our wire format). Cheap, ~200 bytes
@@ -338,9 +383,10 @@ pub async fn chat_turn(
 
         let model2 = model.clone();
         let msgs = messages;
+        let opts = options;
         let tx2 = tx.clone();
         tokio::spawn(async move {
-            match call_model_streaming(&model2, &msgs, &tx2).await {
+            match call_model_streaming_with_options(&model2, &msgs, &tx2, opts).await {
                 Ok(usage) => {
                     eprintln!(
                         "[chat_turn] streaming OK in={} out={}",
@@ -1450,6 +1496,14 @@ pub async fn merge_worktrees(
 
 type ConfigMap = serde_json::Map<String, serde_json::Value>;
 
+const MINIMAX_OPENAI_BASE_URL: &str = "https://api.minimax.io/v1";
+const MINIMAX_CHAT_MODEL: &str = "MiniMax-M2.7";
+const CHAT_SYSTEM_PROMPT: &str = "You are xolotl, a concise coding assistant. For standalone greetings, thanks, acknowledgements, or other trivial small-talk turns, answer immediately in one short sentence and do not emit hidden reasoning, <think> tags, or a planning preamble. Use reasoning only when the user asks for analysis, coding, debugging, planning, or another task that benefits from multi-step work.";
+
+fn supports_anthropic_adaptive_thinking(model: &str) -> bool {
+    model.contains("opus-4-7") || model.contains("opus-4-6") || model.contains("sonnet-4-6")
+}
+
 /// Maps the provider id used by the frontend to the env-var-style key in
 /// config.json. Keep these names aligned with what call_model_streaming /
 /// call_anthropic_streaming read.
@@ -1488,18 +1542,36 @@ fn save_config(config: &ConfigMap) -> Result<(), String> {
     std::fs::write(&path, data).map_err(|e| e.to_string())
 }
 
+fn normalize_api_key(key: &str) -> String {
+    let trimmed = key.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+    let without_bearer = if trimmed
+        .get(..7)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("Bearer "))
+    {
+        &trimmed[7..]
+    } else {
+        trimmed
+    };
+    without_bearer
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .trim()
+        .to_string()
+}
+
 fn config_get(config: &ConfigMap, key: &str) -> Option<String> {
     config
         .get(key)
         .and_then(|v| v.as_str())
+        .map(normalize_api_key)
         .filter(|s| !s.is_empty())
-        .map(String::from)
 }
 
 /// Resolve a key: env var first, then config file.
 fn resolve_api_key(env_var: &str, config: &ConfigMap) -> Option<String> {
     std::env::var(env_var)
         .ok()
+        .map(|k| normalize_api_key(&k))
         .filter(|k| !k.is_empty())
         .or_else(|| config_get(config, env_var))
 }
@@ -1525,10 +1597,11 @@ pub fn set_api_key(provider: String, key: String) -> Result<(), String> {
     let env_var = provider_env_var(&provider)
         .ok_or_else(|| format!("Unknown provider: {provider}"))?;
     let mut config = load_config();
-    if key.is_empty() {
+    let normalized_key = normalize_api_key(&key);
+    if normalized_key.is_empty() {
         config.remove(env_var);
     } else {
-        config.insert(env_var.to_string(), serde_json::Value::String(key));
+        config.insert(env_var.to_string(), serde_json::Value::String(normalized_key));
     }
     save_config(&config)
 }
@@ -1619,12 +1692,12 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
             let key = resolve_api_key("MINIMAX_API_KEY", &config)
                 .ok_or_else(|| "MiniMax API key not set".to_string())?;
             let resp = client
-                .post("https://api.minimax.chat/v1/text/chatcompletion_v2")
+                .post(format!("{MINIMAX_OPENAI_BASE_URL}/chat/completions"))
                 .header("Authorization", format!("Bearer {key}"))
                 .header("content-type", "application/json")
                 .json(&serde_json::json!({
-                    "model": "MiniMax-Text-01",
-                    "max_tokens": 1,
+                    "model": MINIMAX_CHAT_MODEL,
+                    "max_completion_tokens": 1,
                     "messages": [{"role": "user", "content": "hi"}]
                 }))
                 .send()
@@ -2142,10 +2215,19 @@ async fn call_model_streaming(
     messages: &[ChatMessage],
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
 ) -> Result<TokenUsage, String> {
+    call_model_streaming_with_options(model, messages, event_tx, ModelCallOptions::default()).await
+}
+
+async fn call_model_streaming_with_options(
+    model: &str,
+    messages: &[ChatMessage],
+    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+    options: ModelCallOptions,
+) -> Result<TokenUsage, String> {
     if model.starts_with("bedrock-") {
         call_bedrock_invoke(model, messages, event_tx).await
     } else if model.starts_with("claude") {
-        call_anthropic_streaming(model, messages, event_tx).await
+        call_anthropic_streaming(model, messages, event_tx, options).await
     } else if model.starts_with("kimi-coding") {
         let config = load_config();
         let api_key = resolve_api_key("KIMI_CODING_API_KEY", &config)
@@ -2157,6 +2239,7 @@ async fn call_model_streaming(
             "kimi-k2-turbo-preview",
             messages,
             event_tx,
+            options,
         )
         .await
     } else if model.starts_with("kimi") {
@@ -2169,6 +2252,7 @@ async fn call_model_streaming(
             "moonshot-v1-8k",
             messages,
             event_tx,
+            options,
         )
         .await
     } else if model.starts_with("minimax") {
@@ -2176,11 +2260,12 @@ async fn call_model_streaming(
         let api_key = resolve_api_key("MINIMAX_API_KEY", &config)
             .ok_or_else(|| "MINIMAX_API_KEY not set. Configure it in Settings.".to_string())?;
         call_openai_compat_streaming(
-            "https://api.minimax.chat/v1",
+            MINIMAX_OPENAI_BASE_URL,
             &api_key,
-            "MiniMax-Text-01",
+            MINIMAX_CHAT_MODEL,
             messages,
             event_tx,
+            options,
         )
         .await
     } else {
@@ -2193,6 +2278,7 @@ async fn call_anthropic_streaming(
     model: &str,
     messages: &[ChatMessage],
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+    options: ModelCallOptions,
 ) -> Result<TokenUsage, String> {
     let config = load_config();
     let api_key = resolve_api_key("ANTHROPIC_API_KEY", &config)
@@ -2200,17 +2286,35 @@ async fn call_anthropic_streaming(
 
     let client = reqwest::Client::new();
 
+    let mut system_parts = vec![CHAT_SYSTEM_PROMPT.to_string()];
     let api_messages: Vec<serde_json::Value> = messages
         .iter()
-        .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+        .filter_map(|m| {
+            if m.role == "system" {
+                system_parts.push(m.content.clone());
+                None
+            } else {
+                Some(serde_json::json!({ "role": m.role, "content": m.content }))
+            }
+        })
         .collect();
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": model,
-        "max_tokens": 8096,
+        "max_tokens": 16000,
+        "system": system_parts.join("\n\n"),
         "stream": true,
         "messages": api_messages,
     });
+    if supports_anthropic_adaptive_thinking(model) {
+        body["thinking"] = serde_json::json!({
+            "type": "adaptive",
+            "display": "summarized",
+        });
+        body["output_config"] = serde_json::json!({
+            "effort": options.reasoning_effort.as_api_str(),
+        });
+    }
 
     let response = client
         .post("https://api.anthropic.com/v1/messages")
@@ -2265,7 +2369,11 @@ async fn call_anthropic_streaming(
                             .unwrap_or(0) as u32;
                     }
                     "content_block_delta" => {
-                        if let Some(text) = v["delta"]["text"].as_str() {
+                        if let Some(thinking) = v["delta"]["thinking"].as_str() {
+                            let _ = event_tx
+                                .send(AgentEvent::ReasoningDelta(thinking.to_string()))
+                                .await;
+                        } else if let Some(text) = v["delta"]["text"].as_str() {
                             let _ = event_tx.send(AgentEvent::TextDelta(text.to_string())).await;
                         }
                     }
@@ -2288,6 +2396,139 @@ async fn call_anthropic_streaming(
     })
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum ThinkSegment {
+    Text(String),
+    Reasoning(String),
+}
+
+#[derive(Default)]
+struct ThinkTagStream {
+    in_think: bool,
+    pending: String,
+}
+
+impl ThinkTagStream {
+    fn push(&mut self, chunk: &str) -> Vec<ThinkSegment> {
+        let mut input = String::with_capacity(self.pending.len() + chunk.len());
+        input.push_str(&self.pending);
+        input.push_str(chunk);
+        self.pending.clear();
+
+        let mut segments = Vec::new();
+        let mut cursor = 0;
+
+        while cursor < input.len() {
+            let rest = &input[cursor..];
+            if self.in_think {
+                if let Some(pos) = find_ascii_tag(rest, "</think>") {
+                    push_think_segment(&mut segments, true, &rest[..pos]);
+                    cursor += pos + "</think>".len();
+                    self.in_think = false;
+                } else {
+                    let (emit, pending) = split_tag_prefix(rest, "</think>");
+                    push_think_segment(&mut segments, true, emit);
+                    self.pending.push_str(pending);
+                    break;
+                }
+            } else if let Some(pos) = find_ascii_tag(rest, "<think>") {
+                push_think_segment(&mut segments, false, &rest[..pos]);
+                cursor += pos + "<think>".len();
+                self.in_think = true;
+            } else {
+                let (emit, pending) = split_tag_prefix(rest, "<think>");
+                push_think_segment(&mut segments, false, emit);
+                self.pending.push_str(pending);
+                break;
+            }
+        }
+
+        segments
+    }
+
+    fn finish(&mut self) -> Vec<ThinkSegment> {
+        let pending = std::mem::take(&mut self.pending);
+        if pending.is_empty() {
+            Vec::new()
+        } else if self.in_think {
+            vec![ThinkSegment::Reasoning(pending)]
+        } else {
+            vec![ThinkSegment::Text(pending)]
+        }
+    }
+}
+
+fn find_ascii_tag(haystack: &str, tag: &str) -> Option<usize> {
+    haystack.to_ascii_lowercase().find(&tag.to_ascii_lowercase())
+}
+
+fn split_tag_prefix<'a>(input: &'a str, tag: &str) -> (&'a str, &'a str) {
+    for keep in (1..tag.len()).rev() {
+        if input.len() < keep {
+            continue;
+        }
+        let split_at = input.len() - keep;
+        if !input.is_char_boundary(split_at) {
+            continue;
+        }
+        let suffix = &input[split_at..];
+        if tag[..keep].eq_ignore_ascii_case(suffix) {
+            return (&input[..split_at], suffix);
+        }
+    }
+    (input, "")
+}
+
+fn push_think_segment(segments: &mut Vec<ThinkSegment>, reasoning: bool, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+
+    match segments.last_mut() {
+        Some(ThinkSegment::Reasoning(existing)) if reasoning => existing.push_str(text),
+        Some(ThinkSegment::Text(existing)) if !reasoning => existing.push_str(text),
+        _ if reasoning => segments.push(ThinkSegment::Reasoning(text.to_string())),
+        _ => segments.push(ThinkSegment::Text(text.to_string())),
+    }
+}
+
+fn collect_reasoning_details(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(text) => {
+            if !text.is_empty() {
+                out.push(text.clone());
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_reasoning_details(item, out);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            if let Some(text) = map.get("text").and_then(|v| v.as_str()) {
+                if !text.is_empty() {
+                    out.push(text.to_string());
+                }
+            } else if let Some(text) = map.get("content").and_then(|v| v.as_str()) {
+                if !text.is_empty() {
+                    out.push(text.to_string());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn reasoning_details_text(value: &serde_json::Value) -> Option<String> {
+    let mut parts = Vec::new();
+    collect_reasoning_details(value, &mut parts);
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(""))
+    }
+}
+
 /// Stream from an OpenAI-compatible API (kimi, minimax, etc.).
 async fn call_openai_compat_streaming(
     base_url: &str,
@@ -2295,19 +2536,31 @@ async fn call_openai_compat_streaming(
     model: &str,
     messages: &[ChatMessage],
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+    _options: ModelCallOptions,
 ) -> Result<TokenUsage, String> {
     let client = reqwest::Client::new();
 
-    let api_messages: Vec<serde_json::Value> = messages
-        .iter()
-        .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
-        .collect();
+    let mut api_messages: Vec<serde_json::Value> = Vec::with_capacity(messages.len() + 1);
+    if !messages.iter().any(|m| m.role == "system") {
+        api_messages.push(serde_json::json!({
+            "role": "system",
+            "content": CHAT_SYSTEM_PROMPT,
+        }));
+    }
+    api_messages.extend(
+        messages
+            .iter()
+            .map(|m| serde_json::json!({ "role": m.role, "content": m.content })),
+    );
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": model,
         "stream": true,
         "messages": api_messages,
     });
+    if model == MINIMAX_CHAT_MODEL {
+        body["reasoning_split"] = serde_json::Value::Bool(true);
+    }
 
     let url = format!("{base_url}/chat/completions");
     // Kimi For Coding gates on coding-agent identification headers. Match the
@@ -2338,6 +2591,7 @@ async fn call_openai_compat_streaming(
     let mut output_tokens: u32 = 0;
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
+    let mut think_tags = ThinkTagStream::default();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Stream read error: {e}"))?;
@@ -2374,12 +2628,30 @@ async fn call_openai_compat_streaming(
                                     .await;
                             }
                         }
-                        // Final answer content
+                        if let Some(reasoning) = reasoning_details_text(&delta["reasoning_details"]) {
+                            let _ = event_tx
+                                .send(AgentEvent::ReasoningDelta(reasoning))
+                                .await;
+                        }
+                        // Final answer content. MiniMax-style providers may put
+                        // reasoning inside <think> tags in content; split those
+                        // into ReasoningDelta so the UI can keep them collapsed.
                         if let Some(content) = delta["content"].as_str() {
                             if !content.is_empty() {
-                                let _ = event_tx
-                                    .send(AgentEvent::TextDelta(content.to_string()))
-                                    .await;
+                                for segment in think_tags.push(content) {
+                                    match segment {
+                                        ThinkSegment::Text(text) => {
+                                            let _ = event_tx
+                                                .send(AgentEvent::TextDelta(text))
+                                                .await;
+                                        }
+                                        ThinkSegment::Reasoning(reasoning) => {
+                                            let _ = event_tx
+                                                .send(AgentEvent::ReasoningDelta(reasoning))
+                                                .await;
+                                        }
+                                    }
+                                }
                             }
                         }
                         // Usage (some providers include it in last chunk)
@@ -2390,6 +2662,19 @@ async fn call_openai_compat_streaming(
                                 usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
                         }
                     }
+            }
+        }
+    }
+
+    for segment in think_tags.finish() {
+        match segment {
+            ThinkSegment::Text(text) => {
+                let _ = event_tx.send(AgentEvent::TextDelta(text)).await;
+            }
+            ThinkSegment::Reasoning(reasoning) => {
+                let _ = event_tx
+                    .send(AgentEvent::ReasoningDelta(reasoning))
+                    .await;
             }
         }
     }
@@ -2615,6 +2900,75 @@ mod config_tests {
         assert_eq!(provider_env_var("kimi_coding"), Some("KIMI_CODING_API_KEY"));
         assert_eq!(provider_env_var("minimax"), Some("MINIMAX_API_KEY"));
         assert_eq!(provider_env_var("nope"), None);
+    }
+
+    #[test]
+    fn normalizes_api_keys_from_settings_or_env() {
+        assert_eq!(normalize_api_key(" sk-test "), "sk-test");
+        assert_eq!(normalize_api_key("Bearer sk-test"), "sk-test");
+        assert_eq!(normalize_api_key("  bearer sk-test  "), "sk-test");
+        assert_eq!(normalize_api_key("\"Bearer sk-test\""), "sk-test");
+    }
+
+    #[test]
+    fn minimax_uses_current_openai_compatible_surface() {
+        assert_eq!(MINIMAX_OPENAI_BASE_URL, "https://api.minimax.io/v1");
+        assert_eq!(MINIMAX_CHAT_MODEL, "MiniMax-M2.7");
+    }
+
+    #[test]
+    fn reasoning_effort_parser_defaults_to_high() {
+        assert_eq!(ReasoningEffort::parse(None), ReasoningEffort::High);
+        assert_eq!(ReasoningEffort::parse(Some("medium")), ReasoningEffort::Medium);
+        assert_eq!(ReasoningEffort::parse(Some("MAX")), ReasoningEffort::Max);
+        assert_eq!(ReasoningEffort::parse(Some("unsupported")), ReasoningEffort::High);
+    }
+
+    #[test]
+    fn adaptive_thinking_only_applies_to_current_claude_effort_models() {
+        assert!(supports_anthropic_adaptive_thinking("claude-sonnet-4-6"));
+        assert!(supports_anthropic_adaptive_thinking("claude-opus-4-7"));
+        assert!(!supports_anthropic_adaptive_thinking("claude-haiku-4-5-20251001"));
+    }
+
+    #[test]
+    fn think_tag_stream_splits_reasoning_from_visible_text() {
+        let mut stream = ThinkTagStream::default();
+        assert_eq!(
+            stream.push("<think>private plan</think>Hello"),
+            vec![
+                ThinkSegment::Reasoning("private plan".to_string()),
+                ThinkSegment::Text("Hello".to_string()),
+            ]
+        );
+        assert!(stream.finish().is_empty());
+    }
+
+    #[test]
+    fn think_tag_stream_handles_split_tags_and_unclosed_reasoning() {
+        let mut stream = ThinkTagStream::default();
+        assert!(stream.push("<thi").is_empty());
+        assert_eq!(
+            stream.push("nk>hidden</thi"),
+            vec![ThinkSegment::Reasoning("hidden".to_string())]
+        );
+        assert_eq!(
+            stream.push("nk>Visible <think>still hidden"),
+            vec![
+                ThinkSegment::Text("Visible ".to_string()),
+                ThinkSegment::Reasoning("still hidden".to_string()),
+            ]
+        );
+        assert!(stream.finish().is_empty());
+    }
+
+    #[test]
+    fn reasoning_details_text_collects_minimax_split_reasoning() {
+        let value = serde_json::json!([
+            { "type": "reasoning.text", "text": "first " },
+            { "type": "reasoning.text", "text": "second" }
+        ]);
+        assert_eq!(reasoning_details_text(&value), Some("first second".to_string()));
     }
 
     #[test]

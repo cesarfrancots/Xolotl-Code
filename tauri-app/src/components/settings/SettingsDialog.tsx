@@ -25,7 +25,7 @@ const PROVIDERS: ProviderConfig[] = [
   { id: "bedrock",     label: "AWS Bedrock",            envVar: "BEDROCK_API_KEY",     placeholder: "ABSK...", models: "Bedrock Claude, Nova, Llama" },
   { id: "kimi",        label: "Kimi / Moonshot",        envVar: "KIMI_API_KEY",        placeholder: "sk-...", models: "kimi2.6" },
   { id: "kimi_coding", label: "Kimi For Coding",        envVar: "KIMI_CODING_API_KEY", placeholder: "sk-...", models: "kimi-coding" },
-  { id: "minimax",     label: "MiniMax",                envVar: "MINIMAX_API_KEY",     placeholder: "eyJ...", models: "minimax2.7" },
+  { id: "minimax",     label: "MiniMax",                envVar: "MINIMAX_API_KEY",     placeholder: "sk-...", models: "MiniMax-M2.7" },
 ];
 
 type Tab = "providers" | "skills" | "mcp";
@@ -40,7 +40,7 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl w-full gap-0 p-0 overflow-hidden rounded-md border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)] text-[oklch(0.90_0.015_220)] shadow-[0_28px_90px_oklch(0_0_0_/_0.36)]">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-6xl gap-0 p-0 overflow-hidden rounded-md border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)] text-[oklch(0.90_0.015_220)] shadow-[0_28px_90px_oklch(0_0_0_/_0.36)]">
         <DialogHeader className="px-5 py-4 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.118_0.004_245)]">
           <DialogTitle className="text-base text-[oklch(0.92_0.015_220)]">Settings</DialogTitle>
           <DialogDescription className="text-xs text-[oklch(0.58_0.012_225)]">
@@ -55,7 +55,7 @@ export function SettingsDialog({
           <TabBtn active={tab === "mcp"} onClick={() => setTab("mcp")} icon={<Plug className="w-3.5 h-3.5" />} label="MCP Servers" />
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto">
+        <div className="max-h-[72vh] overflow-y-auto">
           {tab === "providers" && <ProvidersPanel open={open} />}
           {tab === "skills" && <SkillsPanel open={open} />}
           {tab === "mcp" && <McpPanel open={open} />}
@@ -350,7 +350,7 @@ function SkillsPanel({ open }: { open: boolean }) {
 function SkillPreview({ name, content, onClose }: { name: string; content: string; onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-3xl w-full gap-0 p-0 overflow-hidden rounded-md border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-5xl gap-0 p-0 overflow-hidden rounded-md border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]">
         <DialogHeader className="px-4 pt-3 pb-2 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.118_0.004_245)]">
           <DialogTitle className="text-sm flex items-center gap-2">
             <FileCode className="w-4 h-4 text-[oklch(0.62_0.035_190)]" />

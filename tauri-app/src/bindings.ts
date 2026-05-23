@@ -106,7 +106,7 @@ export const commands = {
 	 *  invoking this command (to avoid losing the first events), then awaits a
 	 *  TurnCompleted or Error event to know the turn finished.
 	 */
-	chatTurn: (turnId: string, messages: ChatMessage[], model: string, enabledSkills: string[] | null) => typedError<null, string>(__TAURI_INVOKE("chat_turn", { turnId, messages, model, enabledSkills })),
+	chatTurn: (turnId: string, messages: ChatMessage[], model: string, enabledSkills: string[] | null, reasoningEffort: string | null) => typedError<null, string>(__TAURI_INVOKE("chat_turn", { turnId, messages, model, enabledSkills, reasoningEffort })),
 };
 
 /* Types */
@@ -388,4 +388,3 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
-
