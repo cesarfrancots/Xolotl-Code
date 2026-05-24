@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MergeCheckpointView } from "./MergeCheckpointView";
 import { useAgentStore } from "../../stores/agentStore";
 import type { FileDiff } from "../../bindings";
@@ -23,6 +24,7 @@ beforeEach(() => {
     expandedAgentId: null,
   });
   vi.clearAllMocks();
+  vi.mocked(commands.mergeWorktrees).mockResolvedValue({ status: "ok", data: null });
 });
 
 function setupGroup(agentDiffs: Record<string, FileDiff[]>) {
@@ -59,13 +61,13 @@ describe("MergeCheckpointView", () => {
     expect(conflictBadges.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("shows 'No conflicts' when no files are shared", async () => {
+  it("shows no-conflict summary when no files are shared", async () => {
     setupGroup({
       a1: [{ path: "src/a.ts", old_content: "", new_content: "new" }],
       a2: [{ path: "src/b.ts", old_content: "", new_content: "new" }],
     });
     render(<MergeCheckpointView groupId="g1" />);
-    expect(await screen.findByText("No conflicts")).toBeTruthy();
+    expect(await screen.findByText("No conflicts detected")).toBeTruthy();
   });
 
   it("shows conflict count summary when conflicts exist", async () => {
@@ -73,6 +75,23 @@ describe("MergeCheckpointView", () => {
     setupGroup({ a1: [shared], a2: [shared] });
     render(<MergeCheckpointView groupId="g1" />);
     expect(await screen.findByText("1 conflict detected")).toBeTruthy();
+  });
+
+  it("uses an inline confirmation step before merging worktrees", async () => {
+    const user = userEvent.setup();
+    setupGroup({
+      a1: [{ path: "src/a.ts", old_content: "", new_content: "new" }],
+    });
+    render(<MergeCheckpointView groupId="g1" />);
+
+    const approve = await screen.findByRole("button", { name: "Approve & Merge" });
+    await user.click(approve);
+
+    expect(commands.mergeWorktrees).not.toHaveBeenCalled();
+    expect(screen.getByText("Review the combined diff, then confirm merge.")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Confirm Merge" }));
+    expect(commands.mergeWorktrees).toHaveBeenCalledWith("g1", ["a1"]);
   });
 });
 

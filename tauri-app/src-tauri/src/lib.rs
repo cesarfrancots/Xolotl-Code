@@ -1,26 +1,24 @@
-use std::sync::Arc;
 use specta_typescript::Typescript;
+use std::sync::Arc;
 use tauri_specta::{collect_commands, Builder};
 
-use runtime::{AgentEvent, AgentId, AgentState, AgentSupervisor};
 use crate::commands::{
-    chat_turn, delete_session, list_agents, list_models, list_sessions, load_session,
-    respond_to_permission, save_session, smoke_test, spawn_agent, stop_agent,
-    test_permission_prompt, run_agent_turn, launch_team, launch_swarm, get_worktree_diff,
-    merge_worktrees, start_eval, list_evals, load_eval, delete_eval, save_human_scores,
-    list_eval_suites, run_eval_suite, run_llm_judge,
-    start_goal_eval, run_goal_grade,
-    get_api_key_status, set_api_key, test_api_connection,
-    SessionMeta, RoleConfig, GroupLaunchResult, FileDiff,
-    ChatMessage, EvalMeta, EvalResult, ModelEvalResult, HumanScores,
-    AutoScores, JudgeScores, EvalSuite, SuitePrompt,
-    GoalAxisScore, ReasoningFlag, GoalGrade,
+    chat_turn, delete_eval, delete_session, get_api_key_status, get_worktree_diff, launch_swarm,
+    launch_team, list_agents, list_eval_suites, list_evals, list_models, list_sessions, load_eval,
+    load_session, merge_worktrees, respond_to_permission, run_agent_turn, run_eval_suite,
+    run_goal_grade, run_llm_judge, save_human_scores, save_manual_reviews, save_session,
+    set_api_key, smoke_test, spawn_agent, start_eval, start_eval_artifact, start_goal_eval,
+    stop_agent, test_api_connection, test_permission_prompt, AutoScores, ChatMessage,
+    EvalArtifactFileInput, EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta, EvalResult,
+    EvalSuite, FileDiff, GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores, JudgeScores,
+    ManualReview, ModelEvalResult, ReasoningFlag, RoleConfig, SessionMeta, SuitePrompt,
 };
+use crate::permission_prompter::{PendingPrompts, PermissionDecision};
 use crate::skills_mcp::{
-    list_skills, read_skill, list_mcp_servers, test_mcp_server,
-    SkillManifest, McpServerConfig, McpTestResult,
+    list_mcp_servers, list_skills, read_skill, test_mcp_server, McpServerConfig, McpTestResult,
+    SkillManifest,
 };
-use crate::permission_prompter::{PermissionDecision, PendingPrompts};
+use runtime::{AgentEvent, AgentId, AgentState, AgentSupervisor};
 
 mod commands;
 mod permission_prompter;
@@ -54,6 +52,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             load_eval,
             delete_eval,
             save_human_scores,
+            save_manual_reviews,
             list_eval_suites,
             run_eval_suite,
             run_llm_judge,
@@ -66,6 +65,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             get_api_key_status,
             set_api_key,
             test_api_connection,
+            start_eval_artifact,
             chat_turn,
         ])
         .typ::<AgentId>()
@@ -81,6 +81,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<EvalResult>()
         .typ::<ModelEvalResult>()
         .typ::<HumanScores>()
+        .typ::<ManualReview>()
         .typ::<AutoScores>()
         .typ::<JudgeScores>()
         .typ::<EvalSuite>()
@@ -88,6 +89,9 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<GoalAxisScore>()
         .typ::<ReasoningFlag>()
         .typ::<GoalGrade>()
+        .typ::<EvalArtifactFileInput>()
+        .typ::<EvalArtifactRequest>()
+        .typ::<EvalArtifactLaunchResult>()
         .typ::<SkillManifest>()
         .typ::<McpServerConfig>()
         .typ::<McpTestResult>()

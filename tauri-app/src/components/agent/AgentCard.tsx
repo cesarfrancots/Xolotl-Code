@@ -25,20 +25,20 @@ export function AgentCard({ agent }: { agent: AgentRecord }) {
   }
 
   return (
-    <div className="flex flex-col gap-1 px-3 py-2 mx-2 my-1 rounded-md bg-[oklch(0.20_0_0)] hover:bg-[oklch(0.24_0_0)] border border-neutral-800">
+    <div className="flex flex-col gap-1 px-3 py-2 mx-2 my-1 rounded-md bg-[oklch(0.135_0.004_245)] hover:bg-[oklch(0.155_0.004_240)] border border-[oklch(0.22_0.008_240)]">
       <div className="flex items-center justify-between gap-2">
         <AgentStateBadge state={agent.state} />
         {agent.state === "Executing" && (
           <span className="relative flex h-2 w-2 ml-1">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[oklch(0.64_0.045_190)] opacity-60" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-[oklch(0.64_0.045_190)]" />
           </span>
         )}
         <span className="text-xs text-[oklch(0.55_0_0)] font-mono">
           ${agent.cumulativeCost.toFixed(4)}
         </span>
       </div>
-      <p className="text-sm text-[oklch(0.92_0_0)] leading-snug" title={agent.task}>
+      <p className="text-sm text-[oklch(0.90_0.015_220)] leading-snug" title={agent.task}>
         {truncate(agent.task, MAX_TASK_LEN)}
       </p>
       {agent.branch && (

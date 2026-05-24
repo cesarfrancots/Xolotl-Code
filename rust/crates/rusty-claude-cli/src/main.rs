@@ -230,6 +230,7 @@ fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
         ("GLM_API_KEY", "Zhipu GLM (for glm/ models)"),
         ("MINIMAX_API_KEY", "MiniMax (for minimax/ models)"),
         ("DASHSCOPE_API_KEY", "Alibaba Qwen (for qwen/ models)"),
+        ("DEEPSEEK_API_KEY", "DeepSeek (for deepseek/ models)"),
         ("OPENAI_API_KEY", "OpenAI or custom OpenAI-compat provider"),
         (
             "AWS_ACCESS_KEY_ID",
@@ -1386,6 +1387,7 @@ fn print_connect_help() {
     println!("  {CYAN}kimi-coding{RESET}  Kimi K2.6 Coding   {GRAY}(KIMI_CODING_API_KEY){RESET}");
     println!("  {CYAN}glm{RESET}          Zhipu GLM 5.1      {GRAY}(GLM_API_KEY){RESET}");
     println!("  {CYAN}qwen{RESET}         Alibaba Qwen       {GRAY}(DASHSCOPE_API_KEY){RESET}");
+    println!("  {CYAN}deepseek{RESET}     DeepSeek V4        {GRAY}(DEEPSEEK_API_KEY){RESET}");
     println!("  {CYAN}anthropic{RESET}    Anthropic Claude   {GRAY}(ANTHROPIC_API_KEY){RESET}");
     println!("  {CYAN}bedrock{RESET}      AWS Bedrock        {GRAY}(BEDROCK_API_KEY){RESET}");
     println!("  {CYAN}openai{RESET}       OpenAI             {GRAY}(OPENAI_API_KEY){RESET}");
@@ -1416,6 +1418,8 @@ fn print_model_help(current: &str) {
     );
     println!("  {CYAN}kimi2.6{RESET}      Kimi K2.6 Standard {GRAY}(general purpose){RESET}");
     println!("  {CYAN}minimax2.7{RESET}   MiniMax 2.7        {GRAY}(1M context){RESET}");
+    println!("  {CYAN}deepseek{RESET}     DeepSeek V4 Pro    {GRAY}(1M context){RESET}");
+    println!("  {CYAN}deepseek-flash{RESET} DeepSeek V4 Flash");
     println!("  {CYAN}glm5.1{RESET}       GLM 5.1            {GRAY}(128K context){RESET}");
     println!("  {CYAN}qwen3.6{RESET}      Qwen 3.6 Plus");
     println!();
@@ -2450,12 +2454,17 @@ impl LiveCli {
                 "Alibaba Qwen",
                 Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
             ),
+            "deepseek" => (
+                "DEEPSEEK_API_KEY",
+                "DeepSeek",
+                Some("https://api.deepseek.com"),
+            ),
             "anthropic" => ("ANTHROPIC_API_KEY", "Anthropic", None),
             "bedrock" => ("BEDROCK_API_KEY", "AWS Bedrock", None),
             "openai" => ("OPENAI_API_KEY", "OpenAI", None),
             other => {
                 return Err(format!(
-                    "Unknown provider '{other}'. Available: minimax, kimi, kimi-coding, glm, qwen, anthropic, bedrock, openai"
+                    "Unknown provider '{other}'. Available: minimax, kimi, kimi-coding, glm, qwen, deepseek, anthropic, bedrock, openai"
                 )
                 .into());
             }
@@ -2751,6 +2760,8 @@ fn run_doctor() {
         ("KIMI_CODING_API_KEY", "Kimi Coding provider"),
         ("GLM_API_KEY", "GLM provider"),
         ("MINIMAX_API_KEY", "MiniMax provider"),
+        ("DEEPSEEK_API_KEY", "DeepSeek provider"),
+        ("DASHSCOPE_API_KEY", "Qwen provider"),
         ("OPENAI_API_KEY", "OpenAI provider"),
     ];
 
@@ -2987,6 +2998,8 @@ fn provider_hint_for_model(model: &str) -> String {
         "(Zhipu GLM API)".into()
     } else if lower.starts_with("qwen/") {
         "(Alibaba Qwen API)".into()
+    } else if lower.starts_with("deepseek/") || lower.starts_with("deepseek") {
+        "(DeepSeek API)".into()
     } else if openai::is_anthropic_model(model) {
         "(Anthropic API)".into()
     } else {
@@ -3024,6 +3037,11 @@ fn expand_single_alias(alias: &str) -> String {
 
         // ── Qwen family ───────────────────────────────────────────────
         "qwen3.6" | "qwen3.6-plus" | "qwen-3.6-plus" | "qwen" | "qwen-plus" => "qwen/qwen-3.6-plus",
+
+        "deepseek" | "deepseek-v4-pro" | "deepseek-pro" => "deepseek/deepseek-v4-pro",
+        "deepseek-v4-flash" | "deepseek-flash" => "deepseek/deepseek-v4-flash",
+        "deepseek-chat" => "deepseek/deepseek-chat",
+        "deepseek-reasoner" => "deepseek/deepseek-reasoner",
 
         // ── Kimi family ────────────────────────────────────────────────
         "kimi-coding" | "kimi-coding-k2.6" | "k2.6-coding" => "kimi-coding/kimi-for-coding",
@@ -3075,6 +3093,8 @@ fn model_hints_for_resolved_openai_runtime(
         format!("glm/{}", config.model)
     } else if flags.is_qwen {
         format!("qwen/{}", config.model)
+    } else if flags.is_deepseek {
+        format!("deepseek/{}", config.model)
     } else if flags.is_kimi {
         format!("kimi/{}", config.model)
     } else if matches!(config.kind, openai::ProviderKind::OpenAi) {
@@ -4096,6 +4116,7 @@ struct OpenAiRuntimeClient {
     is_minimax: bool,
     is_glm: bool,
     is_qwen: bool,
+    is_deepseek: bool,
     model_hints: Option<runtime::ModelHints>,
 }
 
@@ -4107,6 +4128,7 @@ struct OpenAiProviderFlags {
     is_minimax: bool,
     is_glm: bool,
     is_qwen: bool,
+    is_deepseek: bool,
 }
 
 fn provider_flags_for_openai_runtime(
@@ -4128,6 +4150,8 @@ fn provider_flags_for_openai_runtime(
     let is_qwen = matches!(kind, openai::ProviderKind::Qwen)
         || model_lower.contains("qwen")
         || model_lower.contains("dashscope");
+    let is_deepseek =
+        matches!(kind, openai::ProviderKind::DeepSeek) || model_lower.contains("deepseek");
     let is_kimi_coding = is_kimi
         && (model_lower.contains("kimi-coding")
             || base_url_lower.contains("/coding/")
@@ -4139,6 +4163,14 @@ fn provider_flags_for_openai_runtime(
         is_minimax,
         is_glm,
         is_qwen,
+        is_deepseek,
+    }
+}
+
+fn deepseek_reasoning_effort(hints: Option<&runtime::ModelHints>) -> &'static str {
+    match hints.map(|hints| hints.effort_level) {
+        Some(runtime::EffortLevel::Maximum) => "max",
+        _ => "high",
     }
 }
 
@@ -4167,6 +4199,7 @@ impl OpenAiRuntimeClient {
             is_minimax: flags.is_minimax,
             is_glm: flags.is_glm,
             is_qwen: flags.is_qwen,
+            is_deepseek: flags.is_deepseek,
             model_hints,
         })
     }
@@ -4191,6 +4224,10 @@ impl ApiClient for OpenAiRuntimeClient {
                         "type": "enabled",
                         "keep": "all",
                         "budget": budget
+                    })
+                } else if self.is_deepseek {
+                    serde_json::json!({
+                        "type": "enabled"
                     })
                 } else if self.is_kimi || self.is_minimax || self.is_glm || self.is_qwen {
                     serde_json::json!({
@@ -4221,8 +4258,12 @@ impl ApiClient for OpenAiRuntimeClient {
             stream_options: Some(openai::OaiStreamOptions {
                 include_usage: true,
             }),
-            max_completion_tokens: self.max_tokens,
+            max_completion_tokens: (!self.is_deepseek).then_some(self.max_tokens),
+            max_tokens: self.is_deepseek.then_some(self.max_tokens),
             thinking,
+            reasoning_effort: self
+                .is_deepseek
+                .then_some(deepseek_reasoning_effort(self.model_hints.as_ref()).to_string()),
             prompt_cache_key: self.cache_key.clone(),
             response_format: None,
         };
@@ -4378,7 +4419,7 @@ fn print_help() {
     println!("  xolotl --resume SESSION.json              Resume a saved session");
     println!("  xolotl --version                          Show version");
     println!();
-    println!("Model aliases:  sonnet · opus · haiku · sonnet4.5 · opus4.5 · opusplan · minimax2.7 · glm5.1 · qwen3.6 · kimi2.6 · kimi-coding");
+    println!("Model aliases:  sonnet · opus · haiku · opusplan · minimax2.7 · deepseek · glm5.1 · qwen3.6 · kimi2.6 · kimi-coding");
     println!();
     println!("Slash commands:");
     println!(
@@ -4398,6 +4439,7 @@ fn print_help() {
     println!("  KIMI_API_KEY             Kimi / Moonshot API (kimi2.6 model)");
     println!("  KIMI_CODING_API_KEY      Kimi Coding API (kimi-coding model)");
     println!("  MINIMAX_API_KEY          MiniMax API key (minimax2.7 model)");
+    println!("  DEEPSEEK_API_KEY         DeepSeek API key (deepseek model)");
     println!("  GLM_API_KEY              Zhipu GLM API (glm5.1 model)");
     println!("  DASHSCOPE_API_KEY        Qwen API key (qwen3.6 model)");
     println!("  OPENAI_API_KEY           OpenAI or compatible provider");
@@ -4678,6 +4720,22 @@ mod tests {
     }
 
     #[test]
+    fn expands_deepseek_aliases() {
+        assert_eq!(
+            super::expand_single_alias("deepseek"),
+            "deepseek/deepseek-v4-pro"
+        );
+        assert_eq!(
+            super::expand_single_alias("deepseek-flash"),
+            "deepseek/deepseek-v4-flash"
+        );
+        assert_eq!(
+            super::expand_single_alias("deepseek-v4-pro"),
+            "deepseek/deepseek-v4-pro"
+        );
+    }
+
+    #[test]
     fn expands_dual_model_spec() {
         assert_eq!(
             super::expand_model_spec("opus+sonnet"),
@@ -4723,6 +4781,19 @@ mod tests {
     }
 
     #[test]
+    fn provider_flags_use_resolved_kind_for_deepseek_plain_model() {
+        let config = super::openai::ProviderConfig {
+            base_url: "https://api.deepseek.com".to_string(),
+            api_key: "test-key".to_string(),
+            model: "deepseek-v4-pro".to_string(),
+            kind: super::openai::ProviderKind::DeepSeek,
+        };
+        let flags = super::provider_flags_for_openai_runtime("deepseek-v4-pro", &config);
+        assert!(flags.is_deepseek);
+        assert!(!flags.is_kimi);
+    }
+
+    #[test]
     fn provider_flags_detect_kimi_coding_from_endpoint_without_prefix() {
         let config = super::openai::ProviderConfig {
             base_url: "https://api.kimi.com/coding/v1".to_string(),
@@ -4761,6 +4832,20 @@ mod tests {
         let hints = super::model_hints_for_resolved_openai_runtime("abab6.5s-chat", &config);
         assert_eq!(hints.thinking_budget, 24_000);
         assert_eq!(hints.max_context, 1_000_000);
+        assert!(hints.aggressive_read);
+    }
+
+    #[test]
+    fn provider_aware_hints_use_deepseek_profile_for_plain_model() {
+        let config = super::openai::ProviderConfig {
+            base_url: "https://api.deepseek.com".to_string(),
+            api_key: "test-key".to_string(),
+            model: "deepseek-v4-pro".to_string(),
+            kind: super::openai::ProviderKind::DeepSeek,
+        };
+        let hints = super::model_hints_for_resolved_openai_runtime("deepseek-v4-pro", &config);
+        assert_eq!(hints.max_context, 1_048_576);
+        assert_eq!(hints.max_completion_tokens, 32_768);
         assert!(hints.aggressive_read);
     }
 

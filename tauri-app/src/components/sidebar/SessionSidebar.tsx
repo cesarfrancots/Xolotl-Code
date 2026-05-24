@@ -15,15 +15,16 @@ import { CommandsPalette } from "../chat/CommandsPalette";
  * Left column: session list + "New session" button.
  * Expanded: 256px (w-64).  Collapsed: 48px icon-rail.
  */
-export function SessionSidebar() {
+export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: boolean }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const { sessions, activeSessionId, loadSessions, deleteSession, setActiveSessionId } =
     useSessionStore();
   const clearSession = useChatStore((s) => s.clearSession);
   const hydrateSession = useChatStore((s) => s.hydrateSession);
-  const collapsed = useUiStore((s) => s.sessionsCollapsed);
+  const storedCollapsed = useUiStore((s) => s.sessionsCollapsed);
   const toggleCollapsed = useUiStore((s) => s.toggleSessions);
+  const collapsed = forceCollapsed || storedCollapsed;
 
   useEffect(() => {
     void loadSessions();
@@ -55,26 +56,26 @@ export function SessionSidebar() {
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <aside
         className={[
-          "flex-none flex flex-col border-r border-neutral-800 bg-[oklch(0.155_0_0)]",
+          "xolotl-sidebar flex-none flex flex-col border-r border-[oklch(0.22_0.008_240)]",
           "transition-[width] duration-200 ease-out",
           collapsed ? "w-12" : "w-64",
         ].join(" ")}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-2 h-12 flex-none border-b border-neutral-800">
+        <div className="flex items-center justify-between px-2 h-12 flex-none border-b border-[oklch(0.22_0.008_240)]">
           {collapsed ? (
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 mx-auto text-[oklch(0.65_0.18_250)]"
-              title="Expand sessions"
-              onClick={toggleCollapsed}
+              className="h-8 w-8 mx-auto text-[oklch(0.64_0.035_190)] hover:text-[oklch(0.78_0.040_190)]"
+              title={forceCollapsed ? "Widen window to expand sessions" : "Expand sessions"}
+              onClick={forceCollapsed ? undefined : toggleCollapsed}
             >
               <FolderClock className="h-4 w-4" />
             </Button>
           ) : (
             <>
-              <div className="flex items-center gap-1.5 pl-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[oklch(0.55_0_0)]">
+              <div className="flex items-center gap-1.5 pl-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[oklch(0.56_0.012_220)]">
                 <FolderClock className="h-3.5 w-3.5" />
                 Sessions
               </div>
@@ -92,7 +93,7 @@ export function SessionSidebar() {
         </div>
 
         {/* Action row — new session only */}
-        <div className={["flex-none flex items-center border-b border-neutral-800/60", collapsed ? "flex-col gap-1 py-2" : "gap-1 px-2 py-1.5"].join(" ")}>
+        <div className={["flex-none flex items-center border-b border-[oklch(0.22_0.008_240)]/70", collapsed ? "flex-col gap-1 py-2" : "gap-1 px-2 py-1.5"].join(" ")}>
           <Button
             variant="ghost"
             size="icon"
@@ -102,7 +103,7 @@ export function SessionSidebar() {
           >
             <SquarePen className="h-4 w-4" />
           </Button>
-          {collapsed && (
+          {collapsed && !forceCollapsed && (
             <Button
               variant="ghost"
               size="icon"
@@ -125,8 +126,8 @@ export function SessionSidebar() {
                 className={[
                   "w-8 h-8 flex-none flex items-center justify-center rounded-md transition-colors",
                   session.id === activeSessionId
-                    ? "bg-[oklch(0.65_0.18_250)]/15 text-[oklch(0.78_0.18_250)] border border-[oklch(0.65_0.18_250)]/40"
-                    : "text-[oklch(0.50_0_0)] hover:bg-[oklch(0.20_0_0)] hover:text-[oklch(0.85_0_0)]",
+                    ? "bg-[oklch(0.16_0.012_195)] text-[oklch(0.76_0.040_190)] border border-[oklch(0.42_0.025_195)]/70"
+                    : "text-[oklch(0.50_0.006_230)] hover:bg-[oklch(0.16_0.004_240)] hover:text-[oklch(0.82_0.015_220)]",
                 ].join(" ")}
                 title={session.title || `Session ${session.id.slice(0, 6)}`}
               >
@@ -138,8 +139,8 @@ export function SessionSidebar() {
           <ScrollArea className="flex-1">
             {!sessions || sessions.length === 0 ? (
               <EmptyState
-                title="No sessions yet"
-                hint="Start a conversation to create your first session."
+                title="No saved sessions"
+                hint="Saved threads will appear here."
               />
             ) : (
               <div className="flex flex-col py-1.5">
@@ -160,7 +161,7 @@ export function SessionSidebar() {
         {/* Footer — Commands palette + Settings, pinned to bottom */}
         <div
           className={[
-            "flex-none border-t border-neutral-800 bg-[oklch(0.13_0_0)]",
+            "flex-none border-t border-[oklch(0.22_0.008_240)] bg-[oklch(0.105_0.004_245)]",
             collapsed ? "flex flex-col items-center gap-1 py-2" : "flex items-center justify-between px-2 py-1.5",
           ].join(" ")}
         >
@@ -177,12 +178,12 @@ export function SessionSidebar() {
             <>
               <button
                 onClick={() => setCommandsOpen(true)}
-                className="flex items-center gap-2 px-2 py-1 rounded-md text-xs text-[oklch(0.60_0_0)] hover:text-[oklch(0.88_0_0)] hover:bg-[oklch(0.18_0_0)] transition-colors"
+                className="flex items-center gap-2 px-2 py-1 rounded-md text-xs text-[oklch(0.58_0.010_225)] hover:text-[oklch(0.86_0.015_220)] hover:bg-[oklch(0.16_0.004_240)] transition-colors"
                 title="Commands & shortcuts"
               >
                 <Command className="h-3.5 w-3.5" />
                 <span>Commands</span>
-                <kbd className="ml-1 text-[10px] font-mono px-1 py-0.5 rounded bg-[oklch(0.20_0_0)] border border-neutral-700 text-[oklch(0.55_0_0)]">⌘K</kbd>
+                <kbd className="ml-1 text-[10px] font-mono px-1 py-0.5 rounded bg-[oklch(0.16_0.004_240)] border border-[oklch(0.24_0.010_235)] text-[oklch(0.54_0.010_225)]">Ctrl K</kbd>
               </button>
               <Button
                 variant="ghost"
@@ -204,12 +205,12 @@ export function SessionSidebar() {
 
 function EmptyState({ title, hint }: { title: string; hint: string }) {
   return (
-    <div className="flex flex-col items-center justify-center h-44 px-6 gap-2 text-center">
-      <div className="w-10 h-10 rounded-full bg-[oklch(0.20_0_0)] flex items-center justify-center mb-1">
-        <MessageCircle className="w-5 h-5 text-[oklch(0.45_0_0)]" />
+    <div className="mx-3 mt-3 rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.115_0.004_245)] px-3 py-3 text-left">
+      <div className="mb-2 flex h-7 w-7 items-center justify-center rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.14_0.006_235)]">
+        <MessageCircle className="w-3.5 h-3.5 text-[oklch(0.54_0.025_195)]" />
       </div>
-      <p className="text-sm font-medium text-[oklch(0.85_0_0)]">{title}</p>
-      <p className="text-xs text-[oklch(0.50_0_0)] leading-relaxed">{hint}</p>
+      <p className="text-xs font-medium text-[oklch(0.84_0.015_220)]">{title}</p>
+      <p className="mt-1 text-[11px] text-[oklch(0.52_0.010_225)] leading-relaxed">{hint}</p>
     </div>
   );
 }

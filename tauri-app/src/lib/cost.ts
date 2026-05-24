@@ -12,6 +12,8 @@ const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite:
   "claude-opus-4-5":    { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 },
   "claude-sonnet-4-5":  { input: 3.00,  output: 15.00, cacheWrite: 3.75,  cacheRead: 0.30 },
   "claude-haiku-3-5":   { input: 0.80,  output: 4.00,  cacheWrite: 1.00,  cacheRead: 0.08 },
+  "deepseek-v4-flash":  { input: 0.14,  output: 0.28,  cacheWrite: 0.14,  cacheRead: 0.0028 },
+  "deepseek-v4-pro":    { input: 0.435, output: 0.87,  cacheWrite: 0.435, cacheRead: 0.003625 },
 };
 
 const DEFAULT_PRICING = MODEL_PRICING["claude-sonnet-4-5"];

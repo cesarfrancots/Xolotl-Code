@@ -63,7 +63,7 @@ export function ToolBlock({ toolCall }: ToolBlockProps) {
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen} className="my-1">
       <CollapsibleTrigger className="w-full">
-        <div className="flex items-center gap-2 px-3 h-9 rounded-md border border-neutral-800 bg-[oklch(0.16_0_0)] hover:bg-[oklch(0.20_0_0)] transition-colors cursor-pointer">
+        <div className="flex items-center gap-2 px-3 h-9 rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.135_0.004_245)] hover:bg-[oklch(0.155_0.004_240)] transition-colors cursor-pointer">
           <span className="text-[oklch(0.55_0_0)]">
             <ToolIcon tool={toolCall.tool} />
           </span>
@@ -81,7 +81,7 @@ export function ToolBlock({ toolCall }: ToolBlockProps) {
         </div>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="px-3 pb-3 pt-2 border border-t-0 border-neutral-800 rounded-b-md bg-[oklch(0.16_0_0)]">
+        <div className="px-3 pb-3 pt-2 border border-t-0 border-[oklch(0.22_0.008_240)] rounded-b-md bg-[oklch(0.135_0.004_245)]">
           {/* Tool output */}
           {output && (
             <pre className="text-xs text-[oklch(0.55_0_0)] whitespace-pre-wrap font-mono leading-relaxed max-h-60 overflow-y-auto">
@@ -91,7 +91,7 @@ export function ToolBlock({ toolCall }: ToolBlockProps) {
           {/* Truncation expand link per 04-UI-SPEC.md */}
           {isTruncated && (
             <button
-              className="mt-1 text-xs text-[oklch(0.65_0.18_250)] hover:underline"
+              className="mt-1 text-xs text-[oklch(0.66_0.040_190)] hover:underline"
               onClick={() => setShowFullOutput(true)}
             >
               Show {hiddenCount.toLocaleString("en-US")} more characters

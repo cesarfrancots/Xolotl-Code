@@ -43,11 +43,11 @@ export function MessageList() {
 
   if (items.length === 0 && !isStreaming) {
     return (
-      <div ref={parentRef} className="h-full overflow-y-auto flex items-center justify-center">
-        <div className="text-center px-8">
-          <p className="text-base font-semibold text-[oklch(0.92_0_0)]">Start a conversation</p>
-          <p className="text-sm text-[oklch(0.55_0_0)] mt-1">
-            Type a message below or use / for commands.
+      <div ref={parentRef} className="h-full overflow-y-auto flex items-center justify-center px-8 pb-28">
+        <div className="w-full max-w-[760px] pt-5 text-center">
+          <p className="text-base font-semibold text-[oklch(0.90_0_0)]">What should we work on?</p>
+          <p className="text-sm text-[oklch(0.54_0_0)] mt-1">
+            Ask a question, paste code, or attach files.
           </p>
         </div>
       </div>
@@ -57,7 +57,7 @@ export function MessageList() {
   return (
     <div
       ref={parentRef}
-      className="h-full overflow-y-auto"
+      className="h-full overflow-y-auto pb-28"
       style={{ contain: "strict" }}
     >
       <div

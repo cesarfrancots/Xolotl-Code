@@ -1,4 +1,4 @@
-/// OpenAI-compatible API client for Kimi, `MiniMax`, GLM, `OpenAI`, and any
+/// OpenAI-compatible API client for Kimi, `MiniMax`, GLM, `DeepSeek`, `OpenAI`, and any
 /// provider that implements the `/v1/chat/completions` + SSE streaming interface.
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -30,6 +30,7 @@ pub enum ProviderKind {
     MiniMax,
     Glm,
     Qwen,
+    DeepSeek,
     OpenAi,
     Generic,
 }
@@ -41,6 +42,7 @@ impl ProviderKind {
             "minimax" => Self::MiniMax,
             "glm" | "zhipu" => Self::Glm,
             "qwen" => Self::Qwen,
+            "deepseek" => Self::DeepSeek,
             "openai" => Self::OpenAi,
             _ => Self::Generic,
         }
@@ -56,6 +58,8 @@ impl ProviderKind {
             Self::Glm
         } else if url_lower.contains("dashscope") || url_lower.contains("qwen") {
             Self::Qwen
+        } else if url_lower.contains("deepseek") {
+            Self::DeepSeek
         } else if url_lower.contains("openai") {
             Self::OpenAi
         } else {
@@ -69,6 +73,7 @@ impl ProviderKind {
             Self::Kimi => "Kimi",
             Self::Glm => "GLM",
             Self::Qwen => "Qwen",
+            Self::DeepSeek => "DeepSeek",
             Self::OpenAi => "OpenAI",
             Self::Generic => "Provider",
         }
@@ -88,6 +93,7 @@ fn inferred_api_key_candidates(kind: ProviderKind, base_url: &str) -> Vec<&'stat
         ProviderKind::MiniMax => vec!["MINIMAX_API_KEY"],
         ProviderKind::Glm => vec!["GLM_API_KEY"],
         ProviderKind::Qwen => vec!["DASHSCOPE_API_KEY"],
+        ProviderKind::DeepSeek => vec!["DEEPSEEK_API_KEY"],
         ProviderKind::OpenAi => vec!["OPENAI_API_KEY"],
         ProviderKind::Generic => Vec::new(),
     }
@@ -101,6 +107,7 @@ fn generic_openai_compatible_key_candidates() -> Vec<&'static str> {
         "MINIMAX_API_KEY",
         "GLM_API_KEY",
         "DASHSCOPE_API_KEY",
+        "DEEPSEEK_API_KEY",
     ]
 }
 
@@ -119,9 +126,15 @@ fn env_var_nonempty(var: &str) -> Option<String> {
 /// model spec like `"kimi/moonshot-v1-32k"` or plain `"moonshot-v1-32k"`.
 pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
     // Split optional `provider/model-name` prefix
-    let (prefix, model) = match model_spec.find('/') {
+    let (raw_prefix, model) = match model_spec.find('/') {
         Some(i) => (&model_spec[..i], &model_spec[i + 1..]),
         None => ("", model_spec),
+    };
+    let model_lower = model.to_lowercase();
+    let prefix = if raw_prefix.is_empty() && model_lower.starts_with("deepseek") {
+        "deepseek"
+    } else {
+        raw_prefix
     };
 
     let (default_url, key_var): (&str, &str) = match prefix {
@@ -133,6 +146,7 @@ pub fn resolve_provider(model_spec: &str) -> Result<ProviderConfig, String> {
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "DASHSCOPE_API_KEY",
         ),
+        "deepseek" => ("https://api.deepseek.com", "DEEPSEEK_API_KEY"),
         "openai" | "" => ("https://api.openai.com/v1", "OPENAI_API_KEY"),
         _other => ("", "OPENAI_API_KEY"),
     };
@@ -222,10 +236,18 @@ pub struct OaiRequest {
     /// Ask the provider to include token counts in the final SSE chunk.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<OaiStreamOptions>,
-    pub max_completion_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_completion_tokens: Option<u32>,
+    /// DeepSeek/OpenAI-compatible providers that expect `max_tokens` instead of
+    /// `max_completion_tokens`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
     /// Kimi-specific: enable preserved thinking.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<serde_json::Value>,
+    /// DeepSeek-specific: currently accepts `high` or `max`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
     /// Kimi-specific: session-level cache key for prompt caching.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_key: Option<String>,
@@ -585,7 +607,10 @@ pub async fn stream_completion(
 
         // Add provider-specific headers for better compatibility
         match config.kind {
-            ProviderKind::MiniMax | ProviderKind::Glm | ProviderKind::Qwen => {
+            ProviderKind::MiniMax
+            | ProviderKind::Glm
+            | ProviderKind::Qwen
+            | ProviderKind::DeepSeek => {
                 request_builder = request_builder.header("Accept", "application/json");
             }
             ProviderKind::Kimi => {
@@ -857,6 +882,8 @@ mod tests {
             "MINIMAX_API_KEY",
             "GLM_API_KEY",
             "DASHSCOPE_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "DEEPSEEK_BASE_URL",
             "KIMI_CODING_BASE_URL",
         ] {
             std::env::remove_var(var);
@@ -906,6 +933,29 @@ mod tests {
         assert_eq!(config.base_url, "https://open.bigmodel.cn/api/paas/v4");
         assert_eq!(config.model, "glm-5.1");
         assert_eq!(config.kind, ProviderKind::Glm);
+    }
+
+    #[test]
+    fn resolves_deepseek_provider() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        clear_provider_env();
+        std::env::set_var("DEEPSEEK_API_KEY", "test-key");
+        let config = resolve_provider("deepseek/deepseek-v4-pro").unwrap();
+        assert_eq!(config.base_url, "https://api.deepseek.com");
+        assert_eq!(config.model, "deepseek-v4-pro");
+        assert_eq!(config.kind, ProviderKind::DeepSeek);
+    }
+
+    #[test]
+    fn resolves_unprefixed_deepseek_model_to_deepseek_provider() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        clear_provider_env();
+        std::env::set_var("DEEPSEEK_API_KEY", "test-key");
+        let config = resolve_provider("deepseek-v4-flash").unwrap();
+        assert_eq!(config.base_url, "https://api.deepseek.com");
+        assert_eq!(config.model, "deepseek-v4-flash");
+        assert_eq!(config.api_key, "test-key");
+        assert_eq!(config.kind, ProviderKind::DeepSeek);
     }
 
     #[test]

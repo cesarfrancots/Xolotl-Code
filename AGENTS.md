@@ -16,6 +16,7 @@ Rules:
 | `kimi-coding` | Kimi Coding | `api.kimi.com/coding/v1` | 256K | Yes (32K budget) |
 | `kimi2.6` | Moonshot | `api.moonshot.cn/v1` | 256K | Yes |
 | `minimax2.7` | MiniMax | `api.minimax.chat/v1` | 1M | Yes |
+| `deepseek` | DeepSeek | `api.deepseek.com` | 1M | Yes |
 | `glm5.1` | Zhipu GLM | `open.bigmodel.cn/api/paas/v4` | 128K | Yes |
 | `qwen3.6` | Alibaba Qwen | `dashscope.aliyuncs.com/compatible-mode/v1` | 128K | Yes |
 | `sonnet` | AWS Bedrock | `bedrock-runtime.us-east-1.amazonaws.com` | 200K | Yes |
@@ -26,6 +27,7 @@ Rules:
 - `KIMI_CODING_API_KEY` - Kimi K2.6 Coding API (coding-optimized model)
 - `KIMI_API_KEY` - Standard Kimi / Moonshot API
 - `MINIMAX_API_KEY` - MiniMax API
+- `DEEPSEEK_API_KEY` - DeepSeek API
 - `GLM_API_KEY` - Zhipu GLM API
 - `DASHSCOPE_API_KEY` - Alibaba Qwen API
 - `ANTHROPIC_API_KEY` - Anthropic direct API
@@ -44,6 +46,11 @@ Rules:
 - Aggressive file reading (threshold: 10 files)
 - Prefers comprehensive initial research
 
+**DeepSeek V4:**
+- 1M token context
+- Thinking mode enabled by default; `max` effort is available
+- Good fit for chat, evals, and agentic coding tasks
+
 **GLM 5.1:**
 - Standard SDD practices
 - Conservative file reading (threshold: 5 files)
@@ -55,6 +62,7 @@ Use `/connect <provider>` in the REPL for plug-and-play provider setup. You only
 
 ```
 › /connect minimax
+› /connect deepseek
 › /connect kimi
 › /connect kimi-coding
 › /connect glm
@@ -71,6 +79,7 @@ Use `/model <alias>` in the REPL to switch models mid-session:
 ```
 › /model kimi-coding
 › /model minimax2.7
+› /model deepseek
 › /model sonnet
 ```
 

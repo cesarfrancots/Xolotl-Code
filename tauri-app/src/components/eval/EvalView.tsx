@@ -1,47 +1,56 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
-  FlaskConical, Play, RotateCcw, ChevronDown, ChevronUp, Save, Clock, Coins, Hash,
-  Eye, EyeOff, Trophy, Sparkles, History, ListChecks, Gavel, Trash2,
-  Target, Brain, AlertTriangle, Activity,
+  FlaskConical, Play, RotateCcw, ChevronDown, ChevronUp, Save,
+  Eye, EyeOff, Trophy, History, ListChecks, Gavel, Trash2,
+  Target, AlertTriangle, Activity, ShieldCheck, ScanSearch, Gauge,
+  CheckCircle2, CircleDot, ExternalLink, MonitorPlay,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
-import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalGrade } from "../../bindings";
-import { useEvalStore } from "../../stores/evalStore";
+import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalGrade, JudgeScores, ManualReview } from "../../bindings";
+import { HUMAN_SCORE_KEYS, buildBlindLabels, getBlindReviewProgress, getReviewOrder, useEvalStore } from "../../stores/evalStore";
 import { MarkdownRenderer } from "../chat/MarkdownRenderer";
+import {
+  assessBlindResultsGate,
+  assessBlindReviewGate,
+  assessGoalEvalReadiness,
+  assessGoalWorkflowSteps,
+  type BlindResultsGate,
+  type GoalEvalReadiness,
+  type GoalReadinessState,
+  type GoalWorkflowStep,
+} from "../../lib/evalReadiness";
+import { extractEvalArtifacts, type EvalArtifact } from "../../lib/evalArtifacts";
+import { buildEvalComparison, FINAL_AI_WEIGHT, FINAL_HUMAN_WEIGHT, SCORE_SOURCE_LABELS, type EvalComparison } from "../../lib/evalComparison";
+
+const UI_ACCENT = "oklch(0.70 0.07 190)";
+const UI_ACCENT_DIM = "oklch(0.58 0.045 205)";
+const UI_WARNING = "oklch(0.72 0.08 72)";
+const UI_SUCCESS = "oklch(0.70 0.07 155)";
+const UI_MUTED = "oklch(0.62 0.012 230)";
 
 const GOAL_AXES: { key: string; label: string; color: string; hint: string }[] = [
-  { key: "goal_decomposition",    label: "Goal Decomposition",  color: "oklch(0.72 0.18 250)", hint: "Does it break the goal into right sub-tasks?" },
-  { key: "assumption_quality",    label: "Assumption Quality",  color: "oklch(0.72 0.18 195)", hint: "Are assumptions explicit and reasonable?" },
-  { key: "self_correction",       label: "Self-Correction",     color: "oklch(0.72 0.18 142)", hint: "Does it catch and fix its own mistakes?" },
-  { key: "plan_action_coherence", label: "Plan↔Action",         color: "oklch(0.72 0.18 60)",  hint: "Do actions match the stated plan?" },
-  { key: "goal_achievement",      label: "Goal Achievement",    color: "oklch(0.72 0.18 30)",  hint: "Was the goal actually reached?" },
+  { key: "goal_decomposition",    label: "Goal Decomposition",  color: UI_ACCENT, hint: "Does it break the goal into right sub-tasks?" },
+  { key: "assumption_quality",    label: "Assumption Quality",  color: UI_ACCENT_DIM, hint: "Are assumptions explicit and reasonable?" },
+  { key: "self_correction",       label: "Self-Correction",     color: UI_SUCCESS, hint: "Does it catch and fix its own mistakes?" },
+  { key: "plan_action_coherence", label: "Planâ†”Action",         color: UI_WARNING,  hint: "Do actions match the stated plan?" },
+  { key: "goal_achievement",      label: "Goal Achievement",    color: UI_MUTED,  hint: "Was the goal actually reached?" },
 ];
-
-const FLAG_STYLES: Record<string, { color: string; bg: string; emoji: string }> = {
-  bad_assumption:        { color: "oklch(0.72 0.18 30)",  bg: "oklch(0.20 0.10 30)/30",  emoji: "⚠" },
-  goal_drift:            { color: "oklch(0.72 0.18 60)",  bg: "oklch(0.20 0.10 60)/30",  emoji: "↯" },
-  premature_commit:      { color: "oklch(0.72 0.18 30)",  bg: "oklch(0.20 0.10 30)/30",  emoji: "⏩" },
-  no_verification:       { color: "oklch(0.72 0.18 100)", bg: "oklch(0.20 0.10 100)/30", emoji: "?" },
-  contradiction:         { color: "oklch(0.65 0.22 22)",  bg: "oklch(0.20 0.10 22)/30",  emoji: "✕" },
-  good_decomposition:    { color: "oklch(0.72 0.18 142)", bg: "oklch(0.20 0.10 142)/30", emoji: "✓" },
-  good_self_correction:  { color: "oklch(0.72 0.18 142)", bg: "oklch(0.20 0.10 142)/30", emoji: "↻" },
-};
-function flagStyle(kind: string) {
-  return FLAG_STYLES[kind] ?? { color: "oklch(0.65 0 0)", bg: "oklch(0.18 0 0)", emoji: "•" };
-}
 
 const SCORE_DIMENSIONS: { key: keyof HumanScores; label: string; color: string }[] = [
-  { key: "accuracy",    label: "Accuracy",    color: "oklch(0.72 0.18 142)" },
-  { key: "helpfulness", label: "Helpfulness", color: "oklch(0.72 0.18 195)" },
-  { key: "quality",     label: "Quality",     color: "oklch(0.72 0.18 250)" },
-  { key: "creativity",  label: "Creativity",  color: "oklch(0.72 0.18 310)" },
-  { key: "design",      label: "Design",      color: "oklch(0.72 0.18 30)" },
-  { key: "aesthetics",  label: "Aesthetics",  color: "oklch(0.78 0.18 60)" },
-  { key: "ai_slop",     label: "Anti-Slop",   color: "oklch(0.72 0.18 100)" },
-  { key: "brevity",     label: "Brevity",     color: "oklch(0.72 0.18 340)" },
+  { key: "accuracy",    label: "Accuracy",    color: UI_ACCENT },
+  { key: "helpfulness", label: "Helpfulness", color: UI_ACCENT_DIM },
+  { key: "quality",     label: "Quality",     color: UI_ACCENT },
+  { key: "creativity",  label: "Creativity",  color: UI_MUTED },
+  { key: "design",      label: "Design",      color: UI_ACCENT_DIM },
+  { key: "aesthetics",  label: "Aesthetics",  color: UI_MUTED },
+  { key: "ai_slop",     label: "Anti-Slop",   color: UI_WARNING },
+  { key: "brevity",     label: "Brevity",     color: UI_SUCCESS },
 ];
+
+const SCORE_DIMENSION_COUNT = HUMAN_SCORE_KEYS.length;
+const EMPTY_HUMAN_SCORES: Partial<HumanScores> = {};
 
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "claude-sonnet-4-6":           { input: 3,   output: 15 },
@@ -50,6 +59,8 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "kimi2.6":                     { input: 1,   output: 2 },
   "kimi-coding":                 { input: 2,   output: 6 },
   "minimax2.7":                  { input: 0.5, output: 1.5 },
+  "deepseek-v4-flash":           { input: 0.14, output: 0.28 },
+  "deepseek-v4-pro":             { input: 0.435, output: 0.87 },
   "bedrock-claude-sonnet-4-5":   { input: 3,   output: 15 },
   "bedrock-claude-opus-4-5":     { input: 15,  output: 75 },
   "bedrock-claude-haiku-4-5":    { input: 0.8, output: 4 },
@@ -65,6 +76,8 @@ const PROVIDER_OF: Record<string, string> = {
   "kimi2.6": "Moonshot",
   "kimi-coding": "Kimi For Coding",
   "minimax2.7": "MiniMax",
+  "deepseek-v4-flash": "DeepSeek",
+  "deepseek-v4-pro": "DeepSeek",
   "bedrock-claude-sonnet-4-5": "AWS Bedrock",
   "bedrock-claude-opus-4-5": "AWS Bedrock",
   "bedrock-claude-haiku-4-5": "AWS Bedrock",
@@ -77,11 +90,6 @@ function calcCost(model: string, inputTokens: number, outputTokens: number): num
   const pricing = MODEL_PRICING[model] ?? { input: 1, output: 3 };
   return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
 }
-function fmtDur(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
 /** Live tok/sec while streaming. Falls back to final-duration calc when done. */
 function tokensPerSec(state: { output_tokens: number; duration_ms: number; status: string; started_at?: number; content: string }): number {
   if (state.status === "done" && state.duration_ms > 0 && state.output_tokens > 0) {
@@ -90,526 +98,827 @@ function tokensPerSec(state: { output_tokens: number; duration_ms: number; statu
   if (state.status === "running" && state.started_at) {
     const elapsed = (Date.now() - state.started_at) / 1000;
     if (elapsed < 0.3) return 0;
-    // Approximate live tokens from char count (1 tok ≈ 4 chars).
+    // Approximate live tokens from char count (1 tok â‰ˆ 4 chars).
     return state.content.length / 4 / elapsed;
   }
   return 0;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// SCORE SLIDER
-// ════════════════════════════════════════════════════════════════════════════
+function hasScoreableOutput(state: { status: string; content: string; error?: string } | undefined): boolean {
+  return Boolean(state && state.status === "done" && !state.error && state.content.trim().length > 0);
+}
+
+type ArtifactLaunchState = "idle" | "starting" | "ok" | "error";
+
+type ModelAvatarMeta = {
+  initials: string;
+  provider: string;
+  bg: string;
+  fg: string;
+};
+
+function modelAvatarMeta(model: string): ModelAvatarMeta {
+  const lower = model.toLowerCase();
+  if (lower.includes("deepseek")) return { initials: "DS", provider: "DeepSeek", bg: "oklch(0.24 0.040 250)", fg: "oklch(0.84 0.060 250)" };
+  if (lower.includes("claude") || lower.includes("anthropic")) return { initials: "C", provider: "Claude", bg: "oklch(0.25 0.045 38)", fg: "oklch(0.86 0.070 50)" };
+  if (lower.includes("kimi") || lower.includes("moonshot")) return { initials: "K", provider: "Kimi", bg: "oklch(0.22 0.040 285)", fg: "oklch(0.84 0.070 300)" };
+  if (lower.includes("minimax")) return { initials: "M", provider: "MiniMax", bg: "oklch(0.24 0.038 165)", fg: "oklch(0.82 0.065 165)" };
+  if (lower.includes("qwen")) return { initials: "Q", provider: "Qwen", bg: "oklch(0.23 0.040 220)", fg: "oklch(0.84 0.060 220)" };
+  if (lower.includes("glm")) return { initials: "G", provider: "GLM", bg: "oklch(0.23 0.036 145)", fg: "oklch(0.82 0.060 145)" };
+  if (lower.includes("nova")) return { initials: "N", provider: "Nova", bg: "oklch(0.23 0.040 75)", fg: "oklch(0.86 0.070 75)" };
+  return { initials: model.slice(0, 2).toUpperCase(), provider: "Model", bg: "oklch(0.22 0.018 235)", fg: "oklch(0.82 0.025 230)" };
+}
+
+function ModelAvatar({
+  model,
+  displayName,
+  revealed,
+  size = "md",
+}: {
+  model: string;
+  displayName: string;
+  revealed: boolean;
+  size?: "sm" | "md" | "lg";
+}) {
+  const meta = modelAvatarMeta(model);
+  const initials = revealed ? meta.initials : displayName.replace(/^Model\s+/i, "").slice(0, 2).toUpperCase();
+  const px = size === "lg" ? 96 : size === "sm" ? 40 : 58;
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div
+        className="grid place-items-center rounded-full border border-[oklch(0.25_0.010_245)] shadow-[0_12px_30px_oklch(0.04_0_0_/_0.28)]"
+        style={{ width: px, height: px, background: revealed ? meta.bg : "oklch(0.16 0.006 245)", color: revealed ? meta.fg : "oklch(0.78 0.035 205)" }}
+        title={revealed ? `${meta.provider}: ${model}` : displayName}
+        aria-hidden="true"
+      >
+        <span className={`${size === "lg" ? "text-2xl" : size === "sm" ? "text-xs" : "text-base"} font-semibold tracking-normal`}>
+          {initials}
+        </span>
+      </div>
+      {revealed && size !== "sm" && (
+        <span className="max-w-[88px] truncate text-[10px] font-medium text-[oklch(0.48_0.010_230)]">{meta.provider}</span>
+      )}
+    </div>
+  );
+}
+
+const REVIEW_SCORE_GROUPS: Array<{
+  title: string;
+  hint: string;
+  keys: Array<keyof HumanScores>;
+}> = [
+  { title: "Result", hint: "Did the final outcome satisfy the task?", keys: ["accuracy", "helpfulness", "quality"] },
+  { title: "Visual", hint: "What you can see, use, and judge in the preview.", keys: ["design", "aesthetics", "creativity"] },
+  { title: "Presentation", hint: "How clean and focused the delivered answer feels.", keys: ["ai_slop", "brevity"] },
+];
+
 function ScoreSlider({ label, color, value, onChange }: { label: string; color: string; value: number; onChange: (v: number) => void; }) {
+  const isUnset = value <= 0;
   return (
     <div className="flex flex-col gap-1">
       <div className="flex justify-between text-xs">
         <span className="text-[oklch(0.65_0_0)]">{label}</span>
-        <span style={{ color }} className="font-medium tabular-nums">
-          {value > 0 ? value.toFixed(1) : "—"}
+        <span
+          style={{ color: isUnset ? undefined : color }}
+          className={`font-medium tabular-nums ${isUnset ? "text-[oklch(0.46_0.012_230)]" : ""}`}
+        >
+          {isUnset ? "unset" : value.toFixed(1)}
         </span>
       </div>
       <input
-        type="range" min={1} max={10} step={0.5}
-        value={value || 5}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full h-1 rounded appearance-none cursor-pointer"
+        type="range"
+        min={1}
+        max={10}
+        step={0.5}
+        value={isUnset ? 5 : value}
+        aria-label={`${label} score`}
+        aria-valuetext={isUnset ? "unset" : value.toFixed(1)}
+        title={isUnset ? "Move to set this score" : `${label}: ${value.toFixed(1)}`}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className={`h-1 w-full cursor-pointer appearance-none rounded ${isUnset ? "opacity-45" : ""}`}
         style={{ accentColor: color }}
       />
     </div>
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// LIVE RACE-TRACK ROW: shows what each model is doing in real time
-// ════════════════════════════════════════════════════════════════════════════
-function RaceTrackRow({ model, displayName, color }: { model: string; displayName: string; color: string }) {
-  const state = useEvalStore((s) => s.activeEval?.modelStates[model]);
-  const [, forceRerender] = useState(0);
-
-  // Tick while running so live tok/s updates smoothly.
-  useEffect(() => {
-    if (state?.status !== "running") return;
-    const id = setInterval(() => forceRerender((n) => n + 1), 250);
-    return () => clearInterval(id);
-  }, [state?.status]);
-
-  if (!state) return null;
-
-  const tps = tokensPerSec(state);
-  const cost = calcCost(model, state.input_tokens, state.output_tokens);
-  const previewText = state.content.slice(0, 220).replace(/\s+/g, " ");
-
-  return (
-    <div className="flex items-stretch gap-2 px-3 py-2 border-b border-neutral-800/50 last:border-0 hover:bg-[oklch(0.14_0_0)]/50">
-      <div className="w-1 flex-none rounded" style={{ background: color }} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-sm font-medium text-[oklch(0.88_0_0)] truncate" style={{ maxWidth: "240px" }}>{displayName}</span>
-          <StatusDot status={state.status} />
-          <span className="ml-auto flex items-center gap-3 text-xs text-[oklch(0.50_0_0)] tabular-nums whitespace-nowrap">
-            {state.status !== "pending" && (
-              <>
-                <span title="time"><Clock className="inline w-3 h-3" /> {fmtDur(state.duration_ms || (state.started_at ? Date.now() - state.started_at : 0))}</span>
-                <span title="tokens">{state.output_tokens || Math.round(state.content.length / 4)} tok</span>
-                <span title="tok/s" className={tps > 80 ? "text-[oklch(0.78_0.18_142)]" : ""}>{tps.toFixed(0)} t/s</span>
-                <span title="cost">${cost.toFixed(4)}</span>
-              </>
-            )}
-          </span>
-        </div>
-        {/* Streaming preview */}
-        <div className="text-xs text-[oklch(0.55_0_0)] line-clamp-2 leading-relaxed font-mono">
-          {state.status === "pending" && <span className="opacity-50">waiting…</span>}
-          {state.status === "running" && !previewText && <span className="opacity-60 animate-pulse">▌</span>}
-          {state.status === "running" && previewText && <>{previewText}<span className="animate-pulse">▌</span></>}
-          {state.status === "done" && previewText}
-          {state.status === "error" && <span className="text-red-400">{state.error}</span>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function StatusDot({ status }: { status: string }) {
   const cls =
-    status === "running" ? "bg-yellow-400 animate-pulse" :
-    status === "done"    ? "bg-green-500" :
+    status === "running" ? "bg-[oklch(0.72_0.080_70)] animate-pulse" :
+    status === "done"    ? "bg-[oklch(0.66_0.075_155)]" :
     status === "error"   ? "bg-red-500" :
-                           "bg-neutral-600";
-  return <div className={`w-2 h-2 rounded-full flex-none ${cls}`} />;
+                           "bg-[oklch(0.34_0.010_235)]";
+  return <div className={`h-2 w-2 flex-none rounded-full ${cls}`} />;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// MODEL RESPONSE CARD (full markdown rendering + HIL sliders)
-// ════════════════════════════════════════════════════════════════════════════
-function ResponseCard({ model, displayName }: { model: string; displayName: string }) {
-  const state = useEvalStore((s) => s.activeEval?.modelStates[model]);
-  const humanScores = useEvalStore((s) => s.humanScores[model] ?? {});
-  const setHumanScore = useEvalStore((s) => s.setHumanScore);
-  const judge = useEvalStore((s) => s.activeEval?.judge);
-  const [expanded, setExpanded] = useState(false);
-  const [scoring, setScoring] = useState(false);
+function EvalArena({
+  blindMode,
+  onReadyForScores,
+}: {
+  blindMode: boolean;
+  onReadyForScores: () => void;
+}) {
+  const activeEval = useEvalStore((s) => s.activeEval);
+  const [, forceRerender] = useState(0);
 
-  if (!state) return null;
+  useEffect(() => {
+    if (!activeEval || activeEval.complete) return;
+    const id = setInterval(() => forceRerender((n) => n + 1), 450);
+    return () => clearInterval(id);
+  }, [activeEval?.id, activeEval?.complete]);
 
-  const cost = calcCost(model, state.input_tokens, state.output_tokens);
-  const filledDims = SCORE_DIMENSIONS.filter((d) => (humanScores[d.key] ?? 0) > 0);
-  const humanAvg = filledDims.length > 0
-    ? filledDims.reduce((sum, d) => sum + (humanScores[d.key] ?? 0), 0) / filledDims.length
-    : 0;
+  if (!activeEval) return null;
 
-  const judgeScores = judge?.scores[model];
-  const judgeAvg = judgeScores
-    ? SCORE_DIMENSIONS.reduce((s, d) => s + (judgeScores[d.key] ?? 5), 0) / SCORE_DIMENSIONS.length
-    : 0;
+  const done = activeEval.models.filter((model) => {
+    const status = activeEval.modelStates[model]?.status;
+    return status === "done" || status === "error";
+  }).length;
+  const runningCount = activeEval.models.filter((model) => activeEval.modelStates[model]?.status === "running").length;
+  const percent = Math.round((done / Math.max(activeEval?.models.length ?? 0, 1)) * 100);
+  const orderedModels = getReviewOrder(activeEval.models, activeEval.blindLabels, blindMode);
+  const complete = activeEval.complete;
 
   return (
-    <div className="flex flex-col border border-neutral-800 rounded-lg overflow-hidden bg-[oklch(0.13_0_0)]">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-800 bg-[oklch(0.155_0_0)]">
-        <div className="flex items-center gap-2">
-          <StatusDot status={state.status} />
-          <span className="text-sm font-medium text-[oklch(0.88_0_0)]">{displayName}</span>
-          {humanAvg > 0 && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-[oklch(0.65_0.18_250)]/20 text-[oklch(0.78_0.18_250)]" title="Human avg">
-              ★ {humanAvg.toFixed(1)}
-            </span>
-          )}
-          {judgeAvg > 0 && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-[oklch(0.65_0.18_100)]/20 text-[oklch(0.78_0.18_100)]" title="Judge avg">
-              ⚖ {judgeAvg.toFixed(1)}
-            </span>
-          )}
-          {state.auto && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-neutral-800 text-[oklch(0.6_0_0)]" title="Auto-graded">
-              auto {state.auto.ai_slop_score?.toFixed(1) ?? "—"} / {state.auto.brevity_score?.toFixed(1) ?? "—"}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-3 text-xs text-[oklch(0.50_0_0)] tabular-nums">
-          {state.status !== "pending" && (
-            <>
-              <span><Clock className="inline w-3 h-3" /> {fmtDur(state.duration_ms)}</span>
-              <span><Hash className="inline w-3 h-3" /> {state.input_tokens}↑ {state.output_tokens}↓</span>
-              <span><Coins className="inline w-3 h-3" /> ${cost.toFixed(4)}</span>
-            </>
-          )}
-          <button onClick={() => setScoring((v) => !v)} className="ml-1 text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)]" title="Score">
-            <Sparkles className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={() => setExpanded((v) => !v)} className="text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)]">
-            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
-        </div>
-      </div>
-
-      {/* Response */}
-      <div className="px-3 py-3 text-sm text-[oklch(0.84_0_0)] leading-relaxed overflow-y-auto" style={{ maxHeight: expanded ? "none" : "320px", minHeight: "60px" }}>
-        {state.status === "pending" && <span className="text-[oklch(0.40_0_0)]">Waiting…</span>}
-        {state.status === "running" && !state.content && <span className="text-[oklch(0.55_0_0)] animate-pulse">Generating…</span>}
-        {state.content && <MarkdownRenderer content={state.content} />}
-        {state.status === "error" && state.error && <span className="text-red-400 text-xs">{state.error}</span>}
-      </div>
-
-      {/* Auto + Judge details */}
-      {state.auto && (state.status === "done" || state.status === "error") && (
-        <div className="border-t border-neutral-800 px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[oklch(0.55_0_0)] bg-[oklch(0.115_0_0)]">
-          <span>{state.auto.word_count} words · {state.auto.char_count} chars</span>
-          <span>· {state.auto.code_block_count} code blocks</span>
-          <span>· {state.auto.em_dash_count} em-dashes</span>
-          {state.auto.json_valid !== null && (
-            <span className={state.auto.json_valid ? "text-green-400" : "text-red-400"}>
-              · JSON {state.auto.json_valid ? "valid" : "INVALID"}
-            </span>
-          )}
-          {state.auto.slop_hits.length > 0 && (
-            <span className="text-[oklch(0.72_0.18_30)]">· slop: {state.auto.slop_hits.slice(0, 3).join(", ")}{state.auto.slop_hits.length > 3 ? "…" : ""}</span>
-          )}
-        </div>
-      )}
-
-      {/* Goal eval surface: reasoning trace + supervisor flags + 5-axis grade */}
-      <ReasoningTrace model={model} />
-      {state.flags.length > 0 && <FlagList flags={state.flags} />}
-      {state.goalGrade && <GoalGradeCard grade={state.goalGrade} />}
-
-      {judge?.rationale?.[model] && (
-        <div className="border-t border-neutral-800 px-3 py-2 text-xs text-[oklch(0.65_0_0)] bg-[oklch(0.125_0_0)] italic">
-          <Gavel className="inline w-3 h-3 mr-1 text-[oklch(0.65_0.18_100)]" /> {judge.rationale[model]}
-        </div>
-      )}
-
-      {/* HIL panel */}
-      {scoring && (state.status === "done" || state.status === "error") && (
-        <div className="border-t border-neutral-800 px-3 py-3 grid grid-cols-2 gap-x-4 gap-y-2 bg-[oklch(0.10_0_0)]">
-          <p className="col-span-2 text-xs text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider mb-1">
-            Human Evaluation (1–10)
-          </p>
-          {SCORE_DIMENSIONS.map((dim) => (
-            <ScoreSlider
-              key={dim.key}
-              label={dim.label}
-              color={dim.color}
-              value={humanScores[dim.key] ?? 0}
-              onChange={(v) => setHumanScore(model, dim.key, v)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// REASONING TRACE — collapsible chain-of-thought with inline flag highlights
-// ════════════════════════════════════════════════════════════════════════════
-function ReasoningTrace({ model }: { model: string }) {
-  const state = useEvalStore((s) => s.activeEval?.modelStates[model]);
-  const [open, setOpen] = useState(true);
-  if (!state) return null;
-  if (!state.reasoning && state.flags.length === 0) return null;
-
-  return (
-    <div className="border-t border-neutral-800 bg-[oklch(0.105_0_0)]">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wider text-[oklch(0.55_0_0)] hover:bg-[oklch(0.14_0_0)]"
-      >
-        <Brain className="w-3 h-3 text-[oklch(0.65_0.18_280)]" />
-        <span>Reasoning trace</span>
-        <span className="text-[oklch(0.40_0_0)] font-mono normal-case tracking-normal">
-          {state.reasoning.length} chars
-        </span>
-        {state.flags.length > 0 && (
-          <span className="px-1.5 py-0.5 rounded bg-[oklch(0.65_0.18_30)]/20 text-[oklch(0.78_0.18_30)] text-[10px] normal-case tracking-normal">
-            {state.flags.length} flag{state.flags.length === 1 ? "" : "s"}
-          </span>
-        )}
-        <span className="ml-auto">{open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}</span>
-      </button>
-      {open && (
-        <div className="px-3 py-2 max-h-[280px] overflow-y-auto text-xs font-mono text-[oklch(0.62_0_0)] leading-relaxed whitespace-pre-wrap">
-          {state.reasoning ? <FlaggedText text={state.reasoning} flags={state.flags} /> : <span className="italic text-[oklch(0.40_0_0)]">no reasoning exposed by this model</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Render `text` with `flags[].quote` substrings highlighted by severity colour.
- * Greedy single-pass: walks flags in order of their offset_chars, taking the
- * first matching occurrence after the cursor. Skips a flag if its quote can't
- * be located (judges occasionally paraphrase even when asked for verbatim).
- */
-function FlaggedText({ text, flags }: { text: string; flags: ReasoningFlag[] }) {
-  if (flags.length === 0) return <>{text}</>;
-  const sorted = [...flags].sort((a, b) => a.offset_chars - b.offset_chars);
-  const parts: React.ReactNode[] = [];
-  let cursor = 0;
-  for (let i = 0; i < sorted.length; i++) {
-    const f = sorted[i];
-    if (!f.quote) continue;
-    const idx = text.indexOf(f.quote, cursor);
-    if (idx < 0) continue;
-    if (idx > cursor) parts.push(text.slice(cursor, idx));
-    const st = flagStyle(f.kind);
-    parts.push(
-      <mark
-        key={i}
-        title={`${f.kind} · ${f.severity}: ${f.comment}`}
-        className="rounded px-0.5"
-        style={{ background: `color-mix(in oklch, ${st.color} 18%, transparent)`, color: st.color }}
-      >
-        {f.quote}
-      </mark>
-    );
-    cursor = idx + f.quote.length;
-  }
-  if (cursor < text.length) parts.push(text.slice(cursor));
-  return <>{parts}</>;
-}
-
-function FlagList({ flags }: { flags: ReasoningFlag[] }) {
-  if (flags.length === 0) return null;
-  return (
-    <div className="border-t border-neutral-800 px-3 py-2 bg-[oklch(0.115_0_0)] flex flex-col gap-1.5">
-      <div className="text-[10px] uppercase tracking-wider text-[oklch(0.50_0_0)] flex items-center gap-1">
-        <AlertTriangle className="w-3 h-3" /> Supervisor flags
-      </div>
-      {flags.map((f, i) => {
-        const st = flagStyle(f.kind);
-        return (
-          <div key={i} className="flex items-start gap-2 text-xs">
-            <span style={{ color: st.color }} className="font-bold">{st.emoji}</span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span style={{ color: st.color }} className="text-[10px] uppercase tracking-wider font-medium">{f.kind.replace(/_/g, " ")}</span>
-                <span className="text-[10px] text-[oklch(0.42_0_0)]">· {f.severity}</span>
+    <div className="overflow-hidden rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.101_0.003_245)]">
+      <div className="relative min-h-[calc(100vh-170px)] overflow-hidden px-5 py-5">
+        <div className="eval-arena-grid" aria-hidden="true" />
+        <div className="relative flex min-h-[calc(100vh-210px)] flex-col gap-5">
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Blind battle</div>
+              <div className="mt-1 text-2xl font-semibold tracking-normal text-[oklch(0.92_0.010_220)]">
+                {complete ? "All models finished" : runningCount > 0 ? "Models are working" : "Waiting for model streams"}
               </div>
-              <div className="text-[oklch(0.72_0_0)] leading-relaxed">{f.comment}</div>
-              {f.quote && (
-                <div className="text-[10px] italic text-[oklch(0.50_0_0)] font-mono truncate" title={f.quote}>
-                  “{f.quote}”
-                </div>
-              )}
+              <div className="mt-2 max-w-3xl line-clamp-2 text-sm leading-relaxed text-[oklch(0.58_0.014_230)]">{activeEval.prompt}</div>
+            </div>
+            <div className="min-w-[160px] text-right">
+              <div className="text-[10px] uppercase tracking-[0.14em] text-[oklch(0.46_0.010_230)]">Progress</div>
+              <div className="mt-1 font-mono text-xl text-[oklch(0.76_0.040_190)]">{done}/{activeEval?.models.length ?? 0}</div>
+              <div className="mt-1 text-[10px] text-[oklch(0.46_0.010_230)]">
+                Code and telemetry stay hidden during the battle.
+              </div>
             </div>
           </div>
-        );
-      })}
+
+          <div className="h-2 overflow-hidden rounded-full bg-[oklch(0.14_0.006_245)]">
+            <div
+              className="h-full rounded-full bg-[linear-gradient(90deg,oklch(0.70_0.070_190),oklch(0.74_0.070_85),oklch(0.70_0.080_310))] transition-[width] duration-500"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+
+          <div className="grid flex-1 content-center gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {orderedModels.map((model) => {
+              const state = activeEval.modelStates[model];
+              const displayName = blindMode ? activeEval.blindLabels[model] ?? model : model;
+              const isScoreable = hasScoreableOutput(state);
+              const tps = tokensPerSec(state);
+              return (
+                <div
+                  key={model}
+                  className={`relative overflow-hidden rounded-md border px-3 py-3 ${
+                    state.status === "error"
+                      ? "border-[oklch(0.34_0.035_28)] bg-[oklch(0.13_0.010_28)]"
+                      : state.status === "done"
+                        ? "border-[oklch(0.30_0.018_165)] bg-[oklch(0.12_0.008_170)]"
+                        : state.status === "running"
+                          ? "border-[oklch(0.36_0.020_195)] bg-[oklch(0.13_0.008_210)]"
+                          : "border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)]"
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <ModelAvatar model={model} displayName={displayName} revealed={!blindMode} size="lg" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <StatusDot status={state.status} />
+                        <span className="truncate text-sm font-semibold text-[oklch(0.88_0.014_220)]">{displayName}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-[oklch(0.52_0.012_230)]">
+                        {state.status === "pending" && "Queued for the arena"}
+                        {state.status === "running" && (state.content ? "Drafting response" : "Thinking")}
+                        {state.status === "done" && (isScoreable ? "Response ready for review" : "No usable output")}
+                        {state.status === "error" && "Disqualified by provider error"}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-[oklch(0.48_0.012_230)]">
+                        {state.status === "running" && <span className="font-mono">{tps.toFixed(0)} tok/s</span>}
+                        {state.output_tokens > 0 && <span className="font-mono">{state.output_tokens} out tok</span>}
+                        {state.status === "error" && <span className="text-[oklch(0.72_0.060_28)]">No score</span>}
+                      </div>
+                    </div>
+                  </div>
+                  {state.status === "running" && (
+                    <div className="mt-3 h-1 overflow-hidden rounded-full bg-[oklch(0.10_0.004_245)]">
+                      <div className="eval-arena-runner h-full w-1/3 rounded-full bg-[oklch(0.72_0.055_190)]" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {complete && (
+            <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-3 border-t border-[oklch(0.22_0.008_240)] pt-5 text-center">
+              <div className="text-sm text-[oklch(0.60_0.012_230)]">
+                The blind run is complete. Move to the review screen to inspect outcomes and score each anonymous model.
+              </div>
+              <Button
+                onClick={onReadyForScores}
+                className="h-10 rounded-md bg-[oklch(0.92_0.010_220)] px-5 text-sm font-semibold text-[oklch(0.12_0.004_245)] hover:bg-white"
+              >
+                Ready for scores
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
-function GoalGradeCard({ grade }: { grade: GoalGrade }) {
-  const avg = useMemo(() => {
-    const vals = GOAL_AXES.map((a) => grade.axes[a.key]?.score ?? 0).filter((v) => v > 0);
-    return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
-  }, [grade]);
+function OutcomePreview({
+  model,
+  displayName,
+  showWrittenFallback = false,
+}: {
+  model: string;
+  displayName: string;
+  showWrittenFallback?: boolean;
+}) {
+  const state = useEvalStore((s) => s.activeEval?.modelStates[model]);
+  const artifacts = useMemo(() => state?.content ? extractEvalArtifacts(state.content) : [], [state?.content]);
+  const firstInlinePreview = artifacts.find((artifact) => artifact.canPreviewInline && artifact.previewHtml);
+  const [launchStates, setLaunchStates] = useState<Record<string, { state: ArtifactLaunchState; message: string }>>({});
+  const [showText, setShowText] = useState(false);
+
+  if (!state) return null;
+
+  const startArtifact = async (artifact: EvalArtifact) => {
+    setLaunchStates((prev) => ({ ...prev, [artifact.id]: { state: "starting", message: "" } }));
+    const result = await commands.startEvalArtifact({
+      label: displayName,
+      kind: artifact.kind,
+      entry_path: artifact.entryPath,
+      files: artifact.files.map((file) => ({ relative_path: file.relativePath, content: file.content })),
+    });
+    if (result.status === "ok") {
+      setLaunchStates((prev) => ({ ...prev, [artifact.id]: { state: "ok", message: result.data.message } }));
+    } else {
+      setLaunchStates((prev) => ({ ...prev, [artifact.id]: { state: "error", message: result.error } }));
+    }
+  };
 
   return (
-    <div className="border-t border-neutral-800 px-3 py-3 bg-[oklch(0.115_0_0)]">
-      <div className="flex items-center gap-2 mb-2">
-        <Target className="w-3.5 h-3.5 text-[oklch(0.78_0.18_60)]" />
-        <span className="text-[10px] uppercase tracking-wider text-[oklch(0.55_0_0)] font-medium">Goal Grade</span>
-        {avg > 0 && (
-          <span className="text-xs px-1.5 py-0.5 rounded bg-[oklch(0.78_0.18_60)]/20 text-[oklch(0.85_0.18_60)] tabular-nums">
-            {avg.toFixed(1)}/5
-          </span>
+    <div className="overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]">
+      <div className="flex items-center gap-2 border-b border-[oklch(0.20_0.006_245)] px-3 py-2">
+        <MonitorPlay className="h-3.5 w-3.5 text-[oklch(0.62_0.032_195)]" />
+        <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-[oklch(0.55_0.020_205)]">Outcome preview</span>
+        {artifacts.length > 0 && (
+          <span className="ml-auto text-[10px] text-[oklch(0.46_0.010_230)]">{artifacts.length} artifact{artifacts.length === 1 ? "" : "s"}</span>
         )}
-        <span className="ml-auto text-[10px] text-[oklch(0.40_0_0)] italic">judged by {grade.judge_model}</span>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5">
-        {GOAL_AXES.map((axis) => {
-          const a = grade.axes[axis.key];
-          const score = a?.score ?? 0;
-          return (
-            <div key={axis.key} className="flex flex-col gap-0.5" title={axis.hint}>
-              <div className="flex items-center justify-between text-[10px]" style={{ color: axis.color }}>
-                <span className="uppercase tracking-wider">{axis.label}</span>
-                <span className="tabular-nums">{score > 0 ? score.toFixed(1) : "—"}/5</span>
-              </div>
-              <div className="h-1.5 bg-neutral-900 rounded overflow-hidden">
-                <div
-                  className="h-full rounded transition-[width] duration-200"
-                  style={{ width: `${(score / 5) * 100}%`, background: axis.color }}
-                />
-              </div>
-              {a?.evidence && (
-                <div className="text-[10px] italic text-[oklch(0.45_0_0)] font-mono truncate" title={a.evidence}>
-                  “{a.evidence}”
-                </div>
-              )}
+
+      {firstInlinePreview?.previewHtml ? (
+        <iframe
+          title={`${displayName} outcome preview`}
+          srcDoc={firstInlinePreview.previewHtml}
+          sandbox="allow-scripts allow-pointer-lock"
+          className="h-[320px] w-full bg-white"
+          tabIndex={0}
+        />
+      ) : (
+        <div className="grid min-h-[220px] place-items-center px-4 py-6 text-center">
+          <div>
+            <div className="text-sm font-medium text-[oklch(0.78_0.014_225)]">No inline preview detected</div>
+            <div className="mt-1 max-w-sm text-xs leading-relaxed text-[oklch(0.52_0.012_230)]">
+              Runnable files can still be opened from here. Written output is hidden by default during scoring.
             </div>
-          );
-        })}
-      </div>
-      {grade.summary && (
-        <div className="mt-2 pt-2 border-t border-neutral-800 text-xs text-[oklch(0.72_0_0)] italic leading-relaxed">
-          {grade.summary}
+          </div>
+        </div>
+      )}
+
+      {artifacts.length > 0 && (
+        <div className="flex flex-wrap gap-2 border-t border-[oklch(0.20_0.006_245)] px-3 py-2">
+          {artifacts.map((artifact) => {
+            const launch = launchStates[artifact.id] ?? { state: "idle" as ArtifactLaunchState, message: "" };
+            return (
+              <button
+                key={artifact.id}
+                type="button"
+                onClick={() => void startArtifact(artifact)}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.66_0.020_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)]"
+                title={launch.message || artifact.title}
+              >
+                <ExternalLink className="h-3 w-3" />
+                {launch.state === "starting" ? "Starting..." : artifact.kind === "python" ? "Start" : "Open"} {artifact.title}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {showWrittenFallback && (
+        <div className="border-t border-[oklch(0.20_0.006_245)]">
+          <button
+            type="button"
+            onClick={() => setShowText((value) => !value)}
+            className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] uppercase tracking-[0.13em] text-[oklch(0.50_0.012_230)] hover:bg-[oklch(0.125_0.004_245)]"
+          >
+            Written output
+            {showText ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+          {showText && (
+            <div className="max-h-[260px] overflow-auto px-3 py-3 text-sm leading-relaxed text-[oklch(0.80_0.012_220)]">
+              <MarkdownRenderer content={state.content} />
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// LEADERBOARD: composite scores + per-dimension bar chart
-// ════════════════════════════════════════════════════════════════════════════
-function Leaderboard({ blindNames }: { blindNames: Record<string, string> }) {
-  const activeEval = useEvalStore((s) => s.activeEval);
-  const humanScores = useEvalStore((s) => s.humanScores);
-  const [costWeight, setCostWeight] = useState(0);
-  const [latencyWeight, setLatencyWeight] = useState(0);
-  if (!activeEval) return null;
-
-  const judge = activeEval.judge;
-
-  // Composite per model: average of (filled human dims) blended with judge if present.
-  const rows = activeEval.models.map((model) => {
-    const state = activeEval.modelStates[model];
-    const human = humanScores[model] ?? {};
-    const humanFilled = SCORE_DIMENSIONS.filter((d) => (human[d.key] ?? 0) > 0);
-    const humanAvg = humanFilled.length > 0
-      ? humanFilled.reduce((s, d) => s + (human[d.key] ?? 0), 0) / humanFilled.length
-      : 0;
-    const jScores = judge?.scores[model];
-    const judgeAvg = jScores
-      ? SCORE_DIMENSIONS.reduce((s, d) => s + (jScores[d.key] ?? 5), 0) / SCORE_DIMENSIONS.length
-      : 0;
-    const cost = calcCost(model, state.input_tokens, state.output_tokens);
-    const dur = state.duration_ms;
-
-    // Pick best available quality signal: human > judge > auto.
-    let quality = humanAvg || judgeAvg || 0;
-    if (quality === 0 && state.auto) {
-      quality = ((state.auto.ai_slop_score ?? 5) + (state.auto.brevity_score ?? 5)) / 2;
+function ReviewScoreControls({ model }: { model: string }) {
+  const humanScores = useEvalStore((s) => s.humanScores[model] ?? EMPTY_HUMAN_SCORES);
+  const setHumanScore = useEvalStore((s) => s.setHumanScore);
+  const scoreCount = HUMAN_SCORE_KEYS.filter((key) => (humanScores[key] ?? 0) > 0).length;
+  const setGroupNeutral = (keys: Array<keyof HumanScores>) => {
+    for (const key of keys) {
+      if ((humanScores[key] ?? 0) <= 0) setHumanScore(model, key, 5);
     }
-    return { model, state, humanAvg, judgeAvg, cost, dur, quality, auto: state.auto };
-  });
-
-  // Normalize cost/latency for composite (higher is better → invert).
-  const maxCost = Math.max(...rows.map((r) => r.cost), 0.0001);
-  const maxDur = Math.max(...rows.map((r) => r.dur), 1);
-  const composites = rows.map((r) => {
-    const q = r.quality;
-    const costScore = maxCost > 0 ? 10 * (1 - r.cost / maxCost) : 0;
-    const speedScore = maxDur > 0 ? 10 * (1 - r.dur / maxDur) : 0;
-    const w = 1 + costWeight + latencyWeight;
-    const composite = (q + costScore * costWeight + speedScore * latencyWeight) / w;
-    return { ...r, composite };
-  });
-  composites.sort((a, b) => b.composite - a.composite);
-  const winner = composites[0];
+  };
 
   return (
-    <div className="rounded-lg border border-neutral-800 overflow-hidden bg-[oklch(0.13_0_0)]">
-      <div className="px-3 py-2 border-b border-neutral-800 bg-[oklch(0.155_0_0)] flex items-center gap-2">
-        <Trophy className="w-4 h-4 text-[oklch(0.78_0.18_60)]" />
-        <span className="text-xs font-semibold text-[oklch(0.88_0_0)] uppercase tracking-wider">Leaderboard</span>
-        <div className="ml-auto flex items-center gap-3 text-xs">
-          <label className="flex items-center gap-1 text-[oklch(0.55_0_0)]">
-            Cost weight
-            <input type="range" min={0} max={2} step={0.25} value={costWeight} onChange={(e) => setCostWeight(Number(e.target.value))} className="w-16 accent-[oklch(0.65_0.18_30)]" />
-            <span className="tabular-nums w-6 text-right">{costWeight.toFixed(1)}</span>
-          </label>
-          <label className="flex items-center gap-1 text-[oklch(0.55_0_0)]">
-            Speed weight
-            <input type="range" min={0} max={2} step={0.25} value={latencyWeight} onChange={(e) => setLatencyWeight(Number(e.target.value))} className="w-16 accent-[oklch(0.65_0.18_200)]" />
-            <span className="tabular-nums w-6 text-right">{latencyWeight.toFixed(1)}</span>
-          </label>
+    <div className="rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]">
+      <div className="flex items-center justify-between border-b border-[oklch(0.20_0.006_245)] px-3 py-2">
+        <div>
+          <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[oklch(0.58_0.022_205)]">Human visual score</div>
+          <div className="mt-0.5 text-xs text-[oklch(0.48_0.012_230)]">Score the outcome you can inspect, not provider speed.</div>
+        </div>
+        <span className="text-[10px] uppercase tracking-[0.13em] text-[oklch(0.52_0.012_230)]">{scoreCount}/{SCORE_DIMENSION_COUNT}</span>
+      </div>
+      <div className="grid gap-3 p-3">
+        {REVIEW_SCORE_GROUPS.map((group) => (
+          <div key={group.title} className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] p-3">
+            <div className="mb-3 flex items-start gap-3">
+              <div>
+                <div className="text-xs font-semibold text-[oklch(0.82_0.014_220)]">{group.title}</div>
+                <div className="mt-0.5 text-[10px] leading-relaxed text-[oklch(0.48_0.012_230)]">{group.hint}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGroupNeutral(group.keys)}
+                className="ml-auto h-6 rounded border border-[oklch(0.24_0.010_235)] px-2 text-[10px] text-[oklch(0.52_0.014_230)] hover:text-[oklch(0.76_0.018_220)]"
+              >
+                Set 5
+              </button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {group.keys.map((key) => {
+                const dim = SCORE_DIMENSIONS.find((item) => item.key === key) ?? SCORE_DIMENSIONS[0];
+                return (
+                  <ScoreSlider
+                    key={key}
+                    label={dim.label}
+                    color={dim.color}
+                    value={humanScores[key] ?? 0}
+                    onChange={(value) => setHumanScore(model, key, value)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HumanReviewScreen({
+  models,
+  blindNames,
+  progressLabel,
+  canFinish,
+  savingScores,
+  onDone,
+}: {
+  models: string[];
+  blindNames: Record<string, string>;
+  progressLabel: string;
+  canFinish: boolean;
+  savingScores: boolean;
+  onDone: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3 rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] px-4 py-4 md:flex-row md:items-center">
+        <div>
+          <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Blind review</div>
+          <h3 className="mt-1 text-xl font-semibold tracking-normal text-[oklch(0.90_0.012_220)]">Inspect outcomes and score the visual result</h3>
+          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-[oklch(0.56_0.014_230)]">
+            Model names, speed, token usage, and AI judge details stay hidden until this review is finished.
+          </p>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="rounded-md border border-[oklch(0.25_0.012_235)] px-2 py-1 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.58_0.018_220)]">{progressLabel}</span>
+          <Button
+            onClick={onDone}
+            disabled={!canFinish || savingScores}
+            className="h-9 rounded-md bg-[oklch(0.90_0.010_220)] px-4 text-xs font-semibold text-[oklch(0.12_0.004_245)] hover:bg-white disabled:opacity-45"
+          >
+            {savingScores ? "Saving..." : "Scores are ready"}
+          </Button>
         </div>
       </div>
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-neutral-800 text-[oklch(0.45_0_0)]">
-            <th className="px-3 py-1.5 text-left font-medium">#</th>
-            <th className="px-3 py-1.5 text-left font-medium">Model</th>
-            <th className="px-3 py-1.5 text-right font-medium">Quality</th>
-            <th className="px-3 py-1.5 text-right font-medium">Cost</th>
-            <th className="px-3 py-1.5 text-right font-medium">Time</th>
-            <th className="px-3 py-1.5 text-right font-medium text-[oklch(0.78_0.18_60)]">Composite</th>
-          </tr>
-        </thead>
-        <tbody>
-          {composites.map((r, i) => (
-            <tr key={r.model} className={`border-b border-neutral-800/40 last:border-0 ${r === winner ? "bg-[oklch(0.78_0.18_60)]/10" : ""}`}>
-              <td className="px-3 py-1.5 text-[oklch(0.55_0_0)]">{i + 1}{r === winner ? " 🏆" : ""}</td>
-              <td className="px-3 py-1.5 text-[oklch(0.85_0_0)]">{blindNames[r.model] ?? r.model}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-[oklch(0.72_0.18_250)]">{r.quality > 0 ? r.quality.toFixed(1) : "—"}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-[oklch(0.65_0_0)]">${r.cost.toFixed(4)}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-[oklch(0.65_0_0)]">{fmtDur(r.dur)}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-[oklch(0.78_0.18_60)]">{r.composite.toFixed(2)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {/* Per-dimension bar chart */}
-      <DimensionBars blindNames={blindNames} />
+      <div className="grid gap-4">
+        {models.length === 0 && (
+          <div className="rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)] px-4 py-8 text-center">
+            <div className="text-sm font-medium text-[oklch(0.80_0.014_225)]">No scoreable outputs were produced</div>
+            <div className="mt-1 text-xs text-[oklch(0.52_0.012_230)]">Continue to the results screen to see provider errors and telemetry.</div>
+          </div>
+        )}
+        {models.map((model) => (
+          <section key={model} className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-3">
+                <ModelAvatar model={model} displayName={blindNames[model] ?? model} revealed={false} size="md" />
+                <div>
+                  <div className="text-base font-semibold text-[oklch(0.88_0.014_220)]">{blindNames[model] ?? model}</div>
+                  <div className="text-xs text-[oklch(0.48_0.012_230)]">Anonymous outcome</div>
+                </div>
+              </div>
+              <OutcomePreview model={model} displayName={blindNames[model] ?? model} showWrittenFallback />
+            </div>
+            <ReviewScoreControls model={model} />
+          </section>
+        ))}
+      </div>
     </div>
   );
 }
 
-function DimensionBars({ blindNames }: { blindNames: Record<string, string> }) {
-  const activeEval = useEvalStore((s) => s.activeEval);
-  const humanScores = useEvalStore((s) => s.humanScores);
-  if (!activeEval) return null;
-  const judge = activeEval.judge;
-  const hasAnyScore = Object.values(humanScores).some((s) => Object.values(s).some((v) => (v ?? 0) > 0)) || !!judge;
-  if (!hasAnyScore) return null;
+function RadarChart({ comparison }: { comparison: EvalComparison }) {
+  const axes = [
+    { key: "final", label: "Overall" },
+    { key: "ai", label: "AI KPI" },
+    { key: "human", label: "Human" },
+    { key: "speed", label: "Speed" },
+    { key: "efficiency", label: "Tokens" },
+    { key: "reasoning", label: "Reasoning" },
+  ] as const;
+  const center = 150;
+  const radius = 108;
+  const topModels = comparison.models.slice(0, 4);
+  const colorFor = (index: number) => ["#3159ff", "#ff5038", "#00a884", "#a855f7"][index % 4];
+  const point = (axisIndex: number, value: number) => {
+    const angle = -Math.PI / 2 + (axisIndex / axes.length) * Math.PI * 2;
+    const r = (Math.max(0, Math.min(10, value)) / 10) * radius;
+    return `${center + Math.cos(angle) * r},${center + Math.sin(angle) * r}`;
+  };
+  const valueFor = (model: EvalComparison["models"][number], key: typeof axes[number]["key"]): number => {
+    if (key === "final") return model.finalScore ?? 0;
+    if (key === "ai") return model.aiScore ?? 0;
+    if (key === "human") return model.humanScore ?? 0;
+    return model.kpis.find((kpi) => kpi.key === key)?.score ?? 0;
+  };
 
   return (
-    <div className="border-t border-neutral-800 p-3 bg-[oklch(0.12_0_0)]">
-      <div className="text-xs text-[oklch(0.50_0_0)] uppercase tracking-wider mb-2">Per-dimension breakdown</div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
-        {SCORE_DIMENSIONS.map((dim) => {
-          // For each model, prefer human; fall back to judge.
-          const vals = activeEval.models.map((m) => {
-            const h = (humanScores[m]?.[dim.key] ?? 0) as number;
-            if (h > 0) return { model: m, v: h, src: "h" as const };
-            const j = (judge?.scores[m]?.[dim.key] ?? 0) as number;
-            return { model: m, v: j, src: "j" as const };
-          });
-          const max = Math.max(...vals.map((v) => v.v), 10);
+    <div className="flex flex-col items-center">
+      <svg viewBox="0 0 300 300" className="h-[300px] w-full max-w-[360px]">
+        {[0.25, 0.5, 0.75, 1].map((scale) => (
+          <polygon
+            key={scale}
+            points={axes.map((_, index) => point(index, 10 * scale)).join(" ")}
+            fill="none"
+            stroke="oklch(0.80 0 0 / 0.18)"
+            strokeWidth="1"
+          />
+        ))}
+        {axes.map((axis, index) => {
+          const [x, y] = point(index, 10).split(",").map(Number);
           return (
-            <div key={dim.key} className="flex flex-col gap-0.5">
-              <div className="text-[10px] uppercase tracking-wider flex justify-between" style={{ color: dim.color }}>
-                <span>{dim.label}</span>
-              </div>
-              {vals.map((v) => (
-                <div key={v.model} className="flex items-center gap-1.5 text-[10px]">
-                  <span className="text-[oklch(0.55_0_0)] truncate" style={{ width: "120px" }}>
-                    {(blindNames[v.model] ?? v.model)}
-                  </span>
-                  <div className="flex-1 h-2 bg-neutral-900 rounded overflow-hidden">
-                    <div
-                      className="h-full rounded"
-                      style={{
-                        width: `${(v.v / max) * 100}%`,
-                        background: dim.color,
-                        opacity: v.src === "j" ? 0.6 : 1,
-                      }}
-                    />
-                  </div>
-                  <span className="tabular-nums w-7 text-right" style={{ color: dim.color }}>
-                    {v.v > 0 ? v.v.toFixed(1) : "—"}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <g key={axis.key}>
+              <line x1={center} y1={center} x2={x} y2={y} stroke="oklch(0.80 0 0 / 0.13)" strokeWidth="1" />
+              <text x={x} y={y} dy={y < center ? -8 : 14} textAnchor="middle" className="fill-[oklch(0.55_0.012_230)] text-[10px] uppercase tracking-wide">
+                {axis.label}
+              </text>
+            </g>
           );
         })}
-      </div>
-      <div className="text-[10px] text-[oklch(0.40_0_0)] mt-2">
-        Solid bars = your human scores · faded = LLM-judge fallback
+        {topModels.map((model, index) => {
+          const color = colorFor(index);
+          const points = axes.map((axis, axisIndex) => point(axisIndex, valueFor(model, axis.key))).join(" ");
+          return (
+            <g key={model.model}>
+              <polygon points={points} fill={color} fillOpacity="0.22" stroke={color} strokeWidth="2" />
+              {axes.map((axis, axisIndex) => {
+                const [x, y] = point(axisIndex, valueFor(model, axis.key)).split(",").map(Number);
+                return <circle key={axis.key} cx={x} cy={y} r="3" fill={color} />;
+              })}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="flex flex-wrap justify-center gap-3">
+        {topModels.map((model, index) => (
+          <div key={model.model} className="flex items-center gap-1.5 text-xs text-[oklch(0.58_0.014_230)]">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: colorFor(index) }} />
+            {model.displayName}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// HISTORY SIDEBAR
-// ════════════════════════════════════════════════════════════════════════════
+function ComparisonResultsPanel({
+  comparison,
+  reviewDirty,
+  savingReview,
+  onManualReviewChange,
+  onSaveManualReviews,
+}: {
+  comparison: EvalComparison;
+  reviewDirty: boolean;
+  savingReview: boolean;
+  onManualReviewChange: (model: string, review: Partial<ManualReview>) => void;
+  onSaveManualReviews: () => void;
+}) {
+  const winner = comparison.winner;
+  const scoreText = (score: number | null) => score === null ? "--" : score.toFixed(1);
+  const scoreWidth = (score: number | null) => `${Math.max(0, Math.min(100, (score ?? 0) * 10))}%`;
+  const weightLabel = `${Math.round(FINAL_AI_WEIGHT * 100)}% AI KPI / ${Math.round(FINAL_HUMAN_WEIGHT * 100)}% human visual`;
+  const kpiLeaders = ["quality", "reasoning", "speed", "efficiency", "cost"]
+    .map((key) => {
+      const candidates = comparison.models
+        .map((model) => {
+          const kpi = model.kpis.find((item) => item.key === key);
+          return kpi && kpi.score !== null ? { model, kpi, score: kpi.score } : null;
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null)
+        .sort((a, b) => b.score - a.score);
+      const winner = candidates[0];
+      return winner ? { key, label: winner.kpi.label, displayName: winner.model.displayName, score: winner.score, detail: winner.kpi.detail } : null;
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] px-4 py-4">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">
+              <Trophy className="h-3.5 w-3.5" />
+              Revealed leaderboard
+            </div>
+            <h3 className="mt-1 text-2xl font-semibold tracking-normal text-[oklch(0.92_0.010_220)]">
+              {winner ? `${winner.displayName} leads overall` : "No winner yet"}
+            </h3>
+            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-[oklch(0.58_0.014_230)]">
+              Final score blends automatic model KPIs with your blind visual review. Personal notes below are saved separately and never change the eval score.
+            </p>
+          </div>
+          <div className="grid min-w-[260px] grid-cols-3 gap-2 rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.096_0.003_245)] p-2 text-center">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.13em] text-[oklch(0.46_0.010_230)]">Blend</div>
+              <div className="mt-1 text-xs text-[oklch(0.72_0.020_210)]">{weightLabel}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.13em] text-[oklch(0.46_0.010_230)]">Models</div>
+              <div className="mt-1 font-mono text-lg text-[oklch(0.82_0.016_220)]">{comparison.models.length}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.13em] text-[oklch(0.46_0.010_230)]">Areas</div>
+              <div className="mt-1 font-mono text-lg text-[oklch(0.82_0.016_220)]">{comparison.areaLeaders.length}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <div className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Score shape</div>
+            <div className="text-[10px] text-[oklch(0.46_0.010_230)]">Top 4 plotted</div>
+          </div>
+          <RadarChart comparison={comparison} />
+        </div>
+
+        <div className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+          <div className="mb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Where each model performed best</div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <div className="mb-2 text-xs font-semibold text-[oklch(0.82_0.014_220)]">AI KPI leaders</div>
+              <div className="space-y-2">
+                {kpiLeaders.map((leader) => (
+                  <div key={leader.key} className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-[oklch(0.72_0.018_220)]">{leader.label}</span>
+                      <span className="font-mono text-xs text-[oklch(0.76_0.040_190)]">{leader.score.toFixed(1)}</span>
+                    </div>
+                    <div className="mt-1 truncate text-[11px] text-[oklch(0.52_0.012_230)]">{leader.displayName} / {leader.detail}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-semibold text-[oklch(0.82_0.014_220)]">Human area leaders</div>
+              <div className="space-y-2">
+                {comparison.areaLeaders.length === 0 ? (
+                  <div className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] px-3 py-2 text-xs text-[oklch(0.52_0.012_230)]">Human scores are not set yet.</div>
+                ) : comparison.areaLeaders.slice(0, 5).map((leader) => (
+                  <div key={leader.key} className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-[oklch(0.72_0.018_220)]">{leader.label}</span>
+                      <span className="font-mono text-xs text-[oklch(0.76_0.040_190)]">{leader.score.toFixed(1)}</span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-[oklch(0.52_0.012_230)]">
+                      {leader.displayName}{leader.margin !== null ? ` won by ${leader.margin.toFixed(1)}` : ""}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+        <div className="mb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Ranked scorecards</div>
+        <div className="grid gap-3">
+          {comparison.models.map((model) => (
+            <div key={model.model} className="grid gap-4 rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] p-3 lg:grid-cols-[260px_minmax(0,1fr)]">
+              <div className="flex items-center gap-3">
+                <ModelAvatar model={model.model} displayName={model.displayName} revealed size="md" />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-semibold text-[oklch(0.90_0.012_220)]">#{model.rank ?? "-"}</span>
+                    <span className="truncate text-sm font-semibold text-[oklch(0.84_0.014_225)]">{model.displayName}</span>
+                  </div>
+                  <div className="mt-1 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.48_0.012_230)]">
+                    {SCORE_SOURCE_LABELS[model.generalSource]}
+                  </div>
+                  <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-[oklch(0.58_0.014_230)]">{model.why}</p>
+                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                {[
+                  { label: "Final", score: model.finalScore, color: "oklch(0.72 0.055 190)" },
+                  { label: "AI KPI", score: model.aiScore, color: "oklch(0.72 0.045 255)" },
+                  { label: "Human visual", score: model.humanScore, color: "oklch(0.72 0.060 88)" },
+                ].map((metric) => (
+                  <div key={metric.label} className="min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] uppercase tracking-[0.13em] text-[oklch(0.46_0.010_230)]">{metric.label}</span>
+                      <span className="font-mono text-sm text-[oklch(0.84_0.014_225)]">{scoreText(metric.score)}</span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-[oklch(0.14_0.006_245)]">
+                      <div className="h-full rounded-full" style={{ width: scoreWidth(metric.score), background: metric.color }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">AI KPI details</div>
+            <div className="mt-1 text-xs text-[oklch(0.52_0.012_230)]">Automatic score signals for quality, reasoning, speed, token efficiency, and cost.</div>
+          </div>
+        </div>
+        <div className="grid gap-3 xl:grid-cols-2">
+          {comparison.models.map((model) => (
+            <div key={`kpis-${model.model}`} className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] p-3">
+              <div className="mb-3 flex items-center gap-2">
+                <ModelAvatar model={model.model} displayName={model.displayName} revealed size="sm" />
+                <span className="text-sm font-semibold text-[oklch(0.84_0.014_225)]">{model.displayName}</span>
+              </div>
+              <div className="grid gap-2">
+                {model.kpis.map((kpi) => (
+                  <div key={kpi.key} className="grid grid-cols-[118px_minmax(0,1fr)_42px] items-center gap-2 text-xs">
+                    <span className="truncate text-[oklch(0.58_0.014_230)]">{kpi.label}</span>
+                    <div className="h-2 overflow-hidden rounded-full bg-[oklch(0.14_0.006_245)]">
+                      <div className="h-full rounded-full bg-[oklch(0.68_0.040_205)]" style={{ width: scoreWidth(kpi.score) }} />
+                    </div>
+                    <span className="text-right font-mono text-[oklch(0.76_0.040_190)]">{scoreText(kpi.score)}</span>
+                    <span className="col-span-3 truncate text-[10px] text-[oklch(0.45_0.010_230)]">{kpi.detail}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+        <div className="mb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Human visual breakdown</div>
+        <div className="space-y-3">
+          {comparison.dimensionRows.map((row) => {
+            const dim = SCORE_DIMENSIONS.find((item) => item.key === row.key);
+            return (
+              <div key={row.key} className="grid gap-1.5">
+                <div className="text-[10px] uppercase tracking-[0.13em]" style={{ color: dim?.color ?? UI_ACCENT }}>{row.label}</div>
+                {row.values.map((value) => (
+                  <div key={`${row.key}-${value.model}`} className="grid grid-cols-[132px_minmax(0,1fr)_40px] items-center gap-2 text-xs">
+                    <span className="truncate text-[oklch(0.58_0.014_230)]">{value.displayName}</span>
+                    <div className="h-2 overflow-hidden rounded-full bg-[oklch(0.14_0.006_245)]">
+                      <div className="h-full rounded-full" style={{ width: scoreWidth(value.score), background: dim?.color ?? UI_ACCENT }} />
+                    </div>
+                    <span className="text-right font-mono text-[oklch(0.76_0.040_190)]">{scoreText(value.score)}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+        <div className="mb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Outcome previews</div>
+        <div className="grid gap-4 xl:grid-cols-2">
+          {comparison.models.map((model) => (
+            <div key={`preview-${model.model}`} className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <ModelAvatar model={model.model} displayName={model.displayName} revealed size="sm" />
+                <span className="text-sm font-semibold text-[oklch(0.84_0.014_225)]">{model.displayName}</span>
+              </div>
+              <OutcomePreview model={model.model} displayName={model.displayName} showWrittenFallback />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Personal review</div>
+            <div className="mt-1 text-xs text-[oklch(0.52_0.012_230)]">Separate notes for your records. These do not affect AI KPI, human visual, or final score.</div>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onSaveManualReviews}
+            disabled={!reviewDirty || savingReview}
+            className={`h-7 gap-1 text-xs ${reviewDirty ? "text-[oklch(0.70_0.055_190)]" : "text-[oklch(0.50_0.012_230)]"}`}
+          >
+            <Save className="h-3.5 w-3.5" /> {savingReview ? "Saving..." : reviewDirty ? "Save review" : "Review saved"}
+          </Button>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {comparison.models.map((model) => (
+            <div key={`review-${model.model}`} className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <ModelAvatar model={model.model} displayName={model.displayName} revealed size="sm" />
+                <span className="truncate text-xs font-semibold text-[oklch(0.84_0.014_220)]">{model.displayName}</span>
+                <span className="ml-auto text-[10px] tabular-nums text-[oklch(0.50_0.010_225)]">
+                  {model.manualScore === null ? "unset" : `${model.manualScore.toFixed(1)}/10`}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  step={0.5}
+                  value={model.manualScore ?? 5}
+                  onChange={(event) => onManualReviewChange(model.model, { score: Number(event.currentTarget.value) })}
+                  className="min-w-0 flex-1 accent-[oklch(0.70_0.055_190)]"
+                  aria-label={`${model.displayName} personal score`}
+                />
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  step={0.5}
+                  value={model.manualScore ?? ""}
+                  onChange={(event) => {
+                    const next = event.currentTarget.value.trim();
+                    const score = next ? Math.max(1, Math.min(10, Number(next))) : null;
+                    onManualReviewChange(model.model, { score });
+                  }}
+                  className="h-7 w-16 rounded border border-[oklch(0.24_0.010_245)] bg-[oklch(0.10_0.004_245)] px-2 text-xs tabular-nums text-[oklch(0.82_0.012_220)] outline-none focus:border-[oklch(0.50_0.035_205)]"
+                  aria-label={`${model.displayName} personal score input`}
+                />
+              </div>
+              <textarea
+                value={model.manualNotes}
+                onChange={(event) => onManualReviewChange(model.model, { notes: event.currentTarget.value })}
+                placeholder="Notes"
+                rows={3}
+                className="mt-2 w-full resize-y rounded border border-[oklch(0.24_0.010_245)] bg-[oklch(0.10_0.004_245)] px-2 py-1.5 text-xs leading-relaxed text-[oklch(0.82_0.012_220)] outline-none placeholder:text-[oklch(0.42_0.008_225)] focus:border-[oklch(0.50_0.035_205)]"
+                aria-label={`${model.displayName} personal review notes`}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
   const [items, setItems] = useState<EvalMeta[]>([]);
   const refresh = useCallback(() => {
@@ -623,18 +932,24 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
   }
 
   if (items.length === 0) {
-    return <div className="text-xs text-[oklch(0.40_0_0)] p-3">No past evals.</div>;
+    return <div className="text-xs text-[oklch(0.44_0.008_225)] p-3">No past evals.</div>;
   }
   return (
     <div className="flex flex-col gap-1 p-2 overflow-y-auto">
       {items.map((m) => (
-        <div key={m.id} className="group flex items-start gap-2 px-2 py-2 rounded hover:bg-[oklch(0.15_0_0)] cursor-pointer">
+        <div key={m.id} className="group flex items-start gap-2 px-2 py-2 rounded hover:bg-[oklch(0.135_0.004_245)] cursor-pointer">
           <button onClick={() => onLoad(m.id)} className="flex-1 text-left min-w-0">
-            <div className="text-xs text-[oklch(0.82_0_0)] line-clamp-2">{m.prompt}</div>
-            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-[oklch(0.45_0_0)]">
-              {m.suite_id && <span className="text-[oklch(0.65_0.18_250)]">[{m.suite_id}]</span>}
+            <div className="text-xs text-[oklch(0.82_0.012_220)] line-clamp-2">{m.prompt}</div>
+            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-[oklch(0.46_0.010_225)]">
+              {m.suite_id && <span className="text-[oklch(0.68_0.040_205)]">[{m.suite_id}]</span>}
               <span>{m.models.length} models</span>
-              <span>·</span>
+              <span>Â·</span>
+              {(m.manual_review_count ?? 0) > 0 && (
+                <>
+                  <span>{m.manual_review_count} reviewed</span>
+                  <span>|</span>
+                </>
+              )}
               <span>{new Date(m.created_at * 1000).toLocaleString()}</span>
             </div>
           </button>
@@ -647,13 +962,468 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // MAIN VIEW
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 type Mode = "single" | "suite" | "goal";
+type EvalFlowStage = "battle" | "review" | "results";
+type SetupStepId = "models" | "task" | "review";
+type ReviewNotice = { title: string; detail: string };
+
+function noticeDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+const PREVIEW_GOAL_PROMPT = "Refactor src/components/eval/EvalView.tsx to clarify the blind review flow, preserve reveal gating, and verify tests pass.";
+
+function isPreviewEvalId(id: string): boolean {
+  return id.startsWith("preview-goal-");
+}
+
+function previewResponse(index: number, goal: string): string {
+  const openings = [
+    "Start with the review contract before touching layout details.",
+    "Treat the goal as a workflow problem, then reduce the visual surface.",
+    "Keep the comparison objective by separating human scoring from model identity.",
+  ];
+  const checks = [
+    "Verify the blind labels remain stable through score entry and save.",
+    "Confirm rankings, telemetry, and judge notes stay hidden before reveal.",
+    "Run the focused tests, build the app, and smoke the eval tab in preview.",
+  ];
+
+  const artifact = index % 2 === 0
+    ? [
+        "### Runnable artifact",
+        "```html",
+        "<!doctype html><html><body><canvas id=\"game\" width=\"420\" height=\"240\"></canvas><script>const canvas=document.getElementById('game');const ctx=canvas.getContext('2d');ctx.fillStyle='#071114';ctx.fillRect(0,0,420,240);ctx.fillStyle='#7ee7d6';ctx.fillRect(24,80,10,70);ctx.fillRect(386,96,10,70);ctx.beginPath();ctx.arc(210,120,9,0,Math.PI*2);ctx.fill();</script></body></html>",
+        "```",
+      ]
+    : [
+        "### Runnable artifact",
+        "Save as `preview_pong.py`.",
+        "```python",
+        "import pygame",
+        "pygame.init()",
+        "screen = pygame.display.set_mode((420, 240))",
+        "pygame.display.set_caption('Preview Pong')",
+        "```",
+      ];
+
+  return [
+    "### Approach",
+    openings[index % openings.length],
+    "",
+    "### Changes",
+    `- Scope the work to: ${goal}`,
+    "- Keep the primary path in the setup surface instead of adding another dashboard panel.",
+    "- Preserve anonymous labels until human scores are complete and saved.",
+    "",
+    "### Verification",
+    `- ${checks[index % checks.length]}`,
+    "- Leave provider calls out of preview mode.",
+    "",
+    ...artifact,
+  ].join("\n");
+}
+
+function previewReasoning(index: number, goal: string): string {
+  return [
+    `Goal: ${goal}`,
+    "Need to keep provider identity out of the scoring pass.",
+    index % 2 === 0
+      ? "The safer path is a local preview trial that exercises the review UI without calling providers."
+      : "The UI should expose the next review step without adding another prominent card.",
+    "Verification should cover the browser preview and the normal test/build gates.",
+  ].join("\n");
+}
+
+function previewGoalGrades(models: string[], judgeModel: string): Record<string, GoalGrade> {
+  return Object.fromEntries(models.map((model, index) => {
+    const base = 3 + (index % 3);
+    return [model, {
+      judge_model: judgeModel,
+      axes: Object.fromEntries(GOAL_AXES.map((axis, axisIndex) => [
+        axis.key,
+        {
+          score: Math.min(5, base + (axisIndex % 2)),
+          evidence: axisIndex % 2 === 0 ? "Preserve reveal gating" : "Verify tests pass",
+        },
+      ])),
+      flags: index === 0
+        ? [{
+            kind: "good_decomposition",
+            severity: "info",
+            quote: "Start with the review contract",
+            comment: "The response scopes the work before changing UI.",
+            offset_chars: 0,
+          }]
+        : [],
+      summary: "Preview-only grade generated locally for review-flow testing.",
+    }];
+  }));
+}
+
+function previewJudgeScores(models: string[], judgeModel: string): JudgeScores {
+  return {
+    judge_model: judgeModel,
+    scores: Object.fromEntries(models.map((model, index) => {
+      const score = 6 + (index % 4);
+      return [model, {
+        accuracy: score,
+        helpfulness: score,
+        quality: Math.min(10, score + 1),
+        creativity: Math.max(1, score - 1),
+        design: score,
+        aesthetics: score,
+        ai_slop: Math.min(10, score + 1),
+        brevity: score,
+      }];
+    })),
+    rationale: Object.fromEntries(models.map((model) => [
+      model,
+      "Preview-only judge note generated locally after blind review is saved.",
+    ])),
+  };
+}
+
+function ModeButton({
+  active, onClick, icon, title, hint, tone = "default",
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  tone?: "default" | "goal";
+}) {
+  const iconClass = active && tone === "goal"
+    ? "text-[oklch(0.74_0.045_195)]"
+    : active
+      ? "text-[oklch(0.72_0.030_220)]"
+      : "text-[oklch(0.46_0.010_235)] group-hover:text-[oklch(0.66_0.018_220)]";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      aria-label={title}
+      title={hint}
+      className={[
+        "group flex min-w-0 flex-1 items-center gap-2 rounded px-2.5 py-1.5 text-left transition-colors sm:w-auto",
+        active
+          ? "bg-[oklch(0.148_0.008_220)] text-[oklch(0.88_0.018_220)] shadow-[inset_0_0_0_1px_oklch(0.30_0.014_220)]"
+          : "text-[oklch(0.55_0.010_230)] hover:bg-[oklch(0.13_0.004_245)] hover:text-[oklch(0.80_0.014_220)]",
+      ].join(" ")}
+    >
+      <span className={`flex h-6 w-6 flex-none items-center justify-center ${iconClass}`}>
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-xs font-semibold">{title}</span>
+        <span className="mt-0.5 hidden truncate text-[10px] leading-snug text-[oklch(0.52_0.012_230)] xl:block">{hint}</span>
+      </span>
+    </button>
+  );
+}
+
+function BlindReviewBanner({
+  blindMode,
+  onToggle,
+  hasActiveEval,
+  revealLocked,
+  revealLockTitle,
+  progressLabel,
+}: {
+  blindMode: boolean;
+  onToggle: () => void;
+  hasActiveEval: boolean;
+  revealLocked: boolean;
+  revealLockTitle: string;
+  progressLabel: string;
+}) {
+  const toggleDisabled = !hasActiveEval || revealLocked;
+  const toggleTitle = !hasActiveEval
+    ? "Goal evals start in blind mode"
+    : revealLocked
+      ? revealLockTitle
+      : blindMode
+        ? "Reveal model names"
+        : "Hide model names";
+  const toggleLabel = !hasActiveEval
+    ? "Blind on"
+    : revealLocked
+      ? "Locked"
+      : blindMode
+        ? "Reveal names"
+        : "Hide names";
+
+  return (
+    <div className="relative overflow-hidden rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)] px-3 py-3">
+      <div className="absolute inset-y-3 left-0 w-px bg-[oklch(0.62_0.035_190)]/55" aria-hidden="true" />
+      <div className="relative flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-8 w-8 flex-none items-center justify-center rounded-md border border-[oklch(0.28_0.012_235)] bg-[oklch(0.12_0.004_245)]">
+            <ShieldCheck className="h-4 w-4 text-[oklch(0.62_0.030_195)]" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-[oklch(0.90_0.025_220)]">Blind human review</div>
+            <div className="mt-0.5 text-xs leading-relaxed text-[oklch(0.62_0.025_225)]">
+              Responses get stable randomized labels while scoring. Reveal names only after the review pass.
+            </div>
+            <div className={`mt-2 inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${
+              revealLocked
+                ? "border-[oklch(0.32_0.030_72)] bg-[oklch(0.13_0.010_72)] text-[oklch(0.66_0.040_72)]"
+                : "border-[oklch(0.30_0.018_175)] bg-[oklch(0.12_0.006_180)] text-[oklch(0.66_0.035_185)]"
+            }`}>
+              {revealLocked ? <AlertTriangle className="h-3 w-3" /> : <ShieldCheck className="h-3 w-3" />}
+              {progressLabel}
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onToggle}
+          disabled={toggleDisabled}
+          aria-pressed={blindMode}
+          aria-label={toggleTitle}
+          className={[
+            "flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+            toggleDisabled
+              ? "cursor-not-allowed border-[oklch(0.27_0.010_240)] bg-[oklch(0.105_0.004_245)] text-[oklch(0.46_0.012_245)]"
+            : blindMode
+              ? "border-[oklch(0.34_0.018_190)] bg-[oklch(0.13_0.006_200)] text-[oklch(0.70_0.040_190)]"
+              : "border-[oklch(0.32_0.012_245)] bg-[oklch(0.12_0.006_245)] text-[oklch(0.62_0.012_245)]",
+          ].join(" ")}
+          title={toggleTitle}
+        >
+          {blindMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          {toggleLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function readinessTone(state: GoalReadinessState): string {
+  if (state === "ready") return "border-[oklch(0.34_0.020_170)] bg-[oklch(0.13_0.008_175)] text-[oklch(0.68_0.035_175)]";
+  if (state === "blocked") return "border-[oklch(0.36_0.035_28)] bg-[oklch(0.13_0.010_28)] text-[oklch(0.68_0.045_28)]";
+  return "border-[oklch(0.34_0.026_72)] bg-[oklch(0.13_0.010_72)] text-[oklch(0.68_0.040_72)]";
+}
+
+function readinessIcon(state: GoalReadinessState) {
+  if (state === "ready") return <CheckCircle2 className="h-3 w-3" />;
+  if (state === "blocked") return <AlertTriangle className="h-3 w-3" />;
+  return <CircleDot className="h-3 w-3" />;
+}
+
+function GoalReadinessPanel({ readiness }: { readiness: GoalEvalReadiness }) {
+  const blocked = readiness.items.filter((item) => item.state === "blocked").length;
+  const readinessLabel = readiness.canRun ? "Goal brief ready" : `Goal brief has ${blocked} blocking item${blocked === 1 ? "" : "s"}`;
+
+  return (
+    <div
+      role="group"
+      aria-label={readinessLabel}
+      className="rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)] px-3 py-2"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-[oklch(0.84_0.016_225)]">
+          <Gauge className="h-3.5 w-3.5 flex-none text-[oklch(0.62_0.030_195)]" />
+          <span>Goal brief</span>
+          <span className="hidden text-[11px] font-normal text-[oklch(0.50_0.012_230)] sm:inline">
+            Scope, criteria, comparison, then blind review.
+          </span>
+        </div>
+        <span className="rounded border border-[oklch(0.28_0.012_235)] bg-[oklch(0.12_0.004_245)] px-2 py-0.5 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.60_0.018_220)]">
+          {readiness.canRun ? "Ready" : `${blocked} blocking`}
+        </span>
+      </div>
+      <div className="mt-2 grid grid-cols-1 gap-x-3 gap-y-1.5 lg:grid-cols-3">
+        {readiness.items.map((item) => (
+          <div
+            key={item.id}
+            className="flex min-h-9 items-start gap-2 rounded px-1.5 py-1"
+            title={`${item.label}: ${item.detail}`}
+            aria-label={`${item.label}: ${item.state}. ${item.detail}`}
+          >
+            <div className={`mt-0.5 flex h-4 w-4 flex-none items-center justify-center rounded-full border ${readinessTone(item.state)}`}>
+              {readinessIcon(item.state)}
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-medium text-[oklch(0.78_0.014_225)]">{item.label}</div>
+              <div className="text-[10px] leading-snug text-[oklch(0.50_0.012_230)]">{item.detail}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function workflowMarkerTone(state: GoalWorkflowStep["state"]): string {
+  if (state === "done") return "border-[oklch(0.31_0.014_180)] bg-[oklch(0.13_0.006_190)] text-[oklch(0.68_0.030_185)]";
+  if (state === "current") return "border-[oklch(0.42_0.022_195)] bg-[oklch(0.145_0.008_205)] text-[oklch(0.78_0.032_200)] shadow-[0_0_0_3px_oklch(0.16_0.010_205)]";
+  return "border-[oklch(0.23_0.008_245)] bg-[oklch(0.105_0.004_245)] text-[oklch(0.42_0.010_235)]";
+}
+
+function workflowLabelTone(state: GoalWorkflowStep["state"]): string {
+  if (state === "done") return "text-[oklch(0.70_0.022_190)]";
+  if (state === "current") return "text-[oklch(0.86_0.018_210)]";
+  return "text-[oklch(0.48_0.012_230)]";
+}
+
+function workflowIcon(step: GoalWorkflowStep) {
+  if (step.state === "done") return <CheckCircle2 className="h-3.5 w-3.5" />;
+  return <CircleDot className="h-3.5 w-3.5" />;
+}
+
+function GoalWorkflowStrip({ steps }: { steps: GoalWorkflowStep[] }) {
+  const currentStep = steps.find((step) => step.state === "current") ?? steps.find((step) => step.state === "locked") ?? steps[steps.length - 1];
+
+  return (
+    <div className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.104_0.003_245)] px-3 py-2.5">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.15em] text-[oklch(0.52_0.012_230)]">
+          <ShieldCheck className="h-3 w-3 text-[oklch(0.58_0.025_195)]" />
+          Review protocol
+        </div>
+        <div className="text-[11px] leading-snug text-[oklch(0.60_0.014_225)]">
+          <span className="text-[oklch(0.72_0.020_210)]">{currentStep?.label}</span>
+          <span className="text-[oklch(0.45_0.010_230)]"> / </span>
+          {currentStep?.detail}
+        </div>
+      </div>
+      <div className="relative mt-3">
+        <div className="absolute left-3 right-3 top-3 hidden h-px bg-[oklch(0.22_0.008_245)] sm:block" aria-hidden="true" />
+        <ol className="relative grid grid-cols-1 gap-2 sm:grid-cols-5" aria-label="Goal eval review protocol">
+          {steps.map((step, index) => (
+            <li
+              key={step.id}
+              className="relative z-10 flex min-w-0 items-center gap-2 sm:flex-col sm:gap-1.5 sm:text-center"
+              aria-current={step.state === "current" ? "step" : undefined}
+              aria-label={`${step.label}: ${step.detail}`}
+              title={step.detail}
+            >
+              <span aria-hidden="true" className={`flex h-6 w-6 flex-none items-center justify-center rounded-full border text-[10px] transition-colors ${workflowMarkerTone(step.state)}`}>
+                {step.state === "locked" ? <span className="font-mono text-[10px]">{index + 1}</span> : workflowIcon(step)}
+              </span>
+              <span className={`block min-w-0 truncate text-[11px] font-medium ${workflowLabelTone(step.state)}`}>
+                {step.label}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  );
+}
+
+function ReviewNoticeBanner({
+  notice,
+  onDismiss,
+}: {
+  notice: ReviewNotice;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-[oklch(0.38_0.040_28)] bg-[oklch(0.13_0.014_28)] px-3 py-2 text-xs text-[oklch(0.72_0.060_28)]" role="alert">
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-none" />
+      <div className="min-w-0 flex-1">
+        <div className="font-semibold text-[oklch(0.78_0.065_28)]">{notice.title}</div>
+        <div className="mt-0.5 break-words leading-relaxed text-[oklch(0.68_0.045_28)]">{notice.detail}</div>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="flex-none rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[oklch(0.62_0.035_28)] transition-colors hover:bg-[oklch(0.18_0.020_28)] hover:text-[oklch(0.78_0.055_28)]"
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
+function BlindResultsLockPanel({
+  gate,
+  progressLabel,
+}: {
+  gate: BlindResultsGate;
+  progressLabel: string;
+}) {
+  return (
+    <div className="rounded-md border border-[oklch(0.24_0.010_245)] bg-[oklch(0.112_0.004_245)] px-3 py-3">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-md border border-[oklch(0.30_0.014_235)] bg-[oklch(0.10_0.004_245)] text-[oklch(0.62_0.030_195)]">
+          <ShieldCheck className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-[oklch(0.86_0.016_225)]">{gate.label}</span>
+            <span className="rounded border border-[oklch(0.30_0.014_235)] bg-[oklch(0.12_0.004_245)] px-2 py-0.5 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.58_0.018_220)]">
+              {progressLabel}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-[oklch(0.56_0.014_225)]">
+            {gate.detail} Response cards stay available so each anonymous model can be scored without seeing a ranked summary.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EvalRunStrip({ blindMode }: { blindMode: boolean }) {
+  const activeEval = useEvalStore((s) => s.activeEval);
+  if (!activeEval) return null;
+
+  const done = activeEval.models.filter((m) => {
+    const status = activeEval.modelStates[m]?.status;
+    return status === "done" || status === "error";
+  }).length;
+  const tokenTotal = activeEval.models.reduce((sum, model) => {
+    const s = activeEval.modelStates[model];
+    return sum + (s?.input_tokens ?? 0) + (s?.output_tokens ?? 0);
+  }, 0);
+  const costTotal = activeEval.models.reduce((sum, model) => {
+    const s = activeEval.modelStates[model];
+    return sum + calcCost(model, s?.input_tokens ?? 0, s?.output_tokens ?? 0);
+  }, 0);
+
+  const orderedBlindLabels = Object.entries(activeEval.blindLabels).sort((a, b) => a[1].localeCompare(b[1]));
+
+  return (
+    <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
+      <div className="rounded-md border border-[oklch(0.24_0.010_245)] bg-[oklch(0.115_0.004_245)] px-3 py-2">
+        <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-[oklch(0.54_0.016_220)]">
+          <Gauge className="h-3 w-3" />
+          Active trial
+        </div>
+        <div className="line-clamp-2 text-sm leading-relaxed text-[oklch(0.84_0.015_220)]">{activeEval.prompt}</div>
+      </div>
+      <div className="rounded-md border border-[oklch(0.24_0.010_245)] bg-[oklch(0.115_0.004_245)] px-3 py-2 text-xs">
+        <div className="text-[10px] uppercase tracking-[0.15em] text-[oklch(0.52_0.012_230)]">Progress</div>
+        <div className="mt-1 font-mono text-[oklch(0.76_0.040_190)]">{done}/{activeEval?.models.length ?? 0}</div>
+      </div>
+      <div className="rounded-md border border-[oklch(0.24_0.010_245)] bg-[oklch(0.115_0.004_245)] px-3 py-2 text-xs">
+        <div className="text-[10px] uppercase tracking-[0.15em] text-[oklch(0.52_0.012_230)]">Telemetry</div>
+        <div className={`mt-1 ${blindMode ? "text-[oklch(0.54_0.018_225)]" : "font-mono text-[oklch(0.76_0.040_190)]"}`}>
+          {blindMode ? "hidden during blind review" : `${tokenTotal} tok / $${costTotal.toFixed(4)}`}
+        </div>
+      </div>
+      {activeEval.complete && (
+        <div className="md:col-span-3 rounded-md border border-[oklch(0.31_0.018_205)] bg-[oklch(0.13_0.008_220)] px-3 py-2 text-xs text-[oklch(0.66_0.035_195)]">
+          {blindMode
+            ? `Blind labels locked: ${orderedBlindLabels.map(([, label]) => label).join(", ")}`
+            : `Revealed mapping: ${orderedBlindLabels.map(([model, label]) => `${label} = ${model}`).join(", ")}`}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function EvalView() {
-  const [mode, setMode] = useState<Mode>("single");
+  const [mode, setMode] = useState<Mode>("goal");
   const [prompt, setPrompt] = useState("");
   const [selectedModels, setSelectedModels] = useState<string[]>(["claude-haiku-4-5-20251001", "kimi2.6"]);
   const [allModels, setAllModels] = useState<string[]>([]);
@@ -666,30 +1436,172 @@ export function EvalView() {
   const [judgeModel, setJudgeModel] = useState<string>("claude-sonnet-4-6");
   const [liveSupervisor, setLiveSupervisor] = useState(true);
   const [goalGrading, setGoalGrading] = useState(false);
+  const [savingReview, setSavingReview] = useState(false);
+  const [reviewNotice, setReviewNotice] = useState<ReviewNotice | null>(null);
+  const [setupStep, setSetupStep] = useState<SetupStepId>("models");
+  const [evalStage, setEvalStage] = useState<EvalFlowStage>("battle");
+  const isBrowserPreview = typeof window !== "undefined" && Boolean(window.__XOLOTL_BROWSER_PREVIEW__);
 
   const activeEval = useEvalStore((s) => s.activeEval);
   const humanScores = useEvalStore((s) => s.humanScores);
+  const manualReviews = useEvalStore((s) => s.manualReviews);
+  const scoresDirty = useEvalStore((s) => s.scoresDirty);
+  const reviewDirty = useEvalStore((s) => s.reviewDirty);
   const blindMode = useEvalStore((s) => s.blindMode);
   const toggleBlind = useEvalStore((s) => s.toggleBlind);
+  const setBlindMode = useEvalStore((s) => s.setBlindMode);
   const {
     startEval, setModelRunning, appendModelDelta, appendModelReasoning, pushReasoningFlag,
-    completeModel, finalizeEval, setJudge, setGoalGrades,
+    completeModel, finalizeEval, failEval, setJudge, setGoalGrades, markHumanScoresSaved,
+    setManualReview, markManualReviewsSaved,
   } = useEvalStore.getState();
 
   useEffect(() => {
-    commands.listModels().then(setAllModels).catch(console.error);
-    commands.listEvalSuites().then(setSuites).catch(console.error);
+    commands.listModels()
+      .then(setAllModels)
+      .catch((error) => setReviewNotice({ title: "Eval setup unavailable", detail: noticeDetail(error) }));
+    commands.listEvalSuites()
+      .then(setSuites)
+      .catch((error) => setReviewNotice({ title: "Eval suites unavailable", detail: noticeDetail(error) }));
   }, []);
 
   // Map model -> display name (blind A/B/C or real name)
   const blindNames = useMemo<Record<string, string>>(() => {
     if (!blindMode || !activeEval) return {};
-    const out: Record<string, string> = {};
-    activeEval.models.forEach((m, i) => {
-      out[m] = `Model ${String.fromCharCode(65 + i)}`;
-    });
-    return out;
+    return activeEval.blindLabels;
   }, [blindMode, activeEval]);
+
+  const reviewModels = useMemo(
+    () => activeEval ? getReviewOrder(activeEval.models, activeEval.blindLabels, blindMode) : [],
+    [activeEval, blindMode]
+  );
+  const scoreableReviewModels = useMemo(
+    () => activeEval ? activeEval.models.filter((model) => hasScoreableOutput(activeEval.modelStates[model])) : [],
+    [activeEval]
+  );
+  const blindReviewProgress = useMemo(
+    () => activeEval ? getBlindReviewProgress(scoreableReviewModels, humanScores) : null,
+    [activeEval, scoreableReviewModels, humanScores]
+  );
+  const saveRequiredForReveal = Boolean(activeEval && blindMode && blindReviewProgress?.complete && scoresDirty);
+  const revealLocked = Boolean(activeEval && blindMode && blindReviewProgress && (!blindReviewProgress.complete || scoresDirty));
+  const blindProgressLabel = blindReviewProgress
+    ? blindReviewProgress.complete
+      ? scoresDirty
+        ? "Review complete - save to reveal"
+        : "Review saved"
+      : `${blindReviewProgress.completedScores}/${blindReviewProgress.totalScores} scores complete`
+    : mode === "goal"
+      ? "Blind by default"
+      : `${SCORE_DIMENSION_COUNT} score axes`;
+  const canFinishHumanReview = !blindReviewProgress || blindReviewProgress.totalModels === 0 || blindReviewProgress.complete;
+  const revealLockTitle = saveRequiredForReveal
+    ? "Save blind scores before revealing model names"
+    : "Finish blind scores before revealing model names";
+  const blindToggleTitle = revealLocked
+    ? revealLockTitle
+    : blindMode
+      ? "Reveal model names"
+      : "Hide model names";
+  const reviewGate = useMemo(
+    () => assessBlindReviewGate({
+      isGoalEval: Boolean(activeEval?.is_goal_eval),
+      blindMode,
+      reviewComplete: Boolean(blindReviewProgress?.complete),
+      scoresDirty,
+    }),
+    [activeEval?.is_goal_eval, blindMode, blindReviewProgress?.complete, scoresDirty]
+  );
+  const resultsGate = useMemo(
+    () => assessBlindResultsGate({
+      isGoalEval: Boolean(activeEval?.is_goal_eval),
+      blindMode,
+      reviewComplete: Boolean(blindReviewProgress?.complete),
+      scoresDirty,
+    }),
+    [activeEval?.is_goal_eval, blindMode, blindReviewProgress?.complete, scoresDirty]
+  );
+  const comparison = useMemo(
+    () => activeEval
+      ? buildEvalComparison({ activeEval, humanScores, manualReviews, blindNames })
+      : null,
+    [activeEval, humanScores, manualReviews, blindNames]
+  );
+  const handleBlindToggle = useCallback(() => {
+    if (revealLocked) return;
+    toggleBlind();
+  }, [revealLocked, toggleBlind]);
+  const goalReadiness = useMemo(
+    () => assessGoalEvalReadiness({
+      goal: prompt,
+      modelCount: selectedModels.length,
+      blindMode,
+      liveSupervisor,
+    }),
+    [prompt, selectedModels.length, blindMode, liveSupervisor]
+  );
+  const goalWorkflowSteps = useMemo(
+    () => assessGoalWorkflowSteps({
+      canRun: goalReadiness.canRun,
+      hasActiveEval: Boolean(activeEval),
+      evalComplete: Boolean(activeEval?.complete),
+      reviewComplete: Boolean(blindReviewProgress?.complete),
+      scoresDirty,
+      blindMode,
+    }),
+    [goalReadiness.canRun, activeEval, blindReviewProgress?.complete, scoresDirty, blindMode]
+  );
+  const goalBlindSurface = mode === "goal" || Boolean(activeEval?.is_goal_eval);
+  const runDisabled =
+    running ||
+    (mode === "goal"
+      ? !goalReadiness.canRun
+      : selectedModels.length === 0 || (mode === "single" && !prompt.trim()));
+  const goalRunDisabledTitle =
+    mode === "goal" && !goalReadiness.canRun
+      ? "Add a scoped target, success criteria, and at least two models."
+      : undefined;
+  const requiredModelCount = mode === "goal" ? 2 : 1;
+  const modelStepComplete = selectedModels.length >= requiredModelCount;
+  const taskStepComplete = mode === "suite"
+    ? Boolean(selectedSuite)
+    : mode === "goal"
+      ? goalReadiness.items.slice(0, 3).every((item) => item.state === "ready")
+      : prompt.trim().length > 0;
+  const setupSteps = useMemo(() => [
+    {
+      id: "models" as const,
+      label: "Pick models",
+      detail: modelStepComplete
+        ? `${selectedModels.length} selected`
+        : `Select ${requiredModelCount} or more`,
+      complete: modelStepComplete,
+    },
+    {
+      id: "task" as const,
+      label: mode === "suite" ? "Choose suite" : "Assign task",
+      detail: taskStepComplete
+        ? mode === "suite" ? selectedSuite : "Task is scoped"
+        : mode === "goal" ? "Add scope and criteria" : "Add a prompt",
+      complete: taskStepComplete,
+    },
+    {
+      id: "review" as const,
+      label: "Review & run",
+      detail: runDisabled ? "Resolve setup blockers" : "Ready to start",
+      complete: !runDisabled,
+    },
+  ], [modelStepComplete, mode, requiredModelCount, runDisabled, selectedModels.length, selectedSuite, taskStepComplete]);
+  const currentSetupStep = setupSteps.find((step) => step.id === setupStep) ?? setupSteps[0];
+  const selectedSuiteMeta = suites.find((suite) => suite.id === selectedSuite);
+  const selectedModelGroups = useMemo(() => {
+    const g: Record<string, string[]> = {};
+    for (const model of selectedModels) {
+      const provider = PROVIDER_OF[model] ?? "Other";
+      (g[provider] ??= []).push(model);
+    }
+    return g;
+  }, [selectedModels]);
 
   // Subscribe to streaming eval events; survives multiple consecutive runs.
   const unlistenRef = useRef<UnlistenFn | null>(null);
@@ -716,6 +1628,16 @@ export function EvalView() {
           }
           break;
         case "EvalComplete":    finalizeEval(evalId); setRunning(false); if (un) un(); unlistenRef.current = null; break;
+        case "EvalError": {
+          const detail = typeof p.error === "string" ? p.error : "The eval runner stopped before all model outputs completed.";
+          console.error("eval run error:", p.error);
+          failEval(evalId, detail);
+          setReviewNotice({ title: "Eval run failed", detail });
+          setRunning(false);
+          if (un) un();
+          unlistenRef.current = null;
+          break;
+        }
       }
     });
     unlistenRef.current = un;
@@ -723,66 +1645,189 @@ export function EvalView() {
 
   const runSingleEval = useCallback(async () => {
     if (!prompt.trim() || selectedModels.length === 0 || running) return;
+    setReviewNotice(null);
+    setEvalStage("battle");
+    setBlindMode(true);
     setRunning(true);
-    const result = await commands.startEval(prompt.trim(), selectedModels);
+    const result = await commands.startEval(prompt.trim(), selectedModels).catch((error) => ({ status: "error" as const, error: noticeDetail(error) }));
     if (result.status === "error") {
-      console.error("start_eval error:", result.error);
+      setReviewNotice({ title: "Could not start eval", detail: noticeDetail(result.error) });
       setRunning(false);
       return;
     }
     const evalId = result.data;
     startEval(evalId, prompt.trim(), selectedModels);
-    await subscribeToEval(evalId);
+    try {
+      await subscribeToEval(evalId);
+    } catch (error) {
+      const detail = noticeDetail(error);
+      failEval(evalId, detail);
+      setReviewNotice({ title: "Could not subscribe to eval events", detail });
+      setRunning(false);
+    }
   }, [prompt, selectedModels, running]);
 
   const runGoalEval = useCallback(async () => {
-    if (!prompt.trim() || selectedModels.length === 0 || running) return;
+    if (!goalReadiness.canRun || running) return;
+    setReviewNotice(null);
+    setEvalStage("battle");
+    setBlindMode(true);
     setRunning(true);
     const supervisor = liveSupervisor ? judgeModel : null;
-    const result = await commands.startGoalEval(prompt.trim(), selectedModels, liveSupervisor, supervisor);
+    const result = await commands
+      .startGoalEval(prompt.trim(), selectedModels, liveSupervisor, supervisor)
+      .catch((error) => ({ status: "error" as const, error: noticeDetail(error) }));
     if (result.status === "error") {
-      console.error("start_goal_eval error:", result.error);
+      setReviewNotice({ title: "Could not start goal eval", detail: noticeDetail(result.error) });
       setRunning(false);
       return;
     }
     const evalId = result.data;
     startEval(evalId, prompt.trim(), selectedModels, { is_goal_eval: true, live_supervisor: liveSupervisor });
-    await subscribeToEval(evalId);
-  }, [prompt, selectedModels, running, liveSupervisor, judgeModel]);
+    try {
+      await subscribeToEval(evalId);
+    } catch (error) {
+      const detail = noticeDetail(error);
+      failEval(evalId, detail);
+      setReviewNotice({ title: "Could not subscribe to eval events", detail });
+      setRunning(false);
+    }
+  }, [goalReadiness.canRun, prompt, selectedModels, running, liveSupervisor, judgeModel, setBlindMode]);
 
   const runSuiteEval = useCallback(async () => {
     if (selectedModels.length === 0 || running) return;
+    setReviewNotice(null);
+    setEvalStage("battle");
+    setBlindMode(true);
     setRunning(true);
     // Subscribe to suite-level events to track each prompt within the suite run.
-    const result = await commands.runEvalSuite(selectedSuite, selectedModels);
+    const result = await commands
+      .runEvalSuite(selectedSuite, selectedModels)
+      .catch((error) => ({ status: "error" as const, error: noticeDetail(error) }));
     if (result.status === "error") {
-      console.error("run_eval_suite error:", result.error);
+      setReviewNotice({ title: "Could not start eval suite", detail: noticeDetail(result.error) });
       setRunning(false);
       return;
     }
     const suiteRunId = result.data;
     const channel = `suite-event:${suiteRunId}`;
-    // Each prompt inside the suite emits its own eval-event with a new eval id —
+    // Each prompt inside the suite emits its own eval-event with a new eval id â€”
     // we listen for SuitePromptStart so we can hook the per-prompt channel.
-    const suiteUnlisten = await listen<any>(channel, async (event) => {
-      const p = event.payload;
-      if (p.type === "SuitePromptStart" && p.eval_id) {
-        // Backend pre-generates eval_id and emits it before model events, plus a
-        // 50ms grace delay so this listen() call wins the race.
-        startEval(p.eval_id, p.prompt, selectedModels, { suite_run_id: suiteRunId, suite_prompt_id: p.prompt_id });
-        await subscribeToEval(p.eval_id);
-      } else if (p.type === "SuiteComplete") {
-        setRunning(false);
-        suiteUnlisten();
-      }
-    });
+    try {
+      const suiteUnlisten = await listen<any>(channel, async (event) => {
+        const p = event.payload;
+        if (p.type === "SuitePromptStart" && p.eval_id) {
+          // Backend pre-generates eval_id and emits it before model events, plus a
+          // 50ms grace delay so this listen() call wins the race.
+          startEval(p.eval_id, p.prompt, selectedModels, { suite_run_id: suiteRunId, suite_prompt_id: p.prompt_id });
+          try {
+            await subscribeToEval(p.eval_id);
+          } catch (error) {
+            const detail = noticeDetail(error);
+            failEval(p.eval_id, detail);
+            setReviewNotice({ title: "Could not subscribe to suite prompt events", detail });
+            setRunning(false);
+          }
+        } else if (p.type === "SuiteComplete") {
+          setRunning(false);
+          suiteUnlisten();
+        }
+      });
+    } catch (error) {
+      setReviewNotice({ title: "Could not subscribe to suite events", detail: noticeDetail(error) });
+      setRunning(false);
+    }
   }, [selectedSuite, selectedModels, running]);
 
-  async function saveScores() {
-    if (!activeEval) return;
+  const loadPreviewGoalEval = useCallback(() => {
+    if (!isBrowserPreview || running) return;
+    const previewModels = selectedModels.length >= 2
+      ? selectedModels
+      : allModels.length >= 2
+        ? allModels.slice(0, 2)
+        : ["preview-model-a", "preview-model-b"];
+    const previewPrompt = prompt.trim() || PREVIEW_GOAL_PROMPT;
+    const evalId = `preview-goal-${Date.now()}`;
+    const createdAt = Date.now();
+    const goalGrades = previewGoalGrades(previewModels, judgeModel);
+    const modelStates = Object.fromEntries(previewModels.map((model, index) => {
+      const content = previewResponse(index, previewPrompt);
+      const reasoning = previewReasoning(index, previewPrompt);
+      const flags: ReasoningFlag[] = liveSupervisor && index === 0
+        ? [{
+            kind: "good_decomposition",
+            severity: "info",
+            quote: "Start with the review contract",
+            comment: "Preview supervisor flag generated locally for review-flow testing.",
+            offset_chars: 0,
+          }]
+        : [];
+
+      return [model, {
+        model,
+        status: "done" as const,
+        content,
+        reasoning,
+        flags,
+        input_tokens: Math.round(previewPrompt.length / 4),
+        output_tokens: Math.round(content.length / 4),
+        duration_ms: 900 + index * 240,
+        started_at: createdAt - (900 + index * 240),
+        goalGrade: goalGrades[model],
+      }];
+    }));
+
+    setMode("goal");
+    setPrompt(previewPrompt);
+    setSelectedModels(previewModels);
+    setReviewNotice(null);
+    setEvalStage("battle");
+    setRunning(false);
+    useEvalStore.setState({
+      activeEval: {
+        id: evalId,
+        prompt: previewPrompt,
+        models: previewModels,
+        blindLabels: buildBlindLabels(evalId, previewModels),
+        modelStates,
+        complete: true,
+        created_at: createdAt,
+        suite_id: null,
+        suite_run_id: null,
+        suite_prompt_id: null,
+        judge: null,
+        is_goal_eval: true,
+        live_supervisor: liveSupervisor,
+      },
+      humanScores: {},
+      manualReviews: {},
+      scoresDirty: false,
+      reviewDirty: false,
+      evalOpen: true,
+      blindMode: true,
+    });
+  }, [
+    allModels,
+    isBrowserPreview,
+    judgeModel,
+    liveSupervisor,
+    prompt,
+    running,
+    selectedModels,
+  ]);
+
+  async function saveScores(): Promise<boolean> {
+    if (!activeEval) return false;
+    setReviewNotice(null);
     setSavingScores(true);
+    if (isBrowserPreview && isPreviewEvalId(activeEval.id)) {
+      markHumanScoresSaved();
+      setSavingScores(false);
+      return true;
+    }
     const scoresMap: Record<string, HumanScores> = {};
     for (const [model, partial] of Object.entries(humanScores)) {
+      if (!hasScoreableOutput(activeEval.modelStates[model])) continue;
       scoresMap[model] = {
         accuracy:    partial.accuracy    ?? 5,
         helpfulness: partial.helpfulness ?? 5,
@@ -794,44 +1839,149 @@ export function EvalView() {
         brevity:     partial.brevity     ?? 5,
       };
     }
-    const result = await commands.saveHumanScores(activeEval.id, JSON.stringify(scoresMap));
-    if (result.status === "error") console.error("save_human_scores error:", result.error);
-    setSavingScores(false);
+    try {
+      const result = await commands.saveHumanScores(activeEval.id, JSON.stringify(scoresMap));
+      if (result.status === "error") {
+        console.error("save_human_scores error:", result.error);
+        setReviewNotice({ title: "Could not save blind scores", detail: result.error });
+        return false;
+      } else {
+        markHumanScoresSaved();
+        return true;
+      }
+    } catch (error) {
+      console.error("save_human_scores error:", error);
+      setReviewNotice({ title: "Could not save blind scores", detail: error instanceof Error ? error.message : String(error) });
+      return false;
+    } finally {
+      setSavingScores(false);
+    }
+  }
+
+  async function finishHumanReview() {
+    if (!activeEval) return;
+    if (blindReviewProgress && !blindReviewProgress.complete) {
+      setReviewNotice({
+        title: "Human review is incomplete",
+        detail: "Score every visible category for each anonymous model before revealing the final comparison.",
+      });
+      return;
+    }
+
+    const saved = scoresDirty ? await saveScores() : true;
+    if (!saved) return;
+    setBlindMode(false);
+    setEvalStage("results");
+  }
+
+  async function saveManualReviews() {
+    if (!activeEval) return;
+    setReviewNotice(null);
+    setSavingReview(true);
+    const normalized: Record<string, ManualReview> = {};
+    const now = Math.floor(Date.now() / 1000);
+    for (const model of activeEval.models) {
+      const review = manualReviews[model];
+      if (!review) continue;
+      const notes = review.notes ?? "";
+      const score = typeof review.score === "number" && Number.isFinite(review.score)
+        ? Math.max(1, Math.min(10, review.score))
+        : null;
+      if (score === null && notes.trim().length === 0) continue;
+      normalized[model] = {
+        score,
+        notes,
+        updated_at: review.updated_at || now,
+      };
+    }
+
+    if (isBrowserPreview && isPreviewEvalId(activeEval.id)) {
+      useEvalStore.setState({ manualReviews: normalized, reviewDirty: false });
+      setSavingReview(false);
+      return;
+    }
+
+    try {
+      const result = await commands.saveManualReviews(activeEval.id, JSON.stringify(normalized));
+      if (result.status === "error") {
+        console.error("save_manual_reviews error:", result.error);
+        setReviewNotice({ title: "Could not save review", detail: result.error });
+      } else {
+        useEvalStore.setState({ manualReviews: normalized });
+        markManualReviewsSaved();
+      }
+    } catch (error) {
+      console.error("save_manual_reviews error:", error);
+      setReviewNotice({ title: "Could not save review", detail: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setSavingReview(false);
+    }
   }
 
   async function runGoalGrade() {
     if (!activeEval || goalGrading) return;
-    setGoalGrading(true);
-    const result = await commands.runGoalGrade(activeEval.id, judgeModel);
-    if (result.status === "error") {
-      console.error("run_goal_grade:", result.error);
-      alert(`Goal grade failed: ${result.error}`);
-    } else {
-      const loaded = await commands.loadEval(activeEval.id);
-      if (loaded.status === "ok") {
-        const r: EvalResult = JSON.parse(loaded.data);
-        if (r.goal_grades) setGoalGrades(r.goal_grades);
-      }
+    if (reviewGate.machineReviewLocked) return;
+    setReviewNotice(null);
+    if (isBrowserPreview && isPreviewEvalId(activeEval.id)) {
+      setGoalGrading(true);
+      setGoalGrades(previewGoalGrades(activeEval.models, judgeModel));
+      setGoalGrading(false);
+      return;
     }
-    setGoalGrading(false);
+    setGoalGrading(true);
+    try {
+      const result = await commands.runGoalGrade(activeEval.id, judgeModel);
+      if (result.status === "error") {
+        console.error("run_goal_grade:", result.error);
+        setReviewNotice({ title: "Goal grade failed", detail: result.error });
+      } else {
+        const loaded = await commands.loadEval(activeEval.id);
+        if (loaded.status === "ok") {
+          const r: EvalResult = JSON.parse(loaded.data);
+          if (r.goal_grades) setGoalGrades(r.goal_grades);
+        } else {
+          setReviewNotice({ title: "Goal grade saved but could not reload", detail: loaded.error });
+        }
+      }
+    } catch (error) {
+      console.error("run_goal_grade:", error);
+      setReviewNotice({ title: "Goal grade failed", detail: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setGoalGrading(false);
+    }
   }
 
   async function runJudge() {
     if (!activeEval || judgeRunning) return;
-    setJudgeRunning(true);
-    const result = await commands.runLlmJudge(activeEval.id, judgeModel);
-    if (result.status === "error") {
-      console.error("run_llm_judge:", result.error);
-      alert(`Judge failed: ${result.error}`);
-    } else {
-      // Reload the eval to pick up the saved judge scores.
-      const loaded = await commands.loadEval(activeEval.id);
-      if (loaded.status === "ok") {
-        const r: EvalResult = JSON.parse(loaded.data);
-        if (r.judge) setJudge(r.judge);
-      }
+    if (reviewGate.machineReviewLocked) return;
+    setReviewNotice(null);
+    if (isBrowserPreview && isPreviewEvalId(activeEval.id)) {
+      setJudgeRunning(true);
+      setJudge(previewJudgeScores(activeEval.models, judgeModel));
+      setJudgeRunning(false);
+      return;
     }
-    setJudgeRunning(false);
+    setJudgeRunning(true);
+    try {
+      const result = await commands.runLlmJudge(activeEval.id, judgeModel);
+      if (result.status === "error") {
+        console.error("run_llm_judge:", result.error);
+        setReviewNotice({ title: "Judge pass failed", detail: result.error });
+      } else {
+        const loaded = await commands.loadEval(activeEval.id);
+        if (loaded.status === "ok") {
+          const r: EvalResult = JSON.parse(loaded.data);
+          if (r.judge) setJudge(r.judge);
+        } else {
+          setReviewNotice({ title: "Judge pass saved but could not reload", detail: loaded.error });
+        }
+      }
+    } catch (error) {
+      console.error("run_llm_judge:", error);
+      setReviewNotice({ title: "Judge pass failed", detail: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setJudgeRunning(false);
+    }
   }
 
   function toggleModel(model: string) {
@@ -851,13 +2001,13 @@ export function EvalView() {
   }, [allModels]);
 
   return (
-    <div className="flex-1 flex h-full overflow-hidden bg-[oklch(0.105_0_0)]">
+    <div className="flex-1 flex h-full overflow-hidden bg-[oklch(0.105_0.004_245)]">
       {/* History sidebar */}
       {historyOpen && (
-        <div className="w-72 flex-none border-r border-neutral-800 bg-[oklch(0.10_0_0)] flex flex-col">
-          <div className="flex-none px-3 py-2 border-b border-neutral-800 flex items-center gap-2">
-            <History className="w-4 h-4 text-[oklch(0.65_0.18_250)]" />
-            <span className="text-xs font-semibold text-[oklch(0.85_0_0)] uppercase tracking-wider">History</span>
+        <div className="w-72 flex-none border-r border-[oklch(0.22_0.008_240)] bg-[oklch(0.102_0.003_245)] flex flex-col">
+          <div className="flex-none px-3 py-2 border-b border-[oklch(0.22_0.008_240)] flex items-center gap-2">
+            <History className="w-4 h-4 text-[oklch(0.68_0.040_205)]" />
+            <span className="text-xs font-semibold text-[oklch(0.85_0_0)] uppercase tracking-wider">Eval History</span>
             <button onClick={() => setHistoryOpen(false)} className="ml-auto text-[oklch(0.45_0_0)] hover:text-[oklch(0.85_0_0)]">
               <ChevronUp className="w-3 h-3 rotate-90" />
             </button>
@@ -867,6 +2017,14 @@ export function EvalView() {
             if (r.status === "ok") {
               const parsed: EvalResult = JSON.parse(r.data);
               useEvalStore.getState().loadEval(parsed);
+              const scoreableModels = parsed.results
+                .filter((result) => !result.error && result.content.trim().length > 0)
+                .map((result) => result.model);
+              const savedReview = getBlindReviewProgress(scoreableModels, parsed.human_scores);
+              const reviewComplete = savedReview.totalModels === 0 || savedReview.complete;
+              setEvalStage(reviewComplete ? "results" : "review");
+              setBlindMode(!reviewComplete);
+              setReviewNotice(null);
             }
           }} />
         </div>
@@ -874,232 +2032,554 @@ export function EvalView() {
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <div className="flex-none flex items-center gap-3 px-4 py-3 border-b border-neutral-800 bg-[oklch(0.12_0_0)]">
-          <FlaskConical className="w-5 h-5 text-[oklch(0.65_0.18_250)]" />
-          <span className="text-sm font-semibold text-[oklch(0.88_0_0)]">Model Eval Lab</span>
-          <span className="text-xs text-[oklch(0.40_0_0)]">Race · score · judge</span>
+        <div className="flex-none flex items-center gap-3 px-4 py-3 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]">
+          <div className="xolotl-mark scale-90" aria-hidden="true" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-[oklch(0.91_0.012_220)]">Model Eval Lab</span>
+              <span className="rounded border border-[oklch(0.38_0.018_205)] bg-[oklch(0.13_0.006_220)] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[oklch(0.66_0.035_195)]">
+                Blind first
+              </span>
+            </div>
+            <div className="mt-0.5 text-xs text-[oklch(0.48_0.012_230)]">Goal trials, review scoring, and judge passes</div>
+          </div>
 
           <div className="ml-auto flex items-center gap-1">
             {!historyOpen && (
-              <Button size="sm" variant="ghost" onClick={() => setHistoryOpen(true)} className="text-xs h-7 gap-1 text-[oklch(0.55_0_0)]">
+              <Button size="sm" variant="ghost" onClick={() => setHistoryOpen(true)} className="text-xs h-7 gap-1 text-[oklch(0.58_0.025_230)]">
                 <History className="w-3.5 h-3.5" /> History
               </Button>
             )}
-            <Button size="sm" variant="ghost" onClick={toggleBlind} className={`text-xs h-7 gap-1 ${blindMode ? "text-[oklch(0.78_0.18_250)]" : "text-[oklch(0.55_0_0)]"}`} title="Hide model names during scoring">
-              {blindMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />} Blind
-            </Button>
-            {activeEval && hasScores && (
-              <Button size="sm" variant="ghost" onClick={saveScores} disabled={savingScores} className="text-xs h-7 gap-1 text-[oklch(0.65_0.18_250)]">
-                <Save className="w-3.5 h-3.5" /> {savingScores ? "Saving…" : "Save scores"}
+            {!goalBlindSurface && !activeEval && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleBlindToggle}
+                disabled={revealLocked}
+                aria-pressed={blindMode}
+                aria-label={blindToggleTitle}
+                className={`text-xs h-7 gap-1 ${blindMode ? "text-[oklch(0.70_0.055_190)]" : "text-[oklch(0.58_0.012_230)]"}`}
+                title={blindToggleTitle}
+              >
+                {blindMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                {revealLocked ? "Blind" : blindMode ? "Reveal" : "Hide"}
+              </Button>
+            )}
+            {activeEval && hasScores && evalStage === "review" && (
+              <Button size="sm" variant="ghost" onClick={() => void saveScores()} disabled={savingScores || !scoresDirty} className={`text-xs h-7 gap-1 ${scoresDirty ? "text-[oklch(0.70_0.055_190)]" : "text-[oklch(0.50_0.012_230)]"}`}>
+                <Save className="w-3.5 h-3.5" /> {savingScores ? "Saving..." : scoresDirty ? "Save scores" : "Scores saved"}
               </Button>
             )}
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {/* Mode + suite/prompt + models */}
-          <div className="px-4 py-3 border-b border-neutral-800 flex flex-col gap-3">
-            <div className="flex items-center gap-1 text-xs">
-              <button onClick={() => setMode("single")}
-                className={`px-3 py-1.5 rounded-l-md border ${mode === "single" ? "bg-[oklch(0.65_0.18_250)]/20 border-[oklch(0.65_0.18_250)] text-[oklch(0.85_0.15_250)]" : "bg-transparent border-neutral-700 text-[oklch(0.55_0_0)]"}`}>
-                Single Prompt
-              </button>
-              <button onClick={() => setMode("suite")}
-                className={`px-3 py-1.5 border -ml-px ${mode === "suite" ? "bg-[oklch(0.65_0.18_250)]/20 border-[oklch(0.65_0.18_250)] text-[oklch(0.85_0.15_250)]" : "bg-transparent border-neutral-700 text-[oklch(0.55_0_0)]"}`}>
-                <ListChecks className="inline w-3 h-3 mr-1" /> Eval Suite
-              </button>
-              <button onClick={() => setMode("goal")}
-                className={`px-3 py-1.5 rounded-r-md border -ml-px ${mode === "goal" ? "bg-[oklch(0.78_0.18_60)]/20 border-[oklch(0.78_0.18_60)] text-[oklch(0.88_0.15_60)]" : "bg-transparent border-neutral-700 text-[oklch(0.55_0_0)]"}`}>
-                <Target className="inline w-3 h-3 mr-1" /> Goal Eval
-              </button>
-            </div>
-
-            {mode === "single" ? (
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider">Prompt</label>
-                <textarea
-                  value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
-                  placeholder="Enter a prompt to evaluate across all selected models…"
-                  disabled={running}
-                  className="bg-[oklch(0.155_0_0)] border border-neutral-800 rounded-lg px-3 py-2.5 text-sm text-[oklch(0.88_0_0)] placeholder:text-[oklch(0.38_0_0)] resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.65_0.18_250)] disabled:opacity-60"
-                />
+          {!activeEval && (
+          <div className="border-b border-[oklch(0.22_0.008_245)] bg-[oklch(0.102_0.004_250)] px-4 py-5">
+            <div className="mx-auto flex max-w-6xl flex-col gap-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div className="min-w-0">
+                  <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.54_0.018_210)]">
+                    <ScanSearch className="h-3 w-3" />
+                    Eval setup
+                  </div>
+                  <h2 className="text-xl font-semibold tracking-normal text-[oklch(0.90_0.012_220)]">Build a model comparison</h2>
+                  <p className="mt-1 max-w-2xl text-sm leading-relaxed text-[oklch(0.58_0.014_230)]">
+                    Pick the models, assign the task, review the run settings, then start the eval.
+                  </p>
+                </div>
+                <div className="flex w-full flex-col gap-1 rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)] p-1 sm:flex-row lg:w-[560px]">
+                  <ModeButton
+                    active={mode === "goal"}
+                    onClick={() => { setMode("goal"); setBlindMode(true); setSetupStep("task"); }}
+                    icon={<Target className="h-4 w-4" />}
+                    title="Goal Eval"
+                    hint="Compare models on one production goal."
+                    tone="goal"
+                  />
+                  <ModeButton
+                    active={mode === "single"}
+                    onClick={() => { setMode("single"); setSetupStep("task"); }}
+                    icon={<FlaskConical className="h-4 w-4" />}
+                    title="Single Prompt"
+                    hint="Race a prompt and score output quality."
+                  />
+                  <ModeButton
+                    active={mode === "suite"}
+                    onClick={() => { setMode("suite"); setSetupStep("task"); }}
+                    icon={<ListChecks className="h-4 w-4" />}
+                    title="Eval Suite"
+                    hint="Run a saved prompt set."
+                  />
+                </div>
               </div>
-            ) : mode === "goal" ? (
-              <div className="flex flex-col gap-2">
-                <label className="text-[10px] text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider flex items-center gap-1.5">
-                  <Target className="w-3 h-3 text-[oklch(0.78_0.18_60)]" /> Goal
-                </label>
-                <textarea
-                  value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
-                  placeholder="e.g. Refactor src/auth/middleware.ts to use the jose library instead of jsonwebtoken, preserving the same public API."
-                  disabled={running}
-                  className="bg-[oklch(0.155_0_0)] border border-neutral-800 rounded-lg px-3 py-2.5 text-sm text-[oklch(0.88_0_0)] placeholder:text-[oklch(0.38_0_0)] resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.78_0.18_60)] disabled:opacity-60"
-                />
-                <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-neutral-800 bg-[oklch(0.13_0_0)]">
-                  <div className="flex items-start gap-2 min-w-0">
-                    <Activity className="w-3.5 h-3.5 mt-0.5 text-[oklch(0.65_0.18_280)] flex-none" />
-                    <div className="min-w-0">
-                      <div className="text-xs text-[oklch(0.85_0_0)] font-medium">Live reasoning supervisor</div>
-                      <div className="text-[10px] text-[oklch(0.50_0_0)] leading-relaxed">
-                        Every ~1200 chars of reasoning, a judge call flags bad assumptions, goal drift, or contradictions. Adds ~2× cost.
+
+              <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_280px]">
+                <nav className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible" aria-label="Eval setup steps">
+                  {setupSteps.map((step, index) => {
+                    const active = setupStep === step.id;
+                    return (
+                      <button
+                        key={step.id}
+                        type="button"
+                        onClick={() => setSetupStep(step.id)}
+                        aria-current={active ? "step" : undefined}
+                        className={`flex min-w-[170px] items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors lg:min-w-0 ${
+                          active
+                            ? "border-[oklch(0.38_0.020_195)] bg-[oklch(0.136_0.008_205)]"
+                            : "border-transparent bg-transparent hover:border-[oklch(0.22_0.008_245)] hover:bg-[oklch(0.112_0.004_245)]"
+                        }`}
+                      >
+                        <span className={`flex h-7 w-7 flex-none items-center justify-center rounded-full border text-[11px] ${
+                          step.complete
+                            ? "border-[oklch(0.32_0.018_175)] bg-[oklch(0.13_0.010_175)] text-[oklch(0.70_0.040_175)]"
+                            : active
+                              ? "border-[oklch(0.42_0.020_195)] bg-[oklch(0.16_0.010_205)] text-[oklch(0.78_0.035_200)]"
+                              : "border-[oklch(0.25_0.008_240)] text-[oklch(0.48_0.012_230)]"
+                        }`}>
+                          {step.complete ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium text-[oklch(0.84_0.014_225)]">{step.label}</span>
+                          <span className="block truncate text-[11px] text-[oklch(0.52_0.012_230)]">{step.detail}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </nav>
+
+                <section className="min-h-[330px] rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)] p-4">
+                  <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.50_0.012_230)]">Step {setupSteps.findIndex((step) => step.id === currentSetupStep.id) + 1}</div>
+                      <h3 className="mt-1 text-base font-semibold text-[oklch(0.88_0.014_220)]">{currentSetupStep.label}</h3>
+                    </div>
+                    <div className={`inline-flex w-fit items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] uppercase tracking-[0.13em] ${
+                      currentSetupStep.complete
+                        ? "border-[oklch(0.32_0.018_175)] bg-[oklch(0.13_0.010_175)] text-[oklch(0.70_0.040_175)]"
+                        : "border-[oklch(0.34_0.026_72)] bg-[oklch(0.13_0.010_72)] text-[oklch(0.68_0.040_72)]"
+                    }`}>
+                      {currentSetupStep.complete ? <CheckCircle2 className="h-3 w-3" /> : <CircleDot className="h-3 w-3" />}
+                      {currentSetupStep.complete ? "Complete" : "Needs input"}
+                    </div>
+                  </div>
+
+                  {setupStep === "models" && (
+                    <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div className="text-sm text-[oklch(0.62_0.014_230)]">
+                          Select {requiredModelCount === 2 ? "at least two models" : "one or more models"} for this comparison.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedModels(selectedModels.length === allModels.length ? [] : [...allModels])}
+                          className="w-fit rounded-md border border-[oklch(0.24_0.010_235)] px-2.5 py-1 text-xs text-[oklch(0.62_0.016_225)] transition-colors hover:border-[oklch(0.34_0.016_205)] hover:text-[oklch(0.78_0.020_210)]"
+                          title={selectedModels.length === allModels.length ? "Clear selected models" : "Select every available model"}
+                        >
+                          {selectedModels.length === allModels.length ? "Clear all" : "Select all"}
+                        </button>
+                      </div>
+                      <div className="grid gap-3 xl:grid-cols-2">
+                        {Object.entries(grouped).map(([provider, models]) => (
+                          <div key={provider} className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.102_0.003_245)] p-3">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-[oklch(0.48_0.012_230)]">{provider}</span>
+                              <span className="text-[10px] text-[oklch(0.42_0.010_230)]">{models.filter((m) => selectedModels.includes(m)).length}/{models.length}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {models.map((m) => {
+                                const selected = selectedModels.includes(m);
+                                const label = m.replace(/^bedrock-/, "");
+                                return (
+                                  <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => toggleModel(m)}
+                                    disabled={running}
+                                    aria-pressed={selected}
+                                    title={`${selected ? "Remove" : "Add"} ${m} ${selected ? "from" : "to"} this comparison`}
+                                    className={`rounded-md border px-2.5 py-1.5 text-left text-xs font-medium transition-colors disabled:opacity-60 ${
+                                      selected
+                                        ? "border-[oklch(0.38_0.020_195)] bg-[oklch(0.14_0.010_205)] text-[oklch(0.76_0.032_195)]"
+                                        : "border-[oklch(0.22_0.008_235)] bg-[oklch(0.108_0.004_245)] text-[oklch(0.56_0.012_225)] hover:border-[oklch(0.31_0.014_210)] hover:text-[oklch(0.76_0.016_220)]"
+                                    }`}
+                                  >
+                                    {label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {setupStep === "task" && (
+                    <div className="flex flex-col gap-4">
+                      {mode === "single" ? (
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[10px] font-medium uppercase tracking-[0.14em] text-[oklch(0.50_0.012_230)]">Prompt</label>
+                          <textarea
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            rows={8}
+                            placeholder="Enter the prompt to evaluate across the selected models."
+                            disabled={running}
+                            className="resize-none rounded-md border border-[oklch(0.24_0.010_245)] bg-[oklch(0.13_0.004_245)] px-3 py-2.5 text-sm leading-relaxed text-[oklch(0.88_0.01_220)] placeholder:text-[oklch(0.42_0.012_245)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.60_0.045_190)] disabled:opacity-60"
+                          />
+                        </div>
+                      ) : mode === "goal" ? (
+                        <div className="flex flex-col gap-3">
+                          <div className="flex flex-col gap-2">
+                            <label className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[oklch(0.50_0.012_230)]">
+                              <Target className="h-3 w-3 text-[oklch(0.70_0.055_190)]" /> Goal
+                            </label>
+                            <textarea
+                              value={prompt}
+                              onChange={(e) => setPrompt(e.target.value)}
+                              rows={8}
+                              placeholder="e.g. Refactor src/auth/middleware.ts to use the jose library instead of jsonwebtoken, preserving the same public API and verifying existing auth tests pass."
+                              disabled={running}
+                              className="resize-none rounded-md border border-[oklch(0.25_0.012_220)] bg-[oklch(0.13_0.004_245)] px-3 py-2.5 text-sm leading-relaxed text-[oklch(0.88_0.01_220)] placeholder:text-[oklch(0.42_0.012_245)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.60_0.045_190)] disabled:opacity-60"
+                            />
+                          </div>
+                          <GoalReadinessPanel readiness={goalReadiness} />
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-3">
+                          <div className="text-sm text-[oklch(0.62_0.014_230)]">Choose the saved prompt set to run across the selected models.</div>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {suites.map((s) => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => setSelectedSuite(s.id)}
+                                disabled={running}
+                                className={`rounded-md border px-3 py-3 text-left transition-colors disabled:opacity-60 ${
+                                  selectedSuite === s.id
+                                    ? "border-[oklch(0.42_0.025_195)] bg-[oklch(0.14_0.010_205)]"
+                                    : "border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)] hover:border-[oklch(0.30_0.016_215)]"
+                                }`}
+                              >
+                                <div className="text-sm font-semibold text-[oklch(0.88_0.015_220)]">{s.name}</div>
+                                <div className="mt-1 text-xs leading-relaxed text-[oklch(0.54_0.012_225)]">{s.prompts.length} prompts / {s.description}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {setupStep === "review" && (
+                    <div className="flex flex-col gap-4">
+                      {mode === "goal" && (
+                        <>
+                          <GoalWorkflowStrip steps={goalWorkflowSteps} />
+                          <BlindReviewBanner
+                            blindMode={blindMode}
+                            onToggle={handleBlindToggle}
+                            hasActiveEval={Boolean(activeEval)}
+                            revealLocked={revealLocked}
+                            revealLockTitle={revealLockTitle}
+                            progressLabel={blindProgressLabel}
+                          />
+                        </>
+                      )}
+
+                      {mode === "goal" && (
+                        <div className="flex items-start gap-3 rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.104_0.003_245)] px-3 py-3">
+                          <Activity className="mt-0.5 h-4 w-4 flex-none text-[oklch(0.58_0.026_210)]" />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium text-[oklch(0.84_0.014_225)]">Live reasoning supervisor</div>
+                            <div className="mt-0.5 text-xs leading-relaxed text-[oklch(0.52_0.014_235)]">
+                              Flags assumptions, drift, and contradictions while the run streams. Adds about 2x judge cost.
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setLiveSupervisor((v) => !v)}
+                            aria-label="Toggle live reasoning supervisor"
+                            aria-pressed={liveSupervisor}
+                            title={liveSupervisor ? "Disable live reasoning supervisor" : "Enable live reasoning supervisor"}
+                            className={`relative mt-0.5 h-5 w-9 flex-none rounded-full transition-colors ${liveSupervisor ? "bg-[oklch(0.44_0.038_190)]" : "bg-[oklch(0.23_0.008_235)]"}`}
+                          >
+                            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-[oklch(0.88_0.012_220)] transition-transform ${liveSupervisor ? "translate-x-4" : "translate-x-0.5"}`} />
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          onClick={
+                            mode === "single" ? runSingleEval :
+                            mode === "goal"   ? runGoalEval :
+                                                runSuiteEval
+                          }
+                          disabled={runDisabled}
+                          title={goalRunDisabledTitle}
+                          className={`gap-1.5 text-white disabled:opacity-50 ${
+                            mode === "goal"
+                              ? "bg-[oklch(0.46_0.045_190)] hover:bg-[oklch(0.42_0.045_190)]"
+                              : "bg-[oklch(0.40_0.020_235)] hover:bg-[oklch(0.36_0.020_235)]"
+                          }`}
+                        >
+                          {mode === "goal" ? <Target className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                          {running ? "Running..." : (mode === "single" ? "Run Eval" : mode === "goal" ? "Run Goal Eval" : "Run Suite")}
+                        </Button>
+                        {isBrowserPreview && mode === "goal" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={loadPreviewGoalEval}
+                            disabled={running}
+                            title="Load a local sample trial without provider calls"
+                            className="h-7 gap-1 text-xs text-[oklch(0.58_0.025_205)]"
+                          >
+                            <ScanSearch className="h-3.5 w-3.5" /> Load sample trial
+                          </Button>
+                        )}
+
+                        {activeEval && !running && (
+                          <>
+                            <select
+                              value={judgeModel}
+                              onChange={(e) => setJudgeModel(e.target.value)}
+                              aria-label="Judge model"
+                              title="Judge model"
+                              className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.125_0.004_245)] px-2 py-1 text-xs text-[oklch(0.78_0.012_220)]"
+                            >
+                              {allModels.map((m) => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                            {reviewGate.machineReviewLocked && (
+                              <span
+                                role="status"
+                                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[oklch(0.38_0.030_72)] bg-[oklch(0.13_0.010_72)] px-2 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.70_0.045_72)]"
+                                title={reviewGate.detail}
+                              >
+                                <ShieldCheck className="h-3 w-3" />
+                                {reviewGate.label}
+                              </span>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={runJudge}
+                              disabled={judgeRunning || reviewGate.machineReviewLocked}
+                              title={reviewGate.machineReviewLocked ? reviewGate.detail : "Run anonymized LLM judge"}
+                              aria-label={reviewGate.machineReviewLocked ? reviewGate.detail : "Run anonymized LLM judge"}
+                              className="h-7 gap-1 text-xs text-[oklch(0.68_0.040_205)]">
+                              <Gavel className="h-3.5 w-3.5" /> {judgeRunning ? "Judging..." : "Judge"}
+                            </Button>
+                            {mode === "goal" && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={runGoalGrade}
+                                disabled={goalGrading || reviewGate.machineReviewLocked}
+                                title={reviewGate.machineReviewLocked ? reviewGate.detail : "Run goal-grade pass"}
+                                aria-label={reviewGate.machineReviewLocked ? reviewGate.detail : "Run goal-grade pass"}
+                                className="h-7 gap-1 text-xs text-[oklch(0.70_0.055_190)]">
+                                <Target className="h-3.5 w-3.5" /> {goalGrading ? "Grading..." : "Grade"}
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => { setPrompt(""); setReviewNotice(null); setEvalStage("battle"); useEvalStore.setState({ activeEval: null, humanScores: {}, manualReviews: {}, scoresDirty: false, reviewDirty: false }); }}
+                              className="h-7 gap-1 text-xs text-[oklch(0.45_0_0)]">
+                              <RotateCcw className="h-3 w-3" /> Reset
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-[oklch(0.20_0.006_245)] pt-3">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSetupStep(setupStep === "review" ? "task" : "models")}
+                      disabled={setupStep === "models"}
+                      className="h-7 text-xs text-[oklch(0.54_0.014_230)] disabled:opacity-35"
+                    >
+                      Back
+                    </Button>
+                    {setupStep !== "review" ? (
+                      <Button
+                        size="sm"
+                        onClick={() => setSetupStep(setupStep === "models" ? "task" : "review")}
+                        disabled={setupStep === "models" ? !modelStepComplete : !taskStepComplete}
+                        className="h-8 bg-[oklch(0.36_0.020_235)] text-xs text-white hover:bg-[oklch(0.32_0.020_235)] disabled:opacity-45"
+                      >
+                        Continue
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-[oklch(0.50_0.012_230)]">{runDisabled ? "Finish setup to run." : "Ready."}</span>
+                    )}
+                  </div>
+                </section>
+
+                <aside className="rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)] p-4">
+                  <div className="mb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.50_0.012_230)]">Run summary</div>
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-[oklch(0.78_0.014_225)]">Models</div>
+                      {selectedModels.length === 0 ? (
+                        <div className="text-xs text-[oklch(0.48_0.012_230)]">No models selected.</div>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {Object.entries(selectedModelGroups).map(([provider, models]) => (
+                            <div key={provider}>
+                              <div className="mb-1 text-[10px] uppercase tracking-[0.12em] text-[oklch(0.42_0.010_230)]">{provider}</div>
+                              <div className="flex flex-wrap gap-1">
+                                {models.map((model) => (
+                                  <span key={model} className="rounded border border-[oklch(0.25_0.010_235)] px-1.5 py-0.5 text-[10px] text-[oklch(0.64_0.016_225)]">
+                                    {model.replace(/^bedrock-/, "")}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-[oklch(0.78_0.014_225)]">Task</div>
+                      <div className="line-clamp-5 text-xs leading-relaxed text-[oklch(0.54_0.012_230)]">
+                        {mode === "suite"
+                          ? selectedSuiteMeta
+                            ? `${selectedSuiteMeta.name}: ${selectedSuiteMeta.prompts.length} prompts`
+                            : "Choose a suite."
+                          : prompt.trim() || "No task assigned yet."}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-md border border-[oklch(0.20_0.006_245)] px-2 py-2">
+                        <div className="text-[10px] uppercase tracking-[0.12em] text-[oklch(0.42_0.010_230)]">Mode</div>
+                        <div className="mt-1 text-[oklch(0.76_0.018_220)]">{mode === "goal" ? "Goal" : mode === "single" ? "Prompt" : "Suite"}</div>
+                      </div>
+                      <div className="rounded-md border border-[oklch(0.20_0.006_245)] px-2 py-2">
+                        <div className="text-[10px] uppercase tracking-[0.12em] text-[oklch(0.42_0.010_230)]">Review</div>
+                        <div className="mt-1 text-[oklch(0.76_0.018_220)]">{blindMode ? "Blind" : "Open"}</div>
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setLiveSupervisor((v) => !v)}
-                    className={`w-9 h-5 flex-none rounded-full transition-colors relative ${liveSupervisor ? "bg-[oklch(0.65_0.18_280)]" : "bg-neutral-700"}`}
-                  >
-                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${liveSupervisor ? "translate-x-4" : "translate-x-0.5"}`} />
-                  </button>
-                </div>
+                </aside>
               </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <label className="text-[10px] text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider">Suite</label>
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
-                  {suites.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => setSelectedSuite(s.id)}
-                      disabled={running}
-                      className={`text-left px-3 py-2 rounded-lg border transition-colors disabled:opacity-60 ${
-                        selectedSuite === s.id
-                          ? "bg-[oklch(0.65_0.18_250)]/15 border-[oklch(0.65_0.18_250)]"
-                          : "bg-transparent border-neutral-800 hover:border-neutral-600"
-                      }`}
-                    >
-                      <div className="text-xs font-semibold text-[oklch(0.88_0_0)]">{s.name}</div>
-                      <div className="text-[10px] text-[oklch(0.50_0_0)] mt-0.5">{s.prompts.length} prompts · {s.description}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] text-[oklch(0.50_0_0)] font-medium uppercase tracking-wider">
-                  Models to compare ({selectedModels.length})
-                </label>
-                <button onClick={() => setSelectedModels(selectedModels.length === allModels.length ? [] : [...allModels])} className="text-[10px] text-[oklch(0.45_0_0)] hover:text-[oklch(0.7_0_0)]">
-                  {selectedModels.length === allModels.length ? "Clear all" : "Select all"}
-                </button>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                {Object.entries(grouped).map(([provider, models]) => (
-                  <div key={provider} className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[10px] text-[oklch(0.42_0_0)] w-24 flex-none uppercase tracking-wider">{provider}</span>
-                    {models.map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => toggleModel(m)}
-                        disabled={running}
-                        className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors disabled:opacity-60 ${
-                          selectedModels.includes(m)
-                            ? "bg-[oklch(0.65_0.18_250)]/20 border-[oklch(0.65_0.18_250)] text-[oklch(0.78_0.18_250)]"
-                            : "bg-transparent border-neutral-700 text-[oklch(0.55_0_0)] hover:border-neutral-500"
-                        }`}
-                      >
-                        {m.replace(/^bedrock-/, "")}
-                      </button>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                onClick={
-                  mode === "single" ? runSingleEval :
-                  mode === "goal"   ? runGoalEval :
-                                      runSuiteEval
-                }
-                disabled={running || selectedModels.length === 0 || ((mode === "single" || mode === "goal") && !prompt.trim())}
-                className={`gap-1.5 text-white disabled:opacity-50 ${
-                  mode === "goal"
-                    ? "bg-[oklch(0.65_0.18_60)] hover:bg-[oklch(0.60_0.18_60)]"
-                    : "bg-[oklch(0.65_0.18_250)] hover:bg-[oklch(0.60_0.18_250)]"
-                }`}
-              >
-                {mode === "goal" ? <Target className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                {running ? "Running…" : (mode === "single" ? "Run Eval" : mode === "goal" ? "Run Goal Eval" : "Run Suite")}
-              </Button>
-
-              {activeEval && !running && (
-                <>
-                  <select
-                    value={judgeModel}
-                    onChange={(e) => setJudgeModel(e.target.value)}
-                    className="bg-[oklch(0.155_0_0)] border border-neutral-700 rounded text-xs px-2 py-1 text-[oklch(0.78_0_0)]"
-                  >
-                    {allModels.map((m) => <option key={m} value={m}>{m}</option>)}
-                  </select>
-                  <Button size="sm" variant="ghost" onClick={runJudge} disabled={judgeRunning}
-                    className="gap-1 text-xs h-7 text-[oklch(0.78_0.18_100)]">
-                    <Gavel className="w-3.5 h-3.5" /> {judgeRunning ? "Judging…" : "Run LLM Judge"}
-                  </Button>
-                  {(activeEval.is_goal_eval || mode === "goal") && (
-                    <Button size="sm" variant="ghost" onClick={runGoalGrade} disabled={goalGrading}
-                      className="gap-1 text-xs h-7 text-[oklch(0.85_0.18_60)]">
-                      <Target className="w-3.5 h-3.5" /> {goalGrading ? "Grading…" : "Grade Goal"}
-                    </Button>
-                  )}
-                  <Button size="sm" variant="ghost"
-                    onClick={() => { setPrompt(""); useEvalStore.setState({ activeEval: null, humanScores: {} }); }}
-                    className="gap-1 text-xs h-7 text-[oklch(0.45_0_0)]">
-                    <RotateCcw className="w-3 h-3" /> Reset
-                  </Button>
-                </>
+              {reviewNotice && (
+                <ReviewNoticeBanner notice={reviewNotice} onDismiss={() => setReviewNotice(null)} />
               )}
             </div>
           </div>
+          )}
+
 
           {/* Active eval body */}
           {activeEval && (
             <div className="px-4 py-4 flex flex-col gap-4">
-              {/* Live race-track */}
-              {!activeEval.complete && (
-                <div className="rounded-lg border border-neutral-800 overflow-hidden bg-[oklch(0.12_0_0)]">
-                  <div className="px-3 py-2 border-b border-neutral-800 bg-[oklch(0.14_0_0)] text-xs text-[oklch(0.55_0_0)] uppercase tracking-wider">
-                    Live · {activeEval.models.length} models racing
-                  </div>
-                  {activeEval.models.map((m, i) => (
-                    <RaceTrackRow
-                      key={m}
-                      model={m}
-                      displayName={blindNames[m] ?? m}
-                      color={SCORE_DIMENSIONS[i % SCORE_DIMENSIONS.length].color}
-                    />
-                  ))}
-                </div>
+              <EvalRunStrip blindMode={blindMode} />
+              {reviewNotice ? (
+                <ReviewNoticeBanner notice={reviewNotice as ReviewNotice} onDismiss={() => setReviewNotice(null)} />
+              ) : null}
+              {evalStage === "battle" && (
+                <EvalArena blindMode={blindMode} onReadyForScores={() => setEvalStage("review")} />
               )}
 
-              {/* Leaderboard */}
-              {activeEval.complete && <Leaderboard blindNames={blindNames} />}
+              {activeEval.complete && evalStage === "review" && (
+                <HumanReviewScreen
+                  models={reviewModels.filter((model) => scoreableReviewModels.includes(model))}
+                  blindNames={blindNames}
+                  progressLabel={blindProgressLabel}
+                  canFinish={canFinishHumanReview}
+                  savingScores={savingScores}
+                  onDone={() => void finishHumanReview()}
+                />
+              )}
 
-              {/* Response cards */}
-              <div className={`grid gap-3 ${
-                activeEval.models.length === 1 ? "grid-cols-1" :
-                activeEval.models.length === 2 ? "grid-cols-1 lg:grid-cols-2" :
-                "grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3"
-              }`}>
-                {activeEval.models.map((m) => (
-                  <ResponseCard key={m} model={m} displayName={blindNames[m] ?? m} />
-                ))}
-              </div>
+              {activeEval.complete && evalStage === "results" && (
+                <>
+                  <div className="flex flex-col gap-2 rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] px-3 py-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">AI scoring controls</div>
+                      <div className="mt-0.5 text-xs text-[oklch(0.52_0.012_230)]">Optional judge and goal-grade passes enrich the automatic score rationale.</div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={judgeModel}
+                        onChange={(e) => setJudgeModel(e.target.value)}
+                        aria-label="Judge model"
+                        title="Judge model"
+                        className="h-8 rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.125_0.004_245)] px-2 text-xs text-[oklch(0.78_0.012_220)]"
+                      >
+                        {allModels.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={runJudge}
+                        disabled={judgeRunning || reviewGate.machineReviewLocked}
+                        title={reviewGate.machineReviewLocked ? reviewGate.detail : "Run anonymized LLM judge"}
+                        aria-label={reviewGate.machineReviewLocked ? reviewGate.detail : "Run anonymized LLM judge"}
+                        className="h-8 gap-1 text-xs text-[oklch(0.68_0.040_205)]"
+                      >
+                        <Gavel className="h-3.5 w-3.5" /> {judgeRunning ? "Judging..." : "Run AI judge"}
+                      </Button>
+                      {(activeEval?.is_goal_eval || mode === "goal") && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={runGoalGrade}
+                          disabled={goalGrading || reviewGate.machineReviewLocked}
+                          title={reviewGate.machineReviewLocked ? reviewGate.detail : "Run goal-grade pass"}
+                          aria-label={reviewGate.machineReviewLocked ? reviewGate.detail : "Run goal-grade pass"}
+                          className="h-8 gap-1 text-xs text-[oklch(0.70_0.055_190)]"
+                        >
+                          <Target className="h-3.5 w-3.5" /> {goalGrading ? "Grading..." : "Run goal grade"}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => { setPrompt(""); setReviewNotice(null); setEvalStage("battle"); useEvalStore.setState({ activeEval: null, humanScores: {}, manualReviews: {}, scoresDirty: false, reviewDirty: false }); }}
+                        className="h-8 gap-1 text-xs text-[oklch(0.45_0_0)]"
+                      >
+                        <RotateCcw className="h-3 w-3" /> New eval
+                      </Button>
+                    </div>
+                  </div>
+
+                  {resultsGate.resultsLocked
+                    ? <BlindResultsLockPanel gate={resultsGate} progressLabel={blindProgressLabel} />
+                    : comparison && (
+                      <ComparisonResultsPanel
+                        comparison={comparison}
+                        reviewDirty={reviewDirty}
+                        savingReview={savingReview}
+                        onManualReviewChange={setManualReview}
+                        onSaveManualReviews={saveManualReviews}
+                      />
+                    )}
+                </>
+              )}
 
               {activeEval.suite_run_id && (
                 <div className="text-[10px] text-[oklch(0.45_0_0)] text-center">
-                  Suite run: <span className="font-mono">{activeEval.suite_run_id.slice(0, 8)}</span> · prompt {activeEval.suite_prompt_id}
+                  Suite run: <span className="font-mono">{activeEval.suite_run_id.slice(0, 8)}</span> Â· prompt {activeEval.suite_prompt_id}
                 </div>
               )}
             </div>
           )}
+
+          {!activeEval && <div className="h-4" aria-hidden="true" />}
         </div>
       </div>
     </div>
   );
 }
-

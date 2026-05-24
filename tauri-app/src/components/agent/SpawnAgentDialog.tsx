@@ -93,21 +93,21 @@ export function SpawnAgentDialog({
         onOpenChange(o);
       }}
     >
-      <DialogContent className="bg-[oklch(0.16_0_0)] border-neutral-800 text-[oklch(0.92_0_0)]">
+      <DialogContent className="border-[oklch(0.22_0.008_240)] bg-[oklch(0.112_0.004_245)] text-[oklch(0.90_0.015_220)] shadow-[0_28px_90px_oklch(0_0_0_/_0.32)]">
         <DialogHeader>
-          <DialogTitle>Spawn Agent</DialogTitle>
-          <DialogDescription className="text-[oklch(0.55_0_0)]">
-            Pick a model, describe the task, optionally cap cost.
+          <DialogTitle className="text-[oklch(0.92_0.015_220)]">Spawn Agent</DialogTitle>
+          <DialogDescription className="text-[oklch(0.56_0.014_225)]">
+            Pick a model, describe the task, and optionally cap spend.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4 py-2">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-[oklch(0.55_0_0)]">Model</label>
+            <label className="text-xs text-[oklch(0.56_0.014_225)]">Model</label>
             <Select value={model} onValueChange={setModel}>
-              <SelectTrigger className="bg-[oklch(0.20_0_0)] border-neutral-800">
+              <SelectTrigger className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] text-[oklch(0.84_0.012_220)]">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[oklch(0.16_0_0)] border-neutral-800">
+              <SelectContent className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.115_0.004_245)] text-[oklch(0.86_0.012_220)]">
                 {models.map((m) => (
                   <SelectItem key={m} value={m}>
                     {m}
@@ -117,17 +117,17 @@ export function SpawnAgentDialog({
             </Select>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-[oklch(0.55_0_0)]">Task</label>
+            <label className="text-xs text-[oklch(0.56_0.014_225)]">Task</label>
             <textarea
               value={task}
               onChange={(e) => setTask(e.target.value)}
               rows={4}
               placeholder="e.g. Refactor the auth module to use jose"
-              className="bg-[oklch(0.20_0_0)] border border-neutral-800 rounded-md px-3 py-2 text-sm text-[oklch(0.92_0_0)] resize-none"
+              className="rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-3 py-2 text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)] resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.52_0.030_195)]"
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-[oklch(0.55_0_0)]">Budget (USD, optional)</label>
+            <label className="text-xs text-[oklch(0.56_0.014_225)]">Budget (USD, optional)</label>
             <input
               type="number"
               step="0.01"
@@ -135,21 +135,21 @@ export function SpawnAgentDialog({
               value={budget}
               onChange={(e) => setBudget(e.target.value)}
               placeholder="e.g. 0.10 (leave blank for unlimited)"
-              className="bg-[oklch(0.20_0_0)] border border-neutral-800 rounded-md px-3 py-2 text-sm text-[oklch(0.92_0_0)]"
+              className="rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-3 py-2 text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.52_0.030_195)]"
             />
           </div>
           {error && (
-            <p className="text-xs text-red-400" role="alert">
+            <p className="rounded-md border border-[oklch(0.38_0.040_28)] bg-[oklch(0.13_0.014_28)] px-3 py-2 text-xs text-[oklch(0.72_0.060_28)]" role="alert">
               {error}
             </p>
           )}
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" className="text-[oklch(0.58_0.012_230)] hover:text-[oklch(0.86_0.015_220)]" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={() => void handleSpawn()} disabled={submitting}>
-            {submitting ? "Spawning…" : "Spawn Agent"}
+          <Button className="bg-[oklch(0.46_0.040_190)] text-white hover:bg-[oklch(0.42_0.040_190)]" onClick={() => void handleSpawn()} disabled={submitting}>
+            {submitting ? "Spawning..." : "Spawn Agent"}
           </Button>
         </DialogFooter>
       </DialogContent>

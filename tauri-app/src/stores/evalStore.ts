@@ -1,5 +1,16 @@
 import { create } from "zustand";
-import type { EvalResult, HumanScores, AutoScores, JudgeScores, ReasoningFlag, GoalGrade } from "../bindings";
+import type { EvalResult, HumanScores, AutoScores, JudgeScores, ReasoningFlag, GoalGrade, ManualReview } from "../bindings";
+
+export const HUMAN_SCORE_KEYS: (keyof HumanScores)[] = [
+  "accuracy",
+  "helpfulness",
+  "quality",
+  "creativity",
+  "design",
+  "aesthetics",
+  "ai_slop",
+  "brevity",
+];
 
 export interface EvalModelState {
   model: string;
@@ -24,6 +35,8 @@ export interface ActiveEval {
   id: string;
   prompt: string;
   models: string[];
+  /** Stable per-eval anonymous labels used while human review is blinded. */
+  blindLabels: Record<string, string>;
   modelStates: Record<string, EvalModelState>;
   complete: boolean;
   created_at: number;
@@ -50,6 +63,11 @@ export interface SuiteRunState {
 export interface EvalState {
   activeEval: ActiveEval | null;
   humanScores: Record<string, Partial<HumanScores>>;
+  manualReviews: Record<string, ManualReview>;
+  /** True when local human score edits have not been saved to disk yet. */
+  scoresDirty: boolean;
+  /** True when local personal review edits have not been saved to disk yet. */
+  reviewDirty: boolean;
   evalOpen: boolean;
   /** True if names are blinded (A, B, C) for unbiased human scoring. */
   blindMode: boolean;
@@ -72,24 +90,107 @@ export interface EvalState {
     stats: { input_tokens: number; output_tokens: number; duration_ms: number; error?: string; auto?: AutoScores; reasoning?: string }
   ) => void;
   finalizeEval: (evalId: string) => void;
+  failEval: (evalId: string, error: string) => void;
   setJudge: (judge: JudgeScores) => void;
   setGoalGrades: (grades: Record<string, GoalGrade>) => void;
   loadEval: (result: EvalResult) => void;
   setHumanScore: (model: string, dimension: keyof HumanScores, value: number) => void;
+  setManualReview: (model: string, review: Partial<ManualReview>) => void;
+  markHumanScoresSaved: () => void;
+  markManualReviewsSaved: () => void;
   clearHumanScores: () => void;
   openEval: () => void;
   closeEval: () => void;
   toggleBlind: () => void;
+  setBlindMode: (blindMode: boolean) => void;
   startSuite: (run: SuiteRunState) => void;
   advanceSuite: (eval_id: string) => void;
   finishSuite: () => void;
 }
 
+function labelForIndex(index: number): string {
+  let n = index;
+  let label = "";
+  do {
+    label = String.fromCharCode(65 + (n % 26)) + label;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return `Model ${label}`;
+}
+
+function seedFrom(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function nextSeed(seed: number): number {
+  let x = seed || 0x9e3779b9;
+  x ^= x << 13;
+  x ^= x >>> 17;
+  x ^= x << 5;
+  return x >>> 0;
+}
+
+export function buildBlindLabels(evalId: string, models: string[]): Record<string, string> {
+  const shuffled = [...models];
+  let seed = seedFrom(`${evalId}\u0000${models.join("\u0000")}`);
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    seed = nextSeed(seed);
+    const j = seed % (i + 1);
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  if (shuffled.length > 1 && shuffled.every((model, index) => model === models[index])) {
+    shuffled.push(shuffled.shift() as string);
+  }
+
+  return Object.fromEntries(shuffled.map((model, index) => [model, labelForIndex(index)]));
+}
+
+export function getReviewOrder(models: string[], blindLabels: Record<string, string>, blindMode: boolean): string[] {
+  if (!blindMode) return models;
+  return [...models].sort((a, b) => (blindLabels[a] ?? a).localeCompare(blindLabels[b] ?? b));
+}
+
+export function getBlindReviewProgress(
+  models: string[],
+  humanScores: Record<string, Partial<HumanScores>>
+): {
+  completedScores: number;
+  totalScores: number;
+  completedModels: number;
+  totalModels: number;
+  complete: boolean;
+} {
+  const totalScores = models.length * HUMAN_SCORE_KEYS.length;
+  const completedByModel = models.map((model) => {
+    const scores = humanScores[model] ?? {};
+    return HUMAN_SCORE_KEYS.filter((key) => (scores[key] ?? 0) > 0).length;
+  });
+  const completedScores = completedByModel.reduce((sum, count) => sum + count, 0);
+  const completedModels = completedByModel.filter((count) => count === HUMAN_SCORE_KEYS.length).length;
+
+  return {
+    completedScores,
+    totalScores,
+    completedModels,
+    totalModels: models.length,
+    complete: models.length > 0 && completedModels === models.length,
+  };
+}
+
 export const useEvalStore = create<EvalState>()((set) => ({
   activeEval: null,
   humanScores: {},
+  manualReviews: {},
+  scoresDirty: false,
+  reviewDirty: false,
   evalOpen: false,
-  blindMode: false,
+  blindMode: true,
   activeSuite: null,
 
   startEval: (id, prompt, models, suiteInfo) => {
@@ -111,6 +212,7 @@ export const useEvalStore = create<EvalState>()((set) => ({
         id,
         prompt,
         models,
+        blindLabels: buildBlindLabels(id, models),
         modelStates,
         complete: false,
         created_at: Date.now(),
@@ -121,6 +223,9 @@ export const useEvalStore = create<EvalState>()((set) => ({
         live_supervisor: suiteInfo?.live_supervisor ?? false,
       },
       humanScores: {},
+      manualReviews: {},
+      scoresDirty: false,
+      reviewDirty: false,
       evalOpen: true,
     });
   },
@@ -230,6 +335,25 @@ export const useEvalStore = create<EvalState>()((set) => ({
       return { activeEval: { ...s.activeEval, complete: true } };
     }),
 
+  failEval: (evalId, error) =>
+    set((s) => {
+      if (!s.activeEval || s.activeEval.id !== evalId) return s;
+      const next: Record<string, EvalModelState> = {};
+      for (const [model, state] of Object.entries(s.activeEval.modelStates)) {
+        next[model] =
+          state.status === "done" || state.status === "error"
+            ? state
+            : { ...state, status: "error", error };
+      }
+      return {
+        activeEval: {
+          ...s.activeEval,
+          modelStates: next,
+          complete: true,
+        },
+      };
+    }),
+
   setJudge: (judge) =>
     set((s) => (s.activeEval ? { activeEval: { ...s.activeEval, judge } } : s)),
 
@@ -269,6 +393,7 @@ export const useEvalStore = create<EvalState>()((set) => ({
         id: result.id,
         prompt: result.prompt,
         models: result.models,
+        blindLabels: buildBlindLabels(result.id, result.models),
         modelStates,
         complete: true,
         created_at: result.created_at * 1000,
@@ -279,7 +404,11 @@ export const useEvalStore = create<EvalState>()((set) => ({
         is_goal_eval: result.is_goal_eval ?? false,
       },
       humanScores,
+      manualReviews: result.manual_reviews ?? {},
+      scoresDirty: false,
+      reviewDirty: false,
       evalOpen: true,
+      ...(result.is_goal_eval ? { blindMode: true } : {}),
     });
   },
 
@@ -289,13 +418,32 @@ export const useEvalStore = create<EvalState>()((set) => ({
         ...s.humanScores,
         [model]: { ...(s.humanScores[model] ?? {}), [dimension]: value },
       },
+      scoresDirty: true,
     })),
 
-  clearHumanScores: () => set({ humanScores: {} }),
+  markHumanScoresSaved: () => set({ scoresDirty: false }),
+
+  setManualReview: (model, review) =>
+    set((s) => ({
+      manualReviews: {
+        ...s.manualReviews,
+        [model]: {
+          score: "score" in review ? review.score ?? null : s.manualReviews[model]?.score ?? null,
+          notes: "notes" in review ? review.notes ?? "" : s.manualReviews[model]?.notes ?? "",
+          updated_at: review.updated_at ?? Math.floor(Date.now() / 1000),
+        },
+      },
+      reviewDirty: true,
+    })),
+
+  markManualReviewsSaved: () => set({ reviewDirty: false }),
+
+  clearHumanScores: () => set({ humanScores: {}, scoresDirty: false }),
 
   openEval: () => set({ evalOpen: true }),
   closeEval: () => set({ evalOpen: false }),
   toggleBlind: () => set((s) => ({ blindMode: !s.blindMode })),
+  setBlindMode: (blindMode) => set({ blindMode }),
 
   startSuite: (run) => set({ activeSuite: run }),
   advanceSuite: (eval_id) =>

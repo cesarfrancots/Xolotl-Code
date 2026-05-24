@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type { TokenUsage } from "../bindings";
 
+export type ReasoningEffort = "low" | "medium" | "high" | "max";
+
 /** A single tool call within an assistant message. */
 export interface ToolCall {
   /** Unique id for this tool call (generated client-side). */
@@ -60,6 +62,8 @@ export interface ChatState {
   isStreaming: boolean;
   /** Currently selected model name (per-session, D-05). */
   model: string;
+  /** Provider-specific thinking/reasoning effort where supported. */
+  reasoningEffort: ReasoningEffort;
   /**
    * Running session-total token usage.
    * Accumulated from every TurnCompleted event.
@@ -77,6 +81,12 @@ export interface ChatState {
 
   /** Append a committed user or assistant message to the list. */
   appendItem: (item: ChatItem) => void;
+
+  /** Mark a model turn as started before the first network delta arrives. */
+  beginStream: () => void;
+
+  /** Reset streaming state without committing an assistant message. */
+  clearStreaming: () => void;
 
   /**
    * Append a streaming delta to streamingContent.
@@ -120,6 +130,9 @@ export interface ChatState {
   /** Set the model for the current session. */
   setModel: (model: string) => void;
 
+  /** Set thinking/reasoning effort for providers that expose it. */
+  setReasoningEffort: (effort: ReasoningEffort) => void;
+
   /** Clear the session: reset items, streaming state, and usage. Keeps agentId and model. */
   clearSession: () => void;
 
@@ -159,6 +172,8 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
   streamingReasoning: "",
   isStreaming: false,
   model: localStorage.getItem("xolotl-selected-model") ?? DEFAULT_MODEL,
+  reasoningEffort:
+    (localStorage.getItem("xolotl-reasoning-effort") as ReasoningEffort | null) ?? "high",
   sessionUsage: EMPTY_USAGE,
   alwaysAllowedTools: new Set(),
 
@@ -166,6 +181,20 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
 
   appendItem: (item) =>
     set((state) => ({ items: [...state.items, item] })),
+
+  beginStream: () =>
+    set({
+      streamingContent: "",
+      streamingReasoning: "",
+      isStreaming: true,
+    }),
+
+  clearStreaming: () =>
+    set({
+      streamingContent: "",
+      streamingReasoning: "",
+      isStreaming: false,
+    }),
 
   appendStreamingContent: (delta) =>
     set((state) => ({ streamingContent: state.streamingContent + delta, isStreaming: true })),
@@ -180,6 +209,14 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
     set((state) => {
       if (!state.streamingContent && !state.streamingReasoning && !state.isStreaming) {
         return state;
+      }
+      if (!state.streamingContent && !state.streamingReasoning) {
+        return {
+          streamingContent: "",
+          streamingReasoning: "",
+          isStreaming: false,
+          sessionUsage: addUsage(state.sessionUsage, usage),
+        };
       }
       const assistantMessage: Message = {
         id: generateId(),
@@ -282,6 +319,11 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
   setModel: (model) => {
     localStorage.setItem("xolotl-selected-model", model);
     set({ model });
+  },
+
+  setReasoningEffort: (effort) => {
+    localStorage.setItem("xolotl-reasoning-effort", effort);
+    set({ reasoningEffort: effort });
   },
 
   clearSession: () =>

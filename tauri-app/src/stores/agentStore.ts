@@ -104,6 +104,8 @@ const RATES: Record<string, { in: number; out: number }> = {
   "kimi-coding": { in: 0.15, out: 2.5 },
   "kimi2.6": { in: 0.15, out: 2.5 },
   "minimax2.7": { in: 0.3, out: 1.65 },
+  "deepseek-v4-flash": { in: 0.14, out: 0.28 },
+  "deepseek-v4-pro": { in: 0.435, out: 0.87 },
 };
 
 function estimateTurnCost(usage: TokenUsage, model: string): number {
