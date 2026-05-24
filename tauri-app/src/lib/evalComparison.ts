@@ -5,6 +5,7 @@ import { HUMAN_SCORE_KEYS } from "../stores/evalStore";
 export type EvalScoreSource = "blend" | "human" | "judge" | "goal" | "auto" | "kpi" | "none";
 export type ComparisonKpiKey = "quality" | "reasoning" | "speed" | "efficiency" | "cost";
 export type ComparisonDecision = "clear" | "close" | "tie" | "single" | "unscored";
+export type ObjectiveCorrectnessVerdict = "correct" | "incorrect" | "unknown";
 
 export type ComparisonKpi = {
   key: ComparisonKpiKey;
@@ -51,6 +52,10 @@ export type ModelComparisonResult = {
   manualScore: number | null;
   manualNotes: string;
   manualUpdatedAt: number | null;
+  correctness: {
+    verdict: ObjectiveCorrectnessVerdict;
+    detail: string;
+  };
   kpis: ComparisonKpi[];
   dimensions: Partial<Record<keyof HumanScores, ComparisonDimensionValue>>;
 };
@@ -208,6 +213,7 @@ export function buildEvalComparison({
       manualScore: cleanScore(review?.score ?? null),
       manualNotes: review?.notes ?? "",
       manualUpdatedAt: review?.updated_at ?? null,
+      correctness: objectiveCorrectness(activeEval.suite_id, activeEval.prompt, state.content),
       kpis,
       dimensions,
     };
@@ -482,6 +488,66 @@ function cleanScore(value: number | null | undefined): number | null {
 function calcCost(model: string, inputTokens: number, outputTokens: number): number {
   const pricing = MODEL_PRICING[model] ?? { input: 1, output: 3 };
   return (inputTokens / 1_000_000) * pricing.input + (outputTokens / 1_000_000) * pricing.output;
+}
+
+function objectiveCorrectness(
+  suiteId: string | null | undefined,
+  prompt: string,
+  content: string
+): ModelComparisonResult["correctness"] {
+  if (suiteId === "reasoning" && /bat and ball/i.test(prompt)) {
+    const normalized = content.toLowerCase();
+    if (/(?:\$|¢|cents?\b|dollars?\b)?\s*0?\.?05\b|\bfive cents?\b|\b5 cents?\b|\b5¢\b/.test(normalized)) {
+      return { verdict: "correct", detail: "Expected answer: $0.05." };
+    }
+    if (/\b(?:0?\.?10|ten cents?|10 cents?|10¢)\b/.test(normalized)) {
+      return { verdict: "incorrect", detail: "Answered $0.10; expected $0.05." };
+    }
+    return { verdict: "unknown", detail: "Expected answer: $0.05; answer could not be matched automatically." };
+  }
+
+  if (suiteId === "reasoning" && /all Bloops are Razzies/i.test(prompt)) {
+    const normalized = content.toLowerCase();
+    const firstYes = /\b(?:yes|definitely|all bloops.*lazzies)\b/.test(normalized);
+    const secondNo = /\b(?:no|not necessarily|must not|does not follow|can't conclude|cannot conclude)\b/.test(normalized);
+    if (firstYes && secondNo) {
+      return { verdict: "correct", detail: "Expected: yes for Bloops->Lazzies, no for Bloops->Snazzies." };
+    }
+    return { verdict: "unknown", detail: "Expected: yes, then no; automatic matcher could not confirm both parts." };
+  }
+
+  if (suiteId === "reasoning" && /three switches/i.test(prompt)) {
+    const normalized = content.toLowerCase();
+    const hasHeat = /\b(?:heat|warm|hot|temperature)\b/.test(normalized);
+    const hasLightState = /\b(?:on|off|lit|unlit|light)\b/.test(normalized);
+    return hasHeat && hasLightState
+      ? { verdict: "correct", detail: "Uses the standard on/off/warm bulb method." }
+      : { verdict: "unknown", detail: "Expected use of on/off state plus bulb warmth." };
+  }
+
+  if (suiteId === "json") {
+    try {
+      JSON.parse(extractJsonCandidate(content));
+      return { verdict: "correct", detail: "Output parses as JSON." };
+    } catch {
+      return { verdict: "incorrect", detail: "Output does not parse as JSON." };
+    }
+  }
+
+  return { verdict: "unknown", detail: "No deterministic correctness check is configured for this prompt." };
+}
+
+function extractJsonCandidate(text: string): string {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) return fenced[1].trim();
+  const firstObject = trimmed.indexOf("{");
+  const lastObject = trimmed.lastIndexOf("}");
+  const firstArray = trimmed.indexOf("[");
+  const lastArray = trimmed.lastIndexOf("]");
+  if (firstObject >= 0 && lastObject > firstObject) return trimmed.slice(firstObject, lastObject + 1);
+  if (firstArray >= 0 && lastArray > firstArray) return trimmed.slice(firstArray, lastArray + 1);
+  return trimmed;
 }
 
 function formatMs(value: number): string {

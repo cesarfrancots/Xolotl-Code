@@ -14,9 +14,11 @@ import { MarkdownRenderer } from "../chat/MarkdownRenderer";
 import {
   assessBlindResultsGate,
   assessBlindReviewGate,
+  determineEvalReviewMode,
   assessGoalEvalReadiness,
   assessGoalWorkflowSteps,
   type BlindResultsGate,
+  type EvalReviewMode,
   type GoalEvalReadiness,
   type GoalReadinessState,
   type GoalWorkflowStep,
@@ -691,12 +693,14 @@ function comparisonDecisionCopy(
 
 function ComparisonResultsPanel({
   comparison,
+  reviewMode,
   reviewDirty,
   savingReview,
   onManualReviewChange,
   onSaveManualReviews,
 }: {
   comparison: EvalComparison;
+  reviewMode: EvalReviewMode;
   reviewDirty: boolean;
   savingReview: boolean;
   onManualReviewChange: (model: string, review: Partial<ManualReview>) => void;
@@ -705,7 +709,10 @@ function ComparisonResultsPanel({
   const winner = comparison.winner;
   const scoreText = (score: number | null) => score === null ? "--" : score.toFixed(1);
   const scoreWidth = (score: number | null) => `${Math.max(0, Math.min(100, (score ?? 0) * 10))}%`;
-  const weightLabel = `${Math.round(FINAL_AI_WEIGHT * 100)}% AI KPI / ${Math.round(FINAL_HUMAN_WEIGHT * 100)}% human visual`;
+  const automaticMode = reviewMode === "automatic";
+  const weightLabel = automaticMode
+    ? "AI/KPI only"
+    : `${Math.round(FINAL_AI_WEIGHT * 100)}% AI KPI / ${Math.round(FINAL_HUMAN_WEIGHT * 100)}% human visual`;
   const decision = comparisonDecisionCopy(comparison.decision, comparison.winnerMargin);
   const kpiLeaders = ["quality", "reasoning", "speed", "efficiency", "cost"]
     .map((key) => {
@@ -738,7 +745,9 @@ function ComparisonResultsPanel({
                   : "No winner yet"}
             </h3>
             <p className="mt-1 max-w-3xl text-sm leading-relaxed text-[oklch(0.58_0.014_230)]">
-              Final score blends automatic model KPIs with your blind visual review. Personal notes below are saved separately and never change the eval score.
+              {automaticMode
+                ? "Objective evals skip manual scoring. Review each model answer, deterministic correctness where available, and the final AI/KPI score."
+                : "Final score blends automatic model KPIs with your blind visual review. Personal notes below are saved separately and never change the eval score."}
             </p>
           </div>
           <div className="grid min-w-[320px] grid-cols-4 gap-2 rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.096_0.003_245)] p-2 text-center">
@@ -791,7 +800,9 @@ function ComparisonResultsPanel({
             <div>
               <div className="mb-2 text-xs font-semibold text-[oklch(0.82_0.014_220)]">Human area leaders</div>
               <div className="space-y-2">
-                {comparison.areaLeaders.length === 0 ? (
+                {automaticMode ? (
+                  <div className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] px-3 py-2 text-xs text-[oklch(0.52_0.012_230)]">Manual scoring is skipped for this objective eval.</div>
+                ) : comparison.areaLeaders.length === 0 ? (
                   <div className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] px-3 py-2 text-xs text-[oklch(0.52_0.012_230)]">Human scores are not set yet.</div>
                 ) : comparison.areaLeaders.slice(0, 5).map((leader) => (
                   <div key={leader.key} className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] px-3 py-2">
@@ -825,6 +836,20 @@ function ComparisonResultsPanel({
                   <div className="mt-1 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.48_0.012_230)]">
                     {SCORE_SOURCE_LABELS[model.generalSource]} / {comparisonDecisionCopy(model.confidence, model.scoreMargin).label}
                   </div>
+                  {automaticMode && (
+                    <div
+                      className={`mt-2 inline-flex w-fit items-center rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] ${
+                        model.correctness.verdict === "correct"
+                          ? "border-[oklch(0.34_0.035_155)] bg-[oklch(0.13_0.010_155)] text-[oklch(0.70_0.060_155)]"
+                          : model.correctness.verdict === "incorrect"
+                            ? "border-[oklch(0.36_0.040_28)] bg-[oklch(0.13_0.010_28)] text-[oklch(0.72_0.060_28)]"
+                            : "border-[oklch(0.30_0.014_230)] bg-[oklch(0.12_0.005_240)] text-[oklch(0.58_0.014_230)]"
+                      }`}
+                      title={model.correctness.detail}
+                    >
+                      {model.correctness.verdict}
+                    </div>
+                  )}
                   <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-[oklch(0.58_0.014_230)]">{model.why}</p>
                 </div>
               </div>
@@ -832,7 +857,9 @@ function ComparisonResultsPanel({
                 {[
                   { label: "Final", score: model.finalScore, color: "oklch(0.72 0.055 190)" },
                   { label: "AI KPI", score: model.aiScore, color: "oklch(0.72 0.045 255)" },
-                  { label: "Human visual", score: model.humanScore, color: "oklch(0.72 0.060 88)" },
+                  automaticMode
+                    ? { label: "Cost", score: model.kpis.find((kpi) => kpi.key === "cost")?.score ?? null, color: "oklch(0.72 0.060 88)" }
+                    : { label: "Human visual", score: model.humanScore, color: "oklch(0.72 0.060 88)" },
                 ].map((metric) => (
                   <div key={metric.label} className="min-w-0">
                     <div className="flex items-center justify-between gap-2">
@@ -849,6 +876,25 @@ function ComparisonResultsPanel({
           ))}
         </div>
       </section>
+
+      {automaticMode && (
+        <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+          <div className="mb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Answers and correctness</div>
+          <div className="grid gap-3 xl:grid-cols-2">
+            {comparison.models.map((model) => (
+              <div key={`answer-${model.model}`} className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] p-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <ModelAvatar model={model.model} displayName={model.displayName} revealed size="sm" />
+                  <span className="truncate text-sm font-semibold text-[oklch(0.84_0.014_225)]">{model.displayName}</span>
+                  <span className="ml-auto text-[10px] uppercase tracking-[0.12em] text-[oklch(0.56_0.014_230)]">{model.correctness.verdict}</span>
+                </div>
+                <div className="mb-2 text-[11px] text-[oklch(0.56_0.012_230)]">{model.correctness.detail}</div>
+                <OutcomePreview model={model.model} displayName={model.displayName} showWrittenFallback />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -881,7 +927,7 @@ function ComparisonResultsPanel({
         </div>
       </section>
 
-      <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+      {!automaticMode && <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
         <div className="mb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Human visual breakdown</div>
         <div className="space-y-3">
           {comparison.dimensionRows.map((row) => {
@@ -902,9 +948,9 @@ function ComparisonResultsPanel({
             );
           })}
         </div>
-      </section>
+      </section>}
 
-      <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+      {!automaticMode && <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
         <div className="mb-3 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Outcome previews</div>
         <div className="grid gap-4 xl:grid-cols-2">
           {comparison.models.map((model) => (
@@ -917,9 +963,9 @@ function ComparisonResultsPanel({
             </div>
           ))}
         </div>
-      </section>
+      </section>}
 
-      <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+      {!automaticMode && <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Personal review</div>
@@ -982,7 +1028,7 @@ function ComparisonResultsPanel({
             </div>
           ))}
         </div>
-      </section>
+      </section>}
     </div>
   );
 }
@@ -1524,6 +1570,19 @@ export function EvalView() {
     setManualReview, markManualReviewsSaved,
   } = useEvalStore.getState();
 
+  const reviewMode = useMemo<EvalReviewMode>(
+    () => activeEval
+      ? determineEvalReviewMode({
+        suiteId: activeEval.suite_id,
+        prompt: activeEval.prompt,
+        isGoalEval: activeEval.is_goal_eval,
+      })
+      : mode === "suite"
+        ? determineEvalReviewMode({ suiteId: selectedSuite, prompt: "", isGoalEval: false })
+        : determineEvalReviewMode({ suiteId: null, prompt, isGoalEval: mode === "goal" }),
+    [activeEval, mode, prompt, selectedSuite]
+  );
+
   useEffect(() => {
     commands.listModels()
       .then(setAllModels)
@@ -1533,11 +1592,17 @@ export function EvalView() {
       .catch((error) => setReviewNotice({ title: "Eval suites unavailable", detail: noticeDetail(error) }));
   }, []);
 
+  useEffect(() => {
+    if (activeEval && reviewMode === "automatic" && blindMode) {
+      setBlindMode(false);
+    }
+  }, [activeEval, blindMode, reviewMode, setBlindMode]);
+
   // Map model -> display name (blind A/B/C or real name)
   const blindNames = useMemo<Record<string, string>>(() => {
-    if (!blindMode || !activeEval) return {};
+    if (reviewMode === "automatic" || !blindMode || !activeEval) return {};
     return activeEval.blindLabels;
-  }, [blindMode, activeEval]);
+  }, [blindMode, activeEval, reviewMode]);
 
   const reviewModels = useMemo(
     () => activeEval ? getReviewOrder(activeEval.models, activeEval.blindLabels, blindMode) : [],
@@ -1577,8 +1642,9 @@ export function EvalView() {
       blindMode,
       reviewComplete: Boolean(blindReviewProgress?.complete),
       scoresDirty,
+      reviewMode,
     }),
-    [activeEval?.is_goal_eval, blindMode, blindReviewProgress?.complete, scoresDirty]
+    [activeEval?.is_goal_eval, blindMode, blindReviewProgress?.complete, scoresDirty, reviewMode]
   );
   const resultsGate = useMemo(
     () => assessBlindResultsGate({
@@ -1586,8 +1652,9 @@ export function EvalView() {
       blindMode,
       reviewComplete: Boolean(blindReviewProgress?.complete),
       scoresDirty,
+      reviewMode,
     }),
-    [activeEval?.is_goal_eval, blindMode, blindReviewProgress?.complete, scoresDirty]
+    [activeEval?.is_goal_eval, blindMode, blindReviewProgress?.complete, scoresDirty, reviewMode]
   );
   const comparison = useMemo(
     () => activeEval
@@ -1616,8 +1683,9 @@ export function EvalView() {
       reviewComplete: Boolean(blindReviewProgress?.complete),
       scoresDirty,
       blindMode,
+      reviewMode,
     }),
-    [goalReadiness.canRun, activeEval, blindReviewProgress?.complete, scoresDirty, blindMode]
+    [goalReadiness.canRun, activeEval, blindReviewProgress?.complete, scoresDirty, blindMode, reviewMode]
   );
   const goalBlindSurface = mode === "goal" || Boolean(activeEval?.is_goal_eval);
   const runDisabled =
@@ -2114,6 +2182,9 @@ export function EvalView() {
   }
 
   const hasScores = Object.keys(humanScores).some((m) => Object.values(humanScores[m] ?? {}).some((v) => (v ?? 0) > 0));
+  const visibleEvalStage: EvalFlowStage = activeEval?.complete && reviewMode === "automatic"
+    ? "results"
+    : evalStage;
 
   // Group models by provider for the chip picker.
   const grouped = useMemo(() => {
@@ -2142,13 +2213,23 @@ export function EvalView() {
             if (r.status === "ok") {
               const parsed: EvalResult = JSON.parse(r.data);
               useEvalStore.getState().loadEval(parsed);
-              const scoreableModels = parsed.results
-                .filter((result) => !result.error && result.content.trim().length > 0)
-                .map((result) => result.model);
-              const savedReview = getBlindReviewProgress(scoreableModels, parsed.human_scores);
-              const reviewComplete = savedReview.totalModels === 0 || savedReview.complete;
-              setEvalStage(reviewComplete ? "results" : "review");
-              setBlindMode(!reviewComplete);
+              const loadedReviewMode = determineEvalReviewMode({
+                suiteId: parsed.suite_id,
+                prompt: parsed.prompt,
+                isGoalEval: parsed.is_goal_eval,
+              });
+              if (loadedReviewMode === "automatic") {
+                setEvalStage("results");
+                setBlindMode(false);
+              } else {
+                const scoreableModels = parsed.results
+                  .filter((result) => !result.error && result.content.trim().length > 0)
+                  .map((result) => result.model);
+                const savedReview = getBlindReviewProgress(scoreableModels, parsed.human_scores);
+                const reviewComplete = savedReview.totalModels === 0 || savedReview.complete;
+                setEvalStage(reviewComplete ? "results" : "review");
+                setBlindMode(!reviewComplete);
+              }
               setReviewNotice(null);
             }
           }} />
@@ -2624,11 +2705,11 @@ export function EvalView() {
               {reviewNotice ? (
                 <ReviewNoticeBanner notice={reviewNotice as ReviewNotice} onDismiss={() => setReviewNotice(null)} />
               ) : null}
-              {evalStage === "battle" && (
+              {visibleEvalStage === "battle" && (
                 <EvalArena blindMode={blindMode} onReadyForScores={() => setEvalStage("review")} />
               )}
 
-              {activeEval.complete && evalStage === "review" && (
+              {activeEval.complete && visibleEvalStage === "review" && (
                 <HumanReviewScreen
                   models={reviewModels.filter((model) => scoreableReviewModels.includes(model))}
                   blindNames={blindNames}
@@ -2639,7 +2720,7 @@ export function EvalView() {
                 />
               )}
 
-              {activeEval.complete && evalStage === "results" && (
+              {activeEval.complete && visibleEvalStage === "results" && (
                 <>
                   <div className="flex flex-col gap-2 rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] px-3 py-3 md:flex-row md:items-center md:justify-between">
                     <div>
@@ -2696,6 +2777,7 @@ export function EvalView() {
                     : comparison && (
                       <ComparisonResultsPanel
                         comparison={comparison}
+                        reviewMode={reviewMode}
                         reviewDirty={reviewDirty}
                         savingReview={savingReview}
                         onManualReviewChange={setManualReview}

@@ -5,6 +5,7 @@ import {
   assessGoalEvalReadiness,
   assessGoalWorkflowSteps,
   canShowHumanScoreAggregate,
+  determineEvalReviewMode,
 } from "./evalReadiness";
 
 describe("assessGoalEvalReadiness", () => {
@@ -67,6 +68,26 @@ describe("assessGoalEvalReadiness", () => {
 });
 
 describe("assessBlindReviewGate", () => {
+  it("routes objective suite evals directly to automatic review", () => {
+    expect(determineEvalReviewMode({
+      suiteId: "reasoning",
+      prompt: "A bat and ball cost $1.10. How much does the ball cost?",
+      isGoalEval: false,
+    })).toBe("automatic");
+
+    expect(determineEvalReviewMode({
+      suiteId: null,
+      prompt: "Create a single HTML file with an animation of a forest being painted",
+      isGoalEval: false,
+    })).toBe("human");
+
+    expect(determineEvalReviewMode({
+      suiteId: null,
+      prompt: "Write a flash fiction story about debugging at 3am",
+      isGoalEval: false,
+    })).toBe("human");
+  });
+
   it("locks machine review for blind goal evals until human scores are complete", () => {
     const gate = assessBlindReviewGate({
       isGoalEval: true,
@@ -77,6 +98,19 @@ describe("assessBlindReviewGate", () => {
 
     expect(gate.machineReviewLocked).toBe(true);
     expect(gate.reason).toBe("score");
+  });
+
+  it("keeps machine review available for automatic objective evals", () => {
+    const gate = assessBlindReviewGate({
+      isGoalEval: false,
+      blindMode: true,
+      reviewComplete: false,
+      scoresDirty: false,
+      reviewMode: "automatic",
+    });
+
+    expect(gate.machineReviewLocked).toBe(false);
+    expect(gate.label).toBe("Automatic review");
   });
 
   it("keeps machine review locked until completed blind scores are saved", () => {
@@ -131,6 +165,19 @@ describe("assessBlindResultsGate", () => {
 
     expect(gate.resultsLocked).toBe(true);
     expect(gate.reason).toBe("score");
+  });
+
+  it("shows aggregate rankings immediately for automatic objective evals", () => {
+    const gate = assessBlindResultsGate({
+      isGoalEval: false,
+      blindMode: true,
+      reviewComplete: false,
+      scoresDirty: false,
+      reviewMode: "automatic",
+    });
+
+    expect(gate.resultsLocked).toBe(false);
+    expect(gate.label).toBe("Automatic ranking");
   });
 
   it("keeps rankings hidden until completed blind scores are saved", () => {
@@ -209,6 +256,26 @@ describe("assessGoalWorkflowSteps", () => {
       ["score", "current"],
       ["save", "locked"],
       ["review", "locked"],
+    ]);
+  });
+
+  it("skips human score and save steps for automatic objective evals", () => {
+    const steps = assessGoalWorkflowSteps({
+      canRun: true,
+      hasActiveEval: true,
+      evalComplete: true,
+      reviewComplete: false,
+      scoresDirty: false,
+      blindMode: false,
+      reviewMode: "automatic",
+    });
+
+    expect(steps.map((step) => [step.id, step.state])).toEqual([
+      ["setup", "done"],
+      ["run", "done"],
+      ["score", "done"],
+      ["save", "done"],
+      ["review", "done"],
     ]);
   });
 
