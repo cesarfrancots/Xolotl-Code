@@ -149,4 +149,25 @@ describe("buildEvalComparison", () => {
     expect(comparison.models.find((model) => model.model === "model-b")?.why).toContain("Strong goal completion.");
     expect(comparison.models.find((model) => model.model === "model-b")?.aiScore).toBeGreaterThan(8);
   });
+
+  it("keeps tied models on the same rank instead of inventing a winner", () => {
+    const activeEval = evalFixture();
+    activeEval.modelStates["model-a"].auto = undefined;
+
+    const comparison = buildEvalComparison({
+      activeEval,
+      humanScores: {
+        "model-a": scores(8),
+        "model-b": scores(8),
+      },
+    });
+
+    expect(comparison.models.map((model) => [model.model, model.rank])).toEqual([
+      ["model-a", 1],
+      ["model-b", 1],
+    ]);
+    expect(comparison.decision).toBe("tie");
+    expect(comparison.winnerMargin).toBe(0);
+    expect(comparison.models[0].confidence).toBe("tie");
+  });
 });

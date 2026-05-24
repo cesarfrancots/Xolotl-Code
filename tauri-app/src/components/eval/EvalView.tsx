@@ -677,6 +677,18 @@ function RadarChart({ comparison }: { comparison: EvalComparison }) {
   );
 }
 
+function comparisonDecisionCopy(
+  decision: EvalComparison["decision"],
+  margin: number | null,
+): { label: string; detail: string } {
+  const marginText = margin === null ? "No runner-up margin" : `${margin.toFixed(1)} point margin`;
+  if (decision === "tie") return { label: "Tie", detail: "Scores are effectively equal." };
+  if (decision === "close") return { label: "Close call", detail: marginText };
+  if (decision === "clear") return { label: "Clear lead", detail: marginText };
+  if (decision === "single") return { label: "Single model", detail: "Only one scored model is available." };
+  return { label: "Unscored", detail: "No scored outputs are available." };
+}
+
 function ComparisonResultsPanel({
   comparison,
   reviewDirty,
@@ -694,6 +706,7 @@ function ComparisonResultsPanel({
   const scoreText = (score: number | null) => score === null ? "--" : score.toFixed(1);
   const scoreWidth = (score: number | null) => `${Math.max(0, Math.min(100, (score ?? 0) * 10))}%`;
   const weightLabel = `${Math.round(FINAL_AI_WEIGHT * 100)}% AI KPI / ${Math.round(FINAL_HUMAN_WEIGHT * 100)}% human visual`;
+  const decision = comparisonDecisionCopy(comparison.decision, comparison.winnerMargin);
   const kpiLeaders = ["quality", "reasoning", "speed", "efficiency", "cost"]
     .map((key) => {
       const candidates = comparison.models
@@ -718,16 +731,24 @@ function ComparisonResultsPanel({
               Revealed leaderboard
             </div>
             <h3 className="mt-1 text-2xl font-semibold tracking-normal text-[oklch(0.92_0.010_220)]">
-              {winner ? `${winner.displayName} leads overall` : "No winner yet"}
+              {comparison.decision === "tie"
+                ? "No clear winner"
+                : winner
+                  ? `${winner.displayName} leads overall`
+                  : "No winner yet"}
             </h3>
             <p className="mt-1 max-w-3xl text-sm leading-relaxed text-[oklch(0.58_0.014_230)]">
               Final score blends automatic model KPIs with your blind visual review. Personal notes below are saved separately and never change the eval score.
             </p>
           </div>
-          <div className="grid min-w-[260px] grid-cols-3 gap-2 rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.096_0.003_245)] p-2 text-center">
+          <div className="grid min-w-[320px] grid-cols-4 gap-2 rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.096_0.003_245)] p-2 text-center">
             <div>
               <div className="text-[10px] uppercase tracking-[0.13em] text-[oklch(0.46_0.010_230)]">Blend</div>
               <div className="mt-1 text-xs text-[oklch(0.72_0.020_210)]">{weightLabel}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.13em] text-[oklch(0.46_0.010_230)]">Decision</div>
+              <div className="mt-1 text-xs font-semibold text-[oklch(0.72_0.040_190)]" title={decision.detail}>{decision.label}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-[0.13em] text-[oklch(0.46_0.010_230)]">Models</div>
@@ -802,7 +823,7 @@ function ComparisonResultsPanel({
                     <span className="truncate text-sm font-semibold text-[oklch(0.84_0.014_225)]">{model.displayName}</span>
                   </div>
                   <div className="mt-1 text-[10px] uppercase tracking-[0.13em] text-[oklch(0.48_0.012_230)]">
-                    {SCORE_SOURCE_LABELS[model.generalSource]}
+                    {SCORE_SOURCE_LABELS[model.generalSource]} / {comparisonDecisionCopy(model.confidence, model.scoreMargin).label}
                   </div>
                   <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-[oklch(0.58_0.014_230)]">{model.why}</p>
                 </div>

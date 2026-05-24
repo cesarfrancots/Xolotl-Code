@@ -4,6 +4,7 @@ import { HUMAN_SCORE_KEYS } from "../stores/evalStore";
 
 export type EvalScoreSource = "blend" | "human" | "judge" | "goal" | "auto" | "kpi" | "none";
 export type ComparisonKpiKey = "quality" | "reasoning" | "speed" | "efficiency" | "cost";
+export type ComparisonDecision = "clear" | "close" | "tie" | "single" | "unscored";
 
 export type ComparisonKpi = {
   key: ComparisonKpiKey;
@@ -44,6 +45,8 @@ export type ModelComparisonResult = {
   generalScore: number | null;
   generalSource: EvalScoreSource;
   rank: number | null;
+  scoreMargin: number | null;
+  confidence: ComparisonDecision;
   why: string;
   manualScore: number | null;
   manualNotes: string;
@@ -57,6 +60,8 @@ export type EvalComparison = {
   dimensionRows: ComparisonDimensionRow[];
   areaLeaders: ComparisonAreaLeader[];
   winner: ModelComparisonResult | null;
+  winnerMargin: number | null;
+  decision: ComparisonDecision;
   hasScores: boolean;
 };
 
@@ -197,6 +202,8 @@ export function buildEvalComparison({
       generalScore: finalScore,
       generalSource: finalScore === null ? "none" : aiScore !== null && humanScore !== null ? "blend" : aiScore !== null ? "kpi" : "human",
       rank: null,
+      scoreMargin: null,
+      confidence: "unscored",
       why: summarizeScore({ aiScore, humanScore, finalScore, kpis, human: humanScores[model] }),
       manualScore: cleanScore(review?.score ?? null),
       manualNotes: review?.notes ?? "",
@@ -212,18 +219,62 @@ export function buildEvalComparison({
     return bScore - aScore || a.displayName.localeCompare(b.displayName);
   });
 
-  let rank = 1;
-  for (const model of modelResults) {
-    model.rank = model.finalScore === null ? null : rank++;
-  }
+  assignRanksAndConfidence(modelResults);
+  const winner = modelResults.find((model) => model.finalScore !== null) ?? null;
 
   return {
     models: modelResults,
     dimensionRows,
     areaLeaders,
-    winner: modelResults.find((model) => model.finalScore !== null) ?? null,
+    winner,
+    winnerMargin: winner?.scoreMargin ?? null,
+    decision: winner?.confidence ?? "unscored",
     hasScores: modelResults.some((model) => model.finalScore !== null),
   };
+}
+
+const SCORE_TIE_EPSILON = 0.05;
+const CLOSE_MARGIN = 0.5;
+
+function assignRanksAndConfidence(models: ModelComparisonResult[]) {
+  let previousScore: number | null = null;
+  let previousRank: number | null = null;
+
+  for (let index = 0; index < models.length; index++) {
+    const model = models[index];
+    const score = model.finalScore;
+    if (score === null) {
+      model.rank = null;
+      model.scoreMargin = null;
+      model.confidence = "unscored";
+      continue;
+    }
+
+    if (previousScore !== null && previousRank !== null && Math.abs(previousScore - score) <= SCORE_TIE_EPSILON) {
+      model.rank = previousRank;
+    } else {
+      model.rank = index + 1;
+    }
+    previousScore = score;
+    previousRank = model.rank;
+
+    const above = models[index - 1]?.finalScore ?? null;
+    const below = models[index + 1]?.finalScore ?? null;
+    const margin = model.rank === 1
+      ? below === null ? null : Math.max(0, score - below)
+      : above === null ? null : Math.max(0, above - score);
+
+    model.scoreMargin = margin;
+    if (margin === null) {
+      model.confidence = "single";
+    } else if (margin <= SCORE_TIE_EPSILON) {
+      model.confidence = "tie";
+    } else if (margin < CLOSE_MARGIN) {
+      model.confidence = "close";
+    } else {
+      model.confidence = "clear";
+    }
+  }
 }
 
 function hasScoreableOutput(state: EvalModelState | undefined): state is EvalModelState {
