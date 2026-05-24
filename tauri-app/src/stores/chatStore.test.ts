@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useChatStore } from "./chatStore";
+import { useChatStore, type Message } from "./chatStore";
 import type { TokenUsage } from "../bindings";
 
 const ZERO_USAGE: TokenUsage = {
@@ -8,6 +8,15 @@ const ZERO_USAGE: TokenUsage = {
   cache_creation_input_tokens: 0,
   cache_read_input_tokens: 0,
 };
+
+function msg(id: string, role: Message["role"], content: string): Message {
+  return {
+    id,
+    role,
+    content,
+    toolCalls: [],
+  };
+}
 
 beforeEach(() => {
   // Reset store to initial state before each test
@@ -80,6 +89,51 @@ describe("cancelStream", () => {
     expect(state.currentTurnId).toBeNull();
     expect(state.isStreaming).toBe(false);
     expect((state.items[0] as any).stopped).toBe(true);
+  });
+});
+
+describe("compactSession", () => {
+  it("replaces older turns with a checkpoint and preserves recent messages", () => {
+    useChatStore.setState({
+      items: [
+        msg("u1", "user", "We need to improve evals."),
+        msg("a1", "assistant", "I inspected EvalView and found blind review gating."),
+        msg("u2", "user", "Now improve chat context handling."),
+        msg("a2", "assistant", "I will add compaction."),
+        msg("u3", "user", "Keep the latest request intact."),
+      ],
+    });
+
+    const result = useChatStore.getState().compactSession({ keepRecentMessages: 2 });
+
+    const state = useChatStore.getState();
+    expect(result.compacted).toBe(true);
+    expect(result.compactedMessages).toBe(3);
+    expect(state.items).toHaveLength(3);
+    expect((state.items[0] as Message).content).toContain("Session checkpoint");
+    expect((state.items[0] as Message).content).toContain("We need to improve evals.");
+    expect(state.items.slice(1).map((item) => (item as Message).id)).toEqual(["a2", "u3"]);
+    expect(state.isStreaming).toBe(false);
+    expect(state.currentTurnId).toBeNull();
+  });
+
+  it("does not compact while a turn is streaming", () => {
+    useChatStore.setState({
+      items: [
+        msg("u1", "user", "Older request"),
+        msg("a1", "assistant", "Older answer"),
+        msg("u2", "user", "Current request"),
+      ],
+    });
+    useChatStore.getState().beginStream("turn-active");
+
+    const result = useChatStore.getState().compactSession({ keepRecentMessages: 1 });
+
+    const state = useChatStore.getState();
+    expect(result).toMatchObject({ compacted: false, reason: "streaming" });
+    expect(state.items.map((item) => (item as Message).id)).toEqual(["u1", "a1", "u2"]);
+    expect(state.isStreaming).toBe(true);
+    expect(state.currentTurnId).toBe("turn-active");
   });
 });
 

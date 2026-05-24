@@ -18,6 +18,7 @@ describe("chat command catalog", () => {
       "/load",
       "/help",
       "/cost",
+      "/compact",
       "/review",
       "/fix",
       "/test",
@@ -35,6 +36,7 @@ describe("chat command catalog", () => {
     const help = buildSlashHelpText();
 
     expect(help).toContain("**/cost**");
+    expect(help).toContain("**/compact**");
     expect(help).toContain("**/review**");
     expect(help).toContain("Show token and cost usage");
   });

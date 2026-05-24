@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   RotateCcw, Cpu, Save, FolderOpen, HelpCircle, Search,
   Hash, Keyboard, Paperclip, FlaskConical, GitBranch, Users, FileText, Settings2,
-  DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen,
+  DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen, Archive,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
@@ -207,6 +207,20 @@ function runSlashCommand(
       });
       break;
     }
+    case "compact": {
+      const result = chat.compactSession();
+      chat.appendItem({
+        id: `${Date.now()}-compact`,
+        role: "assistant",
+        content: result.compacted
+          ? `**Session compacted**\n\nCheckpointed ${result.compactedMessages} older items and kept the latest ${result.preservedMessages}. Future turns will send the compacted context instead of the full transcript.`
+          : result.reason === "streaming"
+            ? "**Session not compacted**\n\nWait for the current response to finish or stop it before compacting context."
+          : "**Session compacted**\n\nThere are not enough older messages to compact yet.",
+        toolCalls: [],
+      });
+      break;
+    }
     case "review":
     case "fix":
     case "test":
@@ -232,6 +246,8 @@ function slashIcon(id: SlashCommandId): React.ComponentType<{ className?: string
       return HelpCircle;
     case "cost":
       return DollarSign;
+    case "compact":
+      return Archive;
     case "review":
       return GitPullRequest;
     case "fix":
@@ -259,6 +275,8 @@ function slashLabel(id: SlashCommandId): string {
       return "Show help";
     case "cost":
       return "Show usage";
+    case "compact":
+      return "Compact context";
     case "review":
       return "Review changes";
     case "fix":

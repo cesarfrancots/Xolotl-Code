@@ -42,6 +42,18 @@ export interface Message {
 /** A list item is either a Message or an inline PermissionItem. */
 export type ChatItem = Message | PermissionItem;
 
+export interface ChatCompactionOptions {
+  keepRecentMessages?: number;
+  maxCharsPerMessage?: number;
+}
+
+export interface ChatCompactionResult {
+  compacted: boolean;
+  compactedMessages: number;
+  preservedMessages: number;
+  reason?: "streaming" | "short";
+}
+
 export interface ChatState {
   /** ID of the agent backing the current session. null before first spawn. */
   agentId: string | null;
@@ -140,6 +152,9 @@ export interface ChatState {
 
   /** Restore a previously saved session: replaces items, model, and usage. */
   hydrateSession: (items: Message[], model: string, usage: TokenUsage) => void;
+
+  /** Replace older turns with a local checkpoint so future prompts stay compact. */
+  compactSession: (options?: ChatCompactionOptions) => ChatCompactionResult;
 }
 
 // Default to kimi-coding because the most common setup uses a Kimi For
@@ -167,7 +182,51 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export const useChatStore = create<ChatState>()((set, _get) => ({
+function isMessage(item: ChatItem): item is Message {
+  return (item as Message).role === "user" || (item as Message).role === "assistant";
+}
+
+function compactText(value: string, maxChars: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxChars - 3)).trim()}...`;
+}
+
+function summarizeItem(item: ChatItem, maxChars: number): string {
+  if (isMessage(item)) {
+    const role = item.role === "user" ? "User" : "Assistant";
+    const toolSummary = item.toolCalls.length > 0
+      ? ` Tools: ${item.toolCalls.map((tool) => tool.tool).join(", ")}.`
+      : "";
+    const stopped = item.stopped ? " Stopped mid-generation." : "";
+    return `- ${role}: ${compactText(item.content, maxChars)}${toolSummary}${stopped}`;
+  }
+
+  const decision = item.decision ? ` Decision: ${item.decision}.` : "";
+  return `- Permission: ${item.toolName} requested. ${compactText(item.preview, maxChars)}${decision}`;
+}
+
+function buildCompactionCheckpoint(items: ChatItem[], maxCharsPerMessage: number): Message {
+  const summary = items
+    .map((item) => summarizeItem(item, maxCharsPerMessage))
+    .filter((line) => line.trim().length > 3)
+    .join("\n");
+
+  return {
+    id: `checkpoint-${generateId()}`,
+    role: "assistant",
+    content: [
+      "**Session checkpoint**",
+      "",
+      "Older context was compacted locally to keep future development turns responsive. Preserve these facts when continuing:",
+      "",
+      summary || "- Earlier messages contained no textual context to preserve.",
+    ].join("\n"),
+    toolCalls: [],
+  };
+}
+
+export const useChatStore = create<ChatState>()((set, get) => ({
   agentId: null,
   items: [],
   streamingContent: "",
@@ -359,4 +418,44 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
       isStreaming: false,
       currentTurnId: null,
     })),
+
+  compactSession: (options = {}): ChatCompactionResult => {
+    const keepRecentMessages = Math.max(1, Math.floor(options.keepRecentMessages ?? 8));
+    const maxCharsPerMessage = Math.max(80, Math.floor(options.maxCharsPerMessage ?? 360));
+    const state = get();
+    if (state.isStreaming) {
+      return {
+        compacted: false,
+        compactedMessages: 0,
+        preservedMessages: state.items.length,
+        reason: "streaming",
+      };
+    }
+    if (state.items.length <= keepRecentMessages) {
+      return {
+        compacted: false,
+        compactedMessages: 0,
+        preservedMessages: state.items.length,
+        reason: "short",
+      };
+    }
+
+    const splitAt = state.items.length - keepRecentMessages;
+    const older = state.items.slice(0, splitAt);
+    const recent = state.items.slice(splitAt);
+    const checkpoint = buildCompactionCheckpoint(older, maxCharsPerMessage);
+    set({
+      items: [checkpoint, ...recent],
+      streamingContent: "",
+      streamingReasoning: "",
+      isStreaming: false,
+      currentTurnId: null,
+    });
+
+    return {
+      compacted: true,
+      compactedMessages: older.length,
+      preservedMessages: recent.length,
+    };
+  },
 }));

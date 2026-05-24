@@ -410,6 +410,20 @@ export function MessageInput() {
         });
         break;
       }
+      case "compact": {
+        const result = chatStore.compactSession();
+        chatStore.appendItem({
+          id: `${Date.now()}-compact`,
+          role: "assistant",
+          content: result.compacted
+            ? `**Session compacted**\n\nCheckpointed ${result.compactedMessages} older items and kept the latest ${result.preservedMessages}. Future turns will send the compacted context instead of the full transcript.`
+            : result.reason === "streaming"
+              ? "**Session not compacted**\n\nWait for the current response to finish or stop it before compacting context."
+            : "**Session compacted**\n\nThere are not enough older messages to compact yet.",
+          toolCalls: [],
+        });
+        break;
+      }
       case "save": {
         const saveId = activeSessionId ?? globalThis.crypto.randomUUID();
         commands.saveSession(

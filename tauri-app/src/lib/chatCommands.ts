@@ -7,6 +7,7 @@ export type SlashCommandId =
   | "load"
   | "help"
   | "cost"
+  | "compact"
   | "review"
   | "fix"
   | "test"
@@ -27,6 +28,7 @@ export const slashCommandItems: SlashCommandItem[] = [
   { id: "load", command: "/load", description: "Load a saved session", kind: "session" },
   { id: "help", command: "/help", description: "List all commands", kind: "session" },
   { id: "cost", command: "/cost", description: "Show token and cost usage", kind: "session" },
+  { id: "compact", command: "/compact", description: "Checkpoint older context", kind: "session" },
   { id: "review", command: "/review", description: "Review current changes for bugs", kind: "development" },
   { id: "fix", command: "/fix", description: "Investigate and fix a bug", kind: "development" },
   { id: "test", command: "/test", description: "Add or repair focused tests", kind: "development" },
