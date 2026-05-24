@@ -5,14 +5,14 @@ use tauri_specta::{collect_commands, Builder};
 use crate::commands::{
     chat_turn, cleanup_eval_processes, delete_eval, delete_session, get_api_key_status,
     get_worktree_diff, launch_swarm, launch_team, list_agents, list_eval_suites, list_evals,
-    list_models, list_sessions, load_eval, load_session, merge_worktrees, respond_to_permission,
-    run_agent_turn, run_eval_suite, run_goal_grade, run_llm_judge, save_human_scores,
-    save_manual_reviews, save_session, set_api_key, smoke_test, spawn_agent, start_eval,
-    start_eval_artifact, start_goal_eval, stop_agent, test_api_connection, test_permission_prompt,
-    AutoScores, ChatMessage, EvalArtifactFileInput, EvalArtifactLaunchResult, EvalArtifactRequest,
-    EvalMeta, EvalResult, EvalSuite, FileDiff, GoalAxisScore, GoalGrade, GroupLaunchResult,
-    HumanScores, JudgeScores, ManualReview, ModelEvalResult, ReasoningFlag, RoleConfig,
-    SessionMeta, SuitePrompt,
+    list_models, list_prompt_commands, list_sessions, load_eval, load_session, merge_worktrees,
+    respond_to_permission, run_agent_turn, run_eval_suite, run_goal_grade, run_llm_judge,
+    save_human_scores, save_manual_reviews, save_session, set_api_key, smoke_test, spawn_agent,
+    start_eval, start_eval_artifact, start_goal_eval, stop_agent, test_api_connection,
+    test_permission_prompt, AutoScores, ChatMessage, EvalArtifactFileInput,
+    EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta, EvalResult, EvalSuite, FileDiff,
+    GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores, JudgeScores, ManualReview,
+    ModelEvalResult, PromptCommand, ReasoningFlag, RoleConfig, SessionMeta, SuitePrompt,
 };
 use crate::permission_prompter::{PendingPrompts, PermissionDecision};
 use crate::skills_mcp::{
@@ -40,6 +40,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             test_permission_prompt,
             run_agent_turn,
             list_models,
+            list_prompt_commands,
             list_sessions,
             load_session,
             delete_session,
@@ -79,6 +80,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<GroupLaunchResult>()
         .typ::<FileDiff>()
         .typ::<ChatMessage>()
+        .typ::<PromptCommand>()
         .typ::<EvalMeta>()
         .typ::<EvalResult>()
         .typ::<ModelEvalResult>()

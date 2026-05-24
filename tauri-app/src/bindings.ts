@@ -28,6 +28,7 @@ export const commands = {
 	 */
 	runAgentTurn: (agentId: string, messages: ChatMessage[], model: string) => typedError<null, string>(__TAURI_INVOKE("run_agent_turn", { agentId, messages, model })),
 	listModels: () => __TAURI_INVOKE<string[]>("list_models"),
+	listPromptCommands: () => __TAURI_INVOKE<PromptCommand[]>("list_prompt_commands"),
 	listSessions: () => __TAURI_INVOKE<SessionMeta[]>("list_sessions"),
 	loadSession: (id: string) => typedError<string, string>(__TAURI_INVOKE("load_session", { id })),
 	deleteSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_session", { id })),
@@ -181,6 +182,14 @@ export type AutoScores = {
 
 export type ChatMessage = {
 	role: string,
+	content: string,
+};
+
+export type PromptCommand = {
+	command: string,
+	description: string,
+	scope: string,
+	source_path: string,
 	content: string,
 };
 

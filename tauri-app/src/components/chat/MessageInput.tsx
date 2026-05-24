@@ -20,13 +20,15 @@ import {
 } from "../ui/command";
 import { useChatStore } from "../../stores/chatStore";
 import { commands } from "../../bindings";
-import type { AgentEvent, TokenUsage } from "../../bindings";
+import type { AgentEvent, PromptCommand, TokenUsage } from "../../bindings";
 import { useSessionStore, serializeSession } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { calcTurnCost, formatCostBar } from "../../lib/cost";
 import {
   buildSlashHelpText,
+  filterCustomPromptCommands,
   filterSlashCommands,
+  findCustomPromptCommand,
   findSlashCommand,
   getWorkflowPrompt,
 } from "../../lib/chatCommands";
@@ -288,10 +290,14 @@ export function MessageInput() {
   } = useChatStore();
   const { activeSessionId } = useSessionStore();
   const [availableModels, setAvailableModels] = useState<string[]>([model]);
+  const [customCommands, setCustomCommands] = useState<PromptCommand[]>([]);
 
   useEffect(() => {
     void commands.listModels().then((models) => {
       if (models.length > 0) setAvailableModels(models);
+    });
+    void commands.listPromptCommands().then(setCustomCommands).catch((error) => {
+      console.error("list_prompt_commands error:", error);
     });
   }, []);
 
@@ -341,6 +347,7 @@ export function MessageInput() {
 
   // Filter commands by what the user has typed after "/"
   const filteredCommands = filterSlashCommands(value);
+  const filteredCustomCommands = filterCustomPromptCommands(value, customCommands);
 
   const seedWorkflowPrompt = useCallback((prompt: string) => {
     setValue(prompt);
@@ -356,10 +363,16 @@ export function MessageInput() {
 
   function executeSlashCommand(cmd: string) {
     const command = findSlashCommand(cmd);
-    if (!command) return;
+    const customCommand = findCustomPromptCommand(cmd, customCommands);
+    if (!command && !customCommand) return;
     setValue("");
     setPaletteOpen(false);
     const chatStore = useChatStore.getState();
+    if (customCommand) {
+      seedWorkflowPrompt(customCommand.content);
+      return;
+    }
+    if (!command) return;
     switch (command.id) {
       case "clear":
         chatStore.clearSession();
@@ -676,24 +689,41 @@ export function MessageInput() {
         <PopoverContent side="top" align="start" className="p-0 w-72 border-[oklch(0.24_0.010_235)] bg-[oklch(0.115_0.004_245)]">
           <Command shouldFilter={false}>
             <CommandList>
-              {filteredCommands.length === 0 ? (
+              {filteredCommands.length === 0 && filteredCustomCommands.length === 0 ? (
                 <CommandEmpty className="text-xs text-[oklch(0.55_0_0)] px-4 py-3">
                   No commands match &lsquo;{value}&rsquo;.
                 </CommandEmpty>
               ) : (
-                filteredCommands.map((item) => (
-                  <CommandItem
-                    key={item.command}
-                    value={item.command}
-                    onSelect={() => executeSlashCommand(item.command)}
-                    className="flex justify-between px-4 py-2 cursor-pointer"
-                  >
-                    <span className="text-sm text-[oklch(0.66_0.040_190)] font-medium">
-                      {item.command}
-                    </span>
-                    <span className="text-xs text-[oklch(0.55_0_0)]">{item.description}</span>
-                  </CommandItem>
-                ))
+                <>
+                  {filteredCommands.map((item) => (
+                    <CommandItem
+                      key={item.command}
+                      value={item.command}
+                      onSelect={() => executeSlashCommand(item.command)}
+                      className="flex justify-between px-4 py-2 cursor-pointer"
+                    >
+                      <span className="text-sm text-[oklch(0.66_0.040_190)] font-medium">
+                        {item.command}
+                      </span>
+                      <span className="text-xs text-[oklch(0.55_0_0)]">{item.description}</span>
+                    </CommandItem>
+                  ))}
+                  {filteredCustomCommands.map((item) => (
+                    <CommandItem
+                      key={`${item.scope}-${item.source_path}`}
+                      value={item.command}
+                      onSelect={() => executeSlashCommand(item.command)}
+                      className="flex justify-between gap-3 px-4 py-2 cursor-pointer"
+                    >
+                      <span className="text-sm text-[oklch(0.76_0.040_190)] font-medium">
+                        {item.command}
+                      </span>
+                      <span className="truncate text-xs text-[oklch(0.55_0_0)]">
+                        {item.description} ({item.scope})
+                      </span>
+                    </CommandItem>
+                  ))}
+                </>
               )}
             </CommandList>
           </Command>
@@ -703,6 +733,7 @@ export function MessageInput() {
         open={commandsOpen}
         onOpenChange={setCommandsOpen}
         onUsePrompt={seedWorkflowPrompt}
+        customCommands={customCommands}
       />
     </div>
   );

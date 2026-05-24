@@ -1,10 +1,10 @@
+use runtime::{PermissionPromptDecision, PermissionPrompter, PermissionRequest};
+use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
-use specta::Type;
 use tauri::{AppHandle, Emitter};
-use runtime::{PermissionPrompter, PermissionPromptDecision, PermissionRequest};
 
 /// Frontend-facing decision type with three options (D-12).
 /// Distinct from PermissionPromptDecision in runtime — that type drives the Rust outcome.
@@ -55,15 +55,22 @@ impl PermissionPrompter for TauriPermissionPrompter {
         // WR-06: check emit result — on failure, immediately remove the pending entry
         // and return Deny rather than blocking on recv_timeout for 60 seconds with a
         // zombie entry in the PendingPrompts map.
-        if self.app_handle.emit(
-            "permission-request",
-            PermissionRequestPayload {
-                prompt_id: prompt_id.clone(),
-                tool_name: request.tool_name.clone(),
-                preview,
-            },
-        ).is_err() {
-            let _ = self.pending_prompts.lock().map(|mut p| p.remove(&prompt_id));
+        if self
+            .app_handle
+            .emit(
+                "permission-request",
+                PermissionRequestPayload {
+                    prompt_id: prompt_id.clone(),
+                    tool_name: request.tool_name.clone(),
+                    preview,
+                },
+            )
+            .is_err()
+        {
+            let _ = self
+                .pending_prompts
+                .lock()
+                .map(|mut p| p.remove(&prompt_id));
             return PermissionPromptDecision::Deny {
                 reason: "Failed to emit permission request to frontend".to_string(),
             };
@@ -81,10 +88,16 @@ impl PermissionPrompter for TauriPermissionPrompter {
         };
 
         // Clean up regardless of outcome (CR-01: use map_err to avoid panic on poisoned mutex)
-        let mut pending = self.pending_prompts.lock().map_err(|poisoned| {
-            eprintln!("warn: PendingPrompts mutex poisoned during cleanup, recovering: {poisoned}");
-            poisoned.into_inner()
-        }).unwrap_or_else(|guard| guard);
+        let mut pending = self
+            .pending_prompts
+            .lock()
+            .map_err(|poisoned| {
+                eprintln!(
+                    "warn: PendingPrompts mutex poisoned during cleanup, recovering: {poisoned}"
+                );
+                poisoned.into_inner()
+            })
+            .unwrap_or_else(|guard| guard);
         pending.remove(&prompt_id);
 
         match decision {
@@ -97,7 +110,9 @@ impl PermissionPrompter for TauriPermissionPrompter {
                 // acted on "policy-update-requested" would incorrectly mark the tool as
                 // always-allowed, but the backend will still prompt again on the next call.
                 // Full in-session PermissionPolicy mutation is deferred to a follow-on phase.
-                let _ = self.app_handle.emit("always-allow-acknowledged", &prompt_id);
+                let _ = self
+                    .app_handle
+                    .emit("always-allow-acknowledged", &prompt_id);
                 PermissionPromptDecision::Allow
             }
             PermissionDecision::Deny => PermissionPromptDecision::Deny {

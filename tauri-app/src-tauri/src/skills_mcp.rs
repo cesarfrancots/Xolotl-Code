@@ -87,13 +87,17 @@ pub fn list_skills() -> Vec<SkillManifest> {
     if let Err(_) = std::fs::create_dir_all(&dir) {
         return Vec::new();
     }
-    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
     let mut out: Vec<SkillManifest> = entries
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_dir())
         .filter_map(|e| {
             let skill_md = e.path().join("SKILL.md");
-            if !skill_md.exists() { return None; }
+            if !skill_md.exists() {
+                return None;
+            }
             parse_skill_manifest(&skill_md).ok()
         })
         .collect();
@@ -127,8 +131,12 @@ fn parse_skill_manifest(path: &Path) -> Result<SkillManifest, String> {
             let fm = &raw[3..3 + end_idx];
             for line in fm.lines() {
                 let line = line.trim();
-                if line.is_empty() { continue; }
-                let Some(colon) = line.find(':') else { continue };
+                if line.is_empty() {
+                    continue;
+                }
+                let Some(colon) = line.find(':') else {
+                    continue;
+                };
                 let key = line[..colon].trim().to_lowercase();
                 let val = line[colon + 1..].trim();
                 match key.as_str() {
@@ -187,7 +195,10 @@ fn parse_yaml_inline_list(val: &str) -> Vec<String> {
             .collect();
     }
     // Single value or comma-separated.
-    val.split(',').map(|s| strip_yaml_quotes(s.trim()).to_string()).filter(|s| !s.is_empty()).collect()
+    val.split(',')
+        .map(|s| strip_yaml_quotes(s.trim()).to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 // ── MCP config ────────────────────────────────────────────────────────────────
@@ -212,37 +223,71 @@ pub fn list_mcp_servers() -> Vec<McpServerConfig> {
 }
 
 fn parse_mcp_json(raw: &str, scope: &str) -> Vec<McpServerConfig> {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else { return Vec::new() };
-    let Some(servers) = v.get("mcpServers").and_then(|x| x.as_object()) else { return Vec::new() };
-    servers.iter().map(|(name, def)| {
-        let transport = def.get("type").and_then(|t| t.as_str())
-            .or_else(|| def.get("transport").and_then(|t| t.as_str()))
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                if def.get("url").is_some() { "http".to_string() } else { "stdio".to_string() }
-            });
-        let command = def.get("command").and_then(|c| c.as_str()).map(String::from);
-        let args = def.get("args").and_then(|a| a.as_array()).map(|arr| {
-            arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
-        }).unwrap_or_default();
-        let env = def.get("env").and_then(|e| e.as_object()).map(|o| {
-            o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect()
-        }).unwrap_or_default();
-        let url = def.get("url").and_then(|u| u.as_str()).map(String::from);
-        let headers = def.get("headers").and_then(|h| h.as_object()).map(|o| {
-            o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect()
-        }).unwrap_or_default();
-        McpServerConfig {
-            name: name.clone(),
-            transport,
-            command,
-            args,
-            env,
-            url,
-            headers,
-            scope: scope.to_string(),
-        }
-    }).collect()
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return Vec::new();
+    };
+    let Some(servers) = v.get("mcpServers").and_then(|x| x.as_object()) else {
+        return Vec::new();
+    };
+    servers
+        .iter()
+        .map(|(name, def)| {
+            let transport = def
+                .get("type")
+                .and_then(|t| t.as_str())
+                .or_else(|| def.get("transport").and_then(|t| t.as_str()))
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    if def.get("url").is_some() {
+                        "http".to_string()
+                    } else {
+                        "stdio".to_string()
+                    }
+                });
+            let command = def
+                .get("command")
+                .and_then(|c| c.as_str())
+                .map(String::from);
+            let args = def
+                .get("args")
+                .and_then(|a| a.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let env = def
+                .get("env")
+                .and_then(|e| e.as_object())
+                .map(|o| {
+                    o.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let url = def.get("url").and_then(|u| u.as_str()).map(String::from);
+            let headers = def
+                .get("headers")
+                .and_then(|h| h.as_object())
+                .map(|o| {
+                    o.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default();
+            McpServerConfig {
+                name: name.clone(),
+                transport,
+                command,
+                args,
+                env,
+                url,
+                headers,
+                scope: scope.to_string(),
+            }
+        })
+        .collect()
 }
 
 /// Test an MCP server's reachability. For stdio: spawn it and send a JSON-RPC
@@ -253,18 +298,28 @@ fn parse_mcp_json(raw: &str, scope: &str) -> Vec<McpServerConfig> {
 pub async fn test_mcp_server(name: String) -> McpTestResult {
     let servers = list_mcp_servers();
     let Some(server) = servers.iter().find(|s| s.name == name) else {
-        return McpTestResult { ok: false, message: format!("Server '{name}' not found"), latency_ms: None };
+        return McpTestResult {
+            ok: false,
+            message: format!("Server '{name}' not found"),
+            latency_ms: None,
+        };
     };
 
     let started = std::time::Instant::now();
     match server.transport.as_str() {
         "http" => {
             let Some(url) = &server.url else {
-                return McpTestResult { ok: false, message: "http server missing url".into(), latency_ms: None };
+                return McpTestResult {
+                    ok: false,
+                    message: "http server missing url".into(),
+                    latency_ms: None,
+                };
             };
             let client = reqwest::Client::new();
             let mut req = client.get(url);
-            for (k, v) in &server.headers { req = req.header(k, v); }
+            for (k, v) in &server.headers {
+                req = req.header(k, v);
+            }
             match req.timeout(std::time::Duration::from_secs(10)).send().await {
                 Ok(resp) => {
                     let latency = started.elapsed().as_millis() as u32;
@@ -274,12 +329,20 @@ pub async fn test_mcp_server(name: String) -> McpTestResult {
                         latency_ms: Some(latency),
                     }
                 }
-                Err(e) => McpTestResult { ok: false, message: format!("HTTP: {e}"), latency_ms: None },
+                Err(e) => McpTestResult {
+                    ok: false,
+                    message: format!("HTTP: {e}"),
+                    latency_ms: None,
+                },
             }
         }
         "stdio" | _ => {
             let Some(cmd) = &server.command else {
-                return McpTestResult { ok: false, message: "stdio server missing command".into(), latency_ms: None };
+                return McpTestResult {
+                    ok: false,
+                    message: "stdio server missing command".into(),
+                    latency_ms: None,
+                };
             };
             // Spawn the process, send `initialize` JSON-RPC, wait briefly for any response.
             // We don't enforce a real MCP handshake (yet) — just prove the process starts
@@ -292,7 +355,9 @@ pub async fn test_mcp_server(name: String) -> McpTestResult {
                 use std::io::{Read, Write};
                 let mut command = std::process::Command::new(&cmd_clone);
                 command.args(&args_clone);
-                for (k, v) in &env_clone { command.env(k, v); }
+                for (k, v) in &env_clone {
+                    command.env(k, v);
+                }
                 command
                     .stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
@@ -312,7 +377,9 @@ pub async fn test_mcp_server(name: String) -> McpTestResult {
                 let payload = format!("{init_msg}\n");
 
                 if let Some(mut stdin) = child.stdin.take() {
-                    stdin.write_all(payload.as_bytes()).map_err(|e| e.to_string())?;
+                    stdin
+                        .write_all(payload.as_bytes())
+                        .map_err(|e| e.to_string())?;
                 }
 
                 // Best-effort: wait up to 3s for any stdout, then kill.
@@ -323,7 +390,10 @@ pub async fn test_mcp_server(name: String) -> McpTestResult {
                     while std::time::Instant::now() < deadline {
                         match stdout.read(&mut buf) {
                             Ok(0) => break,
-                            Ok(n) => { got_bytes = n; break; }
+                            Ok(n) => {
+                                got_bytes = n;
+                                break;
+                            }
                             Err(_) => break,
                         }
                     }
@@ -331,17 +401,30 @@ pub async fn test_mcp_server(name: String) -> McpTestResult {
                 let _ = child.kill();
                 let _ = child.wait();
                 Ok::<usize, String>(got_bytes)
-            }).await;
+            })
+            .await;
 
             match res {
-                Ok(Ok(0)) => McpTestResult { ok: false, message: "Process started but no response in 3s".into(), latency_ms: None },
+                Ok(Ok(0)) => McpTestResult {
+                    ok: false,
+                    message: "Process started but no response in 3s".into(),
+                    latency_ms: None,
+                },
                 Ok(Ok(n)) => McpTestResult {
                     ok: true,
                     message: format!("Responded with {n} bytes"),
                     latency_ms: Some(started.elapsed().as_millis() as u32),
                 },
-                Ok(Err(e)) => McpTestResult { ok: false, message: format!("Spawn failed: {e}"), latency_ms: None },
-                Err(e) => McpTestResult { ok: false, message: format!("Join failed: {e}"), latency_ms: None },
+                Ok(Err(e)) => McpTestResult {
+                    ok: false,
+                    message: format!("Spawn failed: {e}"),
+                    latency_ms: None,
+                },
+                Err(e) => McpTestResult {
+                    ok: false,
+                    message: format!("Join failed: {e}"),
+                    latency_ms: None,
+                },
             }
         }
     }
@@ -354,8 +437,13 @@ pub async fn test_mcp_server(name: String) -> McpTestResult {
 /// skills are *available*, leaving invocation to the model's own judgment.
 pub fn build_skills_system_fragment(enabled_names: &[String]) -> String {
     let all = list_skills();
-    let chosen: Vec<&SkillManifest> = all.iter().filter(|s| enabled_names.contains(&s.name)).collect();
-    if chosen.is_empty() { return String::new(); }
+    let chosen: Vec<&SkillManifest> = all
+        .iter()
+        .filter(|s| enabled_names.contains(&s.name))
+        .collect();
+    if chosen.is_empty() {
+        return String::new();
+    }
 
     let mut out = String::from(
         "The following skills are available. When a user request matches a skill's description, you may apply that skill's approach.\n\n",

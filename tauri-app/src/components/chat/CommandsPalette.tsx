@@ -8,7 +8,14 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } f
 import { useChatStore } from "../../stores/chatStore";
 import { useSessionStore, serializeSession } from "../../stores/sessionStore";
 import { commands } from "../../bindings";
-import { buildSlashHelpText, getWorkflowPrompt, slashCommandItems, type SlashCommandId } from "../../lib/chatCommands";
+import type { PromptCommand } from "../../bindings";
+import {
+  buildSlashHelpText,
+  filterCustomPromptCommands,
+  getWorkflowPrompt,
+  slashCommandItems,
+  type SlashCommandId,
+} from "../../lib/chatCommands";
 import { calcTurnCost, formatCostBar } from "../../lib/cost";
 
 type CommandAction = () => void | Promise<void>;
@@ -27,11 +34,12 @@ interface PaletteCommand {
 }
 
 export function CommandsPalette({
-  open, onOpenChange, onUsePrompt,
+  open, onOpenChange, onUsePrompt, customCommands = [],
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onUsePrompt?: (prompt: string) => void;
+  customCommands?: PromptCommand[];
 }) {
   const [query, setQuery] = useState("");
 
@@ -63,6 +71,18 @@ export function CommandsPalette({
         runSlashCommand(item.id, onOpenChange, onUsePrompt);
       },
     })),
+    ...filterCustomPromptCommands("/", customCommands).map((item) => ({
+      id: `custom-${item.scope}-${item.source_path}`,
+      kind: "slash" as const,
+      label: item.command,
+      syntax: item.scope,
+      description: item.description,
+      icon: FileText,
+      run: () => {
+        onUsePrompt?.(item.content);
+        onOpenChange(false);
+      },
+    })),
 
     // Keyboard shortcuts are informational; they do not run actions.
     { id: "kbd-send", kind: "shortcut", label: "Send message", syntax: "Enter", description: "Submit the composer. Shift+Enter inserts a newline instead.", icon: Keyboard },
@@ -76,7 +96,7 @@ export function CommandsPalette({
     { id: "eval", kind: "action", label: "Compare models", description: "Eval tab. Compare models on one concrete goal with blind review.", icon: FlaskConical },
     { id: "skills", kind: "action", label: "Manage skills & MCP", description: "Settings: Skills & MCP. Discovers skills from ~/.xolotl-code/skills/.", icon: Settings2 },
     { id: "files", kind: "action", label: "Attach a file", description: "Paperclip in the chat composer, or drag-drop. Supports 40+ text file types.", icon: FileText },
-  ], [onOpenChange, onUsePrompt]);
+  ], [customCommands, onOpenChange, onUsePrompt]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

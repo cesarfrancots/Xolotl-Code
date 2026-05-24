@@ -85,6 +85,7 @@ function handlePreviewCommand(cmd: string): unknown {
     case "list_sessions":
     case "list_skills":
     case "list_mcp_servers":
+    case "list_prompt_commands":
       return [];
     case "get_api_key_status":
       return Object.fromEntries(PREVIEW_PROVIDERS.map((provider) => [provider, false]));

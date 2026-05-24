@@ -57,9 +57,180 @@ pub fn cleanup_eval_processes() -> usize {
 
 // ── Chat message type used by run_agent_turn ──────────────────────────────────
 
+#[tauri::command]
+#[specta::specta]
+pub fn list_prompt_commands() -> Vec<PromptCommand> {
+    let mut commands = Vec::new();
+    let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    collect_prompt_commands(
+        &project_root.join(".xolotl").join("commands"),
+        "project",
+        &mut commands,
+    );
+    collect_prompt_commands(
+        &project_root.join(".claude").join("commands"),
+        "project",
+        &mut commands,
+    );
+
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()
+        .map(PathBuf::from);
+    if let Some(home) = home {
+        collect_prompt_commands(
+            &home.join(".xolotl-code").join("commands"),
+            "user",
+            &mut commands,
+        );
+        collect_prompt_commands(
+            &home.join(".claude").join("commands"),
+            "user",
+            &mut commands,
+        );
+    }
+
+    commands.sort_by(|a, b| {
+        a.command
+            .cmp(&b.command)
+            .then_with(|| a.scope.cmp(&b.scope))
+            .then_with(|| a.source_path.cmp(&b.source_path))
+    });
+    commands
+}
+
+fn collect_prompt_commands(dir: &PathBuf, scope: &str, out: &mut Vec<PromptCommand>) {
+    if !dir.exists() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_prompt_commands(&path, scope, out);
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+            continue;
+        }
+        if let Some(command) = prompt_command_from_file(&path, scope) {
+            out.push(command);
+        }
+    }
+}
+
+fn prompt_command_from_file(path: &PathBuf, scope: &str) -> Option<PromptCommand> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if metadata.len() > 200_000 {
+        return None;
+    }
+    let raw = std::fs::read_to_string(path).ok()?;
+    let content = strip_frontmatter(&raw).trim().to_string();
+    if content.is_empty() {
+        return None;
+    }
+    let stem = path.file_stem()?.to_str()?;
+    let name = sanitize_prompt_command_name(stem)?;
+    let description = prompt_command_description(&raw, &content, &name);
+    Some(PromptCommand {
+        command: format!("/{name}"),
+        description,
+        scope: scope.to_string(),
+        source_path: path.to_string_lossy().into_owned(),
+        content,
+    })
+}
+
+fn sanitize_prompt_command_name(raw: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for c in raw.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            last_dash = false;
+        } else if matches!(c, '-' | '_' | ' ' | '.') && !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() || trimmed.len() > 64 {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+fn strip_frontmatter(raw: &str) -> &str {
+    let Some(rest) = raw.strip_prefix("---") else {
+        return raw;
+    };
+    let rest = rest
+        .strip_prefix("\r\n")
+        .or_else(|| rest.strip_prefix('\n'));
+    let Some(rest) = rest else {
+        return raw;
+    };
+    if let Some(index) = rest.find("\n---") {
+        let after = &rest[index + 4..];
+        return after
+            .strip_prefix("\r\n")
+            .or_else(|| after.strip_prefix('\n'))
+            .unwrap_or(after);
+    }
+    raw
+}
+
+fn prompt_command_description(raw: &str, content: &str, fallback_name: &str) -> String {
+    if raw.starts_with("---") {
+        for line in raw.lines().skip(1) {
+            let trimmed = line.trim();
+            if trimmed == "---" {
+                break;
+            }
+            if let Some(value) = trimmed.strip_prefix("description:") {
+                let cleaned = value.trim().trim_matches('"').trim_matches('\'');
+                if !cleaned.is_empty() {
+                    return truncate_description(cleaned);
+                }
+            }
+        }
+    }
+
+    for line in content.lines() {
+        let cleaned = line.trim().trim_start_matches('#').trim();
+        if !cleaned.is_empty() {
+            return truncate_description(cleaned);
+        }
+    }
+
+    format!("Run {fallback_name}")
+}
+
+fn truncate_description(value: &str) -> String {
+    let mut out: String = value.chars().take(96).collect();
+    if value.chars().count() > 96 {
+        out.push_str("...");
+    }
+    out
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct ChatMessage {
     pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct PromptCommand {
+    pub command: String,
+    pub description: String,
+    pub scope: String,
+    pub source_path: String,
     pub content: String,
 }
 
@@ -3505,6 +3676,24 @@ mod config_tests {
         assert!(safe_artifact_file_name("..\\secret.txt").is_err());
         assert!(safe_artifact_file_name("../secret.txt").is_err());
         assert!(safe_artifact_file_name("bad:name.py").is_err());
+    }
+
+    #[test]
+    fn prompt_command_markdown_strips_frontmatter_and_builds_description() {
+        let raw = "---\ndescription: Review this module for security regressions\n---\n\n# Security Review\n\nCheck auth boundaries.";
+
+        assert_eq!(
+            strip_frontmatter(raw).trim(),
+            "# Security Review\n\nCheck auth boundaries."
+        );
+        assert_eq!(
+            prompt_command_description(raw, strip_frontmatter(raw), "security-review"),
+            "Review this module for security regressions"
+        );
+        assert_eq!(
+            sanitize_prompt_command_name("Security Review"),
+            Some("security-review".to_string())
+        );
     }
 
     #[test]

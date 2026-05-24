@@ -98,7 +98,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         buffer.push_str(&s);
         loop {
-            let Some(pos) = buffer.find("\n\n") else { break };
+            let Some(pos) = buffer.find("\n\n") else {
+                break;
+            };
             let raw = buffer[..pos].to_string();
             buffer = buffer[pos + 2..].to_string();
             for line in raw.lines() {

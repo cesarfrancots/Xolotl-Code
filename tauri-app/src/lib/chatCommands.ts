@@ -1,3 +1,5 @@
+import type { PromptCommand } from "../bindings";
+
 export type SlashCommandId =
   | "clear"
   | "model"
@@ -47,6 +49,22 @@ export function buildSlashHelpText(): string {
   return slashCommandItems
     .map((item) => `**${item.command}** - ${item.description}`)
     .join("\n\n");
+}
+
+export function customPromptCommandConflicts(command: PromptCommand): boolean {
+  return slashCommandItems.some((item) => item.command === command.command.toLowerCase());
+}
+
+export function filterCustomPromptCommands(value: string, customCommands: PromptCommand[]): PromptCommand[] {
+  const normalized = value.trim().toLowerCase();
+  const visible = customCommands.filter((command) => !customPromptCommandConflicts(command));
+  if (!normalized.startsWith("/")) return visible;
+  return visible.filter((command) => command.command.toLowerCase().startsWith(normalized));
+}
+
+export function findCustomPromptCommand(command: string, customCommands: PromptCommand[]): PromptCommand | undefined {
+  const normalized = command.trim().toLowerCase();
+  return customCommands.find((item) => item.command.toLowerCase() === normalized && !customPromptCommandConflicts(item));
 }
 
 export function getWorkflowPrompt(id: Extract<SlashCommandId, "review" | "fix" | "test" | "plan" | "explain">): string {
