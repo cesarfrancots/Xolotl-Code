@@ -60,6 +60,8 @@ export interface ChatState {
   streamingReasoning: string;
   /** True while an agent turn is in progress. */
   isStreaming: boolean;
+  /** Backend chat_turn id for the currently streaming conversational turn. */
+  currentTurnId: string | null;
   /** Currently selected model name (per-session, D-05). */
   model: string;
   /** Provider-specific thinking/reasoning effort where supported. */
@@ -83,7 +85,7 @@ export interface ChatState {
   appendItem: (item: ChatItem) => void;
 
   /** Mark a model turn as started before the first network delta arrives. */
-  beginStream: () => void;
+  beginStream: (turnId?: string | null) => void;
 
   /** Reset streaming state without committing an assistant message. */
   clearStreaming: () => void;
@@ -171,6 +173,7 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
   streamingContent: "",
   streamingReasoning: "",
   isStreaming: false,
+  currentTurnId: null,
   model: localStorage.getItem("xolotl-selected-model") ?? DEFAULT_MODEL,
   reasoningEffort:
     (localStorage.getItem("xolotl-reasoning-effort") as ReasoningEffort | null) ?? "high",
@@ -182,11 +185,12 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
   appendItem: (item) =>
     set((state) => ({ items: [...state.items, item] })),
 
-  beginStream: () =>
+  beginStream: (turnId = null) =>
     set({
       streamingContent: "",
       streamingReasoning: "",
       isStreaming: true,
+      currentTurnId: turnId,
     }),
 
   clearStreaming: () =>
@@ -194,6 +198,7 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
       streamingContent: "",
       streamingReasoning: "",
       isStreaming: false,
+      currentTurnId: null,
     }),
 
   appendStreamingContent: (delta) =>
@@ -215,6 +220,7 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
           streamingContent: "",
           streamingReasoning: "",
           isStreaming: false,
+          currentTurnId: null,
           sessionUsage: addUsage(state.sessionUsage, usage),
         };
       }
@@ -231,6 +237,7 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
         streamingContent: "",
         streamingReasoning: "",
         isStreaming: false,
+        currentTurnId: null,
         sessionUsage: addUsage(state.sessionUsage, usage),
       };
     }),
@@ -254,6 +261,7 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
         streamingContent: "",
         streamingReasoning: "",
         isStreaming: false,
+        currentTurnId: null,
       };
     }),
 
@@ -333,6 +341,7 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
       streamingContent: "",
       streamingReasoning: "",
       isStreaming: false,
+      currentTurnId: null,
       sessionUsage: EMPTY_USAGE,
       // Keep model — user's last-selected model carries to the new session
     })),
@@ -348,5 +357,6 @@ export const useChatStore = create<ChatState>()((set, _get) => ({
       streamingContent: "",
       streamingReasoning: "",
       isStreaming: false,
+      currentTurnId: null,
     })),
 }));

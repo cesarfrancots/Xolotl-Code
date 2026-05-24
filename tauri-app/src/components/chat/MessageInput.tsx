@@ -101,12 +101,12 @@ function effortLabel(effort: ReasoningEffort): string {
  * emits TurnCompleted or Error. Does NOT touch the agent/worktree system.
  */
 async function streamChatTurn(
+  turnId: string,
   messages: Array<{ role: string; content: string }>,
   model: string,
   enabledSkills: string[],
   reasoningEffort: ReasoningEffort,
 ): Promise<void> {
-  const turnId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const channel = `chat-event:${turnId}`;
 
   let contentBuffer = "";
@@ -472,7 +472,8 @@ export function MessageInput() {
       return;
     }
 
-    useChatStore.getState().beginStream();
+    const turnId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    useChatStore.getState().beginStream(turnId);
 
     function showInlineError(prefix: string, err: unknown) {
       const text = err instanceof Error ? err.message : String(err);
@@ -502,6 +503,7 @@ export function MessageInput() {
     try {
       const enabledSkills = useUiStore.getState().enabledSkills;
       await streamChatTurn(
+        turnId,
         historyMessages,
         currentModel,
         enabledSkills,

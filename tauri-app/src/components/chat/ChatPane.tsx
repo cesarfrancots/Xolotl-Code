@@ -63,8 +63,13 @@ export function ChatPane() {
 }
 
 function StopButton() {
-  const { agentId, cancelStream } = useChatStore();
+  const { agentId, cancelStream, currentTurnId } = useChatStore();
   async function handleStop() {
+    if (currentTurnId) {
+      await commands.cancelChatTurn(currentTurnId).catch((error) => {
+        console.error("cancel_chat_turn error:", error);
+      });
+    }
     cancelStream();
     if (agentId) {
       const result = await commands.stopAgent(agentId);

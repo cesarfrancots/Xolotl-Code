@@ -97,6 +97,8 @@ function handlePreviewCommand(cmd: string): unknown {
       return null;
     case "cleanup_eval_processes":
       return 0;
+    case "cancel_chat_turn":
+      return true;
     case "start_eval_artifact":
       return {
         artifact_dir: "preview://eval-artifacts",

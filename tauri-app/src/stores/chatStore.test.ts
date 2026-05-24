@@ -17,6 +17,7 @@ beforeEach(() => {
     streamingContent: "",
     streamingReasoning: "",
     isStreaming: false,
+    currentTurnId: null,
     model: "claude-sonnet-4-5",
     reasoningEffort: "high",
     sessionUsage: ZERO_USAGE,
@@ -35,10 +36,11 @@ describe("appendStreamingContent", () => {
 });
 
 describe("beginStream", () => {
-  it("shows an active turn before the first model delta arrives", () => {
-    useChatStore.getState().beginStream();
+  it("tracks the active turn before the first model delta arrives", () => {
+    useChatStore.getState().beginStream("turn-123");
     const state = useChatStore.getState();
     expect(state.isStreaming).toBe(true);
+    expect(state.currentTurnId).toBe("turn-123");
     expect(state.streamingContent).toBe("");
     expect(state.streamingReasoning).toBe("");
   });
@@ -51,6 +53,7 @@ describe("finalizeStream", () => {
     const state = useChatStore.getState();
     expect(state.streamingContent).toBe("");
     expect(state.isStreaming).toBe(false);
+    expect(state.currentTurnId).toBeNull();
     expect(state.items).toHaveLength(1);
     const msg = state.items[0] as any;
     expect(msg.role).toBe("assistant");
@@ -62,7 +65,21 @@ describe("finalizeStream", () => {
     useChatStore.getState().finalizeStream(ZERO_USAGE);
     const state = useChatStore.getState();
     expect(state.isStreaming).toBe(false);
+    expect(state.currentTurnId).toBeNull();
     expect(state.items).toHaveLength(0);
+  });
+});
+
+describe("cancelStream", () => {
+  it("clears the active turn id when a streaming turn is stopped", () => {
+    useChatStore.getState().beginStream("turn-stop");
+    useChatStore.getState().appendStreamingContent("partial");
+    useChatStore.getState().cancelStream();
+
+    const state = useChatStore.getState();
+    expect(state.currentTurnId).toBeNull();
+    expect(state.isStreaming).toBe(false);
+    expect((state.items[0] as any).stopped).toBe(true);
   });
 });
 
@@ -75,6 +92,7 @@ describe("clearSession", () => {
     expect(state.items).toHaveLength(0);
     expect(state.streamingContent).toBe("");
     expect(state.isStreaming).toBe(false);
+    expect(state.currentTurnId).toBeNull();
     expect(state.sessionUsage).toEqual(ZERO_USAGE);
     // agentId must reset — otherwise "New session" silently keeps using the
     // old agent's runtime state (worktree, logs, etc.).

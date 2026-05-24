@@ -12,9 +12,45 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::broadcast::error::RecvError;
 
 static EVAL_CHILD_PROCESSES: OnceLock<Mutex<Vec<Child>>> = OnceLock::new();
+static CHAT_TURN_ABORTS: OnceLock<Mutex<HashMap<String, Vec<tokio::task::AbortHandle>>>> =
+    OnceLock::new();
 
 fn eval_child_processes() -> &'static Mutex<Vec<Child>> {
     EVAL_CHILD_PROCESSES.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn chat_turn_aborts() -> &'static Mutex<HashMap<String, Vec<tokio::task::AbortHandle>>> {
+    CHAT_TURN_ABORTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn track_chat_turn_abort(turn_id: &str, abort_handle: tokio::task::AbortHandle) {
+    if let Ok(mut turns) = chat_turn_aborts().lock() {
+        turns
+            .entry(turn_id.to_string())
+            .or_default()
+            .push(abort_handle);
+    }
+}
+
+fn forget_chat_turn(turn_id: &str) {
+    if let Ok(mut turns) = chat_turn_aborts().lock() {
+        turns.remove(turn_id);
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_chat_turn(turn_id: String) -> bool {
+    let Ok(mut turns) = chat_turn_aborts().lock() else {
+        return false;
+    };
+    let Some(handles) = turns.remove(&turn_id) else {
+        return false;
+    };
+    for handle in handles {
+        handle.abort();
+    }
+    true
 }
 
 pub(crate) fn track_eval_child_process(child: Child) {
@@ -647,14 +683,16 @@ pub async fn chat_turn(
         }
     }
 
-    tokio::spawn(async move {
+    let outer_turn_id = turn_id.clone();
+    let outer_handle = tokio::spawn(async move {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(256);
 
         let model2 = model.clone();
         let msgs = messages;
         let opts = options;
         let tx2 = tx.clone();
-        tokio::spawn(async move {
+        let inner_turn_id = outer_turn_id.clone();
+        let inner_handle = tokio::spawn(async move {
             match call_model_streaming_with_options(&model2, &msgs, &tx2, opts).await {
                 Ok(usage) => {
                     eprintln!(
@@ -669,6 +707,7 @@ pub async fn chat_turn(
                 }
             }
         });
+        track_chat_turn_abort(&inner_turn_id, inner_handle.abort_handle());
         drop(tx);
 
         let mut emitted = 0usize;
@@ -677,7 +716,9 @@ pub async fn chat_turn(
             let _ = app_handle.emit(&channel, &event);
         }
         eprintln!("[chat_turn] emitted {emitted} events on {channel}");
+        forget_chat_turn(&outer_turn_id);
     });
+    track_chat_turn_abort(&turn_id, outer_handle.abort_handle());
 
     Ok(())
 }
@@ -3816,6 +3857,18 @@ mod config_tests {
         assert!(fragment.contains("Prefer concise verification notes."));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn cancel_chat_turn_aborts_registered_handles() {
+        let handle = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        });
+        track_chat_turn_abort("turn-test", handle.abort_handle());
+
+        assert!(cancel_chat_turn("turn-test".to_string()));
+        assert!(!cancel_chat_turn("turn-test".to_string()));
+        assert!(matches!(handle.await, Err(err) if err.is_cancelled()));
     }
 
     #[test]
