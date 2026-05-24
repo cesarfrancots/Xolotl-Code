@@ -94,6 +94,8 @@ function handlePreviewCommand(cmd: string): unknown {
     case "delete_eval":
     case "save_manual_reviews":
       return null;
+    case "cleanup_eval_processes":
+      return 0;
     case "start_eval_artifact":
       return {
         artifact_dir: "preview://eval-artifacts",

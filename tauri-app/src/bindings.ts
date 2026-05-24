@@ -79,6 +79,7 @@ export const commands = {
  */
 	runGoalGrade: (id: string, judgeModel: string) => typedError<string, string>(__TAURI_INVOKE("run_goal_grade", { id, judgeModel })),
 	startEvalArtifact: (request: EvalArtifactRequest) => typedError<EvalArtifactLaunchResult, string>(__TAURI_INVOKE("start_eval_artifact", { request })),
+	cleanupEvalProcesses: () => __TAURI_INVOKE<number>("cleanup_eval_processes"),
 	listSkills: () => __TAURI_INVOKE<SkillManifest[]>("list_skills"),
 	readSkill: (name: string) => typedError<string, string>(__TAURI_INVOKE("read_skill", { name })),
 	listMcpServers: () => __TAURI_INVOKE<McpServerConfig[]>("list_mcp_servers"),

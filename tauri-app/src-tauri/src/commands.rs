@@ -5,11 +5,55 @@ use runtime::{
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Stdio;
-use std::sync::Arc;
+use std::process::{Child, Stdio};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::broadcast::error::RecvError;
+
+static EVAL_CHILD_PROCESSES: OnceLock<Mutex<Vec<Child>>> = OnceLock::new();
+
+fn eval_child_processes() -> &'static Mutex<Vec<Child>> {
+    EVAL_CHILD_PROCESSES.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+pub(crate) fn track_eval_child_process(child: Child) {
+    if let Ok(mut children) = eval_child_processes().lock() {
+        children.push(child);
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cleanup_eval_processes() -> usize {
+    let Ok(mut children) = eval_child_processes().lock() else {
+        return 0;
+    };
+
+    let mut cleaned = 0;
+    for child in children.iter_mut() {
+        if child.try_wait().ok().flatten().is_some() {
+            continue;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &child.id().to_string(), "/T", "/F"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = child.kill();
+        }
+        let _ = child.wait();
+        cleaned += 1;
+    }
+    children.clear();
+    cleaned
+}
 
 // ── Chat message type used by run_agent_turn ──────────────────────────────────
 
@@ -2657,7 +2701,8 @@ fn launch_python_artifact(artifact_dir: &PathBuf, entry_path: &PathBuf) -> Resul
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        if command.spawn().is_ok() {
+        if let Ok(child) = command.spawn() {
+            track_eval_child_process(child);
             return Ok(format!("Started {}", entry_path.display()));
         }
     }
@@ -3460,6 +3505,60 @@ mod config_tests {
         assert!(safe_artifact_file_name("..\\secret.txt").is_err());
         assert!(safe_artifact_file_name("../secret.txt").is_err());
         assert!(safe_artifact_file_name("bad:name.py").is_err());
+    }
+
+    #[test]
+    fn cleanup_eval_processes_kills_tracked_children() {
+        let child = spawn_long_running_test_process();
+        let child_id = child.id();
+
+        track_eval_child_process(child);
+        let cleaned = cleanup_eval_processes();
+
+        assert!(cleaned >= 1);
+        assert!(!process_is_running(child_id));
+    }
+
+    fn spawn_long_running_test_process() -> std::process::Child {
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("cmd")
+                .args(["/C", "ping -n 30 127.0.0.1 > NUL"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("test process should spawn")
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            std::process::Command::new("sh")
+                .args(["-c", "sleep 30"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("test process should spawn")
+        }
+    }
+
+    fn process_is_running(pid: u32) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            let output = std::process::Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+                .output()
+                .expect("tasklist should run");
+            String::from_utf8_lossy(&output.stdout).contains(&pid.to_string())
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false)
+        }
     }
 
     #[test]

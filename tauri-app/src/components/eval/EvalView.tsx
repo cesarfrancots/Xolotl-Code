@@ -172,32 +172,78 @@ const REVIEW_SCORE_GROUPS: Array<{
   { title: "Presentation", hint: "How clean and focused the delivered answer feels.", keys: ["ai_slop", "brevity"] },
 ];
 
-function ScoreSlider({ label, color, value, onChange }: { label: string; color: string; value: number; onChange: (v: number) => void; }) {
+function formatHumanScore(value: number): string {
+  return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+}
+
+function ScoreSelector({
+  id,
+  label,
+  color,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  color: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
   const isUnset = value <= 0;
+  const scoreOptions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const scaleId = `${id}-scale`;
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex justify-between text-xs">
-        <span className="text-[oklch(0.65_0_0)]">{label}</span>
+    <div className="rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.095_0.004_245)] px-2.5 py-2">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="text-xs font-semibold text-[oklch(0.82_0.014_220)]">{label}</span>
         <span
           style={{ color: isUnset ? undefined : color }}
-          className={`font-medium tabular-nums ${isUnset ? "text-[oklch(0.46_0.012_230)]" : ""}`}
+          className={`rounded border px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
+            isUnset
+              ? "border-[oklch(0.30_0.012_235)] text-[oklch(0.62_0.014_230)]"
+              : "border-[oklch(0.32_0.018_210)] bg-[oklch(0.13_0.008_220)]"
+          }`}
         >
-          {isUnset ? "unset" : value.toFixed(1)}
+          {isUnset ? "Not scored" : `${formatHumanScore(value)}/10`}
         </span>
       </div>
-      <input
-        type="range"
-        min={1}
-        max={10}
-        step={0.5}
-        value={isUnset ? 5 : value}
+      <div
+        className="grid grid-cols-10 gap-1"
+        role="radiogroup"
         aria-label={`${label} score`}
-        aria-valuetext={isUnset ? "unset" : value.toFixed(1)}
-        title={isUnset ? "Move to set this score" : `${label}: ${value.toFixed(1)}`}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className={`h-1 w-full cursor-pointer appearance-none rounded ${isUnset ? "opacity-45" : ""}`}
-        style={{ accentColor: color }}
-      />
+        aria-describedby={scaleId}
+      >
+        {scoreOptions.map((score) => {
+          const selected = value === score;
+          return (
+            <button
+              key={score}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              aria-label={`${label}: ${score} out of 10`}
+              title={`Set ${label} to ${score}/10`}
+              onClick={() => onChange(score)}
+              className={`grid h-8 min-w-0 place-items-center rounded border text-xs font-semibold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.62_0.045_190)] ${
+                selected
+                  ? "border-[oklch(0.62_0.040_190)] bg-[oklch(0.22_0.026_205)] text-[oklch(0.92_0.018_210)]"
+                  : "border-[oklch(0.30_0.012_235)] bg-[oklch(0.13_0.005_245)] text-[oklch(0.70_0.014_225)] hover:border-[oklch(0.42_0.020_210)] hover:bg-[oklch(0.16_0.008_235)] hover:text-[oklch(0.88_0.016_220)]"
+              }`}
+              style={selected ? { borderColor: color, boxShadow: `inset 0 -2px 0 ${color}` } : undefined}
+            >
+              {score}
+            </button>
+          );
+        })}
+      </div>
+      <div
+        id={scaleId}
+        className="mt-1.5 grid grid-cols-3 text-[10px] text-[oklch(0.56_0.012_230)]"
+      >
+        <span>Low</span>
+        <span className="text-center">5 = OK</span>
+        <span className="text-right">10 = Excellent</span>
+      </div>
     </div>
   );
 }
@@ -472,12 +518,13 @@ function ReviewScoreControls({ model }: { model: string }) {
                 Set 5
               </button>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2">
               {group.keys.map((key) => {
                 const dim = SCORE_DIMENSIONS.find((item) => item.key === key) ?? SCORE_DIMENSIONS[0];
                 return (
-                  <ScoreSlider
+                  <ScoreSelector
                     key={key}
+                    id={`${model.replace(/[^a-zA-Z0-9_-]/g, "-")}-${key}`}
                     label={dim.label}
                     color={dim.color}
                     value={humanScores[key] ?? 0}
@@ -525,7 +572,7 @@ function HumanReviewScreen({
             disabled={!canFinish || savingScores}
             className="h-9 rounded-md bg-[oklch(0.90_0.010_220)] px-4 text-xs font-semibold text-[oklch(0.12_0.004_245)] hover:bg-white disabled:opacity-45"
           >
-            {savingScores ? "Saving..." : "Scores are ready"}
+            {savingScores ? "Saving..." : canFinish ? "Save scores and reveal" : "Finish all scores"}
           </Button>
         </div>
       </div>
@@ -1605,6 +1652,17 @@ export function EvalView() {
 
   // Subscribe to streaming eval events; survives multiple consecutive runs.
   const unlistenRef = useRef<UnlistenFn | null>(null);
+  const suiteUnlistenRef = useRef<UnlistenFn | null>(null);
+  useEffect(() => {
+    return () => {
+      if (unlistenRef.current) unlistenRef.current();
+      if (suiteUnlistenRef.current) suiteUnlistenRef.current();
+      void commands.cleanupEvalProcesses().catch((error) => {
+        console.error("cleanup_eval_processes error:", error);
+      });
+    };
+  }, []);
+
   async function subscribeToEval(evalId: string) {
     if (unlistenRef.current) { unlistenRef.current(); unlistenRef.current = null; }
     const channel = `eval-event:${evalId}`;
@@ -1643,9 +1701,48 @@ export function EvalView() {
     unlistenRef.current = un;
   }
 
+  const cleanupEvalProcessesQuietly = useCallback(async () => {
+    try {
+      await commands.cleanupEvalProcesses();
+    } catch (error) {
+      console.error("cleanup_eval_processes error:", error);
+    }
+  }, []);
+
+  const resetEvalFlow = useCallback(async () => {
+    if (unlistenRef.current) {
+      unlistenRef.current();
+      unlistenRef.current = null;
+    }
+    if (suiteUnlistenRef.current) {
+      suiteUnlistenRef.current();
+      suiteUnlistenRef.current = null;
+    }
+    await cleanupEvalProcessesQuietly();
+    setPrompt("");
+    setReviewNotice(null);
+    setEvalStage("battle");
+    setSetupStep("models");
+    setRunning(false);
+    setSavingScores(false);
+    setJudgeRunning(false);
+    setGoalGrading(false);
+    setSavingReview(false);
+    useEvalStore.setState({
+      activeEval: null,
+      humanScores: {},
+      manualReviews: {},
+      scoresDirty: false,
+      reviewDirty: false,
+      activeSuite: null,
+      blindMode: true,
+    });
+  }, [cleanupEvalProcessesQuietly]);
+
   const runSingleEval = useCallback(async () => {
     if (!prompt.trim() || selectedModels.length === 0 || running) return;
     setReviewNotice(null);
+    await cleanupEvalProcessesQuietly();
     setEvalStage("battle");
     setBlindMode(true);
     setRunning(true);
@@ -1665,11 +1762,12 @@ export function EvalView() {
       setReviewNotice({ title: "Could not subscribe to eval events", detail });
       setRunning(false);
     }
-  }, [prompt, selectedModels, running]);
+  }, [prompt, selectedModels, running, cleanupEvalProcessesQuietly]);
 
   const runGoalEval = useCallback(async () => {
     if (!goalReadiness.canRun || running) return;
     setReviewNotice(null);
+    await cleanupEvalProcessesQuietly();
     setEvalStage("battle");
     setBlindMode(true);
     setRunning(true);
@@ -1692,11 +1790,12 @@ export function EvalView() {
       setReviewNotice({ title: "Could not subscribe to eval events", detail });
       setRunning(false);
     }
-  }, [goalReadiness.canRun, prompt, selectedModels, running, liveSupervisor, judgeModel, setBlindMode]);
+  }, [goalReadiness.canRun, prompt, selectedModels, running, liveSupervisor, judgeModel, setBlindMode, cleanupEvalProcessesQuietly]);
 
   const runSuiteEval = useCallback(async () => {
     if (selectedModels.length === 0 || running) return;
     setReviewNotice(null);
+    await cleanupEvalProcessesQuietly();
     setEvalStage("battle");
     setBlindMode(true);
     setRunning(true);
@@ -1715,6 +1814,7 @@ export function EvalView() {
     // we listen for SuitePromptStart so we can hook the per-prompt channel.
     try {
       const suiteUnlisten = await listen<any>(channel, async (event) => {
+        suiteUnlistenRef.current = suiteUnlisten;
         const p = event.payload;
         if (p.type === "SuitePromptStart" && p.eval_id) {
           // Backend pre-generates eval_id and emits it before model events, plus a
@@ -1731,16 +1831,19 @@ export function EvalView() {
         } else if (p.type === "SuiteComplete") {
           setRunning(false);
           suiteUnlisten();
+          suiteUnlistenRef.current = null;
         }
       });
+      suiteUnlistenRef.current = suiteUnlisten;
     } catch (error) {
       setReviewNotice({ title: "Could not subscribe to suite events", detail: noticeDetail(error) });
       setRunning(false);
     }
-  }, [selectedSuite, selectedModels, running]);
+  }, [selectedSuite, selectedModels, running, cleanupEvalProcessesQuietly]);
 
-  const loadPreviewGoalEval = useCallback(() => {
+  const loadPreviewGoalEval = useCallback(async () => {
     if (!isBrowserPreview || running) return;
+    await cleanupEvalProcessesQuietly();
     const previewModels = selectedModels.length >= 2
       ? selectedModels
       : allModels.length >= 2
@@ -1808,6 +1911,7 @@ export function EvalView() {
     });
   }, [
     allModels,
+    cleanupEvalProcessesQuietly,
     isBrowserPreview,
     judgeModel,
     liveSupervisor,
@@ -2048,6 +2152,17 @@ export function EvalView() {
             {!historyOpen && (
               <Button size="sm" variant="ghost" onClick={() => setHistoryOpen(true)} className="text-xs h-7 gap-1 text-[oklch(0.58_0.025_230)]">
                 <History className="w-3.5 h-3.5" /> History
+              </Button>
+            )}
+            {activeEval && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void resetEvalFlow()}
+                className="text-xs h-7 gap-1 text-[oklch(0.68_0.040_205)]"
+                title="Close this eval, stop launched previews, and return to setup."
+              >
+                <RotateCcw className="w-3.5 h-3.5" /> New eval
               </Button>
             )}
             {!goalBlindSurface && !activeEval && (
@@ -2333,7 +2448,7 @@ export function EvalView() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={loadPreviewGoalEval}
+                            onClick={() => void loadPreviewGoalEval()}
                             disabled={running}
                             title="Load a local sample trial without provider calls"
                             className="h-7 gap-1 text-xs text-[oklch(0.58_0.025_205)]"
@@ -2388,7 +2503,7 @@ export function EvalView() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => { setPrompt(""); setReviewNotice(null); setEvalStage("battle"); useEvalStore.setState({ activeEval: null, humanScores: {}, manualReviews: {}, scoresDirty: false, reviewDirty: false }); }}
+                              onClick={() => void resetEvalFlow()}
                               className="h-7 gap-1 text-xs text-[oklch(0.45_0_0)]">
                               <RotateCcw className="h-3 w-3" /> Reset
                             </Button>
@@ -2547,7 +2662,7 @@ export function EvalView() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => { setPrompt(""); setReviewNotice(null); setEvalStage("battle"); useEvalStore.setState({ activeEval: null, humanScores: {}, manualReviews: {}, scoresDirty: false, reviewDirty: false }); }}
+                        onClick={() => void resetEvalFlow()}
                         className="h-8 gap-1 text-xs text-[oklch(0.45_0_0)]"
                       >
                         <RotateCcw className="h-3 w-3" /> New eval
