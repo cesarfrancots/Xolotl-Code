@@ -1,4 +1,4 @@
-/// OpenAI-compatible API client for Kimi, `MiniMax`, GLM, DeepSeek, `OpenAI`, and any
+/// OpenAI-compatible API client for Kimi, `MiniMax`, GLM, `DeepSeek`, `OpenAI`, and any
 /// provider that implements the `/v1/chat/completions` + SSE streaming interface.
 use std::collections::{HashMap, HashSet};
 use std::io;
