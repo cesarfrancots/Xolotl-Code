@@ -4,7 +4,7 @@ use runtime::{
     slugify_task, AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor, TokenUsage,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
@@ -627,17 +627,23 @@ pub async fn chat_turn(
         reasoning_effort: ReasoningEffort::parse(reasoning_effort.as_deref()),
     };
 
-    // Prepend an enabled-skills awareness fragment to the first user message,
-    // OpenAI/Kimi style (no system role in our wire format). Cheap, ~200 bytes
-    // for the typical skill set. Empty fragment is a no-op.
+    // Prepend project instructions and enabled-skill awareness to the first
+    // user message, OpenAI/Kimi style (no system role in our wire format).
+    // Empty fragments are a no-op.
+    let project_instructions = build_project_instructions_fragment();
     let skills_fragment = match &enabled_skills {
         Some(names) if !names.is_empty() => crate::skills_mcp::build_skills_system_fragment(names),
         _ => String::new(),
     };
+    let context_fragment = [project_instructions, skills_fragment]
+        .into_iter()
+        .filter(|fragment| !fragment.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
     let mut messages = messages;
-    if !skills_fragment.is_empty() {
+    if !context_fragment.is_empty() {
         if let Some(first_user) = messages.iter_mut().find(|m| m.role == "user") {
-            first_user.content = format!("{skills_fragment}\n---\n{}", first_user.content);
+            first_user.content = format!("{context_fragment}\n---\n{}", first_user.content);
         }
     }
 
@@ -674,6 +680,100 @@ pub async fn chat_turn(
     });
 
     Ok(())
+}
+
+const PROJECT_INSTRUCTION_FILE_NAMES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
+const MAX_PROJECT_INSTRUCTION_CHARS: usize = 48_000;
+const MAX_PROJECT_INSTRUCTION_FILE_CHARS: usize = 24_000;
+
+fn build_project_instructions_fragment() -> String {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    build_project_instructions_fragment_from(&cwd)
+}
+
+fn build_project_instructions_fragment_from(cwd: &Path) -> String {
+    let files = project_instruction_files(cwd);
+    if files.is_empty() {
+        return String::new();
+    }
+
+    let mut remaining = MAX_PROJECT_INSTRUCTION_CHARS;
+    let mut sections = Vec::new();
+    for path in files {
+        if remaining == 0 {
+            break;
+        }
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let mut content: String = raw
+            .chars()
+            .take(MAX_PROJECT_INSTRUCTION_FILE_CHARS)
+            .collect();
+        if content.chars().count() > remaining {
+            content = content.chars().take(remaining).collect();
+        }
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        remaining = remaining.saturating_sub(trimmed.chars().count());
+        sections.push(format!("### {}\n{}", path.display(), trimmed));
+    }
+
+    if sections.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Project instructions from AGENTS.md / CLAUDE.md. Follow these when relevant:\n\n{}",
+            sections.join("\n\n")
+        )
+    }
+}
+
+fn project_instruction_files(cwd: &Path) -> Vec<PathBuf> {
+    let root = git_root_for(cwd).unwrap_or_else(|| cwd.to_path_buf());
+    let mut chain = Vec::new();
+    let mut cursor = cwd.to_path_buf();
+    loop {
+        chain.push(cursor.clone());
+        if cursor == root {
+            break;
+        }
+        if !cursor.pop() {
+            break;
+        }
+    }
+    chain.reverse();
+
+    let mut files = Vec::new();
+    for dir in chain {
+        for name in PROJECT_INSTRUCTION_FILE_NAMES {
+            let path = dir.join(name);
+            if path.is_file() && !files.contains(&path) {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
+fn git_root_for(cwd: &Path) -> Option<PathBuf> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let root = PathBuf::from(stdout.trim());
+    if root.as_os_str().is_empty() {
+        None
+    } else {
+        Some(root)
+    }
 }
 
 /// run_agent_turn: send message history to the AI and stream back the response.
@@ -3694,6 +3794,28 @@ mod config_tests {
             sanitize_prompt_command_name("Security Review"),
             Some("security-review".to_string())
         );
+    }
+
+    #[test]
+    fn project_instructions_fragment_reads_agents_and_claude_files() {
+        let dir = std::env::temp_dir().join(format!("xolotl-instructions-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir should be created");
+        std::fs::write(
+            dir.join("AGENTS.md"),
+            "Use graphify before architecture answers.",
+        )
+        .expect("AGENTS.md should be written");
+        std::fs::write(dir.join("CLAUDE.md"), "Prefer concise verification notes.")
+            .expect("CLAUDE.md should be written");
+
+        let fragment = build_project_instructions_fragment_from(&dir);
+
+        assert!(fragment.contains("Project instructions"));
+        assert!(fragment.contains("Use graphify before architecture answers."));
+        assert!(fragment.contains("Prefer concise verification notes."));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
