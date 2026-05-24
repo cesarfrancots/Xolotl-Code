@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   RotateCcw, Cpu, Save, FolderOpen, HelpCircle, Search,
   Hash, Keyboard, Paperclip, FlaskConical, GitBranch, Users, FileText, Settings2,
+  DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
 import { useSessionStore, serializeSession } from "../../stores/sessionStore";
 import { commands } from "../../bindings";
+import { buildSlashHelpText, getWorkflowPrompt, slashCommandItems, type SlashCommandId } from "../../lib/chatCommands";
+import { calcTurnCost, formatCostBar } from "../../lib/cost";
 
 type CommandAction = () => void | Promise<void>;
 type CommandKind = "slash" | "shortcut" | "action";
@@ -24,10 +27,11 @@ interface PaletteCommand {
 }
 
 export function CommandsPalette({
-  open, onOpenChange,
+  open, onOpenChange, onUsePrompt,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  onUsePrompt?: (prompt: string) => void;
 }) {
   const [query, setQuery] = useState("");
 
@@ -48,55 +52,17 @@ export function CommandsPalette({
   useEffect(() => { if (open) setQuery(""); }, [open]);
 
   const cmds: PaletteCommand[] = useMemo(() => [
-    // Slash commands operate on the current chat session.
-    {
-      id: "clear", kind: "slash", label: "Clear conversation", syntax: "/clear",
-      description: "Reset the current thread. Existing session file remains.",
-      icon: RotateCcw,
-      run: () => { useChatStore.getState().clearSession(); onOpenChange(false); },
-    },
-    {
-      id: "model", kind: "slash", label: "Switch model", syntax: "/model",
-      description: "Open the model picker in the chat top bar. Per-turn model switching works mid-conversation.",
-      icon: Cpu,
-      run: () => onOpenChange(false),
-    },
-    {
-      id: "save", kind: "slash", label: "Save session", syntax: "/save",
-      description: "Persist the current chat to ~/.xolotl-code/sessions/.",
-      icon: Save,
+    ...slashCommandItems.map((item) => ({
+      id: item.id,
+      kind: "slash" as const,
+      label: slashLabel(item.id),
+      syntax: item.command,
+      description: item.description,
+      icon: slashIcon(item.id),
       run: () => {
-        const sessionStore = useSessionStore.getState();
-        const chat = useChatStore.getState();
-        const id = sessionStore.activeSessionId ?? globalThis.crypto.randomUUID();
-        void commands.saveSession(
-          id,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          serializeSession(id, chat.model, chat.items as any, chat.sessionUsage)
-        );
-        onOpenChange(false);
+        runSlashCommand(item.id, onOpenChange, onUsePrompt);
       },
-    },
-    {
-      id: "load", kind: "slash", label: "Load session", syntax: "/load",
-      description: "Resume a saved session from the left sidebar.",
-      icon: FolderOpen,
-      run: () => onOpenChange(false),
-    },
-    {
-      id: "help", kind: "slash", label: "Show help", syntax: "/help",
-      description: "Print all commands inline as a chat message.",
-      icon: HelpCircle,
-      run: () => {
-        useChatStore.getState().appendItem({
-          id: `${Date.now()}-help`,
-          role: "assistant",
-          content: cmds.filter((c) => c.kind === "slash").map((c) => `**${c.syntax}** - ${c.description}`).join("\n\n"),
-          toolCalls: [],
-        });
-        onOpenChange(false);
-      },
-    },
+    })),
 
     // Keyboard shortcuts are informational; they do not run actions.
     { id: "kbd-send", kind: "shortcut", label: "Send message", syntax: "Enter", description: "Submit the composer. Shift+Enter inserts a newline instead.", icon: Keyboard },
@@ -110,7 +76,7 @@ export function CommandsPalette({
     { id: "eval", kind: "action", label: "Compare models", description: "Eval tab. Compare models on one concrete goal with blind review.", icon: FlaskConical },
     { id: "skills", kind: "action", label: "Manage skills & MCP", description: "Settings: Skills & MCP. Discovers skills from ~/.xolotl-code/skills/.", icon: Settings2 },
     { id: "files", kind: "action", label: "Attach a file", description: "Paperclip in the chat composer, or drag-drop. Supports 40+ text file types.", icon: FileText },
-  ], [onOpenChange]);
+  ], [onOpenChange, onUsePrompt]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -167,6 +133,123 @@ export function CommandsPalette({
       </DialogContent>
     </Dialog>
   );
+}
+
+function runSlashCommand(
+  id: SlashCommandId,
+  onOpenChange: (v: boolean) => void,
+  onUsePrompt?: (prompt: string) => void,
+) {
+  const chat = useChatStore.getState();
+  switch (id) {
+    case "clear":
+      chat.clearSession();
+      break;
+    case "model":
+    case "load":
+      break;
+    case "save": {
+      const sessionStore = useSessionStore.getState();
+      const sessionId = sessionStore.activeSessionId ?? globalThis.crypto.randomUUID();
+      void commands.saveSession(
+        sessionId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        serializeSession(sessionId, chat.model, chat.items as any, chat.sessionUsage)
+      );
+      break;
+    }
+    case "help":
+      chat.appendItem({
+        id: `${Date.now()}-help`,
+        role: "assistant",
+        content: buildSlashHelpText(),
+        toolCalls: [],
+      });
+      break;
+    case "cost": {
+      const usage = chat.sessionUsage;
+      const totalTokens =
+        usage.input_tokens +
+        usage.output_tokens +
+        usage.cache_creation_input_tokens +
+        usage.cache_read_input_tokens;
+      chat.appendItem({
+        id: `${Date.now()}-cost`,
+        role: "assistant",
+        content: [
+          "**Session usage**",
+          "",
+          `Model: \`${chat.model}\``,
+          `Tokens: \`${totalTokens.toLocaleString()}\``,
+          `Estimate: \`${formatCostBar(calcTurnCost(usage, chat.model), totalTokens)}\``,
+        ].join("\n"),
+        toolCalls: [],
+      });
+      break;
+    }
+    case "review":
+    case "fix":
+    case "test":
+    case "plan":
+    case "explain":
+      onUsePrompt?.(getWorkflowPrompt(id));
+      break;
+  }
+  onOpenChange(false);
+}
+
+function slashIcon(id: SlashCommandId): React.ComponentType<{ className?: string }> {
+  switch (id) {
+    case "clear":
+      return RotateCcw;
+    case "model":
+      return Cpu;
+    case "save":
+      return Save;
+    case "load":
+      return FolderOpen;
+    case "help":
+      return HelpCircle;
+    case "cost":
+      return DollarSign;
+    case "review":
+      return GitPullRequest;
+    case "fix":
+      return Wrench;
+    case "test":
+      return ListChecks;
+    case "plan":
+      return ClipboardList;
+    case "explain":
+      return BookOpen;
+  }
+}
+
+function slashLabel(id: SlashCommandId): string {
+  switch (id) {
+    case "clear":
+      return "Clear conversation";
+    case "model":
+      return "Switch model";
+    case "save":
+      return "Save session";
+    case "load":
+      return "Load session";
+    case "help":
+      return "Show help";
+    case "cost":
+      return "Show usage";
+    case "review":
+      return "Review changes";
+    case "fix":
+      return "Fix a bug";
+    case "test":
+      return "Add tests";
+    case "plan":
+      return "Plan work";
+    case "explain":
+      return "Explain code";
+  }
 }
 
 function Section({
