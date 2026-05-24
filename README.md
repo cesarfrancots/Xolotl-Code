@@ -25,7 +25,7 @@ npm run tauri dev      # development with hot-reload
 npm run tauri build    # production binary in src-tauri/target/release
 ```
 
-On first launch click the gear icon in the left sidebar to set API keys, or export the matching env var (`ANTHROPIC_API_KEY`, `KIMI_API_KEY`, `KIMI_CODING_API_KEY`, `MINIMAX_API_KEY`, etc.). The app reads from the same `~/.xolotl-code/config.json` that the CLI uses, so keys configured in either tool are picked up by both.
+On first launch click the gear icon in the left sidebar to set API keys, or export the matching env var (`ANTHROPIC_API_KEY`, `KIMI_API_KEY`, `KIMI_CODING_API_KEY`, `MINIMAX_API_KEY`, `DEEPSEEK_API_KEY`, etc.). The app reads from the same `~/.xolotl-code/config.json` that the CLI uses, so keys configured in either tool are picked up by both.
 
 ### CLI
 
@@ -94,7 +94,7 @@ xolotl prompt "summarize the runtime crate"
 xolotl setup                          # configure API keys
 ```
 
-Inside the REPL, `/connect <provider>` saves a key. Supported providers: `kimi-coding`, `kimi`, `minimax`, `glm`, `qwen`, `anthropic`, `bedrock`, `openai`.
+Inside the REPL, `/connect <provider>` saves a key. Supported providers: `kimi-coding`, `kimi`, `minimax`, `deepseek`, `glm`, `qwen`, `anthropic`, `bedrock`, `openai`.
 
 ## Provider Setup
 
@@ -103,6 +103,7 @@ Inside the REPL, `/connect <provider>` saves a key. Supported providers: `kimi-c
 | `KIMI_CODING_API_KEY` | Kimi K2.6 Coding |
 | `KIMI_API_KEY` | Moonshot/Kimi |
 | `MINIMAX_API_KEY` | MiniMax |
+| `DEEPSEEK_API_KEY` | DeepSeek |
 | `GLM_API_KEY` | Zhipu GLM |
 | `DASHSCOPE_API_KEY` | Alibaba Qwen |
 | `ANTHROPIC_API_KEY` | Anthropic direct |
@@ -118,6 +119,8 @@ Base URLs are overridable via `*_BASE_URL` variants.
 | `kimi-coding` | Kimi Coding | Coding-tuned, 256K context, exposes `reasoning_content`, prompt cache enabled |
 | `kimi2.6` | Moonshot/Kimi | General Kimi route |
 | `minimax2.7` | MiniMax | 1M context for broad reads |
+| `deepseek`, `deepseek-v4-pro` | DeepSeek | DeepSeek V4 Pro, 1M context, thinking mode |
+| `deepseek-flash`, `deepseek-v4-flash` | DeepSeek | DeepSeek V4 Flash, 1M context, lower cost |
 | `glm5.1` | Zhipu GLM | 128K context |
 | `qwen3.6` | Alibaba Qwen | Qwen compatible route |
 | `claude-sonnet-4-6`, `sonnet` | Anthropic / Bedrock | Claude Sonnet |

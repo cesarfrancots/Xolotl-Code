@@ -5,6 +5,7 @@ pub enum ModelFamily {
     MiniMax,
     Glm,
     Qwen,
+    DeepSeek,
     Claude,
     BedrockAnthropic,
     OpenAI,
@@ -242,6 +243,35 @@ impl ModelHints {
                 plan_mode_system_prompt_addition: Some(
                     "PLAN MODE: Create structured 4-6 phase plans. Balance research depth with \
                     implementation efficiency. Each phase should produce a testable increment."
+                        .into(),
+                ),
+                effort_level: EffortLevel::Standard,
+            }
+        } else if model_lower.contains("deepseek") {
+            Self {
+                family: ModelFamily::DeepSeek,
+                thinking_budget: 24_000,
+                max_context: 1_048_576,
+                max_completion_tokens: 32_768,
+                aggressive_read: true,
+                aggressive_read_threshold: 10,
+                compaction_ratio: 0.8,
+                system_prompt_addition: Some(
+                    "You are running on DeepSeek V4. Use thinking mode for coding, \
+                    debugging, planning, and agentic work. You have 1M context, so read \
+                    broadly when it reduces uncertainty, while keeping final answers concise."
+                        .into(),
+                ),
+                supports_prompt_cache: false,
+                supports_images: false,
+                plan_thinking_budget: 40_000,
+                supports_ultra_planning: true,
+                max_plan_phases: 8,
+                plan_aggressive_read_threshold: 12,
+                plan_mode_system_prompt_addition: Some(
+                    "PLAN MODE: Use DeepSeek V4's long context and reasoning mode to inspect \
+                    the relevant code paths before planning. Produce 4-8 phases with explicit \
+                    dependencies, verification steps, and rollback criteria."
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
@@ -493,6 +523,7 @@ impl ModelHints {
                 | ModelFamily::MiniMax
                 | ModelFamily::Glm
                 | ModelFamily::Qwen
+                | ModelFamily::DeepSeek
                 | ModelFamily::KimiCoding
                 | ModelFamily::BedrockAnthropic
                 | ModelFamily::OpenAI
@@ -613,6 +644,18 @@ mod tests {
         assert!(hints.aggressive_read);
         assert!(hints.supports_ultra_planning);
         assert_eq!(hints.max_plan_phases, 6);
+    }
+
+    #[test]
+    fn test_deepseek_hints() {
+        let hints = ModelHints::for_model("deepseek/deepseek-v4-pro");
+        assert_eq!(hints.family, ModelFamily::DeepSeek);
+        assert_eq!(hints.max_context, 1_048_576);
+        assert_eq!(hints.max_completion_tokens, 32_768);
+        assert!(hints.aggressive_read);
+        assert!(hints.should_use_thinking());
+        assert!(hints.supports_ultra_planning);
+        assert_eq!(hints.plan_aggressive_read_threshold, 12);
     }
 
     #[test]

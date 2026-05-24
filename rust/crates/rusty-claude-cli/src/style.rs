@@ -185,6 +185,15 @@ pub fn friendly_model_name(model: &str) -> String {
     if model_lower.starts_with("qwen/") || model_lower == "qwen" {
         return "Qwen 3.6".into();
     }
+    if model_lower.contains("deepseek-v4-pro") {
+        return "DeepSeek V4 Pro".into();
+    }
+    if model_lower.contains("deepseek-v4-flash") {
+        return "DeepSeek V4 Flash".into();
+    }
+    if model_lower.starts_with("deepseek/") || model_lower == "deepseek" {
+        return "DeepSeek".into();
+    }
     if model_lower.starts_with("openai/") || model_lower == "openai" {
         return "OpenAI".into();
     }

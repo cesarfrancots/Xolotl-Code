@@ -15,8 +15,19 @@ const PREVIEW_MODELS = [
   "kimi2.6",
   "kimi-coding",
   "minimax2.7",
+  "deepseek-v4-pro",
+  "deepseek-v4-flash",
   "glm5.1",
   "qwen3.6",
+];
+
+const PREVIEW_PROVIDERS = [
+  "anthropic",
+  "bedrock",
+  "kimi",
+  "kimi_coding",
+  "minimax",
+  "deepseek",
 ];
 
 const PREVIEW_SUITES = [
@@ -76,12 +87,19 @@ function handlePreviewCommand(cmd: string): unknown {
     case "list_mcp_servers":
       return [];
     case "get_api_key_status":
-      return Object.fromEntries(PREVIEW_MODELS.map((model) => [model, false]));
+      return Object.fromEntries(PREVIEW_PROVIDERS.map((provider) => [provider, false]));
     case "load_session":
     case "save_session":
     case "delete_session":
     case "delete_eval":
+    case "save_manual_reviews":
       return null;
+    case "start_eval_artifact":
+      return {
+        artifact_dir: "preview://eval-artifacts",
+        entry_path: "preview://eval-artifacts/index.html",
+        message: "Preview artifact prepared",
+      };
     default:
       throw `Preview mode does not run Tauri command: ${cmd}`;
   }

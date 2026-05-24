@@ -22,6 +22,7 @@ interface ProviderConfig {
 
 const PROVIDERS: ProviderConfig[] = [
   { id: "anthropic",   label: "Anthropic",              envVar: "ANTHROPIC_API_KEY",   placeholder: "sk-ant-...", models: "Claude Sonnet, Opus, Haiku" },
+  { id: "deepseek",    label: "DeepSeek",               envVar: "DEEPSEEK_API_KEY",    placeholder: "sk-...", models: "deepseek-v4-pro, deepseek-v4-flash" },
   { id: "bedrock",     label: "AWS Bedrock",            envVar: "BEDROCK_API_KEY",     placeholder: "ABSK...", models: "Bedrock Claude, Nova, Llama" },
   { id: "kimi",        label: "Kimi / Moonshot",        envVar: "KIMI_API_KEY",        placeholder: "sk-...", models: "kimi2.6" },
   { id: "kimi_coding", label: "Kimi For Coding",        envVar: "KIMI_CODING_API_KEY", placeholder: "sk-...", models: "kimi-coding" },
@@ -161,7 +162,7 @@ function ProvidersPanel({ open }: { open: boolean }) {
 
   const configuredCount = PROVIDERS.filter((provider) => status[provider.id]).length;
   const hasAnyProvider = configuredCount > 0;
-  const primaryReady = Boolean(status.kimi_coding || status.anthropic || status.bedrock);
+  const primaryReady = Boolean(status.kimi_coding || status.deepseek || status.anthropic || status.bedrock);
 
   return (
     <div className="flex flex-col gap-3 p-5">
@@ -182,7 +183,7 @@ function ProvidersPanel({ open }: { open: boolean }) {
           </div>
           <p className="mt-1 text-xs leading-relaxed text-[oklch(0.58_0.012_225)]">
             {hasAnyProvider
-              ? `${configuredCount} of ${PROVIDERS.length} providers configured. ${primaryReady ? "Chat and goal eval can use configured models." : "Add Kimi Coding, Anthropic, or Bedrock for the main coding models."}`
+              ? `${configuredCount} of ${PROVIDERS.length} providers configured. ${primaryReady ? "Chat and goal eval can use configured models." : "Add Kimi Coding, DeepSeek, Anthropic, or Bedrock for the main coding models."}`
               : "Add at least one provider key before running chat, agents, or model evals."}
           </p>
         </div>

@@ -50,6 +50,11 @@ export const commands = {
 	 *  scores_json is a JSON object mapping model name → HumanScores.
 	 */
 	saveHumanScores: (id: string, scoresJson: string) => typedError<null, string>(__TAURI_INVOKE("save_human_scores", { id, scoresJson })),
+	/**
+	 *  save_manual_reviews: updates the personal post-eval review map in a stored eval.
+	 *  reviews_json is a JSON object mapping model name -> ManualReview.
+	 */
+	saveManualReviews: (id: string, reviewsJson: string) => typedError<null, string>(__TAURI_INVOKE("save_manual_reviews", { id, reviewsJson })),
 	listEvalSuites: () => __TAURI_INVOKE<EvalSuite[]>("list_eval_suites"),
 	/**
 	 *  run_eval_suite: runs every prompt of a suite across selected models in parallel.
@@ -71,8 +76,9 @@ export const commands = {
 	 *  Post-hoc goal grader. For each model in a stored eval, score the 5 reasoning
 	 *  axes (1–5 each) with an evidence quote, extract retrospective flags, and
 	 *  write a one-line summary. Results saved into `goal_grades` on disk.
-	 */
+ */
 	runGoalGrade: (id: string, judgeModel: string) => typedError<string, string>(__TAURI_INVOKE("run_goal_grade", { id, judgeModel })),
+	startEvalArtifact: (request: EvalArtifactRequest) => typedError<EvalArtifactLaunchResult, string>(__TAURI_INVOKE("start_eval_artifact", { request })),
 	listSkills: () => __TAURI_INVOKE<SkillManifest[]>("list_skills"),
 	readSkill: (name: string) => typedError<string, string>(__TAURI_INVOKE("read_skill", { name })),
 	listMcpServers: () => __TAURI_INVOKE<McpServerConfig[]>("list_mcp_servers"),
@@ -182,6 +188,7 @@ export type EvalMeta = {
 	prompt: string,
 	models: string[],
 	created_at: number,
+	manual_review_count: number,
 	suite_id?: string | null,
 	suite_run_id?: string | null,
 };
@@ -192,6 +199,8 @@ export type EvalResult = {
 	models: string[],
 	results: ModelEvalResult[],
 	human_scores: { [key in string]: HumanScores },
+	/**  Personal review notes and manual score. Separate from blind eval scoring. */
+	manual_reviews?: { [key in string]: ManualReview },
 	auto_scores?: { [key in string]: AutoScores },
 	judge?: JudgeScores | null,
 	/**
@@ -218,6 +227,24 @@ export type EvalResult = {
 	/**  If part of a suite run, the SuitePrompt.id for this row. */
 	suite_prompt_id?: string | null,
 	created_at: number,
+};
+
+export type EvalArtifactFileInput = {
+	relative_path: string,
+	content: string,
+};
+
+export type EvalArtifactLaunchResult = {
+	artifact_dir: string,
+	entry_path: string,
+	message: string,
+};
+
+export type EvalArtifactRequest = {
+	label: string,
+	kind: string,
+	entry_path: string,
+	files: EvalArtifactFileInput[],
 };
 
 export type EvalSuite = {
@@ -278,6 +305,13 @@ export type JudgeScores = {
 	scores: { [key in string]: HumanScores },
 	/**  Per-model one-line rationale from the judge. */
 	rationale: { [key in string]: string },
+};
+
+/**  User-authored post-eval review, intentionally separate from blind rubric scores. */
+export type ManualReview = {
+	score: number | null,
+	notes: string,
+	updated_at: number,
 };
 
 /**

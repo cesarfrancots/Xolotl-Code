@@ -541,6 +541,14 @@ fn get_optimized_tool_guidance(hints: &ModelHints) -> String {
                 "- Prefer batching multiple bash commands with semicolons instead of separate calls.".to_string(),
             ]);
         }
+        crate::model_hints::ModelFamily::DeepSeek => {
+            lines.extend([
+                "- With 1M token context, read broadly enough to remove ambiguity before planning or editing.".to_string(),
+                "- Use thinking mode for coding, debugging, and agentic multi-step work.".to_string(),
+                "- Prefer concrete verification steps after each meaningful code change.".to_string(),
+                "- Use task tool for independent work units when parallel exploration is useful.".to_string(),
+            ]);
+        }
         crate::model_hints::ModelFamily::Glm => {
             lines.extend([
                 "- Follow standard SDD practices: read files before implementing.".to_string(),

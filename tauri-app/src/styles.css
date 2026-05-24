@@ -128,6 +128,49 @@ button {
   mask-image: linear-gradient(180deg, black, transparent 72%);
 }
 
+.eval-arena-grid {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, oklch(0.70 0.030 190 / 0.040) 1px, transparent 1px),
+    linear-gradient(180deg, oklch(0.88 0.010 230 / 0.024) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.55;
+}
+
+.eval-creature {
+  image-rendering: pixelated;
+  filter: drop-shadow(0 8px 0 oklch(0.06 0 0 / 0.35));
+  transform-origin: 50% 80%;
+}
+
+.eval-creature-active {
+  animation: eval-creature-bob 900ms steps(2, end) infinite;
+}
+
+.eval-creature-done {
+  filter: drop-shadow(0 8px 0 oklch(0.06 0 0 / 0.35)) drop-shadow(0 0 12px oklch(0.70 0.07 155 / 0.22));
+}
+
+.eval-creature-failed {
+  opacity: 0.58;
+  filter: grayscale(0.55) drop-shadow(0 8px 0 oklch(0.06 0 0 / 0.35));
+}
+
+.eval-arena-runner {
+  animation: eval-arena-runner 1100ms ease-in-out infinite;
+}
+
+@keyframes eval-creature-bob {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-5px) rotate(1deg); }
+}
+
+@keyframes eval-arena-runner {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
 /* highlight.js github-dark theme CSS is imported in MarkdownRenderer component (Wave 2)
    rehype-highlight applies class names; component-level import avoids global style conflicts */
 

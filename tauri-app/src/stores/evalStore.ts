@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { EvalResult, HumanScores, AutoScores, JudgeScores, ReasoningFlag, GoalGrade } from "../bindings";
+import type { EvalResult, HumanScores, AutoScores, JudgeScores, ReasoningFlag, GoalGrade, ManualReview } from "../bindings";
 
 export const HUMAN_SCORE_KEYS: (keyof HumanScores)[] = [
   "accuracy",
@@ -63,8 +63,11 @@ export interface SuiteRunState {
 export interface EvalState {
   activeEval: ActiveEval | null;
   humanScores: Record<string, Partial<HumanScores>>;
+  manualReviews: Record<string, ManualReview>;
   /** True when local human score edits have not been saved to disk yet. */
   scoresDirty: boolean;
+  /** True when local personal review edits have not been saved to disk yet. */
+  reviewDirty: boolean;
   evalOpen: boolean;
   /** True if names are blinded (A, B, C) for unbiased human scoring. */
   blindMode: boolean;
@@ -92,7 +95,9 @@ export interface EvalState {
   setGoalGrades: (grades: Record<string, GoalGrade>) => void;
   loadEval: (result: EvalResult) => void;
   setHumanScore: (model: string, dimension: keyof HumanScores, value: number) => void;
+  setManualReview: (model: string, review: Partial<ManualReview>) => void;
   markHumanScoresSaved: () => void;
+  markManualReviewsSaved: () => void;
   clearHumanScores: () => void;
   openEval: () => void;
   closeEval: () => void;
@@ -181,7 +186,9 @@ export function getBlindReviewProgress(
 export const useEvalStore = create<EvalState>()((set) => ({
   activeEval: null,
   humanScores: {},
+  manualReviews: {},
   scoresDirty: false,
+  reviewDirty: false,
   evalOpen: false,
   blindMode: true,
   activeSuite: null,
@@ -216,7 +223,9 @@ export const useEvalStore = create<EvalState>()((set) => ({
         live_supervisor: suiteInfo?.live_supervisor ?? false,
       },
       humanScores: {},
+      manualReviews: {},
       scoresDirty: false,
+      reviewDirty: false,
       evalOpen: true,
     });
   },
@@ -395,7 +404,9 @@ export const useEvalStore = create<EvalState>()((set) => ({
         is_goal_eval: result.is_goal_eval ?? false,
       },
       humanScores,
+      manualReviews: result.manual_reviews ?? {},
       scoresDirty: false,
+      reviewDirty: false,
       evalOpen: true,
       ...(result.is_goal_eval ? { blindMode: true } : {}),
     });
@@ -411,6 +422,21 @@ export const useEvalStore = create<EvalState>()((set) => ({
     })),
 
   markHumanScoresSaved: () => set({ scoresDirty: false }),
+
+  setManualReview: (model, review) =>
+    set((s) => ({
+      manualReviews: {
+        ...s.manualReviews,
+        [model]: {
+          score: "score" in review ? review.score ?? null : s.manualReviews[model]?.score ?? null,
+          notes: "notes" in review ? review.notes ?? "" : s.manualReviews[model]?.notes ?? "",
+          updated_at: review.updated_at ?? Math.floor(Date.now() / 1000),
+        },
+      },
+      reviewDirty: true,
+    })),
+
+  markManualReviewsSaved: () => set({ reviewDirty: false }),
 
   clearHumanScores: () => set({ humanScores: {}, scoresDirty: false }),
 

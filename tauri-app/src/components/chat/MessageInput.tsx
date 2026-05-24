@@ -40,6 +40,8 @@ const PROVIDER_OF: Record<string, string> = {
   "kimi2.6": "Moonshot",
   "kimi-coding": "Kimi For Coding",
   "minimax2.7": "MiniMax",
+  "deepseek-v4-pro": "DeepSeek",
+  "deepseek-v4-flash": "DeepSeek",
   "bedrock-claude-sonnet-4-5": "AWS Bedrock",
   "bedrock-claude-opus-4-5": "AWS Bedrock",
   "bedrock-claude-haiku-4-5": "AWS Bedrock",
@@ -47,7 +49,7 @@ const PROVIDER_OF: Record<string, string> = {
   "bedrock-nova-lite": "AWS Bedrock",
   "bedrock-llama-3.3-70b": "AWS Bedrock",
 };
-const PROVIDER_ORDER = ["Anthropic", "AWS Bedrock", "Moonshot", "Kimi For Coding", "MiniMax", "Other"];
+const PROVIDER_ORDER = ["Anthropic", "AWS Bedrock", "Moonshot", "Kimi For Coding", "MiniMax", "DeepSeek", "Other"];
 const EFFORTS: ReasoningEffort[] = ["low", "medium", "high", "max"];
 
 function isStandaloneGreeting(text: string): boolean {

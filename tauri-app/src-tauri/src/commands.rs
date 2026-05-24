@@ -1,12 +1,15 @@
+use crate::permission_prompter::{PendingPrompts, PermissionDecision, PermissionRequestPayload};
+use futures_util::StreamExt;
+use runtime::{
+    slugify_task, AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor, TokenUsage,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
-use runtime::{AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor, TokenUsage, slugify_task};
 use tokio::sync::broadcast::error::RecvError;
-use crate::permission_prompter::{PendingPrompts, PermissionDecision, PermissionRequestPayload};
-use futures_util::StreamExt;
 
 // ── Chat message type used by run_agent_turn ──────────────────────────────────
 
@@ -55,6 +58,13 @@ impl ReasoningEffort {
             Self::Max => "max",
         }
     }
+
+    fn as_deepseek_str(self) -> &'static str {
+        match self {
+            Self::Max => "max",
+            Self::Low | Self::Medium | Self::High => "high",
+        }
+    }
 }
 
 // ── Eval types ────────────────────────────────────────────────────────────────
@@ -65,6 +75,8 @@ pub struct EvalMeta {
     pub prompt: String,
     pub models: Vec<String>,
     pub created_at: u64,
+    #[serde(default)]
+    pub manual_review_count: usize,
     #[serde(default)]
     pub suite_id: Option<String>,
     #[serde(default)]
@@ -121,6 +133,17 @@ pub struct JudgeScores {
     pub scores: HashMap<String, HumanScores>,
     /// Per-model one-line rationale from the judge.
     pub rationale: HashMap<String, String>,
+}
+
+/// User-authored post-eval review, intentionally separate from blind rubric scores.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct ManualReview {
+    #[serde(default)]
+    pub score: Option<f32>,
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub updated_at: u64,
 }
 
 // ── Goal-eval types ──────────────────────────────────────────────────────────
@@ -184,6 +207,9 @@ pub struct EvalResult {
     pub models: Vec<String>,
     pub results: Vec<ModelEvalResult>,
     pub human_scores: HashMap<String, HumanScores>,
+    /// Personal review notes and manual score. Separate from blind eval scoring.
+    #[serde(default)]
+    pub manual_reviews: HashMap<String, ManualReview>,
     #[serde(default)]
     pub auto_scores: HashMap<String, AutoScores>,
     #[serde(default)]
@@ -213,6 +239,27 @@ pub struct EvalResult {
     #[serde(default)]
     pub suite_prompt_id: Option<String>,
     pub created_at: u64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, specta::Type)]
+pub struct EvalArtifactFileInput {
+    pub relative_path: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, specta::Type)]
+pub struct EvalArtifactRequest {
+    pub label: String,
+    pub kind: String,
+    pub entry_path: String,
+    pub files: Vec<EvalArtifactFileInput>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct EvalArtifactLaunchResult {
+    pub artifact_dir: String,
+    pub entry_path: String,
+    pub message: String,
 }
 
 // ── Health check ──────────────────────────────────────────────────────────────
@@ -259,9 +306,7 @@ pub fn spawn_agent(
 
 #[tauri::command]
 #[specta::specta]
-pub fn list_agents(
-    supervisor: tauri::State<'_, Arc<AgentSupervisor>>,
-) -> Vec<String> {
+pub fn list_agents(supervisor: tauri::State<'_, Arc<AgentSupervisor>>) -> Vec<String> {
     supervisor.list().into_iter().map(|id| id.0).collect()
 }
 
@@ -320,8 +365,8 @@ pub fn test_permission_prompt(
 
     let pending = pending_prompts.inner().clone();
     let id_clone = prompt_id.clone();
-    std::thread::spawn(move || {
-        match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+    std::thread::spawn(
+        move || match rx.recv_timeout(std::time::Duration::from_secs(10)) {
             Ok(decision) => {
                 println!("[smoke-test] permission response received: {:?}", decision);
             }
@@ -329,8 +374,8 @@ pub fn test_permission_prompt(
                 let _ = pending.lock().map(|mut p| p.remove(&id_clone));
                 println!("[smoke-test] permission prompt timed out");
             }
-        }
-    });
+        },
+    );
 
     Ok(prompt_id)
 }
@@ -358,8 +403,11 @@ pub async fn chat_turn(
     reasoning_effort: Option<String>,
 ) -> Result<(), String> {
     let channel = format!("chat-event:{turn_id}");
-    eprintln!("[chat_turn] start turn_id={turn_id} model={model} msgs={} skills={:?}",
-        messages.len(), enabled_skills.as_ref().map(|s| s.len()));
+    eprintln!(
+        "[chat_turn] start turn_id={turn_id} model={model} msgs={} skills={:?}",
+        messages.len(),
+        enabled_skills.as_ref().map(|s| s.len())
+    );
     let options = ModelCallOptions {
         reasoning_effort: ReasoningEffort::parse(reasoning_effort.as_deref()),
     };
@@ -476,7 +524,9 @@ pub async fn run_agent_turn(
         }
         eprintln!("[run_agent_turn] forwarded {forwarded} events to broadcast");
 
-        let _ = handle_tx.send(AgentEvent::StateChanged(AgentState::Waiting)).await;
+        let _ = handle_tx
+            .send(AgentEvent::StateChanged(AgentState::Waiting))
+            .await;
     });
 
     Ok(())
@@ -494,6 +544,8 @@ pub fn list_models() -> Vec<String> {
         "kimi2.6".to_string(),
         "kimi-coding".to_string(),
         "minimax2.7".to_string(),
+        "deepseek-v4-pro".to_string(),
+        "deepseek-v4-flash".to_string(),
         "bedrock-claude-sonnet-4-5".to_string(),
         "bedrock-claude-opus-4-5".to_string(),
         "bedrock-claude-haiku-4-5".to_string(),
@@ -524,7 +576,11 @@ pub fn list_sessions() -> Vec<SessionMeta> {
                 .duration_since(std::time::UNIX_EPOCH)
                 .ok()?
                 .as_secs();
-            Some(SessionMeta { id, title: String::new(), created_at })
+            Some(SessionMeta {
+                id,
+                title: String::new(),
+                created_at,
+            })
         })
         .collect();
     metas.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -534,7 +590,10 @@ pub fn list_sessions() -> Vec<SessionMeta> {
 #[tauri::command]
 #[specta::specta]
 pub fn load_session(id: String) -> Result<String, String> {
-    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    if !id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err("invalid session id".to_string());
     }
     let path = home_sessions_dir().join(format!("{id}.json"));
@@ -544,7 +603,10 @@ pub fn load_session(id: String) -> Result<String, String> {
 #[tauri::command]
 #[specta::specta]
 pub fn delete_session(id: String) -> Result<(), String> {
-    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    if !id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err("invalid session id".to_string());
     }
     let path = home_sessions_dir().join(format!("{id}.json"));
@@ -554,7 +616,10 @@ pub fn delete_session(id: String) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub fn save_session(id: String, json: String) -> Result<(), String> {
-    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    if !id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err("invalid session id".to_string());
     }
     let dir = home_sessions_dir();
@@ -571,6 +636,25 @@ pub struct SessionMeta {
 }
 
 // ── Eval commands ─────────────────────────────────────────────────────────────
+
+#[tauri::command]
+#[specta::specta]
+pub fn start_eval_artifact(
+    request: EvalArtifactRequest,
+) -> Result<EvalArtifactLaunchResult, String> {
+    let (artifact_dir, entry_path) = write_eval_artifact(&request)?;
+    let message = match request.kind.as_str() {
+        "python" => launch_python_artifact(&artifact_dir, &entry_path)?,
+        "web" => open_artifact_file(&entry_path)?,
+        other => return Err(format!("unsupported artifact kind: {other}")),
+    };
+
+    Ok(EvalArtifactLaunchResult {
+        artifact_dir: artifact_dir.to_string_lossy().into_owned(),
+        entry_path: entry_path.to_string_lossy().into_owned(),
+        message,
+    })
+}
 
 /// start_eval: starts selected models on the same prompt in parallel.
 /// Emits "eval-event:{eval_id}" events as each model streams.
@@ -637,7 +721,9 @@ pub async fn run_eval_suite(
     models: Vec<String>,
 ) -> Result<String, String> {
     let suites = default_suites();
-    let suite = suites.into_iter().find(|s| s.id == suite_id)
+    let suite = suites
+        .into_iter()
+        .find(|s| s.id == suite_id)
         .ok_or_else(|| format!("unknown suite: {suite_id}"))?;
     let suite_run_id = uuid::Uuid::new_v4().to_string();
 
@@ -758,10 +844,18 @@ async fn start_eval_inner_with_id(
     suite_prompt_id: Option<String>,
 ) -> Result<String, String> {
     start_eval_inner_full(
-        app_handle, eval_id, prompt, models, grader,
-        suite_id, suite_run_id, suite_prompt_id,
-        false, None,
-    ).await
+        app_handle,
+        eval_id,
+        prompt,
+        models,
+        grader,
+        suite_id,
+        suite_run_id,
+        suite_prompt_id,
+        false,
+        None,
+    )
+    .await
 }
 
 /// Full eval workhorse: streams TextDelta + ReasoningDelta, optionally runs a
@@ -841,8 +935,12 @@ async fn start_eval_inner_full(
             let local_tx2 = local_tx.clone();
             tokio::spawn(async move {
                 match call_model_streaming(&model2, &msgs, &local_tx2).await {
-                    Ok(usage) => { let _ = local_tx2.send(AgentEvent::TurnCompleted { usage }).await; }
-                    Err(e) => { let _ = local_tx2.send(AgentEvent::Error { message: e }).await; }
+                    Ok(usage) => {
+                        let _ = local_tx2.send(AgentEvent::TurnCompleted { usage }).await;
+                    }
+                    Err(e) => {
+                        let _ = local_tx2.send(AgentEvent::Error { message: e }).await;
+                    }
                 }
             });
             drop(local_tx);
@@ -884,9 +982,15 @@ async fn start_eval_inner_full(
                                 let goal_for_flag = goal_for_supervisor.clone();
                                 tokio::spawn(async move {
                                     supervise_reasoning_window(
-                                        &app2, &channel2, &model_for_flag,
-                                        &goal_for_flag, &window, cursor_at as u32, &sup_model,
-                                    ).await;
+                                        &app2,
+                                        &channel2,
+                                        &model_for_flag,
+                                        &goal_for_flag,
+                                        &window,
+                                        cursor_at as u32,
+                                        &sup_model,
+                                    )
+                                    .await;
                                 });
                             }
                         }
@@ -909,9 +1013,15 @@ async fn start_eval_inner_full(
                 if reasoning_buf.len() > supervisor_cursor {
                     let tail = reasoning_buf[supervisor_cursor..].to_string();
                     supervise_reasoning_window(
-                        &app_handle, &channel, &model, &goal_for_supervisor, &tail,
-                        supervisor_cursor as u32, sup,
-                    ).await;
+                        &app_handle,
+                        &channel,
+                        &model,
+                        &goal_for_supervisor,
+                        &tail,
+                        supervisor_cursor as u32,
+                        sup,
+                    )
+                    .await;
                 }
             }
 
@@ -959,7 +1069,12 @@ async fn start_eval_inner_full(
         }
     }
     // Preserve user-specified model order.
-    all_results.sort_by_key(|r| models.iter().position(|m| m == &r.model).unwrap_or(usize::MAX));
+    all_results.sort_by_key(|r| {
+        models
+            .iter()
+            .position(|m| m == &r.model)
+            .unwrap_or(usize::MAX)
+    });
 
     let eval_result = EvalResult {
         id: eval_id.clone(),
@@ -967,12 +1082,17 @@ async fn start_eval_inner_full(
         models: models.clone(),
         results: all_results,
         human_scores: HashMap::new(),
+        manual_reviews: HashMap::new(),
         auto_scores: auto_map,
         judge: None,
         reasoning_traces: reasoning_map,
         goal_grades: HashMap::new(),
         is_goal_eval,
-        goal: if is_goal_eval { Some(prompt.clone()) } else { None },
+        goal: if is_goal_eval {
+            Some(prompt.clone())
+        } else {
+            None
+        },
         suite_id,
         suite_run_id,
         suite_prompt_id,
@@ -996,11 +1116,11 @@ async fn start_eval_inner_full(
 /// the 8-dimension rubric. Result is saved into the eval's `judge` field.
 #[tauri::command]
 #[specta::specta]
-pub async fn run_llm_judge(
-    id: String,
-    judge_model: String,
-) -> Result<String, String> {
-    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+pub async fn run_llm_judge(id: String, judge_model: String) -> Result<String, String> {
+    if !id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err("invalid eval id".to_string());
     }
     let path = home_evals_dir().join(format!("{id}.json"));
@@ -1010,7 +1130,9 @@ pub async fn run_llm_judge(
     // Build the judge prompt. Models are anonymized as A, B, C, ... to reduce
     // name-recognition bias; we map back after parsing.
     let mut model_labels: Vec<(String, String)> = Vec::new();
-    let labels = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"];
+    let labels = [
+        "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P",
+    ];
     let mut responses_block = String::new();
     for (i, m) in result.results.iter().enumerate() {
         let label = labels.get(i).copied().unwrap_or("?").to_string();
@@ -1023,14 +1145,21 @@ pub async fn run_llm_judge(
         result.prompt, responses_block
     );
 
-    let messages = vec![ChatMessage { role: "user".to_string(), content: prompt }];
+    let messages = vec![ChatMessage {
+        role: "user".to_string(),
+        content: prompt,
+    }];
     let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(256);
     let tx2 = tx.clone();
     let judge_model2 = judge_model.clone();
     tokio::spawn(async move {
         match call_model_streaming(&judge_model2, &messages, &tx2).await {
-            Ok(usage) => { let _ = tx2.send(AgentEvent::TurnCompleted { usage }).await; }
-            Err(e) => { let _ = tx2.send(AgentEvent::Error { message: e }).await; }
+            Ok(usage) => {
+                let _ = tx2.send(AgentEvent::TurnCompleted { usage }).await;
+            }
+            Err(e) => {
+                let _ = tx2.send(AgentEvent::Error { message: e }).await;
+            }
         }
     });
     drop(tx);
@@ -1052,18 +1181,23 @@ pub async fn run_llm_judge(
     let mut scores: HashMap<String, HumanScores> = HashMap::new();
     let mut rationale: HashMap<String, String> = HashMap::new();
     for (label, model_name) in &model_labels {
-        let Some(obj) = parsed.get(label) else { continue };
+        let Some(obj) = parsed.get(label) else {
+            continue;
+        };
         let g = |k: &str| obj.get(k).and_then(|v| v.as_f64()).unwrap_or(5.0) as f32;
-        scores.insert(model_name.clone(), HumanScores {
-            accuracy: g("accuracy"),
-            helpfulness: g("helpfulness"),
-            quality: g("quality"),
-            creativity: g("creativity"),
-            design: g("design"),
-            aesthetics: g("aesthetics"),
-            ai_slop: g("ai_slop"),
-            brevity: g("brevity"),
-        });
+        scores.insert(
+            model_name.clone(),
+            HumanScores {
+                accuracy: g("accuracy"),
+                helpfulness: g("helpfulness"),
+                quality: g("quality"),
+                creativity: g("creativity"),
+                design: g("design"),
+                aesthetics: g("aesthetics"),
+                ai_slop: g("ai_slop"),
+                brevity: g("brevity"),
+            },
+        );
         if let Some(rat) = obj.get("rationale").and_then(|v| v.as_str()) {
             rationale.insert(model_name.clone(), rat.to_string());
         }
@@ -1099,14 +1233,21 @@ async fn supervise_reasoning_window(
         "You are a reasoning supervisor. The agent below is trying to achieve a GOAL. Read its latest chunk of internal reasoning and flag concrete issues you see.\n\nGOAL:\n{}\n\nREASONING CHUNK:\n{}\n\nReturn ONLY a JSON object, no markdown fences, shape:\n{{\"flags\": [{{\"kind\": \"...\", \"severity\": \"info|warn|error\", \"quote\": \"verbatim from chunk\", \"comment\": \"<= 120 chars\"}}]}}\n\nValid kinds: bad_assumption, goal_drift, premature_commit, no_verification, contradiction, good_decomposition, good_self_correction.\nReturn at most 3 flags. Empty list if nothing notable. Quotes MUST be verbatim substrings of the chunk.",
         goal, window
     );
-    let messages = vec![ChatMessage { role: "user".to_string(), content: prompt }];
+    let messages = vec![ChatMessage {
+        role: "user".to_string(),
+        content: prompt,
+    }];
     let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(64);
     let tx2 = tx.clone();
     let sup = supervisor_model.to_string();
     tokio::spawn(async move {
         match call_model_streaming(&sup, &messages, &tx2).await {
-            Ok(usage) => { let _ = tx2.send(AgentEvent::TurnCompleted { usage }).await; }
-            Err(e) => { let _ = tx2.send(AgentEvent::Error { message: e }).await; }
+            Ok(usage) => {
+                let _ = tx2.send(AgentEvent::TurnCompleted { usage }).await;
+            }
+            Err(e) => {
+                let _ = tx2.send(AgentEvent::Error { message: e }).await;
+            }
         }
     });
     drop(tx);
@@ -1122,20 +1263,44 @@ async fn supervise_reasoning_window(
     }
 
     let json_str = extract_json_candidate(&buf);
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str) else { return };
-    let Some(flags) = parsed.get("flags").and_then(|v| v.as_array()) else { return };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str) else {
+        return;
+    };
+    let Some(flags) = parsed.get("flags").and_then(|v| v.as_array()) else {
+        return;
+    };
 
     for f in flags {
-        let kind = f.get("kind").and_then(|v| v.as_str()).unwrap_or("info").to_string();
-        let severity = f.get("severity").and_then(|v| v.as_str()).unwrap_or("info").to_string();
-        let quote = f.get("quote").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let comment = f.get("comment").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let kind = f
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("info")
+            .to_string();
+        let severity = f
+            .get("severity")
+            .and_then(|v| v.as_str())
+            .unwrap_or("info")
+            .to_string();
+        let quote = f
+            .get("quote")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let comment = f
+            .get("comment")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         // Map quote back to absolute offset in reasoning trace.
-        let absolute_offset = window.find(&quote)
+        let absolute_offset = window
+            .find(&quote)
             .map(|p| offset_chars + p as u32)
             .unwrap_or(offset_chars);
         let flag = ReasoningFlag {
-            kind, severity, quote, comment,
+            kind,
+            severity,
+            quote,
+            comment,
             offset_chars: absolute_offset,
         };
         let _ = app_handle.emit(
@@ -1154,11 +1319,11 @@ async fn supervise_reasoning_window(
 /// write a one-line summary. Results saved into `goal_grades` on disk.
 #[tauri::command]
 #[specta::specta]
-pub async fn run_goal_grade(
-    id: String,
-    judge_model: String,
-) -> Result<String, String> {
-    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+pub async fn run_goal_grade(id: String, judge_model: String) -> Result<String, String> {
+    if !id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err("invalid eval id".to_string());
     }
     let path = home_evals_dir().join(format!("{id}.json"));
@@ -1171,7 +1336,11 @@ pub async fn run_goal_grade(
     // cross-model bias.
     let mut grades: HashMap<String, GoalGrade> = HashMap::new();
     for m in &result.results {
-        let reasoning = result.reasoning_traces.get(&m.model).cloned().unwrap_or_default();
+        let reasoning = result
+            .reasoning_traces
+            .get(&m.model)
+            .cloned()
+            .unwrap_or_default();
         let final_answer = &m.content;
 
         let prompt = format!(
@@ -1179,14 +1348,21 @@ pub async fn run_goal_grade(
             goal, reasoning, final_answer
         );
 
-        let messages = vec![ChatMessage { role: "user".to_string(), content: prompt }];
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: prompt,
+        }];
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(256);
         let tx2 = tx.clone();
         let jm = judge_model.clone();
         tokio::spawn(async move {
             match call_model_streaming(&jm, &messages, &tx2).await {
-                Ok(usage) => { let _ = tx2.send(AgentEvent::TurnCompleted { usage }).await; }
-                Err(e) => { let _ = tx2.send(AgentEvent::Error { message: e }).await; }
+                Ok(usage) => {
+                    let _ = tx2.send(AgentEvent::TurnCompleted { usage }).await;
+                }
+                Err(e) => {
+                    let _ = tx2.send(AgentEvent::Error { message: e }).await;
+                }
             }
         });
         drop(tx);
@@ -1197,30 +1373,39 @@ pub async fn run_goal_grade(
             match ev {
                 AgentEvent::TextDelta(t) => buf.push_str(&t),
                 AgentEvent::TurnCompleted { .. } => break,
-                AgentEvent::Error { message } => { had_err = Some(message); break; }
+                AgentEvent::Error { message } => {
+                    had_err = Some(message);
+                    break;
+                }
                 _ => {}
             }
         }
         if let Some(e) = had_err {
             // Record an empty grade with the error in the summary so the user
             // sees that the judge attempted this model and failed.
-            grades.insert(m.model.clone(), GoalGrade {
-                judge_model: judge_model.clone(),
-                axes: HashMap::new(),
-                flags: Vec::new(),
-                summary: format!("Judge error: {e}"),
-            });
+            grades.insert(
+                m.model.clone(),
+                GoalGrade {
+                    judge_model: judge_model.clone(),
+                    axes: HashMap::new(),
+                    flags: Vec::new(),
+                    summary: format!("Judge error: {e}"),
+                },
+            );
             continue;
         }
 
         let json_str = extract_json_candidate(&buf);
         let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str) else {
-            grades.insert(m.model.clone(), GoalGrade {
-                judge_model: judge_model.clone(),
-                axes: HashMap::new(),
-                flags: Vec::new(),
-                summary: format!("Judge returned invalid JSON"),
-            });
+            grades.insert(
+                m.model.clone(),
+                GoalGrade {
+                    judge_model: judge_model.clone(),
+                    axes: HashMap::new(),
+                    flags: Vec::new(),
+                    summary: format!("Judge returned invalid JSON"),
+                },
+            );
             continue;
         };
 
@@ -1228,32 +1413,66 @@ pub async fn run_goal_grade(
         if let Some(axes_obj) = parsed.get("axes").and_then(|v| v.as_object()) {
             for (key, val) in axes_obj {
                 let score = val.get("score").and_then(|v| v.as_f64()).unwrap_or(3.0) as f32;
-                let evidence = val.get("evidence").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let evidence = val
+                    .get("evidence")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 axes.insert(key.clone(), GoalAxisScore { score, evidence });
             }
         }
         let mut flags: Vec<ReasoningFlag> = Vec::new();
         if let Some(flags_arr) = parsed.get("flags").and_then(|v| v.as_array()) {
             for f in flags_arr {
-                let kind = f.get("kind").and_then(|v| v.as_str()).unwrap_or("info").to_string();
-                let severity = f.get("severity").and_then(|v| v.as_str()).unwrap_or("info").to_string();
-                let quote = f.get("quote").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let comment = f.get("comment").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let offset_chars = reasoning.find(&quote)
+                let kind = f
+                    .get("kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("info")
+                    .to_string();
+                let severity = f
+                    .get("severity")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("info")
+                    .to_string();
+                let quote = f
+                    .get("quote")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let comment = f
+                    .get("comment")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let offset_chars = reasoning
+                    .find(&quote)
                     .or_else(|| final_answer.find(&quote))
                     .map(|p| p as u32)
                     .unwrap_or(0);
-                flags.push(ReasoningFlag { kind, severity, quote, comment, offset_chars });
+                flags.push(ReasoningFlag {
+                    kind,
+                    severity,
+                    quote,
+                    comment,
+                    offset_chars,
+                });
             }
         }
-        let summary = parsed.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let summary = parsed
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
-        grades.insert(m.model.clone(), GoalGrade {
-            judge_model: judge_model.clone(),
-            axes,
-            flags,
-            summary,
-        });
+        grades.insert(
+            m.model.clone(),
+            GoalGrade {
+                judge_model: judge_model.clone(),
+                axes,
+                flags,
+                summary,
+            },
+        );
     }
 
     result.goal_grades = grades;
@@ -1280,6 +1499,7 @@ pub fn list_evals() -> Vec<EvalMeta> {
                 prompt: result.prompt,
                 models: result.models,
                 created_at: result.created_at,
+                manual_review_count: result.manual_reviews.len(),
                 suite_id: result.suite_id,
                 suite_run_id: result.suite_run_id,
             })
@@ -1292,7 +1512,10 @@ pub fn list_evals() -> Vec<EvalMeta> {
 #[tauri::command]
 #[specta::specta]
 pub fn load_eval(id: String) -> Result<String, String> {
-    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    if !id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err("invalid eval id".to_string());
     }
     let path = home_evals_dir().join(format!("{id}.json"));
@@ -1302,7 +1525,10 @@ pub fn load_eval(id: String) -> Result<String, String> {
 #[tauri::command]
 #[specta::specta]
 pub fn delete_eval(id: String) -> Result<(), String> {
-    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    if !id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err("invalid eval id".to_string());
     }
     let path = home_evals_dir().join(format!("{id}.json"));
@@ -1314,7 +1540,10 @@ pub fn delete_eval(id: String) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub fn save_human_scores(id: String, scores_json: String) -> Result<(), String> {
-    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    if !id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err("invalid eval id".to_string());
     }
     let path = home_evals_dir().join(format!("{id}.json"));
@@ -1323,6 +1552,46 @@ pub fn save_human_scores(id: String, scores_json: String) -> Result<(), String> 
     let scores: HashMap<String, HumanScores> =
         serde_json::from_str(&scores_json).map_err(|e| e.to_string())?;
     result.human_scores = scores;
+    let updated = serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?;
+    std::fs::write(&path, updated).map_err(|e| e.to_string())
+}
+
+/// save_manual_reviews: updates the personal post-eval review map in a stored eval.
+/// reviews_json is a JSON object mapping model name -> ManualReview.
+#[tauri::command]
+#[specta::specta]
+pub fn save_manual_reviews(id: String, reviews_json: String) -> Result<(), String> {
+    if !id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("invalid eval id".to_string());
+    }
+    let path = home_evals_dir().join(format!("{id}.json"));
+    let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut result: EvalResult = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let mut reviews: HashMap<String, ManualReview> =
+        serde_json::from_str(&reviews_json).map_err(|e| e.to_string())?;
+    let now = unix_timestamp_secs()?;
+
+    for (model, review) in reviews.iter_mut() {
+        if !result.models.iter().any(|m| m == model) {
+            return Err(format!("manual review references unknown model: {model}"));
+        }
+        if let Some(score) = review.score {
+            if !score.is_finite() || !(1.0..=10.0).contains(&score) {
+                return Err(format!("manual review score out of range for {model}"));
+            }
+        }
+        if review.notes.len() > 20_000 {
+            return Err(format!("manual review notes are too long for {model}"));
+        }
+        if review.updated_at == 0 {
+            review.updated_at = now;
+        }
+    }
+
+    result.manual_reviews = reviews;
     let updated = serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?;
     std::fs::write(&path, updated).map_err(|e| e.to_string())
 }
@@ -1465,10 +1734,7 @@ pub async fn merge_worktrees(
 
         let git_queue = supervisor.git_queue_for(repo_root.clone());
         let result = git_queue
-            .run(
-                vec!["merge".to_string(), branch.clone()],
-                repo_root.clone(),
-            )
+            .run(vec!["merge".to_string(), branch.clone()], repo_root.clone())
             .await
             .map_err(|e| e.to_string())?;
 
@@ -1498,6 +1764,8 @@ type ConfigMap = serde_json::Map<String, serde_json::Value>;
 
 const MINIMAX_OPENAI_BASE_URL: &str = "https://api.minimax.io/v1";
 const MINIMAX_CHAT_MODEL: &str = "MiniMax-M2.7";
+const DEEPSEEK_OPENAI_BASE_URL: &str = "https://api.deepseek.com";
+const DEEPSEEK_DEFAULT_MODEL: &str = "deepseek-v4-pro";
 const CHAT_SYSTEM_PROMPT: &str = "You are xolotl, a concise coding assistant. For standalone greetings, thanks, acknowledgements, or other trivial small-talk turns, answer immediately in one short sentence and do not emit hidden reasoning, <think> tags, or a planning preamble. Use reasoning only when the user asks for analysis, coding, debugging, planning, or another task that benefits from multi-step work.";
 
 fn supports_anthropic_adaptive_thinking(model: &str) -> bool {
@@ -1513,6 +1781,7 @@ fn provider_env_var(provider: &str) -> Option<&'static str> {
         "kimi" => Some("KIMI_API_KEY"),
         "kimi_coding" => Some("KIMI_CODING_API_KEY"),
         "minimax" => Some("MINIMAX_API_KEY"),
+        "deepseek" => Some("DEEPSEEK_API_KEY"),
         "bedrock" => Some("BEDROCK_API_KEY"),
         _ => None,
     }
@@ -1582,9 +1851,19 @@ fn resolve_api_key(env_var: &str, config: &ConfigMap) -> Option<String> {
 pub fn get_api_key_status() -> HashMap<String, bool> {
     let config = load_config();
     let mut status = HashMap::new();
-    for provider in ["anthropic", "kimi", "kimi_coding", "minimax", "bedrock"] {
+    for provider in [
+        "anthropic",
+        "kimi",
+        "kimi_coding",
+        "minimax",
+        "deepseek",
+        "bedrock",
+    ] {
         let env_var = provider_env_var(provider).unwrap();
-        status.insert(provider.to_string(), resolve_api_key(env_var, &config).is_some());
+        status.insert(
+            provider.to_string(),
+            resolve_api_key(env_var, &config).is_some(),
+        );
     }
     status
 }
@@ -1594,14 +1873,17 @@ pub fn get_api_key_status() -> HashMap<String, bool> {
 #[tauri::command]
 #[specta::specta]
 pub fn set_api_key(provider: String, key: String) -> Result<(), String> {
-    let env_var = provider_env_var(&provider)
-        .ok_or_else(|| format!("Unknown provider: {provider}"))?;
+    let env_var =
+        provider_env_var(&provider).ok_or_else(|| format!("Unknown provider: {provider}"))?;
     let mut config = load_config();
     let normalized_key = normalize_api_key(&key);
     if normalized_key.is_empty() {
         config.remove(env_var);
     } else {
-        config.insert(env_var.to_string(), serde_json::Value::String(normalized_key));
+        config.insert(
+            env_var.to_string(),
+            serde_json::Value::String(normalized_key),
+        );
     }
     save_config(&config)
 }
@@ -1710,6 +1992,29 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
                 Err(format!("MiniMax error: {body}"))
             }
         }
+        "deepseek" => {
+            let key = resolve_api_key("DEEPSEEK_API_KEY", &config)
+                .ok_or_else(|| "DeepSeek API key not set".to_string())?;
+            let resp = client
+                .post(format!("{DEEPSEEK_OPENAI_BASE_URL}/chat/completions"))
+                .header("Authorization", format!("Bearer {key}"))
+                .header("content-type", "application/json")
+                .json(&serde_json::json!({
+                    "model": DEEPSEEK_DEFAULT_MODEL,
+                    "max_tokens": 1,
+                    "thinking": { "type": "disabled" },
+                    "messages": [{"role": "user", "content": "hi"}]
+                }))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+            if resp.status().is_success() {
+                Ok("Connected to DeepSeek".to_string())
+            } else {
+                let body = resp.text().await.unwrap_or_default();
+                Err(format!("DeepSeek error: {body}"))
+            }
+        }
         "bedrock" => {
             let key = resolve_api_key("BEDROCK_API_KEY", &config)
                 .ok_or_else(|| "BEDROCK_API_KEY not set".to_string())?;
@@ -1761,7 +2066,11 @@ mod auto_grader_tests {
     fn clean_human_prose_scores_high() {
         let text = "The bug was in the off-by-one error on line 42. Fixed by changing < to <=.";
         let s = compute_auto_scores(text, "free");
-        assert!(s.ai_slop_score >= 9.0, "clean text should be near 10, got {}", s.ai_slop_score);
+        assert!(
+            s.ai_slop_score >= 9.0,
+            "clean text should be near 10, got {}",
+            s.ai_slop_score
+        );
         assert!(s.slop_hits.is_empty());
     }
 
@@ -1769,8 +2078,16 @@ mod auto_grader_tests {
     fn slop_phrases_dock_points() {
         let text = "Certainly! I'd be happy to help. Let's delve into this — it's important to note that this is a tapestry of concerns.";
         let s = compute_auto_scores(text, "free");
-        assert!(s.ai_slop_score < 6.0, "sloppy text should score low, got {}", s.ai_slop_score);
-        assert!(s.slop_hits.len() >= 3, "expected several slop hits, got {:?}", s.slop_hits);
+        assert!(
+            s.ai_slop_score < 6.0,
+            "sloppy text should score low, got {}",
+            s.ai_slop_score
+        );
+        assert!(
+            s.slop_hits.len() >= 3,
+            "expected several slop hits, got {:?}",
+            s.slop_hits
+        );
     }
 
     #[test]
@@ -1779,7 +2096,11 @@ mod auto_grader_tests {
         let text = "Code — and tests — and docs — all matter — together — daily — always — forever — at midnight — debugging.";
         let s = compute_auto_scores(text, "free");
         assert!(s.em_dash_count >= 8);
-        assert!(s.ai_slop_score < 9.0, "em-dash spam should dock score, got {}", s.ai_slop_score);
+        assert!(
+            s.ai_slop_score < 9.0,
+            "em-dash spam should dock score, got {}",
+            s.ai_slop_score
+        );
     }
 
     #[test]
@@ -1796,11 +2117,20 @@ mod auto_grader_tests {
     fn brevity_curve_peaks_at_ideal_length() {
         let too_short = compute_auto_scores("Yes.", "free").brevity_score;
         // ~250 word target for "free" grader
-        let words = (0..250).map(|i| format!("word{i}")).collect::<Vec<_>>().join(" ");
+        let words = (0..250)
+            .map(|i| format!("word{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         let ideal = compute_auto_scores(&words, "free").brevity_score;
         let too_long = compute_auto_scores(&words.repeat(20), "free").brevity_score;
-        assert!(ideal > too_short, "ideal len ({ideal}) should beat too-short ({too_short})");
-        assert!(ideal > too_long, "ideal len ({ideal}) should beat too-long ({too_long})");
+        assert!(
+            ideal > too_short,
+            "ideal len ({ideal}) should beat too-short ({too_short})"
+        );
+        assert!(
+            ideal > too_long,
+            "ideal len ({ideal}) should beat too-long ({too_long})"
+        );
     }
 }
 
@@ -1846,7 +2176,9 @@ pub fn compute_auto_scores(text: &str, grader: &str) -> AutoScores {
     // Em-dash density: an em-dash every <120 chars is a strong signal of AI prose.
     let em_dash_density = if char_count > 0 {
         em_dash_count as f32 / (char_count as f32 / 1000.0).max(1.0)
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
     // ai_slop_score: 10 = clean, 1 = full of slop.
     // Each phrase hit costs 1.5 points; em-dash density >3 per 1k chars adds penalty.
@@ -1908,7 +2240,11 @@ fn extract_json_candidate(text: &str) -> String {
         }
     }
     // Otherwise look for first { or [ and matching last } or ].
-    let (open, close) = if trimmed.find('{').is_some() { ('{', '}') } else { ('[', ']') };
+    let (open, close) = if trimmed.find('{').is_some() {
+        ('{', '}')
+    } else {
+        ('[', ']')
+    };
     if let (Some(s), Some(e)) = (trimmed.find(open), trimmed.rfind(close)) {
         if e > s {
             return trimmed[s..=e].to_string();
@@ -2051,12 +2387,12 @@ pub fn default_suites() -> Vec<EvalSuite> {
 /// Map our friendly Bedrock model name to the AWS Bedrock invoke model id.
 fn bedrock_model_id(model: &str) -> Option<&'static str> {
     match model {
-        "bedrock-claude-sonnet-4-5"  => Some("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
-        "bedrock-claude-opus-4-5"    => Some("us.anthropic.claude-opus-4-5-20250929-v1:0"),
-        "bedrock-claude-haiku-4-5"   => Some("us.anthropic.claude-haiku-4-5-20251001-v1:0"),
-        "bedrock-nova-pro"           => Some("amazon.nova-pro-v1:0"),
-        "bedrock-nova-lite"          => Some("amazon.nova-lite-v1:0"),
-        "bedrock-llama-3.3-70b"      => Some("us.meta.llama3-3-70b-instruct-v1:0"),
+        "bedrock-claude-sonnet-4-5" => Some("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+        "bedrock-claude-opus-4-5" => Some("us.anthropic.claude-opus-4-5-20250929-v1:0"),
+        "bedrock-claude-haiku-4-5" => Some("us.anthropic.claude-haiku-4-5-20251001-v1:0"),
+        "bedrock-nova-pro" => Some("amazon.nova-pro-v1:0"),
+        "bedrock-nova-lite" => Some("amazon.nova-lite-v1:0"),
+        "bedrock-llama-3.3-70b" => Some("us.meta.llama3-3-70b-instruct-v1:0"),
         _ => None,
     }
 }
@@ -2072,11 +2408,11 @@ async fn call_bedrock_invoke(
     let config = load_config();
     let api_key = resolve_api_key("BEDROCK_API_KEY", &config)
         .ok_or_else(|| "BEDROCK_API_KEY not set. Configure it in Settings.".to_string())?;
-    let region = resolve_api_key("BEDROCK_REGION", &config)
-        .unwrap_or_else(|| "us-east-1".to_string());
+    let region =
+        resolve_api_key("BEDROCK_REGION", &config).unwrap_or_else(|| "us-east-1".to_string());
 
-    let model_id = bedrock_model_id(model)
-        .ok_or_else(|| format!("Unknown Bedrock model: {model}"))?;
+    let model_id =
+        bedrock_model_id(model).ok_or_else(|| format!("Unknown Bedrock model: {model}"))?;
 
     // URL-encode the model id (contains ":" and ".")
     let encoded_id = urlencoding_encode(model_id);
@@ -2095,10 +2431,12 @@ async fn call_bedrock_invoke(
     } else if model_id.starts_with("amazon.nova") {
         let api_messages: Vec<serde_json::Value> = messages
             .iter()
-            .map(|m| serde_json::json!({
-                "role": m.role,
-                "content": [{"text": m.content }]
-            }))
+            .map(|m| {
+                serde_json::json!({
+                    "role": m.role,
+                    "content": [{"text": m.content }]
+                })
+            })
             .collect();
         serde_json::json!({
             "messages": api_messages,
@@ -2108,15 +2446,21 @@ async fn call_bedrock_invoke(
         // Llama on Bedrock: simple prompt format using messages joined.
         let prompt = messages
             .iter()
-            .map(|m| format!("<|start_header_id|>{}<|end_header_id|>\n{}<|eot_id|>", m.role, m.content))
+            .map(|m| {
+                format!(
+                    "<|start_header_id|>{}<|end_header_id|>\n{}<|eot_id|>",
+                    m.role, m.content
+                )
+            })
             .collect::<Vec<_>>()
             .join("");
-        let prompt = format!(
-            "<|begin_of_text|>{prompt}<|start_header_id|>assistant<|end_header_id|>\n"
-        );
+        let prompt =
+            format!("<|begin_of_text|>{prompt}<|start_header_id|>assistant<|end_header_id|>\n");
         serde_json::json!({ "prompt": prompt, "max_gen_len": 2048 })
     } else {
-        return Err(format!("Bedrock model family not yet supported: {model_id}"));
+        return Err(format!(
+            "Bedrock model family not yet supported: {model_id}"
+        ));
     };
 
     let client = reqwest::Client::new();
@@ -2136,7 +2480,10 @@ async fn call_bedrock_invoke(
         return Err(format!("Bedrock API error {status}: {err_body}"));
     }
 
-    let v: serde_json::Value = resp.json().await.map_err(|e| format!("Bedrock JSON parse: {e}"))?;
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Bedrock JSON parse: {e}"))?;
 
     // Extract text + usage depending on family.
     let (text, in_toks, out_toks) = if model_id.contains("anthropic.") {
@@ -2206,6 +2553,151 @@ fn home_evals_dir() -> PathBuf {
     PathBuf::from(home).join(".xolotl-code").join("evals")
 }
 
+fn unix_timestamp_secs() -> Result<u64, String> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .map_err(|e| e.to_string())
+}
+
+fn home_eval_artifacts_dir() -> PathBuf {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join(".xolotl-code")
+        .join("eval-artifacts")
+}
+
+fn write_eval_artifact(request: &EvalArtifactRequest) -> Result<(PathBuf, PathBuf), String> {
+    if request.files.is_empty() {
+        return Err("artifact has no files".to_string());
+    }
+    if request.files.len() > 12 {
+        return Err("artifact has too many files".to_string());
+    }
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis();
+    let label = sanitize_artifact_label(&request.label);
+    let artifact_dir = home_eval_artifacts_dir().join(format!("{timestamp}-{label}"));
+    std::fs::create_dir_all(&artifact_dir).map_err(|e| e.to_string())?;
+
+    for file in &request.files {
+        if file.content.len() > 2_000_000 {
+            return Err(format!(
+                "artifact file is too large: {}",
+                file.relative_path
+            ));
+        }
+        let relative = safe_artifact_file_name(&file.relative_path)?;
+        let path = artifact_dir.join(relative);
+        std::fs::write(path, &file.content).map_err(|e| e.to_string())?;
+    }
+
+    let entry = safe_artifact_file_name(&request.entry_path)?;
+    let entry_path = artifact_dir.join(entry);
+    if !entry_path.exists() {
+        return Err("artifact entry file was not written".to_string());
+    }
+
+    Ok((artifact_dir, entry_path))
+}
+
+fn sanitize_artifact_label(label: &str) -> String {
+    let mut out = String::with_capacity(label.len());
+    for c in label.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if c == '-' || c == '_' || c.is_whitespace() {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "eval-artifact".to_string()
+    } else {
+        trimmed.chars().take(48).collect()
+    }
+}
+
+fn safe_artifact_file_name(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("artifact file path is empty".to_string());
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') || trimmed == "." || trimmed == ".." {
+        return Err("artifact file path must be a simple file name".to_string());
+    }
+    if trimmed.contains("..") {
+        return Err("artifact file path cannot contain '..'".to_string());
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ' '))
+    {
+        return Err("artifact file path contains unsupported characters".to_string());
+    }
+    Ok(trimmed.replace(' ', "-"))
+}
+
+fn launch_python_artifact(artifact_dir: &PathBuf, entry_path: &PathBuf) -> Result<String, String> {
+    let attempts: [(&str, &[&str]); 3] = [("python", &[]), ("py", &["-3"]), ("python3", &[])];
+
+    for (program, prefix_args) in attempts {
+        let mut command = std::process::Command::new(program);
+        command.current_dir(artifact_dir);
+        for arg in prefix_args {
+            command.arg(arg);
+        }
+        command
+            .arg(entry_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if command.spawn().is_ok() {
+            return Ok(format!("Started {}", entry_path.display()));
+        }
+    }
+
+    Err(format!(
+        "Could not start Python. The file was written to {}",
+        entry_path.display()
+    ))
+}
+
+fn open_artifact_file(entry_path: &PathBuf) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("explorer")
+        .arg(entry_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open")
+        .arg(entry_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = std::process::Command::new("xdg-open")
+        .arg(entry_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    result
+        .map(|_| format!("Opened {}", entry_path.display()))
+        .map_err(|e| format!("Could not open artifact: {e}"))
+}
+
 // ── AI API streaming ──────────────────────────────────────────────────────────
 
 /// Route a model name to the appropriate provider and stream the response.
@@ -2263,6 +2755,25 @@ async fn call_model_streaming_with_options(
             MINIMAX_OPENAI_BASE_URL,
             &api_key,
             MINIMAX_CHAT_MODEL,
+            messages,
+            event_tx,
+            options,
+        )
+        .await
+    } else if model.starts_with("deepseek") {
+        let config = load_config();
+        let api_key = resolve_api_key("DEEPSEEK_API_KEY", &config)
+            .ok_or_else(|| "DEEPSEEK_API_KEY not set. Configure it in Settings.".to_string())?;
+        let api_model = match model {
+            "deepseek-v4-flash" | "deepseek-v4-pro" | "deepseek-chat" | "deepseek-reasoner" => {
+                model
+            }
+            _ => DEEPSEEK_DEFAULT_MODEL,
+        };
+        call_openai_compat_streaming(
+            DEEPSEEK_OPENAI_BASE_URL,
+            &api_key,
+            api_model,
             messages,
             event_tx,
             options,
@@ -2343,7 +2854,9 @@ async fn call_anthropic_streaming(
 
         // Process all complete SSE events (delimited by double newline)
         loop {
-            let Some(pos) = buffer.find("\n\n") else { break };
+            let Some(pos) = buffer.find("\n\n") else {
+                break;
+            };
             let raw_event = buffer[..pos].to_string();
             buffer = buffer[pos + 2..].to_string();
 
@@ -2364,9 +2877,8 @@ async fn call_anthropic_streaming(
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&data_str) {
                 match event_type.as_str() {
                     "message_start" => {
-                        input_tokens = v["message"]["usage"]["input_tokens"]
-                            .as_u64()
-                            .unwrap_or(0) as u32;
+                        input_tokens =
+                            v["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0) as u32;
                     }
                     "content_block_delta" => {
                         if let Some(thinking) = v["delta"]["thinking"].as_str() {
@@ -2378,9 +2890,7 @@ async fn call_anthropic_streaming(
                         }
                     }
                     "message_delta" => {
-                        output_tokens = v["usage"]["output_tokens"]
-                            .as_u64()
-                            .unwrap_or(0) as u32;
+                        output_tokens = v["usage"]["output_tokens"].as_u64().unwrap_or(0) as u32;
                     }
                     _ => {}
                 }
@@ -2459,7 +2969,9 @@ impl ThinkTagStream {
 }
 
 fn find_ascii_tag(haystack: &str, tag: &str) -> Option<usize> {
-    haystack.to_ascii_lowercase().find(&tag.to_ascii_lowercase())
+    haystack
+        .to_ascii_lowercase()
+        .find(&tag.to_ascii_lowercase())
 }
 
 fn split_tag_prefix<'a>(input: &'a str, tag: &str) -> (&'a str, &'a str) {
@@ -2536,7 +3048,7 @@ async fn call_openai_compat_streaming(
     model: &str,
     messages: &[ChatMessage],
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
-    _options: ModelCallOptions,
+    options: ModelCallOptions,
 ) -> Result<TokenUsage, String> {
     let client = reqwest::Client::new();
 
@@ -2560,6 +3072,14 @@ async fn call_openai_compat_streaming(
     });
     if model == MINIMAX_CHAT_MODEL {
         body["reasoning_split"] = serde_json::Value::Bool(true);
+    }
+    if model.starts_with("deepseek") {
+        body["max_tokens"] = serde_json::json!(16_000);
+        body["thinking"] = serde_json::json!({
+            "type": if model == "deepseek-chat" { "disabled" } else { "enabled" },
+        });
+        body["reasoning_effort"] =
+            serde_json::Value::String(options.reasoning_effort.as_deepseek_str().to_string());
     }
 
     let url = format!("{base_url}/chat/completions");
@@ -2599,7 +3119,9 @@ async fn call_openai_compat_streaming(
 
         // Process lines (OpenAI format uses "data: {...}\n\n")
         loop {
-            let Some(pos) = buffer.find("\n\n") else { break };
+            let Some(pos) = buffer.find("\n\n") else {
+                break;
+            };
             let raw = buffer[..pos].to_string();
             buffer = buffer[pos + 2..].to_string();
 
@@ -2614,54 +3136,48 @@ async fn call_openai_compat_streaming(
                 if data == "[DONE]" {
                     continue;
                 }
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-                        let delta = &v["choices"][0]["delta"];
-                        // reasoning_content: chain-of-thought from reasoning models
-                        // (Kimi For Coding, DeepSeek-R1, etc.). Emit as a separate
-                        // ReasoningDelta variant so the UI can present it in a
-                        // de-emphasized, collapsible block — not steal attention
-                        // from the actual reply.
-                        if let Some(reasoning) = delta["reasoning_content"].as_str() {
-                            if !reasoning.is_empty() {
-                                let _ = event_tx
-                                    .send(AgentEvent::ReasoningDelta(reasoning.to_string()))
-                                    .await;
-                            }
-                        }
-                        if let Some(reasoning) = reasoning_details_text(&delta["reasoning_details"]) {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
+                    let delta = &v["choices"][0]["delta"];
+                    // reasoning_content: chain-of-thought from reasoning models
+                    // (Kimi For Coding, DeepSeek-R1, etc.). Emit as a separate
+                    // ReasoningDelta variant so the UI can present it in a
+                    // de-emphasized, collapsible block — not steal attention
+                    // from the actual reply.
+                    if let Some(reasoning) = delta["reasoning_content"].as_str() {
+                        if !reasoning.is_empty() {
                             let _ = event_tx
-                                .send(AgentEvent::ReasoningDelta(reasoning))
+                                .send(AgentEvent::ReasoningDelta(reasoning.to_string()))
                                 .await;
                         }
-                        // Final answer content. MiniMax-style providers may put
-                        // reasoning inside <think> tags in content; split those
-                        // into ReasoningDelta so the UI can keep them collapsed.
-                        if let Some(content) = delta["content"].as_str() {
-                            if !content.is_empty() {
-                                for segment in think_tags.push(content) {
-                                    match segment {
-                                        ThinkSegment::Text(text) => {
-                                            let _ = event_tx
-                                                .send(AgentEvent::TextDelta(text))
-                                                .await;
-                                        }
-                                        ThinkSegment::Reasoning(reasoning) => {
-                                            let _ = event_tx
-                                                .send(AgentEvent::ReasoningDelta(reasoning))
-                                                .await;
-                                        }
+                    }
+                    if let Some(reasoning) = reasoning_details_text(&delta["reasoning_details"]) {
+                        let _ = event_tx.send(AgentEvent::ReasoningDelta(reasoning)).await;
+                    }
+                    // Final answer content. MiniMax-style providers may put
+                    // reasoning inside <think> tags in content; split those
+                    // into ReasoningDelta so the UI can keep them collapsed.
+                    if let Some(content) = delta["content"].as_str() {
+                        if !content.is_empty() {
+                            for segment in think_tags.push(content) {
+                                match segment {
+                                    ThinkSegment::Text(text) => {
+                                        let _ = event_tx.send(AgentEvent::TextDelta(text)).await;
+                                    }
+                                    ThinkSegment::Reasoning(reasoning) => {
+                                        let _ = event_tx
+                                            .send(AgentEvent::ReasoningDelta(reasoning))
+                                            .await;
                                     }
                                 }
                             }
                         }
-                        // Usage (some providers include it in last chunk)
-                        if let Some(usage) = v.get("usage") {
-                            input_tokens =
-                                usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
-                            output_tokens =
-                                usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
-                        }
                     }
+                    // Usage (some providers include it in last chunk)
+                    if let Some(usage) = v.get("usage") {
+                        input_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
+                        output_tokens = usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
+                    }
+                }
             }
         }
     }
@@ -2672,9 +3188,7 @@ async fn call_openai_compat_streaming(
                 let _ = event_tx.send(AgentEvent::TextDelta(text)).await;
             }
             ThinkSegment::Reasoning(reasoning) => {
-                let _ = event_tx
-                    .send(AgentEvent::ReasoningDelta(reasoning))
-                    .await;
+                let _ = event_tx.send(AgentEvent::ReasoningDelta(reasoning)).await;
             }
         }
     }
@@ -2689,11 +3203,7 @@ async fn call_openai_compat_streaming(
 
 // ── Event relay ───────────────────────────────────────────────────────────────
 
-pub(crate) fn spawn_event_relay(
-    app_handle: AppHandle,
-    agent_id: AgentId,
-    handle: AgentHandle,
-) {
+pub(crate) fn spawn_event_relay(app_handle: AppHandle, agent_id: AgentId, handle: AgentHandle) {
     let mut rx = handle.subscribe();
     let channel = format!("agent-event:{}", agent_id.0);
     eprintln!("[spawn_event_relay] subscribed channel={channel}");
@@ -2711,7 +3221,9 @@ pub(crate) fn spawn_event_relay(
                         AgentEvent::StateChanged(s) => format!("StateChanged({s:?})"),
                         AgentEvent::TurnCompleted { .. } => "TurnCompleted".to_string(),
                         AgentEvent::Error { message } => format!("Error({message})"),
-                        AgentEvent::ToolCallStarted { tool, .. } => format!("ToolCallStarted({tool})"),
+                        AgentEvent::ToolCallStarted { tool, .. } => {
+                            format!("ToolCallStarted({tool})")
+                        }
                         AgentEvent::ToolCallCompleted { tool, .. } => {
                             format!("ToolCallCompleted({tool})")
                         }
@@ -2722,22 +3234,27 @@ pub(crate) fn spawn_event_relay(
                         let new_cost = handle.accumulate_cost(usage, &handle.model);
                         if let Some(budget) = handle.budget_dollars {
                             if new_cost >= budget {
-                                let _ = handle.event_tx.send(
-                                    AgentEvent::StateChanged(AgentState::Failed)
-                                ).await;
-                                let _ = handle.event_tx.send(AgentEvent::Error {
-                                    message: format!("Budget exceeded: ${:.4}", new_cost),
-                                }).await;
+                                let _ = handle
+                                    .event_tx
+                                    .send(AgentEvent::StateChanged(AgentState::Failed))
+                                    .await;
+                                let _ = handle
+                                    .event_tx
+                                    .send(AgentEvent::Error {
+                                        message: format!("Budget exceeded: ${:.4}", new_cost),
+                                    })
+                                    .await;
                             }
                         }
                     }
                     if let AgentEvent::StateChanged(ref state) = event {
                         if matches!(state, AgentState::Done | AgentState::Failed) {
-                            let cost = handle.cumulative_cost
-                                .lock()
-                                .map(|g| *g)
-                                .unwrap_or(0.0);
-                            let state_label = if matches!(state, AgentState::Done) { "Done" } else { "Failed" };
+                            let cost = handle.cumulative_cost.lock().map(|g| *g).unwrap_or(0.0);
+                            let state_label = if matches!(state, AgentState::Done) {
+                                "Done"
+                            } else {
+                                "Failed"
+                            };
                             let title: String = handle.task.chars().take(60).collect();
                             let body = format!("{} — ${:.4}", state_label, cost);
                             let _ = app_handle
@@ -2767,13 +3284,21 @@ fn find_xolotl_bin() -> PathBuf {
             let p = PathBuf::from(home)
                 .join(".cargo")
                 .join("bin")
-                .join(if cfg!(windows) { "xolotl.exe" } else { "xolotl" });
+                .join(if cfg!(windows) {
+                    "xolotl.exe"
+                } else {
+                    "xolotl"
+                });
             if p.exists() {
                 return p;
             }
         }
     }
-    PathBuf::from(if cfg!(windows) { "xolotl.exe" } else { "xolotl" })
+    PathBuf::from(if cfg!(windows) {
+        "xolotl.exe"
+    } else {
+        "xolotl"
+    })
 }
 
 pub(crate) fn spawn_agent_executor(_agent_id: AgentId, handle: AgentHandle) {
@@ -2784,7 +3309,9 @@ pub(crate) fn spawn_agent_executor(_agent_id: AgentId, handle: AgentHandle) {
 
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Planning)).await;
+        let _ = event_tx
+            .send(AgentEvent::StateChanged(AgentState::Planning))
+            .await;
 
         let xolotl = find_xolotl_bin();
         let output_file = std::env::temp_dir().join(format!(
@@ -2802,54 +3329,73 @@ pub(crate) fn spawn_agent_executor(_agent_id: AgentId, handle: AgentHandle) {
 
         let spawn_result = tokio::task::spawn_blocking(move || {
             std::process::Command::new(&xolotl)
-                .arg("--model").arg(&model_clone)
+                .arg("--model")
+                .arg(&model_clone)
                 .arg("--print-output")
-                .arg("--task-prompt").arg(&task_clone)
-                .arg("--task-output").arg(&output_file_clone)
+                .arg("--task-prompt")
+                .arg(&task_clone)
+                .arg("--task-output")
+                .arg(&output_file_clone)
                 .arg("--yes")
                 .current_dir(&worktree_clone)
                 .output()
-        }).await;
+        })
+        .await;
 
-        let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Executing)).await;
+        let _ = event_tx
+            .send(AgentEvent::StateChanged(AgentState::Executing))
+            .await;
 
         match spawn_result {
             Err(join_err) => {
-                let _ = event_tx.send(AgentEvent::Error {
-                    message: format!("failed to spawn xolotl: {join_err}"),
-                }).await;
-                let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Failed)).await;
+                let _ = event_tx
+                    .send(AgentEvent::Error {
+                        message: format!("failed to spawn xolotl: {join_err}"),
+                    })
+                    .await;
+                let _ = event_tx
+                    .send(AgentEvent::StateChanged(AgentState::Failed))
+                    .await;
             }
             Ok(Err(io_err)) => {
                 let _ = event_tx.send(AgentEvent::Error {
                     message: format!("xolotl binary not found or failed to start: {io_err}. \
                                      Install with: cargo install --path rust/crates/rusty-claude-cli"),
                 }).await;
-                let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Failed)).await;
+                let _ = event_tx
+                    .send(AgentEvent::StateChanged(AgentState::Failed))
+                    .await;
             }
             Ok(Ok(output)) => {
                 if output.status.success() {
-                    let content = std::fs::read_to_string(&output_file)
-                        .unwrap_or_default();
+                    let content = std::fs::read_to_string(&output_file).unwrap_or_default();
                     if !content.is_empty() {
                         let _ = event_tx.send(AgentEvent::TextDelta(content)).await;
                     }
-                    let _ = event_tx.send(AgentEvent::TurnCompleted {
-                        usage: TokenUsage {
-                            input_tokens: 0,
-                            output_tokens: 0,
-                            cache_creation_input_tokens: 0,
-                            cache_read_input_tokens: 0,
-                        },
-                    }).await;
-                    let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Done)).await;
+                    let _ = event_tx
+                        .send(AgentEvent::TurnCompleted {
+                            usage: TokenUsage {
+                                input_tokens: 0,
+                                output_tokens: 0,
+                                cache_creation_input_tokens: 0,
+                                cache_read_input_tokens: 0,
+                            },
+                        })
+                        .await;
+                    let _ = event_tx
+                        .send(AgentEvent::StateChanged(AgentState::Done))
+                        .await;
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     let code = output.status.code().unwrap_or(-1);
-                    let _ = event_tx.send(AgentEvent::Error {
-                        message: format!("agent exited with code {code}: {stderr}"),
-                    }).await;
-                    let _ = event_tx.send(AgentEvent::StateChanged(AgentState::Failed)).await;
+                    let _ = event_tx
+                        .send(AgentEvent::Error {
+                            message: format!("agent exited with code {code}: {stderr}"),
+                        })
+                        .await;
+                    let _ = event_tx
+                        .send(AgentEvent::StateChanged(AgentState::Failed))
+                        .await;
                 }
                 let _ = std::fs::remove_file(&output_file);
             }
@@ -2869,6 +3415,7 @@ mod config_tests {
                 "ANTHROPIC_API_KEY": "ant-xxx",
                 "KIMI_API_KEY": "kimi-xxx",
                 "KIMI_CODING_BASE_URL": "https://api.kimi.com/coding/v1",
+                "DEEPSEEK_API_KEY": "deepseek-xxx",
                 "AWS_SECRET_ACCESS_KEY": "aws-secret",
                 "OPENAI_API_KEY": "oai-xxx"
             }"#,
@@ -2879,7 +3426,10 @@ mod config_tests {
     #[test]
     fn config_get_reads_uppercase_cli_keys() {
         let cfg = make_legacy_cli_config();
-        assert_eq!(config_get(&cfg, "KIMI_API_KEY"), Some("kimi-xxx".to_string()));
+        assert_eq!(
+            config_get(&cfg, "KIMI_API_KEY"),
+            Some("kimi-xxx".to_string())
+        );
         assert_eq!(
             config_get(&cfg, "ANTHROPIC_API_KEY"),
             Some("ant-xxx".to_string())
@@ -2899,7 +3449,24 @@ mod config_tests {
         assert_eq!(provider_env_var("kimi"), Some("KIMI_API_KEY"));
         assert_eq!(provider_env_var("kimi_coding"), Some("KIMI_CODING_API_KEY"));
         assert_eq!(provider_env_var("minimax"), Some("MINIMAX_API_KEY"));
+        assert_eq!(provider_env_var("deepseek"), Some("DEEPSEEK_API_KEY"));
         assert_eq!(provider_env_var("nope"), None);
+    }
+
+    #[test]
+    fn eval_artifact_file_names_reject_path_traversal() {
+        assert!(safe_artifact_file_name("pong.py").is_ok());
+        assert!(safe_artifact_file_name("nested/pong.py").is_err());
+        assert!(safe_artifact_file_name("..\\secret.txt").is_err());
+        assert!(safe_artifact_file_name("../secret.txt").is_err());
+        assert!(safe_artifact_file_name("bad:name.py").is_err());
+    }
+
+    #[test]
+    fn model_catalog_includes_deepseek_models() {
+        let models = list_models();
+        assert!(models.contains(&"deepseek-v4-pro".to_string()));
+        assert!(models.contains(&"deepseek-v4-flash".to_string()));
     }
 
     #[test]
@@ -2917,18 +3484,32 @@ mod config_tests {
     }
 
     #[test]
+    fn deepseek_uses_current_openai_compatible_surface() {
+        assert_eq!(DEEPSEEK_OPENAI_BASE_URL, "https://api.deepseek.com");
+        assert_eq!(DEEPSEEK_DEFAULT_MODEL, "deepseek-v4-pro");
+    }
+
+    #[test]
     fn reasoning_effort_parser_defaults_to_high() {
         assert_eq!(ReasoningEffort::parse(None), ReasoningEffort::High);
-        assert_eq!(ReasoningEffort::parse(Some("medium")), ReasoningEffort::Medium);
+        assert_eq!(
+            ReasoningEffort::parse(Some("medium")),
+            ReasoningEffort::Medium
+        );
         assert_eq!(ReasoningEffort::parse(Some("MAX")), ReasoningEffort::Max);
-        assert_eq!(ReasoningEffort::parse(Some("unsupported")), ReasoningEffort::High);
+        assert_eq!(
+            ReasoningEffort::parse(Some("unsupported")),
+            ReasoningEffort::High
+        );
     }
 
     #[test]
     fn adaptive_thinking_only_applies_to_current_claude_effort_models() {
         assert!(supports_anthropic_adaptive_thinking("claude-sonnet-4-6"));
         assert!(supports_anthropic_adaptive_thinking("claude-opus-4-7"));
-        assert!(!supports_anthropic_adaptive_thinking("claude-haiku-4-5-20251001"));
+        assert!(!supports_anthropic_adaptive_thinking(
+            "claude-haiku-4-5-20251001"
+        ));
     }
 
     #[test]
@@ -2968,7 +3549,10 @@ mod config_tests {
             { "type": "reasoning.text", "text": "first " },
             { "type": "reasoning.text", "text": "second" }
         ]);
-        assert_eq!(reasoning_details_text(&value), Some("first second".to_string()));
+        assert_eq!(
+            reasoning_details_text(&value),
+            Some("first second".to_string())
+        );
     }
 
     #[test]
@@ -2977,7 +3561,10 @@ mod config_tests {
         // the Tauri side didn't model, destroying the CLI's settings on save.
         let mut cfg = make_legacy_cli_config();
         let env_var = provider_env_var("kimi").unwrap();
-        cfg.insert(env_var.to_string(), serde_json::Value::String("new-kimi".into()));
+        cfg.insert(
+            env_var.to_string(),
+            serde_json::Value::String("new-kimi".into()),
+        );
         // Round-trip serialize/deserialize to simulate save_config -> load_config.
         let s = serde_json::to_string(&cfg).unwrap();
         let cfg2: ConfigMap = serde_json::from_str(&s).unwrap();
@@ -2992,5 +3579,9 @@ mod config_tests {
             Some("aws-secret".into())
         );
         assert_eq!(config_get(&cfg2, "OPENAI_API_KEY"), Some("oai-xxx".into()));
+        assert_eq!(
+            config_get(&cfg2, "DEEPSEEK_API_KEY"),
+            Some("deepseek-xxx".into())
+        );
     }
 }
