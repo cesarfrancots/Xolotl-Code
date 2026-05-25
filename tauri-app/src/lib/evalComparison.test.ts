@@ -207,6 +207,27 @@ describe("buildEvalComparison", () => {
     });
   });
 
+  it("scores strict instruction prime-list answers deterministically", () => {
+    const activeEval = evalFixture();
+    activeEval.suite_id = "instruction";
+    activeEval.prompt = "List 5 prime numbers between 100 and 200. Output them as a comma-separated list on one line. Nothing else.";
+    activeEval.modelStates["model-a"].content = "101, 103, 107, 109, 113";
+    activeEval.modelStates["model-b"].content = "101, 102, 103, 104, 105";
+
+    const comparison = buildEvalComparison({ activeEval, humanScores: {} });
+
+    expect(comparison.models.find((model) => model.model === "model-a")?.correctness).toMatchObject({
+      verdict: "correct",
+      expectedAnswer: "5 primes between 100 and 200",
+      observedAnswer: "101, 103, 107, 109, 113",
+    });
+    expect(comparison.models.find((model) => model.model === "model-b")?.correctness).toMatchObject({
+      verdict: "incorrect",
+      expectedAnswer: "5 primes between 100 and 200",
+      observedAnswer: "101, 102, 103, 104, 105",
+    });
+  });
+
   it("weights objective correctness above speed and cost for final ranking", () => {
     const activeEval = evalFixture();
     activeEval.suite_id = "reasoning";

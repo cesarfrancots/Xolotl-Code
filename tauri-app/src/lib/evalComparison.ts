@@ -610,7 +610,44 @@ function objectiveCorrectness(
     }
   }
 
+  if (suiteId === "instruction" && /list 5 prime numbers between 100 and 200/i.test(prompt)) {
+    const trimmed = content.trim();
+    const numbers = trimmed
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => Number(part));
+    const observedAnswer = numbers.every((value) => Number.isInteger(value))
+      ? numbers.join(", ")
+      : trimmed.slice(0, 120);
+    const formatOk = /^\s*\d+\s*(?:,\s*\d+\s*){4}$/.test(trimmed);
+    const valuesOk = numbers.length === 5
+      && numbers.every((value) => Number.isInteger(value) && value > 100 && value < 200 && isPrime(value));
+
+    return formatOk && valuesOk
+      ? {
+        verdict: "correct",
+        detail: "Returned exactly five comma-separated prime numbers between 100 and 200.",
+        expectedAnswer: "5 primes between 100 and 200",
+        observedAnswer,
+      }
+      : {
+        verdict: "incorrect",
+        detail: "Expected exactly five comma-separated prime numbers between 100 and 200 with no extra text.",
+        expectedAnswer: "5 primes between 100 and 200",
+        observedAnswer,
+      };
+  }
+
   return { verdict: "unknown", detail: "No deterministic correctness check is configured for this prompt." };
+}
+
+function isPrime(value: number): boolean {
+  if (value < 2 || !Number.isInteger(value)) return false;
+  for (let factor = 2; factor * factor <= value; factor++) {
+    if (value % factor === 0) return false;
+  }
+  return true;
 }
 
 function extractJsonCandidate(text: string): string {
