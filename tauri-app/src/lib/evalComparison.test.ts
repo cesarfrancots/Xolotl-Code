@@ -228,6 +228,27 @@ describe("buildEvalComparison", () => {
     });
   });
 
+  it("scores strict instruction sentence and banned-word constraints deterministically", () => {
+    const activeEval = evalFixture();
+    activeEval.suite_id = "instruction";
+    activeEval.prompt = "Explain what a binary search tree is. Use EXACTLY 3 sentences. Do not use the words 'tree' or 'node'.";
+    activeEval.modelStates["model-a"].content = "It is an ordered search structure. Smaller values go left while larger values go right. This layout supports fast lookup.";
+    activeEval.modelStates["model-b"].content = "A binary search tree stores values in nodes. Smaller values go left.";
+
+    const comparison = buildEvalComparison({ activeEval, humanScores: {} });
+
+    expect(comparison.models.find((model) => model.model === "model-a")?.correctness).toMatchObject({
+      verdict: "correct",
+      expectedAnswer: "Exactly 3 sentences without 'tree' or 'node'",
+      observedAnswer: "3 sentences, no banned words",
+    });
+    expect(comparison.models.find((model) => model.model === "model-b")?.correctness).toMatchObject({
+      verdict: "incorrect",
+      expectedAnswer: "Exactly 3 sentences without 'tree' or 'node'",
+      observedAnswer: "2 sentences, banned words: tree, node",
+    });
+  });
+
   it("scores coding bug-fix answers for the sumEvens prompt deterministically", () => {
     const activeEval = evalFixture();
     activeEval.suite_id = "coding";

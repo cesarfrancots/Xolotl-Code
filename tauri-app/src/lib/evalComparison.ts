@@ -639,6 +639,30 @@ function objectiveCorrectness(
       };
   }
 
+  if (suiteId === "instruction" && /exactly 3 sentences/i.test(prompt) && /do not use the words 'tree' or 'node'/i.test(prompt)) {
+    const sentenceCount = countSentences(content);
+    const bannedWords = [
+      { label: "tree", pattern: /\btrees?\b/i },
+      { label: "node", pattern: /\bnodes?\b/i },
+    ].filter((word) => word.pattern.test(content)).map((word) => word.label);
+    const expectedAnswer = "Exactly 3 sentences without 'tree' or 'node'";
+    const observedAnswer = `${sentenceCount} sentence${sentenceCount === 1 ? "" : "s"}, ${bannedWords.length === 0 ? "no banned words" : `banned words: ${bannedWords.join(", ")}`}`;
+
+    return sentenceCount === 3 && bannedWords.length === 0
+      ? {
+        verdict: "correct",
+        detail: "Followed the exact sentence count and avoided both banned words.",
+        expectedAnswer,
+        observedAnswer,
+      }
+      : {
+        verdict: "incorrect",
+        detail: "Expected exactly three sentences and no use of the banned words tree or node.",
+        expectedAnswer,
+        observedAnswer,
+      };
+  }
+
   if (suiteId === "coding" && /function sumEvens/i.test(prompt)) {
     const normalized = content.replace(/\s+/g, " ");
     const usesEvenModulo = /%\s*2\s*(?:={2,3}|!=|!==)\s*0/.test(normalized);
@@ -706,6 +730,14 @@ function isPrime(value: number): boolean {
     if (value % factor === 0) return false;
   }
   return true;
+}
+
+function countSentences(value: string): number {
+  return value
+    .split(/[.!?]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .length;
 }
 
 function extractJsonCandidate(text: string): string {
