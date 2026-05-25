@@ -27,6 +27,7 @@ import {
   type GoalReadinessState,
   type GoalWorkflowStep,
 } from "../../lib/evalReadiness";
+import { arenaCreatureClass, arenaCreatureStatusLabel } from "../../lib/evalArena";
 import { extractEvalArtifacts, type EvalArtifact } from "../../lib/evalArtifacts";
 import { buildEvalComparison, FINAL_AI_WEIGHT, FINAL_HUMAN_WEIGHT, SCORE_SOURCE_LABELS, type EvalComparison } from "../../lib/evalComparison";
 
@@ -317,6 +318,35 @@ function EvalArena({
               className="h-full rounded-full bg-[linear-gradient(90deg,oklch(0.70_0.070_190),oklch(0.74_0.070_85),oklch(0.70_0.080_310))] transition-[width] duration-500"
               style={{ width: `${percent}%` }}
             />
+          </div>
+
+          <div className="relative overflow-hidden rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.086_0.003_245)] px-4 py-3">
+            <div className="pointer-events-none absolute inset-x-0 bottom-10 h-px bg-[linear-gradient(90deg,transparent,oklch(0.34_0.020_205_/_0.45),transparent)]" />
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6" aria-label="Arena axolotls">
+              {orderedModels.map((model, index) => {
+                const state = activeEval.modelStates[model];
+                const displayName = blindMode ? activeEval.blindLabels[model] ?? model : model;
+                const statusLabel = arenaCreatureStatusLabel(state.status);
+                return (
+                  <div key={`creature-${model}`} className="min-w-0 rounded-md border border-[oklch(0.16_0.006_245)] bg-[oklch(0.102_0.004_245)]/72 px-2 py-2">
+                    <div className="flex h-20 items-end justify-center">
+                      <img
+                        src="/xolotl.svg"
+                        alt=""
+                        aria-hidden="true"
+                        className={`h-16 w-16 ${arenaCreatureClass(state.status)}`}
+                        style={{ animationDelay: `${index * 90}ms` }}
+                      />
+                    </div>
+                    <div className="mt-1 flex items-center justify-center gap-1.5">
+                      <StatusDot status={state.status} />
+                      <span className="truncate text-xs font-semibold text-[oklch(0.82_0.014_220)]">{displayName}</span>
+                    </div>
+                    <div className="mt-0.5 text-center text-[10px] uppercase tracking-[0.12em] text-[oklch(0.48_0.012_230)]">{statusLabel}</div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <div className="grid flex-1 content-center gap-4 sm:grid-cols-2 xl:grid-cols-3">
