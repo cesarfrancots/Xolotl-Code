@@ -249,6 +249,27 @@ describe("buildEvalComparison", () => {
     });
   });
 
+  it("scores single-emoji instruction answers by output shape", () => {
+    const activeEval = evalFixture();
+    activeEval.suite_id = "instruction";
+    activeEval.prompt = "Reply with only a single emoji that best represents the concept of 'recursion'. No text, no quotes, no explanation.";
+    activeEval.modelStates["model-a"].content = "🔁";
+    activeEval.modelStates["model-b"].content = "recursion 🔁";
+
+    const comparison = buildEvalComparison({ activeEval, humanScores: {} });
+
+    expect(comparison.models.find((model) => model.model === "model-a")?.correctness).toMatchObject({
+      verdict: "correct",
+      expectedAnswer: "A single emoji only",
+      observedAnswer: "single emoji",
+    });
+    expect(comparison.models.find((model) => model.model === "model-b")?.correctness).toMatchObject({
+      verdict: "incorrect",
+      expectedAnswer: "A single emoji only",
+      observedAnswer: "text or multiple symbols",
+    });
+  });
+
   it("scores coding bug-fix answers for the sumEvens prompt deterministically", () => {
     const activeEval = evalFixture();
     activeEval.suite_id = "coding";

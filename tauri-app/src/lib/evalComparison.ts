@@ -663,6 +663,24 @@ function objectiveCorrectness(
       };
   }
 
+  if (suiteId === "instruction" && /only a single emoji/i.test(prompt)) {
+    const expectedAnswer = "A single emoji only";
+    if (isSingleEmojiOnly(content)) {
+      return {
+        verdict: "correct",
+        detail: "Output contains exactly one emoji and no surrounding text.",
+        expectedAnswer,
+        observedAnswer: "single emoji",
+      };
+    }
+    return {
+      verdict: "incorrect",
+      detail: "Expected exactly one emoji with no text, quotes, or explanation.",
+      expectedAnswer,
+      observedAnswer: "text or multiple symbols",
+    };
+  }
+
   if (suiteId === "coding" && /function sumEvens/i.test(prompt)) {
     const normalized = content.replace(/\s+/g, " ");
     const usesEvenModulo = /%\s*2\s*(?:={2,3}|!=|!==)\s*0/.test(normalized);
@@ -738,6 +756,11 @@ function countSentences(value: string): number {
     .map((part) => part.trim())
     .filter(Boolean)
     .length;
+}
+
+function isSingleEmojiOnly(value: string): boolean {
+  const trimmed = value.trim();
+  return /^(?:\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*)$/u.test(trimmed);
 }
 
 function extractJsonCandidate(text: string): string {
