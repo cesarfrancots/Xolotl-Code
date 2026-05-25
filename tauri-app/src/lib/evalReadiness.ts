@@ -52,6 +52,29 @@ export function determineEvalReviewMode({
   return "human";
 }
 
+export function evalReviewModeBadge(input: {
+  suiteId?: string | null;
+  prompt: string;
+  isGoalEval?: boolean;
+}): {
+  mode: EvalReviewMode;
+  label: string;
+  detail: string;
+} {
+  const mode = determineEvalReviewMode(input);
+  return mode === "automatic"
+    ? {
+      mode,
+      label: "Auto scored",
+      detail: "Objective eval: opens directly to answers and AI/KPI ranking.",
+    }
+    : {
+      mode,
+      label: "Human review",
+      detail: "Subjective or visual eval: opens to blind human scoring when scores are missing.",
+    };
+}
+
 export function canShowHumanScoreAggregate({
   aggregate,
   resultsLocked,

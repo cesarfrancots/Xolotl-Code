@@ -6,6 +6,7 @@ import {
   assessGoalWorkflowSteps,
   canShowHumanScoreAggregate,
   determineEvalReviewMode,
+  evalReviewModeBadge,
 } from "./evalReadiness";
 
 describe("assessGoalEvalReadiness", () => {
@@ -86,6 +87,19 @@ describe("assessBlindReviewGate", () => {
       prompt: "Write a flash fiction story about debugging at 3am",
       isGoalEval: false,
     })).toBe("human");
+  });
+
+  it("labels history items by review mode before loading them", () => {
+    expect(evalReviewModeBadge({ suiteId: "reasoning", prompt: "A bat and ball cost $1.10", isGoalEval: false })).toEqual({
+      label: "Auto scored",
+      detail: "Objective eval: opens directly to answers and AI/KPI ranking.",
+      mode: "automatic",
+    });
+
+    expect(evalReviewModeBadge({ suiteId: null, prompt: "Create a single HTML game", isGoalEval: false })).toMatchObject({
+      label: "Human review",
+      mode: "human",
+    });
   });
 
   it("locks machine review for blind goal evals until human scores are complete", () => {

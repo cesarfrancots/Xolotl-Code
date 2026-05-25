@@ -15,6 +15,7 @@ import {
   assessBlindResultsGate,
   assessBlindReviewGate,
   determineEvalReviewMode,
+  evalReviewModeBadge,
   assessGoalEvalReadiness,
   assessGoalWorkflowSteps,
   type BlindResultsGate,
@@ -1050,28 +1051,45 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
   }
   return (
     <div className="flex flex-col gap-1 p-2 overflow-y-auto">
-      {items.map((m) => (
-        <div key={m.id} className="group flex items-start gap-2 px-2 py-2 rounded hover:bg-[oklch(0.135_0.004_245)] cursor-pointer">
-          <button onClick={() => onLoad(m.id)} className="flex-1 text-left min-w-0">
-            <div className="text-xs text-[oklch(0.82_0.012_220)] line-clamp-2">{m.prompt}</div>
-            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-[oklch(0.46_0.010_225)]">
-              {m.suite_id && <span className="text-[oklch(0.68_0.040_205)]">[{m.suite_id}]</span>}
-              <span>{m.models.length} models</span>
-              <span>Â·</span>
-              {(m.manual_review_count ?? 0) > 0 && (
-                <>
-                  <span>{m.manual_review_count} reviewed</span>
-                  <span>|</span>
-                </>
-              )}
-              <span>{new Date(m.created_at * 1000).toLocaleString()}</span>
-            </div>
-          </button>
-          <button onClick={() => del(m.id)} className="opacity-0 group-hover:opacity-100 text-[oklch(0.45_0_0)] hover:text-red-400 transition-opacity">
-            <Trash2 className="w-3 h-3" />
-          </button>
-        </div>
-      ))}
+      {items.map((m) => {
+        const reviewBadge = evalReviewModeBadge({
+          suiteId: m.suite_id,
+          prompt: m.prompt,
+        });
+
+        return (
+          <div key={m.id} className="group flex items-start gap-2 px-2 py-2 rounded hover:bg-[oklch(0.135_0.004_245)] cursor-pointer">
+            <button onClick={() => onLoad(m.id)} className="flex-1 text-left min-w-0">
+              <div className="text-xs text-[oklch(0.82_0.012_220)] line-clamp-2">{m.prompt}</div>
+              <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-[oklch(0.46_0.010_225)]">
+                <span
+                  className={`rounded border px-1.5 py-0.5 leading-none ${
+                    reviewBadge.mode === "automatic"
+                      ? "border-[oklch(0.62_0.055_155)] bg-[oklch(0.16_0.018_155)] text-[oklch(0.75_0.060_155)]"
+                      : "border-[oklch(0.62_0.040_72)] bg-[oklch(0.16_0.018_72)] text-[oklch(0.76_0.060_72)]"
+                  }`}
+                  title={reviewBadge.detail}
+                >
+                  {reviewBadge.label}
+                </span>
+                {m.suite_id && <span className="text-[oklch(0.68_0.040_205)]">[{m.suite_id}]</span>}
+                <span>{m.models.length} models</span>
+                <span>Â·</span>
+                {(m.manual_review_count ?? 0) > 0 && (
+                  <>
+                    <span>{m.manual_review_count} reviewed</span>
+                    <span>|</span>
+                  </>
+                )}
+                <span>{new Date(m.created_at * 1000).toLocaleString()}</span>
+              </div>
+            </button>
+            <button onClick={() => del(m.id)} className="opacity-0 group-hover:opacity-100 text-[oklch(0.45_0_0)] hover:text-red-400 transition-opacity">
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
