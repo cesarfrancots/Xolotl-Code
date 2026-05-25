@@ -890,6 +890,22 @@ function ComparisonResultsPanel({
                   <span className="ml-auto text-[10px] uppercase tracking-[0.12em] text-[oklch(0.56_0.014_230)]">{model.correctness.verdict}</span>
                 </div>
                 <div className="mb-2 text-[11px] text-[oklch(0.56_0.012_230)]">{model.correctness.detail}</div>
+                {(model.correctness.expectedAnswer || model.correctness.observedAnswer) && (
+                  <div className="mb-3 grid gap-2 rounded-md border border-[oklch(0.16_0.006_245)] bg-[oklch(0.085_0.003_245)] p-2 sm:grid-cols-2">
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-[0.13em] text-[oklch(0.46_0.010_230)]">Expected</div>
+                      <div className="mt-1 truncate font-mono text-xs text-[oklch(0.74_0.020_210)]" title={model.correctness.expectedAnswer ?? "Not configured"}>
+                        {model.correctness.expectedAnswer ?? "Not configured"}
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-[0.13em] text-[oklch(0.46_0.010_230)]">Answered</div>
+                      <div className="mt-1 truncate font-mono text-xs text-[oklch(0.84_0.014_225)]" title={model.correctness.observedAnswer ?? "Could not extract"}>
+                        {model.correctness.observedAnswer ?? "Could not extract"}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <OutcomePreview model={model.model} displayName={model.displayName} showWrittenFallback />
               </div>
             ))}

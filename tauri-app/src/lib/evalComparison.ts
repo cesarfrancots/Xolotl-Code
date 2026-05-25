@@ -55,6 +55,8 @@ export type ModelComparisonResult = {
   correctness: {
     verdict: ObjectiveCorrectnessVerdict;
     detail: string;
+    expectedAnswer?: string;
+    observedAnswer?: string;
   };
   kpis: ComparisonKpi[];
   dimensions: Partial<Record<keyof HumanScores, ComparisonDimensionValue>>;
@@ -530,12 +532,26 @@ function objectiveCorrectness(
   if (suiteId === "reasoning" && /bat and ball/i.test(prompt)) {
     const normalized = content.toLowerCase();
     if (/(?:\$|cents?\b|dollars?\b)?\s*0?\.?05\b|\bfive cents?\b|\b5 cents?\b/.test(normalized)) {
-      return { verdict: "correct", detail: "Expected answer: $0.05." };
+      return {
+        verdict: "correct",
+        detail: "Expected answer: $0.05.",
+        expectedAnswer: "$0.05",
+        observedAnswer: "$0.05",
+      };
     }
     if (/\b(?:0?\.?10|ten cents?|10 cents?)\b/.test(normalized)) {
-      return { verdict: "incorrect", detail: "Answered $0.10; expected $0.05." };
+      return {
+        verdict: "incorrect",
+        detail: "Answered $0.10; expected $0.05.",
+        expectedAnswer: "$0.05",
+        observedAnswer: "$0.10",
+      };
     }
-    return { verdict: "unknown", detail: "Expected answer: $0.05; answer could not be matched automatically." };
+    return {
+      verdict: "unknown",
+      detail: "Expected answer: $0.05; answer could not be matched automatically.",
+      expectedAnswer: "$0.05",
+    };
   }
 
   if (suiteId === "reasoning" && /all Bloops are Razzies/i.test(prompt)) {
@@ -543,9 +559,18 @@ function objectiveCorrectness(
     const firstYes = /\b(?:yes|definitely|all bloops.*lazzies)\b/.test(normalized);
     const secondNo = /\b(?:no|not necessarily|must not|does not follow|can't conclude|cannot conclude)\b/.test(normalized);
     if (firstYes && secondNo) {
-      return { verdict: "correct", detail: "Expected: yes for Bloops->Lazzies, no for Bloops->Snazzies." };
+      return {
+        verdict: "correct",
+        detail: "Expected: yes for Bloops->Lazzies, no for Bloops->Snazzies.",
+        expectedAnswer: "Yes, then no",
+        observedAnswer: "Yes, then no",
+      };
     }
-    return { verdict: "unknown", detail: "Expected: yes, then no; automatic matcher could not confirm both parts." };
+    return {
+      verdict: "unknown",
+      detail: "Expected: yes, then no; automatic matcher could not confirm both parts.",
+      expectedAnswer: "Yes, then no",
+    };
   }
 
   if (suiteId === "reasoning" && /three switches/i.test(prompt)) {
@@ -553,16 +578,35 @@ function objectiveCorrectness(
     const hasHeat = /\b(?:heat|warm|hot|temperature)\b/.test(normalized);
     const hasLightState = /\b(?:on|off|lit|unlit|light)\b/.test(normalized);
     return hasHeat && hasLightState
-      ? { verdict: "correct", detail: "Uses the standard on/off/warm bulb method." }
-      : { verdict: "unknown", detail: "Expected use of on/off state plus bulb warmth." };
+      ? {
+        verdict: "correct",
+        detail: "Uses the standard on/off/warm bulb method.",
+        expectedAnswer: "Use on/off state plus bulb warmth",
+        observedAnswer: "Uses on/off/warm method",
+      }
+      : {
+        verdict: "unknown",
+        detail: "Expected use of on/off state plus bulb warmth.",
+        expectedAnswer: "Use on/off state plus bulb warmth",
+      };
   }
 
   if (suiteId === "json") {
     try {
       JSON.parse(extractJsonCandidate(content));
-      return { verdict: "correct", detail: "Output parses as JSON." };
+      return {
+        verdict: "correct",
+        detail: "Output parses as JSON.",
+        expectedAnswer: "Valid JSON",
+        observedAnswer: "Valid JSON",
+      };
     } catch {
-      return { verdict: "incorrect", detail: "Output does not parse as JSON." };
+      return {
+        verdict: "incorrect",
+        detail: "Output does not parse as JSON.",
+        expectedAnswer: "Valid JSON",
+        observedAnswer: "Invalid JSON",
+      };
     }
   }
 

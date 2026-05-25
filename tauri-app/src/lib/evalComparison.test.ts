@@ -188,6 +188,25 @@ describe("buildEvalComparison", () => {
     });
   });
 
+  it("extracts objective answers for automatic result review", () => {
+    const activeEval = evalFixture();
+    activeEval.suite_id = "reasoning";
+    activeEval.prompt = "A bat and ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?";
+    activeEval.modelStates["model-a"].content = "The ball costs $0.05.";
+    activeEval.modelStates["model-b"].content = "The ball costs ten cents.";
+
+    const comparison = buildEvalComparison({ activeEval, humanScores: {} });
+
+    expect(comparison.models.find((model) => model.model === "model-a")?.correctness).toMatchObject({
+      expectedAnswer: "$0.05",
+      observedAnswer: "$0.05",
+    });
+    expect(comparison.models.find((model) => model.model === "model-b")?.correctness).toMatchObject({
+      expectedAnswer: "$0.05",
+      observedAnswer: "$0.10",
+    });
+  });
+
   it("weights objective correctness above speed and cost for final ranking", () => {
     const activeEval = evalFixture();
     activeEval.suite_id = "reasoning";
