@@ -1,5 +1,6 @@
 export type GoalReadinessState = "ready" | "attention" | "blocked";
 export type EvalReviewMode = "human" | "automatic";
+export type EvalFlowStage = "battle" | "review" | "results";
 
 export interface GoalReadinessItem {
   id: "goal" | "scope" | "criteria" | "models" | "blind" | "supervisor";
@@ -73,6 +74,30 @@ export function evalReviewModeBadge(input: {
       label: "Human review",
       detail: "Subjective or visual eval: opens to blind human scoring when scores are missing.",
     };
+}
+
+export function resolveVisibleEvalStage({
+  activeEvalComplete,
+  evalStage,
+  reviewMode,
+}: {
+  activeEvalComplete: boolean;
+  evalStage: EvalFlowStage;
+  reviewMode: EvalReviewMode;
+}): EvalFlowStage {
+  return activeEvalComplete && reviewMode === "automatic" ? "results" : evalStage;
+}
+
+export function shouldShowHumanReviewStage({
+  activeEvalComplete,
+  visibleEvalStage,
+  reviewMode,
+}: {
+  activeEvalComplete: boolean;
+  visibleEvalStage: EvalFlowStage;
+  reviewMode: EvalReviewMode;
+}): boolean {
+  return activeEvalComplete && visibleEvalStage === "review" && reviewMode === "human";
 }
 
 export function canShowHumanScoreAggregate({

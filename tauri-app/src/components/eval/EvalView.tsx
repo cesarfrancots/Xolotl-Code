@@ -16,9 +16,12 @@ import {
   assessBlindReviewGate,
   determineEvalReviewMode,
   evalReviewModeBadge,
+  resolveVisibleEvalStage,
+  shouldShowHumanReviewStage,
   assessGoalEvalReadiness,
   assessGoalWorkflowSteps,
   type BlindResultsGate,
+  type EvalFlowStage,
   type EvalReviewMode,
   type GoalEvalReadiness,
   type GoalReadinessState,
@@ -799,10 +802,10 @@ function ComparisonResultsPanel({
               </div>
             </div>
             <div>
-              <div className="mb-2 text-xs font-semibold text-[oklch(0.82_0.014_220)]">Human area leaders</div>
+              <div className="mb-2 text-xs font-semibold text-[oklch(0.82_0.014_220)]">{automaticMode ? "Objective scoring" : "Human area leaders"}</div>
               <div className="space-y-2">
                 {automaticMode ? (
-                  <div className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] px-3 py-2 text-xs text-[oklch(0.52_0.012_230)]">Manual scoring is skipped for this objective eval.</div>
+                  <div className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] px-3 py-2 text-xs text-[oklch(0.52_0.012_230)]">Rankings are determined by correctness, AI quality signals, speed, token efficiency, and cost.</div>
                 ) : comparison.areaLeaders.length === 0 ? (
                   <div className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] px-3 py-2 text-xs text-[oklch(0.52_0.012_230)]">Human scores are not set yet.</div>
                 ) : comparison.areaLeaders.slice(0, 5).map((leader) => (
@@ -1114,7 +1117,6 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
 // MAIN VIEW
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 type Mode = "single" | "suite" | "goal";
-type EvalFlowStage = "battle" | "review" | "results";
 type SetupStepId = "models" | "task" | "review";
 type ReviewNotice = { title: string; detail: string };
 
@@ -1808,7 +1810,25 @@ export function EvalView() {
             });
           }
           break;
-        case "EvalComplete":    finalizeEval(evalId); setRunning(false); if (un) un(); unlistenRef.current = null; break;
+        case "EvalComplete": {
+          finalizeEval(evalId);
+          setRunning(false);
+          const completedEval = useEvalStore.getState().activeEval;
+          if (completedEval?.id === evalId) {
+            const completedReviewMode = determineEvalReviewMode({
+              suiteId: completedEval.suite_id,
+              prompt: completedEval.prompt,
+              isGoalEval: completedEval.is_goal_eval,
+            });
+            if (completedReviewMode === "automatic") {
+              setBlindMode(false);
+              setEvalStage("results");
+            }
+          }
+          if (un) un();
+          unlistenRef.current = null;
+          break;
+        }
         case "EvalError": {
           const detail = typeof p.error === "string" ? p.error : "The eval runner stopped before all model outputs completed.";
           console.error("eval run error:", p.error);
@@ -1942,7 +1962,7 @@ export function EvalView() {
         if (p.type === "SuitePromptStart" && p.eval_id) {
           // Backend pre-generates eval_id and emits it before model events, plus a
           // 50ms grace delay so this listen() call wins the race.
-          startEval(p.eval_id, p.prompt, selectedModels, { suite_run_id: suiteRunId, suite_prompt_id: p.prompt_id });
+          startEval(p.eval_id, p.prompt, selectedModels, { suite_id: selectedSuite, suite_run_id: suiteRunId, suite_prompt_id: p.prompt_id });
           try {
             await subscribeToEval(p.eval_id);
           } catch (error) {
@@ -2216,9 +2236,11 @@ export function EvalView() {
   }
 
   const hasScores = Object.keys(humanScores).some((m) => Object.values(humanScores[m] ?? {}).some((v) => (v ?? 0) > 0));
-  const visibleEvalStage: EvalFlowStage = activeEval?.complete && reviewMode === "automatic"
-    ? "results"
-    : evalStage;
+  const visibleEvalStage = resolveVisibleEvalStage({
+    activeEvalComplete: Boolean(activeEval?.complete),
+    evalStage,
+    reviewMode,
+  });
 
   // Group models by provider for the chip picker.
   const grouped = useMemo(() => {
@@ -2316,7 +2338,7 @@ export function EvalView() {
                 {revealLocked ? "Blind" : blindMode ? "Reveal" : "Hide"}
               </Button>
             )}
-            {activeEval && hasScores && evalStage === "review" && (
+            {activeEval && reviewMode === "human" && hasScores && visibleEvalStage === "review" && (
               <Button size="sm" variant="ghost" onClick={() => void saveScores()} disabled={savingScores || !scoresDirty} className={`text-xs h-7 gap-1 ${scoresDirty ? "text-[oklch(0.70_0.055_190)]" : "text-[oklch(0.50_0.012_230)]"}`}>
                 <Save className="w-3.5 h-3.5" /> {savingScores ? "Saving..." : scoresDirty ? "Save scores" : "Scores saved"}
               </Button>
@@ -2740,10 +2762,14 @@ export function EvalView() {
                 <ReviewNoticeBanner notice={reviewNotice as ReviewNotice} onDismiss={() => setReviewNotice(null)} />
               ) : null}
               {visibleEvalStage === "battle" && (
-                <EvalArena blindMode={blindMode} onReadyForScores={() => setEvalStage("review")} />
+                <EvalArena blindMode={blindMode} onReadyForScores={() => setEvalStage(reviewMode === "automatic" ? "results" : "review")} />
               )}
 
-              {activeEval.complete && visibleEvalStage === "review" && (
+              {shouldShowHumanReviewStage({
+                activeEvalComplete: activeEval.complete,
+                visibleEvalStage,
+                reviewMode,
+              }) && (
                 <HumanReviewScreen
                   models={reviewModels.filter((model) => scoreableReviewModels.includes(model))}
                   blindNames={blindNames}

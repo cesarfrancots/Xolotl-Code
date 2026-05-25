@@ -7,6 +7,8 @@ import {
   canShowHumanScoreAggregate,
   determineEvalReviewMode,
   evalReviewModeBadge,
+  resolveVisibleEvalStage,
+  shouldShowHumanReviewStage,
 } from "./evalReadiness";
 
 describe("assessGoalEvalReadiness", () => {
@@ -87,6 +89,27 @@ describe("assessBlindReviewGate", () => {
       prompt: "Write a flash fiction story about debugging at 3am",
       isGoalEval: false,
     })).toBe("human");
+  });
+
+  it("keeps completed coding benchmarks out of the human scoring flow", () => {
+    const reviewMode = determineEvalReviewMode({
+      suiteId: "coding",
+      prompt: "Write a Rust function `fn fib(n: u32) -> u64` using iteration (not recursion). Return 0 for n=0. Include a #[test] with cases for n=0, 1, 10, 50.",
+      isGoalEval: false,
+    });
+    const visibleStage = resolveVisibleEvalStage({
+      activeEvalComplete: true,
+      evalStage: "review",
+      reviewMode,
+    });
+
+    expect(reviewMode).toBe("automatic");
+    expect(visibleStage).toBe("results");
+    expect(shouldShowHumanReviewStage({
+      activeEvalComplete: true,
+      visibleEvalStage: visibleStage,
+      reviewMode,
+    })).toBe(false);
   });
 
   it("labels history items by review mode before loading them", () => {
