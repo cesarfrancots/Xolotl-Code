@@ -26,6 +26,7 @@ import { useUiStore } from "../../stores/uiStore";
 import { calcTurnCost, formatCostBar } from "../../lib/cost";
 import {
   buildSlashHelpText,
+  buildSessionContextReport,
   filterCustomPromptCommands,
   filterSlashCommands,
   findCustomPromptCommand,
@@ -406,6 +407,20 @@ export function MessageInput() {
             `Tokens: \`${totalTokens.toLocaleString()}\``,
             `Estimate: \`${formatCostBar(calcTurnCost(usage, chatStore.model), totalTokens)}\``,
           ].join("\n"),
+          toolCalls: [],
+        });
+        break;
+      }
+      case "context": {
+        chatStore.appendItem({
+          id: `${Date.now()}-context`,
+          role: "assistant",
+          content: buildSessionContextReport({
+            items: chatStore.items,
+            model: chatStore.model,
+            usage: chatStore.sessionUsage,
+            isStreaming: chatStore.isStreaming,
+          }),
           toolCalls: [],
         });
         break;

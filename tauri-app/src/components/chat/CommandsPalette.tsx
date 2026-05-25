@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   RotateCcw, Cpu, Save, FolderOpen, HelpCircle, Search,
   Hash, Keyboard, Paperclip, FlaskConical, GitBranch, Users, FileText, Settings2,
-  DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen, Archive,
+  DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen, Archive, Gauge,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
@@ -11,6 +11,7 @@ import { commands } from "../../bindings";
 import type { PromptCommand } from "../../bindings";
 import {
   buildSlashHelpText,
+  buildSessionContextReport,
   filterCustomPromptCommands,
   getWorkflowPrompt,
   slashCommandItems,
@@ -207,6 +208,19 @@ function runSlashCommand(
       });
       break;
     }
+    case "context":
+      chat.appendItem({
+        id: `${Date.now()}-context`,
+        role: "assistant",
+        content: buildSessionContextReport({
+          items: chat.items,
+          model: chat.model,
+          usage: chat.sessionUsage,
+          isStreaming: chat.isStreaming,
+        }),
+        toolCalls: [],
+      });
+      break;
     case "compact": {
       const result = chat.compactSession();
       chat.appendItem({
@@ -246,6 +260,8 @@ function slashIcon(id: SlashCommandId): React.ComponentType<{ className?: string
       return HelpCircle;
     case "cost":
       return DollarSign;
+    case "context":
+      return Gauge;
     case "compact":
       return Archive;
     case "review":
@@ -275,6 +291,8 @@ function slashLabel(id: SlashCommandId): string {
       return "Show help";
     case "cost":
       return "Show usage";
+    case "context":
+      return "Inspect context";
     case "compact":
       return "Compact context";
     case "review":

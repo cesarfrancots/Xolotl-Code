@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildSessionContextReport,
   buildSlashHelpText,
   filterCustomPromptCommands,
   findSlashCommand,
@@ -18,6 +19,7 @@ describe("chat command catalog", () => {
       "/load",
       "/help",
       "/cost",
+      "/context",
       "/compact",
       "/review",
       "/fix",
@@ -39,6 +41,32 @@ describe("chat command catalog", () => {
     expect(help).toContain("**/compact**");
     expect(help).toContain("**/review**");
     expect(help).toContain("Show token and cost usage");
+  });
+
+  it("builds a context report with compaction guidance", () => {
+    const report = buildSessionContextReport({
+      model: "kimi-coding",
+      isStreaming: false,
+      items: Array.from({ length: 9 }, (_, index) => ({
+        id: `m${index}`,
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: "Investigate the eval harness and keep the latest coding request intact. ".repeat(25),
+        toolCalls: [],
+      })),
+      usage: {
+        input_tokens: 1200,
+        output_tokens: 800,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 300,
+      },
+    });
+
+    expect(report).toContain("**Context report**");
+    expect(report).toContain("Model: `kimi-coding`");
+    expect(report).toContain("Messages: `9`");
+    expect(report).toContain("Approx transcript tokens:");
+    expect(report).toContain("Session usage tokens: `2,300`");
+    expect(report).toContain("Recommendation: run `/compact`");
   });
 
   it("builds development workflow prompts that ask for verification", () => {
