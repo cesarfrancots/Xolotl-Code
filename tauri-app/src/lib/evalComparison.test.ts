@@ -187,4 +187,38 @@ describe("buildEvalComparison", () => {
       verdict: "incorrect",
     });
   });
+
+  it("weights objective correctness above speed and cost for final ranking", () => {
+    const activeEval = evalFixture();
+    activeEval.suite_id = "reasoning";
+    activeEval.prompt = "A bat and ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?";
+    activeEval.modelStates["model-a"] = {
+      ...activeEval.modelStates["model-a"],
+      content: "The ball costs $0.05.",
+      auto: undefined,
+      input_tokens: 900,
+      output_tokens: 900,
+      duration_ms: 9000,
+    };
+    activeEval.modelStates["model-b"] = {
+      ...activeEval.modelStates["model-b"],
+      content: "The ball costs ten cents.",
+      auto: undefined,
+      input_tokens: 20,
+      output_tokens: 20,
+      duration_ms: 400,
+    };
+
+    const comparison = buildEvalComparison({ activeEval, humanScores: {} });
+
+    expect(comparison.winner?.model).toBe("model-a");
+    expect(comparison.models.find((model) => model.model === "model-a")?.kpis[0]).toMatchObject({
+      key: "correctness",
+      score: 10,
+    });
+    expect(comparison.models.find((model) => model.model === "model-b")?.kpis[0]).toMatchObject({
+      key: "correctness",
+      score: 1,
+    });
+  });
 });

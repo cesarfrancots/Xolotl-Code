@@ -3,7 +3,7 @@ import type { ActiveEval, EvalModelState } from "../stores/evalStore";
 import { HUMAN_SCORE_KEYS } from "../stores/evalStore";
 
 export type EvalScoreSource = "blend" | "human" | "judge" | "goal" | "auto" | "kpi" | "none";
-export type ComparisonKpiKey = "quality" | "reasoning" | "speed" | "efficiency" | "cost";
+export type ComparisonKpiKey = "correctness" | "quality" | "reasoning" | "speed" | "efficiency" | "cost";
 export type ComparisonDecision = "clear" | "close" | "tie" | "single" | "unscored";
 export type ObjectiveCorrectnessVerdict = "correct" | "incorrect" | "unknown";
 
@@ -95,6 +95,7 @@ export const SCORE_SOURCE_LABELS: Record<EvalScoreSource, string> = {
 };
 
 const KPI_LABELS: Record<ComparisonKpiKey, string> = {
+  correctness: "Correctness",
   quality: "Output quality",
   reasoning: "Reasoning",
   speed: "Speed",
@@ -189,8 +190,9 @@ export function buildEvalComparison({
 
   const modelResults: ModelComparisonResult[] = models.map((model) => {
     const state = activeEval.modelStates[model];
-    const kpis = buildAiKpis(model, state, activeEval.judge, metricsByModel[model], metricContext);
-    const aiScore = averageScores(kpis.map((kpi) => kpi.score));
+    const correctness = objectiveCorrectness(activeEval.suite_id, activeEval.prompt, state.content);
+    const kpis = buildAiKpis(model, state, activeEval.judge, metricsByModel[model], metricContext, correctness);
+    const aiScore = aiScoreFromKpis(kpis);
     const humanScore = averageScores(HUMAN_SCORE_KEYS.map((key) => humanScores[model]?.[key] ?? null));
     const finalScore = blendScores(aiScore, humanScore);
     const review = manualReviews[model];
@@ -213,7 +215,7 @@ export function buildEvalComparison({
       manualScore: cleanScore(review?.score ?? null),
       manualNotes: review?.notes ?? "",
       manualUpdatedAt: review?.updated_at ?? null,
-      correctness: objectiveCorrectness(activeEval.suite_id, activeEval.prompt, state.content),
+      correctness,
       kpis,
       dimensions,
     };
@@ -293,10 +295,12 @@ function buildAiKpis(
   state: EvalModelState,
   judge: JudgeScores | null | undefined,
   ctx: ModelMetricContext,
-  all: ModelMetricContext[]
+  all: ModelMetricContext[],
+  correctness: ModelComparisonResult["correctness"]
 ): ComparisonKpi[] {
   const quality = qualityScore(model, state.auto, judge, state.goalGrade);
   const reasoning = reasoningScore(state);
+  const correctnessScore = correctnessScoreValue(correctness.verdict);
   const latencyScore = relativeLowerIsBetter(ctx.duration, all.map((item) => item.duration));
   const throughputScore = relativeHigherIsBetter(ctx.throughput, all.map((item) => item.throughput));
   const speed = averageScores([latencyScore, throughputScore]);
@@ -304,7 +308,7 @@ function buildAiKpis(
   const costScore = relativeLowerIsBetter(ctx.cost, all.map((item) => item.cost));
   const efficiency = averageScores([tokenScore, costScore]);
 
-  return [
+  const kpis: ComparisonKpi[] = [
     {
       key: "quality",
       label: KPI_LABELS.quality,
@@ -336,6 +340,17 @@ function buildAiKpis(
       detail: `$${ctx.cost.toFixed(4)} estimated`,
     },
   ];
+
+  if (correctnessScore !== null) {
+    kpis.unshift({
+      key: "correctness",
+      label: KPI_LABELS.correctness,
+      score: correctnessScore,
+      detail: correctness.detail,
+    });
+  }
+
+  return kpis;
 }
 
 function dimensionValue(
@@ -413,6 +428,23 @@ function blendScores(aiScore: number | null, humanScore: number | null): number 
     return aiScore * FINAL_AI_WEIGHT + humanScore * FINAL_HUMAN_WEIGHT;
   }
   return aiScore ?? humanScore ?? null;
+}
+
+function aiScoreFromKpis(kpis: ComparisonKpi[]): number | null {
+  const correctness = kpis.find((kpi) => kpi.key === "correctness")?.score ?? null;
+  if (correctness !== null) {
+    const restAverage = averageScores(kpis
+      .filter((kpi) => kpi.key !== "correctness")
+      .map((kpi) => kpi.score));
+    return restAverage === null ? correctness : correctness * 0.65 + restAverage * 0.35;
+  }
+  return averageScores(kpis.map((kpi) => kpi.score));
+}
+
+function correctnessScoreValue(verdict: ObjectiveCorrectnessVerdict): number | null {
+  if (verdict === "correct") return 10;
+  if (verdict === "incorrect") return 1;
+  return null;
 }
 
 function summarizeScore({
@@ -497,10 +529,10 @@ function objectiveCorrectness(
 ): ModelComparisonResult["correctness"] {
   if (suiteId === "reasoning" && /bat and ball/i.test(prompt)) {
     const normalized = content.toLowerCase();
-    if (/(?:\$|¢|cents?\b|dollars?\b)?\s*0?\.?05\b|\bfive cents?\b|\b5 cents?\b|\b5¢\b/.test(normalized)) {
+    if (/(?:\$|cents?\b|dollars?\b)?\s*0?\.?05\b|\bfive cents?\b|\b5 cents?\b/.test(normalized)) {
       return { verdict: "correct", detail: "Expected answer: $0.05." };
     }
-    if (/\b(?:0?\.?10|ten cents?|10 cents?|10¢)\b/.test(normalized)) {
+    if (/\b(?:0?\.?10|ten cents?|10 cents?)\b/.test(normalized)) {
       return { verdict: "incorrect", detail: "Answered $0.10; expected $0.05." };
     }
     return { verdict: "unknown", detail: "Expected answer: $0.05; answer could not be matched automatically." };
