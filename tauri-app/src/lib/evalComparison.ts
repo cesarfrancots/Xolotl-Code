@@ -593,7 +593,9 @@ function objectiveCorrectness(
 
   if (suiteId === "json") {
     try {
-      JSON.parse(extractJsonCandidate(content));
+      const parsed = JSON.parse(extractJsonCandidate(content));
+      const schema = validateJsonSuiteSchema(prompt, parsed);
+      if (schema) return schema;
       return {
         verdict: "correct",
         detail: "Output parses as JSON.",
@@ -740,6 +742,65 @@ function objectiveCorrectness(
   }
 
   return { verdict: "unknown", detail: "No deterministic correctness check is configured for this prompt." };
+}
+
+function validateJsonSuiteSchema(
+  prompt: string,
+  parsed: unknown
+): ModelComparisonResult["correctness"] | null {
+  if (/fictional book/i.test(prompt)) {
+    const valid = isRecord(parsed)
+      && typeof parsed.title === "string"
+      && typeof parsed.author === "string"
+      && typeof parsed.year === "number"
+      && Array.isArray(parsed.genres)
+      && parsed.genres.every((genre) => typeof genre === "string")
+      && typeof parsed.in_print === "boolean";
+    return valid
+      ? {
+        verdict: "correct",
+        detail: "Output parses as JSON and matches the requested book object schema.",
+        expectedAnswer: "Book JSON schema",
+        observedAnswer: "valid book object",
+      }
+      : {
+        verdict: "incorrect",
+        detail: "Output parses as JSON but does not match the requested book object schema.",
+        expectedAnswer: "Book JSON schema",
+        observedAnswer: "schema mismatch",
+      };
+  }
+
+  if (/array of 3 user objects/i.test(prompt)) {
+    const valid = Array.isArray(parsed)
+      && parsed.length === 3
+      && parsed.every((item) =>
+        isRecord(item)
+        && typeof item.id === "number"
+        && typeof item.name === "string"
+        && typeof item.email === "string"
+        && typeof item.is_admin === "boolean"
+      );
+    return valid
+      ? {
+        verdict: "correct",
+        detail: "Output parses as JSON and matches the requested user array schema.",
+        expectedAnswer: "3 user JSON objects",
+        observedAnswer: "valid user array",
+      }
+      : {
+        verdict: "incorrect",
+        detail: "Output parses as JSON but does not match the requested user array schema.",
+        expectedAnswer: "3 user JSON objects",
+        observedAnswer: "schema mismatch",
+      };
+  }
+
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isPrime(value: number): boolean {

@@ -207,6 +207,36 @@ describe("buildEvalComparison", () => {
     });
   });
 
+  it("scores JSON suite outputs against the requested schema", () => {
+    const activeEval = evalFixture();
+    activeEval.suite_id = "json";
+    activeEval.prompt = "Output a JSON object describing a fictional book with fields: title (string), author (string), year (number), genres (array of strings), in_print (boolean). Output ONLY the JSON, no markdown fences, no prose.";
+    activeEval.modelStates["model-a"].content = JSON.stringify({
+      title: "The Recursive Garden",
+      author: "Ada Stone",
+      year: 2026,
+      genres: ["science fiction", "mystery"],
+      in_print: true,
+    });
+    activeEval.modelStates["model-b"].content = JSON.stringify({
+      title: "Missing Fields",
+      author: "Ada Stone",
+    });
+
+    const comparison = buildEvalComparison({ activeEval, humanScores: {} });
+
+    expect(comparison.models.find((model) => model.model === "model-a")?.correctness).toMatchObject({
+      verdict: "correct",
+      expectedAnswer: "Book JSON schema",
+      observedAnswer: "valid book object",
+    });
+    expect(comparison.models.find((model) => model.model === "model-b")?.correctness).toMatchObject({
+      verdict: "incorrect",
+      expectedAnswer: "Book JSON schema",
+      observedAnswer: "schema mismatch",
+    });
+  });
+
   it("scores strict instruction prime-list answers deterministically", () => {
     const activeEval = evalFixture();
     activeEval.suite_id = "instruction";
