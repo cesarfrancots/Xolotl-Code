@@ -56,7 +56,7 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <aside
         className={[
-          "xolotl-sidebar flex-none flex flex-col border-r border-[oklch(0.22_0.008_240)]",
+          "xolotl-sidebar flex-none flex min-h-0 flex-col border-r border-[oklch(0.22_0.008_240)]",
           "transition-[width] duration-200 ease-out",
           collapsed ? "w-12" : "w-64",
         ].join(" ")}
@@ -118,7 +118,7 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
 
         {/* Session list — collapsed rail = first 8 sessions as tiny circles */}
         {collapsed ? (
-          <div className="flex-1 flex flex-col items-center gap-1 py-2 overflow-y-auto">
+          <div className="flex-1 min-h-0 flex flex-col items-center gap-1 overflow-y-auto py-2">
             {(sessions ?? []).slice(0, 8).map((session) => (
               <button
                 key={session.id}
@@ -136,7 +136,7 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
             ))}
           </div>
         ) : (
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 min-h-0">
             {!sessions || sessions.length === 0 ? (
               <EmptyState
                 title="No saved sessions"

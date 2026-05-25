@@ -44,7 +44,7 @@ export function AgentPanel({ forceCollapsed = false }: { forceCollapsed?: boolea
   return (
     <aside
       className={[
-        "xolotl-sidebar flex-none flex flex-col border-l border-[oklch(0.22_0.008_240)]",
+        "xolotl-sidebar flex-none flex min-h-0 flex-col border-l border-[oklch(0.22_0.008_240)]",
         "transition-[width] duration-200 ease-out",
         collapsed ? "w-12" : "w-80",
       ].join(" ")}
@@ -123,7 +123,7 @@ export function AgentPanel({ forceCollapsed = false }: { forceCollapsed?: boolea
 
       {/* Roster */}
       {collapsed ? (
-        <div className="flex-1 flex flex-col items-center gap-1 py-2 overflow-y-auto">
+        <div className="flex-1 min-h-0 flex flex-col items-center gap-1 overflow-y-auto py-2">
           {agents.slice(0, 12).map((agent) => {
             const dotClass =
               agent.state === "Executing" || agent.state === "Planning" ? "bg-[oklch(0.64_0.045_190)] animate-pulse" :
@@ -145,7 +145,7 @@ export function AgentPanel({ forceCollapsed = false }: { forceCollapsed?: boolea
           })}
         </div>
       ) : (
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 min-h-0">
           {!hasAnyContent ? (
             <EmptyState />
           ) : (

@@ -37,6 +37,16 @@ describe("App tab navigation", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("keeps the app shell constrained to the visible viewport", () => {
+    const { container } = render(<App />);
+
+    const shell = container.firstElementChild;
+    expect(shell).toBeTruthy();
+    expect(shell?.classList.contains("xolotl-shell")).toBe(true);
+    expect(shell?.classList.contains("min-h-0")).toBe(true);
+    expect(shell?.classList.contains("overflow-hidden")).toBe(true);
+  });
+
   it("opens the eval workspace from the tab query", async () => {
     window.history.replaceState(null, "", "/?tab=eval");
 

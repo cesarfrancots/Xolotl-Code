@@ -67,9 +67,9 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-row overflow-hidden xolotl-shell">
+    <div className="min-h-0 w-screen flex flex-row overflow-hidden xolotl-shell">
       <SessionSidebar forceCollapsed={compactShell} />
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         {!showAgentView && (
           <div className="flex-none flex items-center gap-3 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]/94 px-3 h-12 shadow-[0_1px_0_oklch(1_0_0_/_0.025)]">
             <div className="flex items-center gap-2 min-w-0">

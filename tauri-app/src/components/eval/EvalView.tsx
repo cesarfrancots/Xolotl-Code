@@ -288,10 +288,10 @@ function EvalArena({
   const complete = activeEval.complete;
 
   return (
-    <div className="overflow-hidden rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.101_0.003_245)]">
-      <div className="relative min-h-[calc(100vh-170px)] overflow-hidden px-5 py-5">
+    <div className="min-h-0 overflow-hidden rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.101_0.003_245)]">
+      <div className="relative min-h-[420px] overflow-hidden px-5 py-5">
         <div className="eval-arena-grid" aria-hidden="true" />
-        <div className="relative flex min-h-[calc(100vh-210px)] flex-col gap-5">
+        <div className="relative flex min-h-[380px] flex-col gap-5">
           <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
             <div>
               <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">Blind battle</div>
@@ -2231,10 +2231,10 @@ export function EvalView() {
   }, [allModels]);
 
   return (
-    <div className="flex-1 flex h-full overflow-hidden bg-[oklch(0.105_0.004_245)]">
+    <div className="flex-1 flex h-full min-h-0 overflow-hidden bg-[oklch(0.105_0.004_245)]">
       {/* History sidebar */}
       {historyOpen && (
-        <div className="w-72 flex-none border-r border-[oklch(0.22_0.008_240)] bg-[oklch(0.102_0.003_245)] flex flex-col">
+        <div className="w-72 flex-none border-r border-[oklch(0.22_0.008_240)] bg-[oklch(0.102_0.003_245)] flex min-h-0 flex-col">
           <div className="flex-none px-3 py-2 border-b border-[oklch(0.22_0.008_240)] flex items-center gap-2">
             <History className="w-4 h-4 text-[oklch(0.68_0.040_205)]" />
             <span className="text-xs font-semibold text-[oklch(0.85_0_0)] uppercase tracking-wider">Eval History</span>
@@ -2270,7 +2270,7 @@ export function EvalView() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Top bar */}
         <div className="flex-none flex items-center gap-3 px-4 py-3 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]">
           <div className="xolotl-mark scale-90" aria-hidden="true" />
@@ -2324,7 +2324,7 @@ export function EvalView() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {!activeEval && (
           <div className="border-b border-[oklch(0.22_0.008_245)] bg-[oklch(0.102_0.004_250)] px-4 py-5">
             <div className="mx-auto flex max-w-6xl flex-col gap-4">
