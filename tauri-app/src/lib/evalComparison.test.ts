@@ -228,6 +228,27 @@ describe("buildEvalComparison", () => {
     });
   });
 
+  it("scores coding bug-fix answers for the sumEvens prompt deterministically", () => {
+    const activeEval = evalFixture();
+    activeEval.suite_id = "coding";
+    activeEval.prompt = "This TypeScript has a bug. Identify it in one sentence and provide the fixed function only.\n\n```ts\nfunction sumEvens(nums: number[]): number {\n  let total = 0;\n  for (let i = 0; i < nums.length; i++) {\n    if (nums[i] % 2 == 1) total += nums[i];\n  }\n  return total;\n}\n```";
+    activeEval.modelStates["model-a"].content = "function sumEvens(nums: number[]): number {\n  let total = 0;\n  for (let i = 0; i < nums.length; i++) {\n    if (nums[i] % 2 === 0) total += nums[i];\n  }\n  return total;\n}";
+    activeEval.modelStates["model-b"].content = "function sumEvens(nums: number[]): number {\n  return nums.filter((n) => n % 2 === 1).reduce((a, b) => a + b, 0);\n}";
+
+    const comparison = buildEvalComparison({ activeEval, humanScores: {} });
+
+    expect(comparison.models.find((model) => model.model === "model-a")?.correctness).toMatchObject({
+      verdict: "correct",
+      expectedAnswer: "sum values where n % 2 === 0",
+      observedAnswer: "uses even modulo check",
+    });
+    expect(comparison.models.find((model) => model.model === "model-b")?.correctness).toMatchObject({
+      verdict: "incorrect",
+      expectedAnswer: "sum values where n % 2 === 0",
+      observedAnswer: "uses odd modulo check",
+    });
+  });
+
   it("weights objective correctness above speed and cost for final ranking", () => {
     const activeEval = evalFixture();
     activeEval.suite_id = "reasoning";

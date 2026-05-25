@@ -639,6 +639,34 @@ function objectiveCorrectness(
       };
   }
 
+  if (suiteId === "coding" && /function sumEvens/i.test(prompt)) {
+    const normalized = content.replace(/\s+/g, " ");
+    const usesEvenModulo = /%\s*2\s*(?:={2,3}|!=|!==)\s*0/.test(normalized);
+    const usesOddModulo = /%\s*2\s*(?:={2,3}|!=|!==)\s*1/.test(normalized);
+    const expectedAnswer = "sum values where n % 2 === 0";
+    if (usesEvenModulo && !usesOddModulo) {
+      return {
+        verdict: "correct",
+        detail: "Fixed the predicate to include even numbers.",
+        expectedAnswer,
+        observedAnswer: "uses even modulo check",
+      };
+    }
+    if (usesOddModulo && !usesEvenModulo) {
+      return {
+        verdict: "incorrect",
+        detail: "Still filters or adds odd numbers instead of even numbers.",
+        expectedAnswer,
+        observedAnswer: "uses odd modulo check",
+      };
+    }
+    return {
+      verdict: "unknown",
+      detail: "Expected a clear even-number predicate; automatic matcher could not confirm it.",
+      expectedAnswer,
+    };
+  }
+
   return { verdict: "unknown", detail: "No deterministic correctness check is configured for this prompt." };
 }
 
