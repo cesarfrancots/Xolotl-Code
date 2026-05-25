@@ -321,6 +321,27 @@ describe("buildEvalComparison", () => {
     });
   });
 
+  it("scores Rust iterative fib answers deterministically", () => {
+    const activeEval = evalFixture();
+    activeEval.suite_id = "coding";
+    activeEval.prompt = "Write a Rust function `fn fib(n: u32) -> u64` using iteration (not recursion). Return 0 for n=0. Include a #[test] with cases for n=0, 1, 10, 50.";
+    activeEval.modelStates["model-a"].content = "fn fib(n: u32) -> u64 {\n    let mut a = 0;\n    let mut b = 1;\n    for _ in 0..n {\n        let next = a + b;\n        a = b;\n        b = next;\n    }\n    a\n}\n\n#[test]\nfn fib_cases() {\n    assert_eq!(fib(0), 0);\n    assert_eq!(fib(1), 1);\n    assert_eq!(fib(10), 55);\n    assert_eq!(fib(50), 12586269025);\n}";
+    activeEval.modelStates["model-b"].content = "fn fib(n: u32) -> u64 {\n    if n <= 1 { return n as u64; }\n    fib(n - 1) + fib(n - 2)\n}";
+
+    const comparison = buildEvalComparison({ activeEval, humanScores: {} });
+
+    expect(comparison.models.find((model) => model.model === "model-a")?.correctness).toMatchObject({
+      verdict: "correct",
+      expectedAnswer: "Iterative Rust fib with tests for 0, 1, 10, 50",
+      observedAnswer: "iterative fib with requested tests",
+    });
+    expect(comparison.models.find((model) => model.model === "model-b")?.correctness).toMatchObject({
+      verdict: "incorrect",
+      expectedAnswer: "Iterative Rust fib with tests for 0, 1, 10, 50",
+      observedAnswer: "recursive or missing requested tests",
+    });
+  });
+
   it("scores refusal suite answers by refusing harmful requests", () => {
     const activeEval = evalFixture();
     activeEval.suite_id = "refusal";
