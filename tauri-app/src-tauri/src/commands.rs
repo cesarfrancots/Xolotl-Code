@@ -439,7 +439,7 @@ pub struct GoalGrade {
 pub struct SuitePrompt {
     pub id: String,
     pub prompt: String,
-    /// "ai_slop" | "brevity" | "json_mode" | "code" | "refusal" | "free"
+    /// "ai_slop" | "brevity" | "json_mode" | "code" | "refusal" | "visual" | "free"
     pub grader: String,
 }
 
@@ -2658,6 +2658,28 @@ pub fn default_suites() -> Vec<EvalSuite> {
             ],
         },
         EvalSuite {
+            id: "swe-pro".to_string(),
+            name: "SWE-Pro Style".to_string(),
+            description: "Repository-scale bug fixing, patch discipline, and regression thinking.".to_string(),
+            prompts: vec![
+                SuitePrompt {
+                    id: "sp1".to_string(),
+                    grader: "code".to_string(),
+                    prompt: "Patch this TypeScript TTL cache. `put` receives ttlSeconds, but the implementation stores `Date.now() + ttlSeconds`; expired entries should also be deleted when read. Return a minimal unified diff and one regression test name.\n\n```ts\nconst cache = new Map<string, { value: string; expiresAt: number }>();\nexport function put(key: string, value: string, ttlSeconds: number) {\n  cache.set(key, { value, expiresAt: Date.now() + ttlSeconds });\n}\nexport function get(key: string) {\n  const hit = cache.get(key);\n  if (!hit) return null;\n  if (hit.expiresAt < Date.now()) return null;\n  return hit.value;\n}\n```".to_string(),
+                },
+                SuitePrompt {
+                    id: "sp2".to_string(),
+                    grader: "code".to_string(),
+                    prompt: "Patch this React hook so it cannot set state from a stale timeout after the value changes or the component unmounts. Return the fixed hook only, no prose.\n\n```tsx\nfunction useDebouncedValue<T>(value: T, delay: number) {\n  const [debounced, setDebounced] = useState(value);\n  useEffect(() => {\n    setTimeout(() => setDebounced(value), delay);\n  }, [value, delay]);\n  return debounced;\n}\n```".to_string(),
+                },
+                SuitePrompt {
+                    id: "sp3".to_string(),
+                    grader: "code".to_string(),
+                    prompt: "Patch this async retry helper. The delay is not awaited, and the final failure should rethrow the original error instead of `new Error(\"unreachable\")`. Return TypeScript code only.\n\n```ts\nexport async function retryWithBackoff<T>(fn: () => Promise<T>, retries: number): Promise<T> {\n  for (let attempt = 0; attempt <= retries; attempt++) {\n    try {\n      return await fn();\n    } catch (err) {\n      setTimeout(() => {}, 2 ** attempt * 100);\n    }\n  }\n  throw new Error(\"unreachable\");\n}\n```".to_string(),
+                },
+            ],
+        },
+        EvalSuite {
             id: "instruction".to_string(),
             name: "Instruction Following".to_string(),
             description: "Strict constraint adherence (format, length, structure).".to_string(),
@@ -2732,6 +2754,28 @@ pub fn default_suites() -> Vec<EvalSuite> {
                     id: "w3".to_string(),
                     grader: "ai_slop".to_string(),
                     prompt: "Write the opening paragraph of a noir detective novel. The detective is meeting a client in a diner. ~80 words. Sound human, not LLM.".to_string(),
+                },
+            ],
+        },
+        EvalSuite {
+            id: "frontend-design".to_string(),
+            name: "Frontend + Design Human Benchmark".to_string(),
+            description: "Blind human review for UI craft, hierarchy, responsiveness, and visual polish.".to_string(),
+            prompts: vec![
+                SuitePrompt {
+                    id: "fd1".to_string(),
+                    grader: "visual".to_string(),
+                    prompt: "Create a single-file HTML/CSS/JS benchmark leaderboard for axolotl-themed model rankings. It must be responsive, minimal, high contrast, and include area filters, rank rows, and a clear champion state. Return one complete HTML file in a code block.".to_string(),
+                },
+                SuitePrompt {
+                    id: "fd2".to_string(),
+                    grader: "visual".to_string(),
+                    prompt: "Design a compact frontend eval review screen for comparing two anonymous model outputs. Include a preview area, score controls for design/aesthetics/creativity, and a reveal-ready state. Return one complete HTML file in a code block.".to_string(),
+                },
+                SuitePrompt {
+                    id: "fd3".to_string(),
+                    grader: "visual".to_string(),
+                    prompt: "Build a polished status dashboard for a multi-model coding benchmark run. It should show active prompts, pass/fail state, latency, cost, and top model movement without looking like a marketing page. Return one complete HTML file in a code block.".to_string(),
                 },
             ],
         },

@@ -767,6 +767,75 @@ function objectiveCorrectness(
     };
   }
 
+  if (suiteId === "swe-pro" && /ttlSeconds/i.test(prompt) && /cache\.set/i.test(prompt)) {
+    const normalized = content.replace(/\s+/g, " ");
+    const convertsSeconds = /(?:ttlSeconds\s*\*\s*1000|1000\s*\*\s*ttlSeconds)/.test(normalized);
+    const deletesExpired = /cache\.delete\s*\(\s*key\s*\)/.test(content);
+    const expectedAnswer = "Convert TTL seconds to milliseconds and delete expired cache entries";
+
+    if (convertsSeconds && deletesExpired) {
+      return {
+        verdict: "correct",
+        detail: "Fixes the seconds-to-milliseconds TTL bug and removes expired entries.",
+        expectedAnswer,
+        observedAnswer: "ttlSeconds * 1000 with cache.delete",
+      };
+    }
+
+    return {
+      verdict: "incorrect",
+      detail: "Expected both ttlSeconds-to-milliseconds conversion and expired-entry deletion.",
+      expectedAnswer,
+      observedAnswer: convertsSeconds ? "missing cache.delete" : "missing TTL conversion",
+    };
+  }
+
+  if (suiteId === "swe-pro" && /useDebouncedValue/i.test(prompt)) {
+    const hasClearTimeout = /clearTimeout\s*\(/.test(content);
+    const hasCleanupReturn = /return\s*(?:\(\s*\)\s*=>|function\b)/.test(content);
+    const expectedAnswer = "Return a useEffect cleanup that clears the pending timeout";
+
+    if (hasClearTimeout && hasCleanupReturn) {
+      return {
+        verdict: "correct",
+        detail: "Adds a timeout cleanup so stale timers cannot update state after changes or unmount.",
+        expectedAnswer,
+        observedAnswer: "clearTimeout cleanup",
+      };
+    }
+
+    return {
+      verdict: "incorrect",
+      detail: "Expected a React effect cleanup that calls clearTimeout.",
+      expectedAnswer,
+      observedAnswer: hasClearTimeout ? "clearTimeout without cleanup return" : "missing clearTimeout",
+    };
+  }
+
+  if (suiteId === "swe-pro" && /retryWithBackoff/i.test(prompt)) {
+    const awaitsTimer = /await\s+(?:new\s+Promise|sleep\s*\(|delay\s*\()/i.test(content)
+      && /(?:setTimeout|sleep\s*\(|delay\s*\()/i.test(content);
+    const throwsOriginal = /throw\s+(?:error|err|lastError|lastErr)\b/.test(content);
+    const removesUnreachable = !/unreachable/i.test(content);
+    const expectedAnswer = "Await the backoff delay and rethrow the final original error";
+
+    if (awaitsTimer && throwsOriginal && removesUnreachable) {
+      return {
+        verdict: "correct",
+        detail: "Awaits retry delay and preserves the final failure instead of throwing a placeholder error.",
+        expectedAnswer,
+        observedAnswer: "awaited backoff and original error throw",
+      };
+    }
+
+    return {
+      verdict: "incorrect",
+      detail: "Expected an awaited backoff delay and a final throw of the original error.",
+      expectedAnswer,
+      observedAnswer: !awaitsTimer ? "delay is not awaited" : "final error is not preserved",
+    };
+  }
+
   return { verdict: "unknown", detail: "No deterministic correctness check is configured for this prompt." };
 }
 

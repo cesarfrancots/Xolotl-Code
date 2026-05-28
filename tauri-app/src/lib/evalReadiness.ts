@@ -33,6 +33,7 @@ const AUTOMATIC_REVIEW_SUITES = new Set([
   "instruction",
   "json",
   "coding",
+  "swe-pro",
   "refusal",
 ]);
 

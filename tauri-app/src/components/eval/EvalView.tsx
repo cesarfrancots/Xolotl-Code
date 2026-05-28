@@ -30,6 +30,14 @@ import {
 import { arenaCreatureClass, arenaCreatureStatusLabel } from "../../lib/evalArena";
 import { extractEvalArtifacts, type EvalArtifact } from "../../lib/evalArtifacts";
 import { buildEvalComparison, FINAL_AI_WEIGHT, FINAL_HUMAN_WEIGHT, SCORE_SOURCE_LABELS, type EvalComparison } from "../../lib/evalComparison";
+import {
+  BENCHMARK_AREAS,
+  benchmarkAreaByKey,
+  buildBenchmarkLeaderboard,
+  type BenchmarkAreaIcon,
+  type BenchmarkAreaKey,
+  type BenchmarkLeaderboard,
+} from "../../lib/benchmarkLeaderboard";
 
 const UI_ACCENT = "oklch(0.70 0.07 190)";
 const UI_ACCENT_DIM = "oklch(0.58 0.045 205)";
@@ -1080,6 +1088,240 @@ function ComparisonResultsPanel({
         </div>
       </section>}
     </div>
+  );
+}
+
+const BENCHMARK_ICON_SRC: Record<BenchmarkAreaIcon, string> = {
+  emperor: "/benchmarks/axolotl-emperor.png",
+  architect: "/benchmarks/axolotl-architect.png",
+  design: "/benchmarks/axolotl-design.png",
+  speed: "/benchmarks/axolotl-speed.png",
+};
+
+function BenchmarkLeaderboardPanel() {
+  const [leaderboard, setLeaderboard] = useState<BenchmarkLeaderboard | null>(null);
+  const [selectedArea, setSelectedArea] = useState<BenchmarkAreaKey>("overall");
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const metas = await commands.listEvals();
+      const loaded = await Promise.all(metas.map(async (meta) => {
+        try {
+          const result = await commands.loadEval(meta.id);
+          return result.status === "ok" ? JSON.parse(result.data) as EvalResult : null;
+        } catch {
+          return null;
+        }
+      }));
+      setLeaderboard(buildBenchmarkLeaderboard(loaded.filter((item): item is EvalResult => item !== null)));
+    } catch (error) {
+      setLeaderboard(buildBenchmarkLeaderboard([]));
+      setLoadError(noticeDetail(error));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const selected = leaderboard?.areas.find((area) => area.area.key === selectedArea) ?? {
+    area: benchmarkAreaByKey(selectedArea),
+    entries: [],
+    evalCount: 0,
+    trialCount: 0,
+  };
+  const champion = selected.entries[0] ?? null;
+  const iconSrc = BENCHMARK_ICON_SRC[selected.area.icon];
+  const populatedAreas = new Set((leaderboard?.areas ?? []).filter((area) => area.entries.length > 0).map((area) => area.area.key));
+  const coverageLabel = leaderboard?.evalCount
+    ? `${leaderboard.evalCount} saved eval${leaderboard.evalCount === 1 ? "" : "s"}`
+    : "No saved evals";
+  const updatedLabel = leaderboard?.lastUpdatedAt
+    ? new Date(leaderboard.lastUpdatedAt * 1000).toLocaleDateString()
+    : "No runs yet";
+
+  return (
+    <section className="border-b border-[oklch(0.22_0.008_245)] bg-[oklch(0.098_0.004_250)] px-4 py-5">
+      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+        <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.92fr)_minmax(420px,1.08fr)]">
+          <div className="relative overflow-hidden rounded-md border border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)] px-4 py-4">
+            <div className="absolute inset-0 benchmark-topography" aria-hidden="true" />
+            <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center">
+              <div className="benchmark-icon-shell flex-none">
+                <img src={iconSrc} alt="" className="benchmark-champion-icon" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">
+                  <Trophy className="h-3.5 w-3.5" />
+                  Benchmark leaderboard
+                </div>
+                <h2 className="mt-1 text-2xl font-semibold tracking-normal text-[oklch(0.92_0.012_220)]">Axolotl model rankings</h2>
+                <p className="mt-1 max-w-xl text-sm leading-relaxed text-[oklch(0.58_0.014_230)]">
+                  Saved evals roll up into area-specific rankings for software work, reasoning, structured output, safety, speed, and human-scored frontend craft.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.13em]">
+                  <span className="rounded border border-[oklch(0.30_0.014_220)] bg-[oklch(0.12_0.005_235)] px-2 py-1 text-[oklch(0.62_0.018_220)]">{coverageLabel}</span>
+                  <span className="rounded border border-[oklch(0.30_0.014_220)] bg-[oklch(0.12_0.005_235)] px-2 py-1 text-[oklch(0.62_0.018_220)]">Updated {updatedLabel}</span>
+                  {loadError && <span className="rounded border border-[oklch(0.36_0.035_28)] bg-[oklch(0.13_0.010_28)] px-2 py-1 text-[oklch(0.70_0.055_28)]">History unavailable</span>}
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void refresh()}
+                disabled={loading}
+                className="h-8 flex-none gap-1 text-xs text-[oklch(0.62_0.025_205)]"
+              >
+                <RotateCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-4">
+            {BENCHMARK_AREAS.slice(0, 4).map((area) => {
+              const summary = leaderboard?.areas.find((item) => item.area.key === area.key);
+              const leader = summary?.entries[0];
+              return (
+                <button
+                  key={area.key}
+                  type="button"
+                  onClick={() => setSelectedArea(area.key)}
+                  className={`rounded-md border px-3 py-3 text-left transition-colors ${
+                    selectedArea === area.key
+                      ? "border-[oklch(0.42_0.026_195)] bg-[oklch(0.14_0.010_205)]"
+                      : "border-[oklch(0.22_0.008_245)] bg-[oklch(0.108_0.004_245)] hover:border-[oklch(0.30_0.016_215)]"
+                  }`}
+                  title={area.detail}
+                >
+                  <div className="flex items-center gap-2">
+                    <img src={BENCHMARK_ICON_SRC[area.icon]} alt="" className="h-8 w-8 rounded-md object-cover" />
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold text-[oklch(0.84_0.014_225)]">{area.shortLabel}</div>
+                      <div className="text-[10px] text-[oklch(0.48_0.012_230)]">{summary?.trialCount ?? 0} trials</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 truncate text-[11px] text-[oklch(0.60_0.014_225)]">
+                    {leader ? `${leader.model} / ${leader.averageScore.toFixed(1)}` : "Awaiting runs"}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.106_0.004_245)] p-3">
+          <div className="mb-3 flex flex-wrap gap-1 pb-1" role="tablist" aria-label="Benchmark areas">
+            {BENCHMARK_AREAS.map((area) => {
+              const active = selectedArea === area.key;
+              const populated = populatedAreas.has(area.key);
+              return (
+                <button
+                  key={area.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setSelectedArea(area.key)}
+                  className={`flex h-8 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors ${
+                    active
+                      ? "border-[oklch(0.42_0.024_195)] bg-[oklch(0.15_0.010_205)] text-[oklch(0.82_0.030_205)]"
+                      : "border-transparent text-[oklch(0.52_0.012_230)] hover:border-[oklch(0.24_0.010_245)] hover:bg-[oklch(0.12_0.004_245)] hover:text-[oklch(0.78_0.014_220)]"
+                  }`}
+                  title={area.detail}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${populated ? "bg-[oklch(0.68_0.045_190)]" : "bg-[oklch(0.28_0.010_245)]"}`} />
+                  {area.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
+            <div className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.094_0.003_245)] p-3">
+              <div className="flex items-start gap-3">
+                <img src={iconSrc} alt="" className="h-14 w-14 flex-none rounded-md object-cover shadow-[0_12px_28px_oklch(0_0_0_/_0.30)]" />
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-[0.14em] text-[oklch(0.48_0.012_230)]">{selected.area.shortLabel}</div>
+                  <div className="mt-1 text-sm font-semibold text-[oklch(0.86_0.016_225)]">{selected.area.label}</div>
+                  <p className="mt-1 text-xs leading-relaxed text-[oklch(0.54_0.012_230)]">{selected.area.detail}</p>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                <div className="rounded border border-[oklch(0.18_0.006_245)] px-2 py-2">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-[oklch(0.42_0.010_230)]">Leader</div>
+                  <div className="mt-1 truncate text-xs font-semibold text-[oklch(0.78_0.030_205)]" title={champion?.model ?? "No leader"}>{champion?.model ?? "--"}</div>
+                </div>
+                <div className="rounded border border-[oklch(0.18_0.006_245)] px-2 py-2">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-[oklch(0.42_0.010_230)]">Trials</div>
+                  <div className="mt-1 font-mono text-sm text-[oklch(0.78_0.020_220)]">{selected.trialCount}</div>
+                </div>
+                <div className="rounded border border-[oklch(0.18_0.006_245)] px-2 py-2">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-[oklch(0.42_0.010_230)]">Evals</div>
+                  <div className="mt-1 font-mono text-sm text-[oklch(0.78_0.020_220)]">{selected.evalCount}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="min-w-0 rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.094_0.003_245)]">
+              {selected.entries.length === 0 ? (
+                <div className="flex min-h-[220px] flex-col items-center justify-center px-4 py-8 text-center">
+                  <img src={iconSrc} alt="" className="h-16 w-16 rounded-md object-cover opacity-70" />
+                  <div className="mt-3 text-sm font-semibold text-[oklch(0.82_0.014_225)]">No ranking data in this area</div>
+                  <div className="mt-1 max-w-md text-xs leading-relaxed text-[oklch(0.52_0.012_230)]">
+                    Run the matching suite and save any required human scores to populate this leaderboard.
+                  </div>
+                </div>
+              ) : (
+                <div className="divide-y divide-[oklch(0.16_0.006_245)]">
+                  {selected.entries.slice(0, 8).map((entry) => {
+                    const scoreWidth = `${Math.max(0, Math.min(100, entry.averageScore * 10))}%`;
+                    return (
+                      <div key={entry.model} className="benchmark-rank-row grid gap-3 px-3 py-3 md:grid-cols-[54px_minmax(0,1fr)_140px_110px] md:items-center">
+                        <div className="flex items-center gap-2">
+                          <span className={`grid h-8 w-8 place-items-center rounded-md border font-mono text-sm ${
+                            entry.rank === 1
+                              ? "border-[oklch(0.62_0.055_88)] bg-[oklch(0.18_0.020_88)] text-[oklch(0.82_0.070_88)]"
+                              : "border-[oklch(0.24_0.010_245)] bg-[oklch(0.11_0.004_245)] text-[oklch(0.58_0.014_230)]"
+                          }`}>
+                            {entry.rank}
+                          </span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-[oklch(0.86_0.014_225)]" title={entry.model}>{entry.model}</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.12em] text-[oklch(0.46_0.010_230)]">
+                            <span>{entry.sourceLabel}</span>
+                            <span>{entry.winCount} area win{entry.winCount === 1 ? "" : "s"}</span>
+                          </div>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-[oklch(0.46_0.010_230)]">Avg</span>
+                            <span className="font-mono text-sm text-[oklch(0.82_0.018_220)]">{entry.averageScore.toFixed(1)}</span>
+                          </div>
+                          <div className="mt-2 h-2 overflow-hidden rounded-full bg-[oklch(0.14_0.006_245)]">
+                            <div className="h-full rounded-full bg-[linear-gradient(90deg,oklch(0.62_0.050_190),oklch(0.72_0.055_88))]" style={{ width: scoreWidth }} />
+                          </div>
+                        </div>
+                        <div className="text-xs text-[oklch(0.54_0.012_230)] md:text-right">
+                          <div>{entry.trialCount} trial{entry.trialCount === 1 ? "" : "s"}</div>
+                          <div className="mt-0.5 text-[10px] text-[oklch(0.42_0.010_230)]">{entry.evalCount} eval{entry.evalCount === 1 ? "" : "s"}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -2378,6 +2620,8 @@ export function EvalView() {
 
         <div className="flex-1 min-h-0 overflow-y-auto">
           {!activeEval && (
+          <>
+          <BenchmarkLeaderboardPanel />
           <div className="border-b border-[oklch(0.22_0.008_245)] bg-[oklch(0.102_0.004_250)] px-4 py-5">
             <div className="mx-auto flex max-w-6xl flex-col gap-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -2781,6 +3025,7 @@ export function EvalView() {
               )}
             </div>
           </div>
+          </>
           )}
 
 

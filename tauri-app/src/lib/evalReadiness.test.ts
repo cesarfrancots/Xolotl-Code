@@ -112,6 +112,20 @@ describe("assessBlindReviewGate", () => {
     })).toBe(false);
   });
 
+  it("routes SWE-Pro style suites to automatic scoring and frontend design to human review", () => {
+    expect(determineEvalReviewMode({
+      suiteId: "swe-pro",
+      prompt: "Patch this TypeScript TTL cache.",
+      isGoalEval: false,
+    })).toBe("automatic");
+
+    expect(determineEvalReviewMode({
+      suiteId: "frontend-design",
+      prompt: "Create a single-file HTML/CSS/JS benchmark leaderboard.",
+      isGoalEval: false,
+    })).toBe("human");
+  });
+
   it("labels history items by review mode before loading them", () => {
     expect(evalReviewModeBadge({ suiteId: "reasoning", prompt: "A bat and ball cost $1.10", isGoalEval: false })).toEqual({
       label: "Auto scored",

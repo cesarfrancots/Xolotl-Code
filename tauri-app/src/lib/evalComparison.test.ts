@@ -396,4 +396,42 @@ describe("buildEvalComparison", () => {
       score: 1,
     });
   });
+
+  it("scores SWE-Pro style TTL cache patches deterministically", () => {
+    const activeEval = evalFixture();
+    activeEval.suite_id = "swe-pro";
+    activeEval.prompt = "Patch this TTL cache. `put` receives ttlSeconds but currently stores `Date.now() + ttlSeconds`; expired entries should be deleted.\n\n```ts\nconst cache = new Map<string, { value: string; expiresAt: number }>();\nfunction put(key: string, value: string, ttlSeconds: number) {\n  cache.set(key, { value, expiresAt: Date.now() + ttlSeconds });\n}\nfunction get(key: string) {\n  const hit = cache.get(key);\n  if (!hit) return null;\n  if (hit.expiresAt < Date.now()) return null;\n  return hit.value;\n}\n```";
+    activeEval.modelStates["model-a"].content = "cache.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });\nif (hit.expiresAt <= Date.now()) { cache.delete(key); return null; }";
+    activeEval.modelStates["model-b"].content = "cache.set(key, { value, expiresAt: Date.now() + ttlSeconds });\nif (hit.expiresAt < Date.now()) return null;";
+
+    const comparison = buildEvalComparison({ activeEval, humanScores: {} });
+
+    expect(comparison.models.find((model) => model.model === "model-a")?.correctness).toMatchObject({
+      verdict: "correct",
+      observedAnswer: "ttlSeconds * 1000 with cache.delete",
+    });
+    expect(comparison.models.find((model) => model.model === "model-b")?.correctness).toMatchObject({
+      verdict: "incorrect",
+      observedAnswer: "missing TTL conversion",
+    });
+  });
+
+  it("scores SWE-Pro style React cleanup patches deterministically", () => {
+    const activeEval = evalFixture();
+    activeEval.suite_id = "swe-pro";
+    activeEval.prompt = "Patch `useDebouncedValue` so it cannot set state from a stale timeout after value changes or component unmount.\n\n```tsx\nfunction useDebouncedValue<T>(value: T, delay: number) {\n  const [debounced, setDebounced] = useState(value);\n  useEffect(() => {\n    setTimeout(() => setDebounced(value), delay);\n  }, [value, delay]);\n  return debounced;\n}\n```";
+    activeEval.modelStates["model-a"].content = "useEffect(() => {\n  const id = setTimeout(() => setDebounced(value), delay);\n  return () => clearTimeout(id);\n}, [value, delay]);";
+    activeEval.modelStates["model-b"].content = "useEffect(() => {\n  setTimeout(() => setDebounced(value), delay);\n}, [value, delay]);";
+
+    const comparison = buildEvalComparison({ activeEval, humanScores: {} });
+
+    expect(comparison.models.find((model) => model.model === "model-a")?.correctness).toMatchObject({
+      verdict: "correct",
+      observedAnswer: "clearTimeout cleanup",
+    });
+    expect(comparison.models.find((model) => model.model === "model-b")?.correctness).toMatchObject({
+      verdict: "incorrect",
+      observedAnswer: "missing clearTimeout",
+    });
+  });
 });
