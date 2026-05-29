@@ -74,6 +74,30 @@ fn matching_chars(a: &[char], b: &[char]) -> usize {
         + matching_chars(&a[best_a_end..], &b[best_b_end..])
 }
 
+/// Index of the same-height window in `content` most similar to `old`, for
+/// showing the model the likeliest region after a failed match. Returns `None`
+/// when `old` or `content` is empty or `old` is taller than the file.
+pub(super) fn best_window(content: &str, old: &str) -> Option<usize> {
+    let normalized_old = normalize(old);
+    if normalized_old.is_empty() {
+        return None;
+    }
+    let file_lines: Vec<&str> = content.lines().collect();
+    let span = old.lines().count().max(1);
+    if span > file_lines.len() {
+        return None;
+    }
+    let mut best: Option<(usize, f64)> = None;
+    for i in 0..=file_lines.len() - span {
+        let window = normalize(&file_lines[i..i + span].join("\n"));
+        let score = ratio(&normalized_old, &window);
+        if best.is_none_or(|(_, b)| score > b) {
+            best = Some((i, score));
+        }
+    }
+    best.map(|(i, _)| i)
+}
+
 impl EditStrategy for FuzzyStrategy {
     fn name(&self) -> &'static str {
         "fuzzy"

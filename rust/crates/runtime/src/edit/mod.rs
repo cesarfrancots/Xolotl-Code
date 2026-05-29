@@ -18,14 +18,52 @@
 
 mod anchored;
 mod exact;
+mod failure;
+pub mod formats;
 mod fuzzy;
 mod util;
 mod whitespace;
 
 pub use anchored::AnchoredStrategy;
 pub use exact::ExactStrategy;
+pub use failure::{EditFailure, EditFailureKind};
+pub use formats::{parse_search_replace, parse_udiff, EditFormat, EditOp};
 pub use fuzzy::FuzzyStrategy;
 pub use whitespace::WhitespaceStrategy;
+
+use serde::{Deserialize, Serialize};
+
+/// Files at or below this many lines are shown in full in a failure region;
+/// larger files show a focused window around the closest fuzzy candidate.
+const REGION_MAX_LINES: usize = 80;
+/// Context lines shown on each side of the closest candidate in a large file.
+const REGION_CONTEXT: usize = 12;
+
+/// Build a line-numbered file region to show the model after a failed edit:
+/// the whole file when small, otherwise a window around the closest fuzzy
+/// candidate for `old`.
+#[must_use]
+pub fn locate_region(content: &str, old: &str) -> String {
+    let file_lines: Vec<&str> = content.lines().collect();
+    if file_lines.len() <= REGION_MAX_LINES {
+        return number_lines(&file_lines, 0);
+    }
+    let span = old.lines().count().max(1);
+    let center = fuzzy::best_window(content, old).unwrap_or(0);
+    let start = center.saturating_sub(REGION_CONTEXT);
+    let end = (center + span + REGION_CONTEXT).min(file_lines.len());
+    number_lines(&file_lines[start..end], start)
+}
+
+/// Render lines with 1-indexed line numbers starting at `offset` + 1.
+fn number_lines(lines: &[&str], offset: usize) -> String {
+    lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| format!("{:>5} | {}", offset + i + 1, line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 /// Result of attempting to apply an edit to file *content* (no I/O).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,18 +110,65 @@ pub fn apply_edit(
     EditApply::NoMatch
 }
 
+/// Which edit-ladder rungs are enabled for a model. All on by default (D3);
+/// P6 may disable a rung for a model that mis-applies it. `exact` is the safe
+/// control rung and is expected to stay enabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct EditStrategySet {
+    pub exact: bool,
+    pub whitespace: bool,
+    pub anchored: bool,
+    pub fuzzy: bool,
+}
+
+impl EditStrategySet {
+    /// All rungs enabled (the D3 default for every model).
+    #[must_use]
+    pub fn all() -> Self {
+        Self {
+            exact: true,
+            whitespace: true,
+            anchored: true,
+            fuzzy: true,
+        }
+    }
+}
+
+impl Default for EditStrategySet {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
 /// The default edit ladder, ordered tightest → loosest. `exact` runs first so
 /// the Claude/Bedrock happy path (exact-string edits) is byte-identical;
 /// whitespace and anchored only fire when an exact match is impossible, and
 /// `fuzzy` is the gated last resort.
 #[must_use]
 pub fn default_ladder() -> Vec<Box<dyn EditStrategy>> {
-    vec![
-        Box::new(ExactStrategy),
-        Box::new(WhitespaceStrategy),
-        Box::new(AnchoredStrategy),
-        Box::new(FuzzyStrategy),
-    ]
+    ladder_from_set(EditStrategySet::all())
+}
+
+/// Build the ladder containing only the rungs enabled in `set`, preserving the
+/// tightest → loosest order. This is how a model's `enabled_edit_strategies`
+/// hint is plumbed into the orchestrator.
+#[must_use]
+pub fn ladder_from_set(set: EditStrategySet) -> Vec<Box<dyn EditStrategy>> {
+    let mut ladder: Vec<Box<dyn EditStrategy>> = Vec::new();
+    if set.exact {
+        ladder.push(Box::new(ExactStrategy));
+    }
+    if set.whitespace {
+        ladder.push(Box::new(WhitespaceStrategy));
+    }
+    if set.anchored {
+        ladder.push(Box::new(AnchoredStrategy));
+    }
+    if set.fuzzy {
+        ladder.push(Box::new(FuzzyStrategy));
+    }
+    ladder
 }
 
 #[cfg(test)]
@@ -144,6 +229,19 @@ mod tests {
         let ladder = default_ladder();
         let names: Vec<&str> = ladder.iter().map(|s| s.name()).collect();
         assert_eq!(names, vec!["exact", "whitespace", "anchored", "fuzzy"]);
+    }
+
+    #[test]
+    fn ladder_from_set_includes_only_enabled_rungs_in_order() {
+        use super::{ladder_from_set, EditStrategySet};
+        let set = EditStrategySet {
+            exact: true,
+            whitespace: false,
+            anchored: false,
+            fuzzy: true,
+        };
+        let names: Vec<&str> = ladder_from_set(set).iter().map(|s| s.name()).collect();
+        assert_eq!(names, vec!["exact", "fuzzy"]);
     }
 
     #[test]

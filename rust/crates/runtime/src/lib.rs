@@ -64,7 +64,8 @@ pub use conversation::{
     ToolError, ToolExecutor, TurnSummary,
 };
 pub use edit::{
-    apply_edit, default_ladder, AnchoredStrategy, EditApply, EditStrategy, ExactStrategy,
+    apply_edit, default_ladder, ladder_from_set, parse_search_replace, parse_udiff,
+    AnchoredStrategy, EditApply, EditFormat, EditOp, EditStrategy, EditStrategySet, ExactStrategy,
     FuzzyStrategy, WhitespaceStrategy,
 };
 pub use file_ops::{

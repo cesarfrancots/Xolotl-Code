@@ -129,6 +129,10 @@ pub struct ConversationRuntime<C, T> {
     model_hints: Option<ModelHints>,
     hook_manager: HookManager,
     bench_recorder: Option<Arc<dyn BenchRecorder>>,
+    /// Consecutive failed `edit_file` attempts tolerated before the turn ends
+    /// (D4 = 2). Bounds re-prompt loops so a model stuck on a bad edit cannot
+    /// burn the whole iteration budget.
+    max_edit_retries: usize,
 }
 
 impl<C, T> ConversationRuntime<C, T>
@@ -164,7 +168,16 @@ where
             model_hints: None,
             hook_manager: HookManager::new(),
             bench_recorder: None,
+            max_edit_retries: 2,
         }
+    }
+
+    /// Set the number of consecutive failed `edit_file` attempts tolerated
+    /// before a turn ends (D4 default 2).
+    #[must_use]
+    pub fn with_max_edit_retries(mut self, max_edit_retries: usize) -> Self {
+        self.max_edit_retries = max_edit_retries;
+        self
     }
 
     /// Attach a benchmark recorder that observes tool-call parse outcomes and
@@ -384,6 +397,7 @@ where
         let mut assistant_messages = Vec::new();
         let mut tool_results = Vec::new();
         let mut iterations = 0;
+        let mut consecutive_edit_failures = 0usize;
 
         let effective_max_iterations = self.model_hints.as_ref().map_or(self.max_iterations, |h| {
             h.effective_max_iterations(self.max_iterations)
@@ -502,10 +516,12 @@ where
                         }
                     }
                     let _guard = Guard(running_clone);
+                    let is_edit = tool_name == "edit_file";
                     match permission_outcome {
-                        PermissionOutcome::Deny { reason } => {
-                            ConversationMessage::tool_result(tool_use_id, tool_name, reason, true)
-                        }
+                        PermissionOutcome::Deny { reason } => (
+                            ConversationMessage::tool_result(tool_use_id, tool_name, reason, true),
+                            EditAttempt::NotEdit,
+                        ),
                         PermissionOutcome::Allow => {
                             let mut executor = executor;
                             hooks.dispatch(&HookEvent::PreTool {
@@ -520,11 +536,18 @@ where
                                         tool_input: &input,
                                         tool_output: &output,
                                     });
-                                    ConversationMessage::tool_result(
-                                        tool_use_id,
-                                        tool_name,
-                                        output,
-                                        false,
+                                    (
+                                        ConversationMessage::tool_result(
+                                            tool_use_id,
+                                            tool_name,
+                                            output,
+                                            false,
+                                        ),
+                                        if is_edit {
+                                            EditAttempt::Applied
+                                        } else {
+                                            EditAttempt::NotEdit
+                                        },
                                     )
                                 }
                                 Err(error) => {
@@ -535,11 +558,18 @@ where
                                         tool_input: &input,
                                         error: &msg,
                                     });
-                                    ConversationMessage::tool_result(
-                                        tool_use_id,
-                                        tool_name,
-                                        msg,
-                                        true,
+                                    (
+                                        ConversationMessage::tool_result(
+                                            tool_use_id,
+                                            tool_name,
+                                            msg,
+                                            true,
+                                        ),
+                                        if is_edit {
+                                            EditAttempt::Failed
+                                        } else {
+                                            EditAttempt::NotEdit
+                                        },
                                     )
                                 }
                             }
@@ -549,10 +579,32 @@ where
                 handles.push(handle);
             }
 
+            let mut edit_applied = false;
+            let mut edit_failed = false;
             for handle in handles {
-                let result_message = handle.join().unwrap();
+                let (result_message, attempt) = handle.join().unwrap();
+                match attempt {
+                    EditAttempt::Applied => edit_applied = true,
+                    EditAttempt::Failed => edit_failed = true,
+                    EditAttempt::NotEdit => {}
+                }
                 self.session.messages.push(result_message.clone());
                 tool_results.push(result_message);
+            }
+
+            // Re-prompt cap (B6 / D4): a failed edit leaves an enriched,
+            // tagged tool result in the conversation so the model can correct
+            // on the next turn. But if edits keep failing with no progress, end
+            // the turn after `max_edit_retries` consecutive failures rather than
+            // burning the whole iteration budget. A successful edit (or a turn
+            // with no edit failure) resets the counter.
+            if edit_failed && !edit_applied {
+                consecutive_edit_failures += 1;
+                if consecutive_edit_failures > self.max_edit_retries {
+                    break;
+                }
+            } else {
+                consecutive_edit_failures = 0;
             }
         }
 
@@ -736,15 +788,26 @@ where
     }
 }
 
+/// Classification of a tool execution for the edit re-prompt cap (B6).
+enum EditAttempt {
+    /// An `edit_file` call that applied successfully.
+    Applied,
+    /// An `edit_file` call that failed (no/ambiguous match, or I/O error).
+    Failed,
+    /// Any non-`edit_file` tool, or a denied edit.
+    NotEdit,
+}
+
 /// Record the outcome of an `edit_file` tool call to the benchmark recorder, if
 /// one is attached. No-op for every other tool and when no recorder is present.
 ///
-/// Classification is coarse (the precise structured edit-failure signal is a
-/// later phase, B6). It keys on `edit_file`'s own hardcoded NoMatch message
-/// (`"old_string not found in file"` from `file_ops::edit_file`), which is
-/// locale-independent — so a `NoMatch` is always recognized regardless of OS
-/// language. Genuine I/O failures (e.g. a missing file from `normalize_path`)
-/// carry OS-localized text and correctly fall through to `Error`.
+/// Classification keys on the structured edit-failure tags emitted by
+/// `file_ops::edit_file` (B6): `NO_MATCH_TAG` and `AMBIGUOUS_TAG`, which are
+/// locale-independent. Both "could not locate" and "ambiguous" map to the
+/// `NoMatch` benchmark bucket (the model failed to place the edit and must
+/// retry); genuine I/O failures (e.g. a missing file from `normalize_path`)
+/// carry OS-localized text and correctly fall through to `Error`. The legacy
+/// `"old_string not found"` substring is still recognized for back-compat.
 fn record_edit_outcome(
     recorder: Option<&Arc<dyn BenchRecorder>>,
     tool_name: &str,
@@ -758,7 +821,10 @@ fn record_edit_outcome(
     }
     match result {
         Ok(()) => recorder.record_edit(EditOutcome::Applied, "applied"),
-        Err(message) if message.contains("old_string not found") => {
+        Err(message)
+            if crate::edit::EditFailure::is_edit_failure(message)
+                || message.contains("old_string not found") =>
+        {
             recorder.record_edit(EditOutcome::NoMatch, message);
         }
         Err(message) => recorder.record_edit(EditOutcome::Error, message),
@@ -1410,5 +1476,153 @@ mod tests {
         );
         assert_eq!(without.tool_results.len(), with.tool_results.len());
         assert_eq!(without.tool_results, with.tool_results);
+    }
+
+    fn unique_temp_file(tag: &str) -> PathBuf {
+        use std::sync::atomic::AtomicU64;
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "xolotl-reprompt-{tag}-{}-{seq}.txt",
+            std::process::id()
+        ))
+    }
+
+    /// Executor that performs real edits via `crate::edit_file`, so the loop
+    /// sees genuine NoMatch failures and the structured re-prompt message.
+    #[derive(Clone)]
+    struct RealEditExecutor;
+
+    impl ToolExecutor for RealEditExecutor {
+        fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
+            if tool_name != "edit_file" {
+                return Ok("noop".to_string());
+            }
+            let value: serde_json::Value =
+                serde_json::from_str(input).map_err(|e| ToolError::new(e.to_string()))?;
+            let path = value["path"].as_str().unwrap_or_default();
+            let old = value["old_string"].as_str().unwrap_or_default();
+            let new = value["new_string"].as_str().unwrap_or_default();
+            let replace_all = value["replace_all"].as_bool().unwrap_or(false);
+            crate::edit_file(path, old, new, replace_all)
+                .map(|_| "edited".to_string())
+                .map_err(|e| ToolError::new(e.to_string()))
+        }
+    }
+
+    /// Emits a failing edit (wrong old_string), then a corrected edit, then text.
+    struct ScriptedRepromptClient {
+        call_count: usize,
+        path: String,
+    }
+
+    impl ApiClient for ScriptedRepromptClient {
+        fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+            self.call_count += 1;
+            match self.call_count {
+                1 => Ok(vec![
+                    AssistantEvent::ToolUse {
+                        id: "edit-bad".to_string(),
+                        name: "edit_file".to_string(),
+                        input: serde_json::json!({"path": self.path, "old_string": "NOPE", "new_string": "x"})
+                            .to_string(),
+                    },
+                    AssistantEvent::MessageStop,
+                ]),
+                2 => Ok(vec![
+                    AssistantEvent::ToolUse {
+                        id: "edit-good".to_string(),
+                        name: "edit_file".to_string(),
+                        input: serde_json::json!({"path": self.path, "old_string": "hello", "new_string": "goodbye"})
+                            .to_string(),
+                    },
+                    AssistantEvent::MessageStop,
+                ]),
+                _ => Ok(vec![
+                    AssistantEvent::TextDelta("done".to_string()),
+                    AssistantEvent::MessageStop,
+                ]),
+            }
+        }
+    }
+
+    #[test]
+    fn edit_failure_is_enriched_and_model_corrects_on_retry() {
+        let path = unique_temp_file("corrects");
+        std::fs::write(&path, "hello world").expect("seed file");
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedRepromptClient {
+                call_count: 0,
+                path: path.to_string_lossy().into_owned(),
+            },
+            RealEditExecutor,
+            PermissionPolicy::new(PermissionMode::Allow),
+            vec!["system".to_string()],
+        );
+
+        let summary = runtime.run_turn("fix it", None).expect("loop ok");
+
+        // The corrected edit applied on the retry.
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read file"),
+            "goodbye world"
+        );
+        // The first failure was surfaced as a structured, tagged re-prompt.
+        let enriched = summary.tool_results.iter().any(|message| {
+            message.blocks.iter().any(|block| {
+                matches!(block, ContentBlock::ToolResult { output, is_error: true, .. }
+                    if crate::edit::EditFailure::is_edit_failure(output))
+            })
+        });
+        assert!(enriched, "expected an enriched edit-failure re-prompt");
+        // bad edit, corrected edit, final text = 3 iterations.
+        assert_eq!(summary.iterations, 3);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Always emits a failing edit; never corrects.
+    struct ScriptedAlwaysFailEdit {
+        path: String,
+    }
+
+    impl ApiClient for ScriptedAlwaysFailEdit {
+        fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+            Ok(vec![
+                AssistantEvent::ToolUse {
+                    id: "edit-bad".to_string(),
+                    name: "edit_file".to_string(),
+                    input: serde_json::json!({"path": self.path, "old_string": "NOPE", "new_string": "x"})
+                        .to_string(),
+                },
+                AssistantEvent::MessageStop,
+            ])
+        }
+    }
+
+    #[test]
+    fn repeated_edit_failures_terminate_turn_at_cap() {
+        let path = unique_temp_file("cap");
+        std::fs::write(&path, "hello world").expect("seed file");
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedAlwaysFailEdit {
+                path: path.to_string_lossy().into_owned(),
+            },
+            RealEditExecutor,
+            PermissionPolicy::new(PermissionMode::Allow),
+            vec!["system".to_string()],
+        )
+        .with_max_edit_retries(2)
+        .with_max_iterations(50);
+
+        let summary = runtime
+            .run_turn("fix it", None)
+            .expect("turn should terminate via the cap, not error out");
+
+        // initial attempt + 2 retries = 3 failed edits, then the cap ends the turn
+        // (well before the 50-iteration ceiling).
+        assert_eq!(summary.iterations, 3);
+        let _ = std::fs::remove_file(&path);
     }
 }

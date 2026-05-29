@@ -252,18 +252,24 @@ pub fn edit_file(
     ) {
         crate::edit::EditApply::Applied(updated) => updated,
         crate::edit::EditApply::NoMatch => {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "old_string not found in file",
-            ));
+            // Structured failure (B6): tag + the relevant file region so the
+            // loop recognizes it and the model can re-emit a correct edit. The
+            // NotFound kind and the "old_string not found" wording are
+            // preserved for back-compat with callers that match on them.
+            let failure = crate::edit::EditFailure {
+                kind: crate::edit::EditFailureKind::NoMatch,
+                region: crate::edit::locate_region(&original_file, old_string),
+            };
+            return Err(io::Error::new(io::ErrorKind::NotFound, failure.message()));
         }
         crate::edit::EditApply::Ambiguous(count) => {
+            let failure = crate::edit::EditFailure {
+                kind: crate::edit::EditFailureKind::Ambiguous(count),
+                region: crate::edit::locate_region(&original_file, old_string),
+            };
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!(
-                    "old_string matched ambiguously ({count} candidates); \
-                     add surrounding context to disambiguate"
-                ),
+                failure.message(),
             ));
         }
     };

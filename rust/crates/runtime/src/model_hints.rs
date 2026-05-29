@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::edit::{EditFormat, EditStrategySet};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModelFamily {
     MiniMax,
@@ -114,6 +116,10 @@ pub struct ModelHints {
     pub plan_mode_system_prompt_addition: Option<String>,
     /// Current effort level — controls thinking depth and reading aggressiveness.
     pub effort_level: EffortLevel,
+    /// Preferred edit payload format (D3: `OldNew` for every model by default).
+    pub preferred_edit_format: EditFormat,
+    /// Which edit-ladder rungs are enabled for this model (D3: all by default).
+    pub enabled_edit_strategies: EditStrategySet,
 }
 
 impl ModelHints {
@@ -188,6 +194,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         } else if model_lower.contains("glm")
             || model_lower.contains("glm5.1")
@@ -219,6 +227,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         } else if model_lower.contains("qwen") {
             Self {
@@ -246,6 +256,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         } else if model_lower.contains("deepseek") {
             Self {
@@ -275,6 +287,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         } else if model_lower.contains("opus") {
             Self {
@@ -303,6 +317,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         } else if model_lower.contains("sonnet") {
             Self {
@@ -330,6 +346,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         } else if model_lower.contains("haiku") {
             Self {
@@ -357,6 +375,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         } else if model_lower.contains("bedrock") || model_lower.contains("anthropic") {
             Self {
@@ -380,6 +400,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         } else if model_lower.contains("gpt") || model_lower.contains("openai") {
             Self {
@@ -403,6 +425,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         } else if model_lower.contains("kimi-coding")
             || model_lower == "k2.6"
@@ -462,6 +486,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         } else if model_lower.contains("kimi") || model_lower.contains("moonshot") {
             Self {
@@ -489,6 +515,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         } else {
             Self {
@@ -511,6 +539,8 @@ impl ModelHints {
                         .into(),
                 ),
                 effort_level: EffortLevel::Standard,
+                preferred_edit_format: EditFormat::OldNew,
+                enabled_edit_strategies: EditStrategySet::all(),
             }
         }
     }
