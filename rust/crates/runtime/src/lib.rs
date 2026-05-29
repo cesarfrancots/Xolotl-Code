@@ -105,5 +105,5 @@ pub use todo::{
     todo_read, todo_write, TodoItem, TodoOutput, TodoPriority, TodoStatus, TodoWriteInput,
 };
 pub use toolcall::{repair_json, validate_against_schema};
-pub use usage::{TokenUsage, UsageTracker};
+pub use usage::{cost_for_usage, pricing_for, ModelPricing, TokenUsage, UsageTracker};
 pub use web_fetch::{web_fetch, web_search, SearchResult, WebFetchInput, WebFetchOutput};

@@ -20,6 +20,107 @@ impl TokenUsage {
     }
 }
 
+/// Per-model token pricing in USD per 1,000,000 tokens.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ModelPricing {
+    pub input: f64,
+    pub output: f64,
+    pub cache_write: f64,
+    pub cache_read: f64,
+    /// Month the rates were last checked against the provider's pricing page.
+    pub last_verified: &'static str,
+}
+
+/// Pricing table matched by model-id substring, in priority order.
+///
+/// Sources: the Anthropic pricing page and the desktop app's authoritative
+/// `tauri-app/src/lib/cost.ts` table (both 2026-05). Models without a verified
+/// entry resolve to `None` (explicit "unknown") via [`pricing_for`] rather than
+/// silently inheriting Opus rates, which previously overcharged every
+/// open-weight model. Open-model rates beyond DeepSeek are intentionally left
+/// out until verified against a live provider usage page (the §5 cost target);
+/// recording an unverified guess would be worse than an honest "unknown".
+const PRICING_TABLE: &[(&str, ModelPricing)] = &[
+    (
+        "opus",
+        ModelPricing {
+            input: 15.0,
+            output: 75.0,
+            cache_write: 18.75,
+            cache_read: 1.50,
+            last_verified: "2026-05",
+        },
+    ),
+    (
+        "sonnet",
+        ModelPricing {
+            input: 3.0,
+            output: 15.0,
+            cache_write: 3.75,
+            cache_read: 0.30,
+            last_verified: "2026-05",
+        },
+    ),
+    (
+        "haiku",
+        ModelPricing {
+            input: 0.80,
+            output: 4.0,
+            cache_write: 1.0,
+            cache_read: 0.08,
+            last_verified: "2026-05",
+        },
+    ),
+    (
+        "deepseek-v4-flash",
+        ModelPricing {
+            input: 0.14,
+            output: 0.28,
+            cache_write: 0.14,
+            cache_read: 0.0028,
+            last_verified: "2026-05",
+        },
+    ),
+    (
+        "deepseek-v4-pro",
+        ModelPricing {
+            input: 0.435,
+            output: 0.87,
+            cache_write: 0.435,
+            cache_read: 0.003_625,
+            last_verified: "2026-05",
+        },
+    ),
+];
+
+/// Look up per-model pricing by model-id substring.
+///
+/// Returns `None` for any model without a verified entry — an explicit
+/// "unknown", never a fall-through to Opus rates.
+#[must_use]
+pub fn pricing_for(model: &str) -> Option<ModelPricing> {
+    PRICING_TABLE
+        .iter()
+        .find(|(key, _)| model.contains(key))
+        .map(|(_, pricing)| *pricing)
+}
+
+/// Dollar cost of a single [`TokenUsage`] for `model`.
+///
+/// Unknown models cost `0.0` (pricing is genuinely unknown — see [`pricing_for`])
+/// rather than being charged at Opus rates.
+#[must_use]
+pub fn cost_for_usage(usage: TokenUsage, model: &str) -> f64 {
+    let Some(pricing) = pricing_for(model) else {
+        return 0.0;
+    };
+    let m = 1_000_000.0_f64;
+    f64::from(usage.input_tokens) / m * pricing.input
+        + f64::from(usage.output_tokens) / m * pricing.output
+        + f64::from(usage.cache_creation_input_tokens) / m * pricing.cache_write
+        + f64::from(usage.cache_read_input_tokens) / m * pricing.cache_read
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UsageTracker {
     latest_turn: TokenUsage,
@@ -74,24 +175,12 @@ impl UsageTracker {
     }
 
     /// Estimate the dollar cost of all tokens recorded so far.
-    /// Rates are per-million tokens as of 2025 pricing.
+    ///
+    /// Rates come from the per-model [`PRICING_TABLE`] (per-million tokens,
+    /// last verified 2026-05). Unknown models cost `0.0`, not Opus rates.
     #[must_use]
     pub fn cost_usd(&self, model: &str) -> f64 {
-        let (input_rate, output_rate, cache_write_rate, cache_read_rate): (f64, f64, f64, f64) =
-            if model.contains("opus") {
-                (15.0, 75.0, 18.75, 1.50)
-            } else if model.contains("sonnet") {
-                (3.0, 15.0, 3.75, 0.30)
-            } else if model.contains("haiku") {
-                (0.80, 4.0, 1.0, 0.08)
-            } else {
-                (15.0, 75.0, 18.75, 1.50)
-            };
-        let m = 1_000_000.0_f64;
-        f64::from(self.cumulative.input_tokens) / m * input_rate
-            + f64::from(self.cumulative.output_tokens) / m * output_rate
-            + f64::from(self.cumulative.cache_creation_input_tokens) / m * cache_write_rate
-            + f64::from(self.cumulative.cache_read_input_tokens) / m * cache_read_rate
+        cost_for_usage(self.cumulative, model)
     }
 
     /// Calculate cache hit ratio (0.0 to 1.0) based on cache read vs total input tokens.
@@ -122,8 +211,63 @@ impl UsageTracker {
 
 #[cfg(test)]
 mod tests {
-    use super::{TokenUsage, UsageTracker};
+    use super::{cost_for_usage, pricing_for, TokenUsage, UsageTracker};
     use crate::session::{ContentBlock, ConversationMessage, MessageRole, Session};
+
+    #[test]
+    fn pricing_matches_claude_tiers_by_substring() {
+        // Control: real model ids (including Bedrock) must resolve to the same
+        // rates the old `contains` ladder used, so Claude cost is byte-identical.
+        let opus = pricing_for("claude-opus-4-8").expect("opus priced");
+        assert!((opus.input - 15.0).abs() < f64::EPSILON);
+        assert!((opus.output - 75.0).abs() < f64::EPSILON);
+
+        let sonnet = pricing_for("bedrock/us.anthropic.claude-sonnet-4-6").expect("sonnet priced");
+        assert!((sonnet.input - 3.0).abs() < f64::EPSILON);
+        assert!((sonnet.cache_read - 0.30).abs() < f64::EPSILON);
+
+        let haiku = pricing_for("claude-haiku-3-5").expect("haiku priced");
+        assert!((haiku.input - 0.80).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn unknown_model_is_explicit_unknown_not_opus() {
+        // The whole point of the table: open-weight models must NOT inherit Opus
+        // rates. Without a verified entry they are explicitly unknown.
+        assert!(pricing_for("kimi-k2-turbo-preview").is_none());
+        assert!(pricing_for("qwen-3-max").is_none());
+        assert!(pricing_for("totally-made-up-model").is_none());
+        // ... and an unknown model therefore costs $0, not an Opus-rate charge.
+        let usage = TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        };
+        assert!((cost_for_usage(usage, "kimi-k2-turbo-preview") - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn cost_usd_unchanged_for_opus_control() {
+        // 1M input + 1M output on Opus = $15 + $75 = $90 (same as the old ladder).
+        let mut tracker = UsageTracker::new();
+        tracker.record(TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        });
+        assert!((tracker.cost_usd("claude-opus-4-8") - 90.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn deepseek_priced_from_repo_source() {
+        let pro = pricing_for("deepseek-v4-pro").expect("deepseek pro priced");
+        assert!((pro.input - 0.435).abs() < f64::EPSILON);
+        assert!((pro.output - 0.87).abs() < f64::EPSILON);
+        let flash = pricing_for("deepseek-v4-flash").expect("deepseek flash priced");
+        assert!((flash.input - 0.14).abs() < f64::EPSILON);
+    }
 
     #[test]
     fn tracks_true_cumulative_usage() {

@@ -1525,25 +1525,9 @@ impl LiveCli {
                     .runtime
                     .usage()
                     .cost_usd(primary_model_name(&self.model));
-                // Compute per-turn cost using the same rate table as UsageTracker::cost_usd
-                let turn_cost = {
-                    let m = 1_000_000.0_f64;
-                    let model_name = primary_model_name(&self.model);
-                    let (in_rate, out_rate, cw_rate, cr_rate): (f64, f64, f64, f64) =
-                        if model_name.contains("opus") {
-                            (15.0, 75.0, 18.75, 1.50)
-                        } else if model_name.contains("sonnet") {
-                            (3.0, 15.0, 3.75, 0.30)
-                        } else if model_name.contains("haiku") {
-                            (0.80, 4.0, 1.0, 0.08)
-                        } else {
-                            (15.0, 75.0, 18.75, 1.50)
-                        };
-                    f64::from(turn_usage.input_tokens) / m * in_rate
-                        + f64::from(turn_usage.output_tokens) / m * out_rate
-                        + f64::from(turn_usage.cache_creation_input_tokens) / m * cw_rate
-                        + f64::from(turn_usage.cache_read_input_tokens) / m * cr_rate
-                };
+                // Per-turn cost via the same per-model pricing table as cost_usd.
+                let turn_cost =
+                    runtime::cost_for_usage(turn_usage, primary_model_name(&self.model));
                 println!(
                     "\n  {}{}{}",
                     style::MUTED,
