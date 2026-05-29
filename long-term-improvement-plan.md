@@ -138,7 +138,7 @@ Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is
 >
 > **CP 0.2 CI-gate COMPLETE (`MERGED*`)** — `bench::corpus` loader + a representative 5-category corpus + `bench --corpus` listing, loader tests green (commit 475ff3b). `*` = the live baseline (T-0.2.2) and scaling to D9's 30 tasks are **deferred** (need API keys + spend, plus B7/B8); recorded TBD per the plan, and the `bench-baseline-v0` tag is withheld until a real baseline exists. **B7** (lib.rs re-exporting provider clients) + **B8** (working-dir-aware paths) are live-run prerequisites — deferred with rationale (B7 is a large CLI-crate restructure with control-path risk and no runnable payoff while live runs are blocked).
 >
-> **To resume / next steps:** working order = P1 ✅ → P2 ✅ → P4 ✅ → P3 ✅ → CP 0.2 (offline) ✅ → **P5 (headless / MCP server / sandbox / ACP)** next → P6 (eval flywheel). Live baseline + B7/B8 deferred (keys/$). Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
+> **To resume / next steps:** working order = P1 ✅ → P2 ✅ → P4 ✅ → P3 ✅ → CP 0.2 offline ✅ → **CP 5.3 sandbox ✅** → next: **CP 5.1 headless NDJSON** (needs a quiet/event-sink mode on the streaming clients so stdout is pure NDJSON — the `AnthropicRuntimeClient` currently prints text deltas inline; that small refactor is the prerequisite), then CP 5.2 MCP server (`crates/mcp-server`, mirror `mcp.rs`), CP 5.4 ACP (optional), then P6 (eval flywheel — Tauri). Tag `parity-v1` at the last P5 CP. Deferred (keys/$): T-0.2.2 live baseline + §5 numbers, B7/B8, CP 3.3 live LSP + `get_diagnostics` tool. **Run all gates with `cargo +1.95.0` (CI pins 1.95; local default is gnu 1.94 and misses 1.95-only lints).** Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
 
 | CP | Title | Status | Depends on | Branch | Owns (file scope) | Parallel-safe with |
 |----|-------|--------|-----------|--------|-------------------|--------------------|
@@ -161,7 +161,7 @@ Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is
 | 4.4 | graphify retrieval (optional) | MERGED | — | direct→`main` | `runtime/src/retrieval.rs` (new) | 1.x, 2.x |
 | 5.1 | Headless NDJSON protocol | TODO | — | `feat/p5-headless` | `rusty-claude-cli/src/` (new), `runtime` events (read-only) | 1.x, 4.x |
 | 5.2 | MCP server | TODO | 5.1 | `feat/p5-mcp-server` | `rust/crates/mcp-server/**` | 1.x, 4.x |
-| 5.3 | Bash sandboxing | TODO | — | `feat/p5-sandbox` | `runtime/src/permissions.rs`, bash tool | 1.x, 4.x |
+| 5.3 | Bash sandboxing | MERGED | — | direct→`main` | `runtime/src/permissions.rs`, bash tool | 1.x, 4.x |
 | 5.4 | ACP adapter (optional) | TODO | 5.1 | `feat/p5-acp` | `rust/crates/acp/**` (new) | 1.x, 4.x |
 | 6.1 | Eval-lab metric capture | TODO | 0.1, 1.1, 2.1 | `feat/p6-eval-metrics` | `tauri-app/src-tauri/**`, `tauri-app/src/**` | — |
 | 6.2 | Reliability profiles | TODO | 6.1 | `feat/p6-profiles` | profiles writer (runtime or tauri) | — |
@@ -459,7 +459,7 @@ Tasks:
 
 ### Checkpoint 5.3 — Bash sandboxing
 **Owns:** `runtime/src/permissions.rs`, bash tool. **D10 reserved — confirm mechanism.**
-- [ ] **T-5.3.1 — Policy replacing the boolean flag:** working-dir confinement + destructive-pattern deny-list (extend `permissions.rs`); optional OS-level (`bubblewrap`, Linux). Deny-by-default for destructive patterns when autonomous. Test first: destructive corpus blocked under autonomous policy; allowed under explicit approval. Verify: `cargo test -p runtime`.
+- [x] **T-5.3.1 — Policy replacing the boolean flag:** working-dir confinement + destructive-pattern deny-list (extend `permissions.rs`); optional OS-level (`bubblewrap`, Linux). Deny-by-default for destructive patterns when autonomous. Test first: destructive corpus blocked under autonomous policy; allowed under explicit approval. Verify: `cargo test -p runtime`.
 
 **CI Gate / DoD:** global DoD.
 
