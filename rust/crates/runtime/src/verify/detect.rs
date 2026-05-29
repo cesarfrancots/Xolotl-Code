@@ -194,7 +194,10 @@ mod tests {
             Some("cargo test".to_string())
         );
         // post_edit_check prefers the cheap typecheck.
-        assert_eq!(cmds.post_edit_check().map(VerifyCommand::display), Some("cargo check".to_string()));
+        assert_eq!(
+            cmds.post_edit_check().map(VerifyCommand::display),
+            Some("cargo check".to_string())
+        );
     }
 
     #[test]
@@ -279,7 +282,10 @@ mod tests {
         verify.insert("test".to_string(), JsonValue::Null);
         let overrides = JsonValue::Object(verify);
         let cmds = resolve_verify_commands(dir.path(), Some(&overrides));
-        assert!(cmds.test.is_none(), "explicit null disables the test command");
+        assert!(
+            cmds.test.is_none(),
+            "explicit null disables the test command"
+        );
         // unaffected default remains.
         assert_eq!(
             cmds.typecheck.as_ref().map(VerifyCommand::display),

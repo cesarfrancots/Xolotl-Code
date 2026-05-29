@@ -87,9 +87,8 @@ fn is_cargo_summary_noise(message: &str) -> bool {
 
 // ── tsc ───────────────────────────────────────────────────────────────────
 
-static TSC_LINE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(.+?)\((\d+),(\d+)\):\s+error\s+TS\d+:\s+(.+)$").unwrap()
-});
+static TSC_LINE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(.+?)\((\d+),(\d+)\):\s+error\s+TS\d+:\s+(.+)$").unwrap());
 
 /// `tsc --noEmit` output: `path(line,col): error TSxxxx: message`.
 #[must_use]
