@@ -34,6 +34,7 @@ mod model_hints;
 mod permissions;
 mod plan;
 mod prompt;
+mod retrieval;
 mod sdd;
 mod session;
 mod subagent;
@@ -91,6 +92,7 @@ pub use prompt::{
     ProjectContext, PromptBuildError, SystemPromptBuilder, FRONTIER_MODEL_NAME,
     SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
 };
+pub use retrieval::{GraphRetrieval, RankedFile};
 pub use session::{
     ContentBlock, ConversationMessage, ImageSource, MessageRole, Session, SessionError,
 };
