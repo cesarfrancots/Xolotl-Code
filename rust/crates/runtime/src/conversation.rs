@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::bench::{BenchRecorder, EditOutcome};
 use crate::compact::{
     compact_session, estimate_session_tokens, should_compact, CompactionConfig, CompactionResult,
 };
@@ -127,6 +128,7 @@ pub struct ConversationRuntime<C, T> {
     model: Option<String>,
     model_hints: Option<ModelHints>,
     hook_manager: HookManager,
+    bench_recorder: Option<Arc<dyn BenchRecorder>>,
 }
 
 impl<C, T> ConversationRuntime<C, T>
@@ -161,7 +163,17 @@ where
             model: None,
             model_hints: None,
             hook_manager: HookManager::new(),
+            bench_recorder: None,
         }
+    }
+
+    /// Attach a benchmark recorder that observes tool-call parse outcomes and
+    /// `edit_file` apply outcomes. Production runs leave this unset, in which
+    /// case behavior is unchanged.
+    #[must_use]
+    pub fn with_bench_recorder(mut self, recorder: Arc<dyn BenchRecorder>) -> Self {
+        self.bench_recorder = Some(recorder);
+        self
     }
 
     #[must_use]
@@ -443,6 +455,13 @@ where
                 })
                 .collect::<Vec<_>>();
 
+            if let Some(recorder) = self.bench_recorder.as_ref() {
+                for (_id, name, input) in &pending_tool_uses {
+                    let parsed_ok = serde_json::from_str::<serde_json::Value>(input).is_ok();
+                    recorder.record_tool_call(name, input, parsed_ok);
+                }
+            }
+
             self.session.messages.push(assistant_message.clone());
             assistant_messages.push(assistant_message);
 
@@ -472,6 +491,7 @@ where
                 running.fetch_add(1, Ordering::Relaxed);
                 let executor = self.tool_executor.clone();
                 let hooks = self.hook_manager.clone();
+                let recorder = self.bench_recorder.clone();
                 let running_clone = running.clone();
 
                 let handle = std::thread::spawn(move || {
@@ -494,6 +514,7 @@ where
                             });
                             match executor.execute(&tool_name, &input) {
                                 Ok(output) => {
+                                    record_edit_outcome(recorder.as_ref(), &tool_name, Ok(()));
                                     hooks.dispatch(&HookEvent::PostTool {
                                         tool_name: &tool_name,
                                         tool_input: &input,
@@ -508,6 +529,7 @@ where
                                 }
                                 Err(error) => {
                                     let msg = error.message.clone();
+                                    record_edit_outcome(recorder.as_ref(), &tool_name, Err(&msg));
                                     hooks.dispatch(&HookEvent::ToolError {
                                         tool_name: &tool_name,
                                         tool_input: &input,
@@ -714,6 +736,31 @@ where
     }
 }
 
+/// Record the outcome of an `edit_file` tool call to the benchmark recorder, if
+/// one is attached. No-op for every other tool and when no recorder is present.
+/// Classification is coarse (the precise structured edit-failure signal is a
+/// later phase, B6); `result` is `Ok` when the tool returned success and `Err`
+/// carries the failure message.
+fn record_edit_outcome(
+    recorder: Option<&Arc<dyn BenchRecorder>>,
+    tool_name: &str,
+    result: Result<(), &str>,
+) {
+    let Some(recorder) = recorder else {
+        return;
+    };
+    if tool_name != "edit_file" {
+        return;
+    }
+    match result {
+        Ok(()) => recorder.record_edit(EditOutcome::Applied, "applied"),
+        Err(message) if message.contains("not found") => {
+            recorder.record_edit(EditOutcome::NoMatch, message);
+        }
+        Err(message) => recorder.record_edit(EditOutcome::Error, message),
+    }
+}
+
 pub(crate) fn build_assistant_message(
     events: Vec<AssistantEvent>,
 ) -> Result<(ConversationMessage, Option<TokenUsage>), RuntimeError> {
@@ -897,8 +944,9 @@ impl ToolExecutor for StaticToolExecutor {
 mod tests {
     use super::{
         ApiClient, ApiRequest, AssistantEvent, ConversationRuntime, RuntimeError,
-        StaticToolExecutor,
+        StaticToolExecutor, ToolError,
     };
+    use crate::bench::{BenchRecorder, EditOutcome};
     use crate::compact::CompactionConfig;
     use crate::permissions::{
         PermissionMode, PermissionPolicy, PermissionPromptDecision, PermissionPrompter,
@@ -908,6 +956,8 @@ mod tests {
     use crate::session::{ContentBlock, MessageRole, Session};
     use crate::usage::TokenUsage;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     struct ScriptedApiClient {
         call_count: usize,
@@ -1151,5 +1201,109 @@ mod tests {
             result.compacted_session.messages[0].role,
             MessageRole::System
         );
+    }
+
+    #[derive(Default)]
+    struct CountingRecorder {
+        tool_calls: AtomicUsize,
+        parsed_ok: AtomicUsize,
+        edits_applied: AtomicUsize,
+        edits_no_match: AtomicUsize,
+        edits_error: AtomicUsize,
+    }
+
+    impl BenchRecorder for CountingRecorder {
+        fn record_tool_call(&self, _tool_name: &str, _raw_input: &str, parsed_ok: bool) {
+            self.tool_calls.fetch_add(1, Ordering::Relaxed);
+            if parsed_ok {
+                self.parsed_ok.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        fn record_edit(&self, outcome: EditOutcome, _detail: &str) {
+            let counter = match outcome {
+                EditOutcome::Applied => &self.edits_applied,
+                EditOutcome::NoMatch => &self.edits_no_match,
+                EditOutcome::Error => &self.edits_error,
+            };
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Scripts a single `edit_file` tool call (with valid JSON args) on the first
+    /// API turn, then a plain text reply once the tool result returns.
+    struct ScriptedEditClient {
+        call_count: usize,
+    }
+
+    impl ApiClient for ScriptedEditClient {
+        fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+            self.call_count += 1;
+            if self.call_count == 1 {
+                Ok(vec![
+                    AssistantEvent::ToolUse {
+                        id: "edit-1".to_string(),
+                        name: "edit_file".to_string(),
+                        input: r#"{"path":"x.txt","old_string":"a","new_string":"b"}"#.to_string(),
+                    },
+                    AssistantEvent::MessageStop,
+                ])
+            } else {
+                Ok(vec![
+                    AssistantEvent::TextDelta("done".to_string()),
+                    AssistantEvent::MessageStop,
+                ])
+            }
+        }
+    }
+
+    #[test]
+    fn bench_recorder_counts_tool_call_and_applied_edit() {
+        let recorder = Arc::new(CountingRecorder::default());
+        let tool_executor =
+            StaticToolExecutor::new().register("edit_file", |_input| Ok("edited".to_string()));
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedEditClient { call_count: 0 },
+            tool_executor,
+            PermissionPolicy::new(PermissionMode::Allow),
+            vec!["system".to_string()],
+        )
+        .with_bench_recorder(recorder.clone());
+
+        runtime
+            .run_turn("edit the file", None)
+            .expect("loop should succeed");
+
+        assert_eq!(recorder.tool_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(recorder.parsed_ok.load(Ordering::Relaxed), 1);
+        assert_eq!(recorder.edits_applied.load(Ordering::Relaxed), 1);
+        assert_eq!(recorder.edits_no_match.load(Ordering::Relaxed), 0);
+        assert_eq!(recorder.edits_error.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn bench_recorder_classifies_no_match_edit() {
+        let recorder = Arc::new(CountingRecorder::default());
+        let tool_executor = StaticToolExecutor::new().register("edit_file", |_input| {
+            Err(ToolError::new("old_string not found in file"))
+        });
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedEditClient { call_count: 0 },
+            tool_executor,
+            PermissionPolicy::new(PermissionMode::Allow),
+            vec!["system".to_string()],
+        )
+        .with_bench_recorder(recorder.clone());
+
+        runtime
+            .run_turn("edit the file", None)
+            .expect("loop should succeed");
+
+        assert_eq!(recorder.tool_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(recorder.edits_applied.load(Ordering::Relaxed), 0);
+        assert_eq!(recorder.edits_no_match.load(Ordering::Relaxed), 1);
+        assert_eq!(recorder.edits_error.load(Ordering::Relaxed), 0);
     }
 }

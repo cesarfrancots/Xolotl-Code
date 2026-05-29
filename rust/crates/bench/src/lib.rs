@@ -13,3 +13,7 @@
 //! Isolation note (blocker B2): the runner rolls its own temp-dir isolation —
 //! it does **not** reuse `runtime::WorktreeManager`, which requires an existing
 //! git repository.
+
+pub mod recorder;
+
+pub use recorder::{CountingRecorder, Metrics};
