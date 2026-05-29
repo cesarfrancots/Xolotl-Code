@@ -1,0 +1,4 @@
+{
+  "category": "create-from-scratch",
+  "acceptance": { "kind": "file-contains", "path": "src/math.py", "substring": "def add(a, b)" }
+}

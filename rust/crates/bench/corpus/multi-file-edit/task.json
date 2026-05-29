@@ -1,0 +1,4 @@
+{
+  "category": "multi-file-edit",
+  "acceptance": { "kind": "file-contains", "path": "src/b.rs", "substring": "MAX: i32 = 20" }
+}

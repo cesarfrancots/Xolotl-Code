@@ -1,0 +1,1 @@
+Rename the private helper function `compute` to `calculate` everywhere it appears in `src/lib.rs`. The public function `total` must keep its exact signature and behavior — only the private helper's name changes.

@@ -1,0 +1,4 @@
+{
+  "category": "refactor-preserving-api",
+  "acceptance": { "kind": "command", "command": "cargo test" }
+}

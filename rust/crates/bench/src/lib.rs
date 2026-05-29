@@ -14,10 +14,12 @@
 //! it does **not** reuse `runtime::WorktreeManager`, which requires an existing
 //! git repository.
 
+pub mod corpus;
 pub mod recorder;
 pub mod report;
 pub mod runner;
 
+pub use corpus::{load_corpus, Acceptance, CorpusTask, TaskCategory};
 pub use recorder::{CountingRecorder, Metrics};
 pub use report::{BenchReport, ModelReport};
 pub use runner::{run_task, RealToolExecutor, RunOutcome, SeedFile, TaskSpec};

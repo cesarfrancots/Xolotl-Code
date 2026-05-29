@@ -1,0 +1,4 @@
+{
+  "category": "bugfix-with-failing-test",
+  "acceptance": { "kind": "command", "command": "python -m pytest -q" }
+}

@@ -1,0 +1,4 @@
+{
+  "category": "single-file-edit",
+  "acceptance": { "kind": "file-contains", "path": "src/lib.rs", "substring": "Hello {name}" }
+}
