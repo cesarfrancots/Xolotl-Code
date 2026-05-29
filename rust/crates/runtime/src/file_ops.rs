@@ -243,17 +243,29 @@ pub fn edit_file(
             "old_string and new_string must differ",
         ));
     }
-    if !original_file.contains(old_string) {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "old_string not found in file",
-        ));
-    }
-
-    let updated = if replace_all {
-        original_file.replace(old_string, new_string)
-    } else {
-        original_file.replacen(old_string, new_string, 1)
+    let updated = match crate::edit::apply_edit(
+        &original_file,
+        old_string,
+        new_string,
+        replace_all,
+        &crate::edit::default_ladder(),
+    ) {
+        crate::edit::EditApply::Applied(updated) => updated,
+        crate::edit::EditApply::NoMatch => {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "old_string not found in file",
+            ));
+        }
+        crate::edit::EditApply::Ambiguous(count) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "old_string matched ambiguously ({count} candidates); \
+                     add surrounding context to disambiguate"
+                ),
+            ));
+        }
     };
     fs::write(&absolute_path, &updated)?;
 

@@ -25,6 +25,7 @@ mod bootstrap;
 mod compact;
 mod config;
 mod conversation;
+mod edit;
 mod file_ops;
 mod hooks;
 mod json;
@@ -62,6 +63,7 @@ pub use conversation::{
     ApiClient, ApiRequest, AssistantEvent, ConversationRuntime, RuntimeError, StaticToolExecutor,
     ToolError, ToolExecutor, TurnSummary,
 };
+pub use edit::{apply_edit, default_ladder, EditApply, EditStrategy, ExactStrategy};
 pub use file_ops::{
     edit_file, file_info, glob_search, grep_search, list_directory, read_file, read_image_base64,
     write_file, DirEntry, EditFileOutput, FileInfoOutput, GlobSearchOutput, GrepSearchInput,
