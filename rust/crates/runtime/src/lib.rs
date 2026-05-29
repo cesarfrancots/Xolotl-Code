@@ -20,6 +20,7 @@
 )]
 
 mod bash;
+mod bench;
 mod bootstrap;
 mod compact;
 mod config;
@@ -47,6 +48,7 @@ pub use sdd::{Complexity, ComplexityDetector, InternalSpec, SddEngine, SddPhase,
 pub use tokenizer::estimate_tokens;
 
 pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
+pub use bench::{BenchRecorder, EditOutcome, SharedBenchRecorder};
 pub use bootstrap::{BootstrapPhase, BootstrapPlan};
 pub use compact::{
     compact_session, estimate_session_tokens, format_compact_summary,
