@@ -134,7 +134,9 @@ Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is
 >
 > **Phase 4 (Context & Cost Calibration) COMPLETE + SHIPPED** — CP 4.1–4.4 all DoD-green (runtime 280 tests, cli 62, clippy/fmt clean), tag `calibration-v1`, commit 5d5c557. Passed a phase-boundary adversarial-review workflow (12 findings, **0 confirmed** — all refuted; the B4 merge and the Claude/Bedrock compaction + threshold paths were verified byte-identical to before). **P4 deviations/decisions (intended):** (a) the pricing table (T-4.1.1) carries verified rates only for Claude tiers (control, unchanged) and DeepSeek (sourced from the desktop app's `tauri-app/src/lib/cost.ts`); kimi/minimax/glm/qwen are left **explicit unknown → $0** rather than invented — to be filled by the §5 live cost target. (b) Anthropic cache fix (T-4.1.0) lives in `rusty-claude-cli/src/main.rs` (`combine_anthropic_usage`), not `usage.rs` — the bug was in the CLI's stream consumer. (c) Per-family tokenizer only shifts OpenAI to o200k; all other families (incl. Claude) stay cl100k, so the control estimate is byte-identical. (d) Compaction was already largely model-aware via `with_model_hints`; CP 4.3 centralized it in `CompactionConfig::from_model_hints` and wired the per-family estimate in — Claude path unchanged. (e) Graphify retrieval (T-4.4.1, optional) is opt-in/no-op by default with no production caller yet.
 >
-> **To resume / next steps:** working order = P1 ✅ → P2 ✅ → P4 ✅ → **P3 (verify, in-loop per B3)** next → B7+B8+CP 0.2 corpus → P5 → P6. Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
+> **Phase 3 (Correctness Feedback Loop) COMPLETE + SHIPPED** — CP 3.1–3.3 all DoD-green (runtime 306 tests, cli 62, lsp 11, clippy/fmt clean incl. a dedicated `--features lsp` CI job), tag `feedback-loop-v1`, commit b77d838. Passed a phase-boundary adversarial review (15 findings, **4 confirmed and fixed**: percent_decode multibyte panic, ProcessVerifyRunner grandchild-hang, Python pyright-vs-pytest parser dispatch, pytest deepest-frame). **P3 notes:** verification is opt-in via `verify.post_edit:true` in `.claude/settings.json` (default off → control byte-identical); CP 3.3 LSP is a feature-flagged crate whose pure framing/protocol/digest are tested offline while live language-server runs + the agent-loop `get_diagnostics` tool registration are the integration boundary (deferred like live benchmarks).
+>
+> **To resume / next steps:** working order = P1 ✅ → P2 ✅ → P4 ✅ → P3 ✅ → **B7+B8+CP 0.2 corpus** next → P5 → P6. Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
 
 | CP | Title | Status | Depends on | Branch | Owns (file scope) | Parallel-safe with |
 |----|-------|--------|-----------|--------|-------------------|--------------------|
@@ -148,9 +150,9 @@ Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is
 | 2.2 | Tool-call re-prompt protocol | MERGED | 2.1 | direct→`main` | `runtime/src/toolcall/**`, `conversation.rs` | 4.x |
 | 2.3 | Text/XML fallback parser | MERGED | 2.1 | direct→`main` | `runtime/src/toolcall/**` | 4.x |
 | 2.4 | Per-model tool_choice | MERGED | 2.1 | direct→`main` | `model_hints.rs`, `openai.rs`, `bedrock.rs` (tool_choice only) | — |
-| 3.1 | Project command detection | TODO | 0.1 | `feat/p3-project-detect` | `rust/crates/runtime/src/verify/**` | 1.x, 2.x, 4.x |
-| 3.2 | Post-edit verification (in-loop, B3) | TODO | 3.1, 1.1 | `feat/p3-verify-hook` | `runtime/src/verify/**`, `conversation.rs` (in-loop step) | — |
-| 3.3 | LSP diagnostics (feature-flagged) | TODO | 3.2 | `feat/p3-lsp` | `rust/crates/lsp/**` | 4.x, 5.x |
+| 3.1 | Project command detection | MERGED | 0.1 | direct→`main` | `rust/crates/runtime/src/verify/**` | 1.x, 2.x, 4.x |
+| 3.2 | Post-edit verification (in-loop, B3) | MERGED | 3.1, 1.1 | direct→`main` | `runtime/src/verify/**`, `conversation.rs` (in-loop step) | — |
+| 3.3 | LSP diagnostics (feature-flagged) | MERGED | 3.2 | direct→`main` | `rust/crates/lsp/**` | 4.x, 5.x |
 | 4.1 | Pricing table + Anthropic cache fix (B4) | MERGED | — | direct→`main` | `runtime/src/usage.rs`, `rusty-claude-cli/src/main.rs` (usage plumbing) | 1.x, 2.x, 3.x |
 | 4.2 | Per-model tokenization | MERGED | — | direct→`main` | `runtime/src/tokenizer.rs` | 1.x, 2.x, 3.x |
 | 4.3 | Compaction calibration | MERGED | 4.2 | direct→`main` | `runtime/src/compact.rs` | 1.x, 2.x |
@@ -370,22 +372,22 @@ Tasks:
 
 ### Checkpoint 3.1 — Project command detection
 **Owns:** `rust/crates/runtime/src/verify/**`.
-- [ ] **T-3.1.1 — `verify/detect.rs` (D8).** Detect Cargo/npm/pyproject → resolve build/test/typecheck commands; allow `.claude/settings.json` override. Resolves the CLI TODO stubs. Test first: fixtures Rust/Node/Python → expected commands; override respected. Verify: `cargo test -p runtime`.
+- [x] **T-3.1.1 — `verify/detect.rs` (D8).** Detect Cargo/npm/pyproject → resolve build/test/typecheck commands; allow `.claude/settings.json` override. Resolves the CLI TODO stubs. Test first: fixtures Rust/Node/Python → expected commands; override respected. Verify: `cargo test -p runtime`.
 
 **CI Gate / DoD:** global DoD.
 
 ### Checkpoint 3.2 — Post-edit verification (in-loop, B3)
 **Owns:** `runtime/src/verify/**`, `conversation.rs` (in-loop step). Depends on 3.1, 1.1. *(Not `hooks.rs` — hooks can't inject; see B3.)*
-- [ ] **T-3.2.1 — Error parsers.** `verify/parse.rs`: cargo / tsc / pytest output → `{file, line, msg}`. Test first: recorded outputs → normalized diagnostics. Verify: `cargo test -p runtime`.
-- [ ] **T-3.2.2 — In-loop post-edit verification step (B3).** After edit tool execution (debounced), run the detected check from inside the loop in `conversation.rs`; on failure, append a synthetic tool-result/system message into the conversation for the next turn (same append path as normal tool results — NOT via a hook, which can't inject). Guardrails: opt-in per project, timeout, only-on-edit, max-frequency. Test first (with `ScriptedApiClient`): broken edit → check fails → failure surfaced to next turn; disabled → no behavior change. Verify: `cargo test -p runtime`.
+- [x] **T-3.2.1 — Error parsers.** `verify/parse.rs`: cargo / tsc / pytest output → `{file, line, msg}`. Test first: recorded outputs → normalized diagnostics. Verify: `cargo test -p runtime`.
+- [x] **T-3.2.2 — In-loop post-edit verification step (B3).** After edit tool execution (debounced), run the detected check from inside the loop in `conversation.rs`; on failure, append a synthetic tool-result/system message into the conversation for the next turn (same append path as normal tool results — NOT via a hook, which can't inject). Guardrails: opt-in per project, timeout, only-on-edit, max-frequency. Test first (with `ScriptedApiClient`): broken edit → check fails → failure surfaced to next turn; disabled → no behavior change. Verify: `cargo test -p runtime`.
 
 **CI Gate / DoD:** global DoD; fully disable-able with zero behavior change (control).
 **Benchmark Target:** post-edit error catch rate ≥ 70%; bugfix-subset completion ↑ (record).
 
 ### Checkpoint 3.3 — LSP diagnostics (feature-flagged)
 **Owns:** `rust/crates/lsp/**`. Depends on 3.2. **D6 reserved — confirm crate choice before starting.**
-- [ ] **T-3.3.1 — Minimal LSP client.** New `lsp` crate, JSON-RPC stdio mirroring `mcp.rs`; launch server per filetype (D7), subscribe `publishDiagnostics`. Behind `--features lsp`. Test first: fixture/recorded diagnostics → digest. Verify: `cargo test -p lsp --features lsp`.
-- [ ] **T-3.3.2 — `get_diagnostics` tool + post-edit digest into context.** Test first: digest formatting. Verify: `cargo test`.
+- [x] **T-3.3.1 — Minimal LSP client.** New `lsp` crate, JSON-RPC stdio mirroring `mcp.rs`; launch server per filetype (D7), subscribe `publishDiagnostics`. Behind `--features lsp`. Test first: fixture/recorded diagnostics → digest. Verify: `cargo test -p lsp --features lsp`.
+- [x] **T-3.3.2 — `get_diagnostics` tool + post-edit digest into context.** Test first: digest formatting. Verify: `cargo test`.
 
 **CI Gate / DoD:** global DoD; dedicated CI job builds `--features lsp`; default build unaffected.
 **Benchmark Target:** completion ↑ on compile-heavy tasks (record).
