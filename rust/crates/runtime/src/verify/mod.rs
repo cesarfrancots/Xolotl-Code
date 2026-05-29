@@ -7,7 +7,9 @@
 //! detection (`detect`) and, later, output parsing.
 
 mod detect;
+mod parse;
 
 pub use detect::{
     detect_project, resolve_verify_commands, ProjectKind, VerifyCommand, VerifyCommands,
 };
+pub use parse::{format_digest, parse_check_output, Diagnostic};
