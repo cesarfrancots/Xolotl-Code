@@ -40,11 +40,12 @@ mod subagent;
 mod supervisor;
 mod todo;
 mod tokenizer;
+mod toolcall;
 mod usage;
 mod web_fetch;
 
 pub use memory::{MemoryConfig, MemorySearchResult, MemorySystem, ObsidianVault, SessionNote};
-pub use model_hints::{EffortLevel, ModelHints};
+pub use model_hints::{EffortLevel, ModelHints, ToolChoiceMode};
 pub use sdd::{Complexity, ComplexityDetector, InternalSpec, SddEngine, SddPhase, SddState};
 pub use tokenizer::estimate_tokens;
 
@@ -103,5 +104,6 @@ pub use supervisor::{
 pub use todo::{
     todo_read, todo_write, TodoItem, TodoOutput, TodoPriority, TodoStatus, TodoWriteInput,
 };
+pub use toolcall::{repair_json, validate_against_schema};
 pub use usage::{TokenUsage, UsageTracker};
 pub use web_fetch::{web_fetch, web_search, SearchResult, WebFetchInput, WebFetchOutput};

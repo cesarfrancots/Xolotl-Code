@@ -133,6 +133,13 @@ pub struct ConversationRuntime<C, T> {
     /// (D4 = 2). Bounds re-prompt loops so a model stuck on a bad edit cannot
     /// burn the whole iteration budget.
     max_edit_retries: usize,
+    /// Consecutive turns where every tool call failed validation, tolerated
+    /// before the turn ends (D4 = 2).
+    max_toolcall_retries: usize,
+    /// Tool JSON schemas (by tool name) the loop validates calls against (B5:
+    /// passed in as data since `runtime` cannot import `tools`). Empty by
+    /// default → validation is skipped and behavior is unchanged.
+    tool_schemas: BTreeMap<String, serde_json::Value>,
 }
 
 impl<C, T> ConversationRuntime<C, T>
@@ -169,6 +176,8 @@ where
             hook_manager: HookManager::new(),
             bench_recorder: None,
             max_edit_retries: 2,
+            max_toolcall_retries: 2,
+            tool_schemas: BTreeMap::new(),
         }
     }
 
@@ -177,6 +186,26 @@ where
     #[must_use]
     pub fn with_max_edit_retries(mut self, max_edit_retries: usize) -> Self {
         self.max_edit_retries = max_edit_retries;
+        self
+    }
+
+    /// Set the number of consecutive all-tool-calls-invalid turns tolerated
+    /// before a turn ends (D4 default 2).
+    #[must_use]
+    pub fn with_max_toolcall_retries(mut self, max_toolcall_retries: usize) -> Self {
+        self.max_toolcall_retries = max_toolcall_retries;
+        self
+    }
+
+    /// Register tool JSON schemas (by tool name) for malformed-tool-call
+    /// validation (B5). The caller (CLI/Tauri) populates these from
+    /// `tools::mvp_tool_specs`. Tools without a schema are not validated.
+    #[must_use]
+    pub fn with_tool_schemas(
+        mut self,
+        schemas: impl IntoIterator<Item = (String, serde_json::Value)>,
+    ) -> Self {
+        self.tool_schemas = schemas.into_iter().collect();
         self
     }
 
@@ -398,6 +427,7 @@ where
         let mut tool_results = Vec::new();
         let mut iterations = 0;
         let mut consecutive_edit_failures = 0usize;
+        let mut consecutive_toolcall_failures = 0usize;
 
         let effective_max_iterations = self.model_hints.as_ref().map_or(self.max_iterations, |h| {
             h.effective_max_iterations(self.max_iterations)
@@ -458,7 +488,7 @@ where
             if let Some(usage) = usage {
                 self.usage_tracker.record(usage);
             }
-            let pending_tool_uses = assistant_message
+            let mut pending_tool_uses = assistant_message
                 .blocks
                 .iter()
                 .filter_map(|block| match block {
@@ -476,12 +506,70 @@ where
                 }
             }
 
+            // Salvage malformed-but-repairable tool-call arguments before
+            // execution (P2). Repair only rewrites the JSON used to run the
+            // tool — the assistant message above keeps the model's original
+            // text — and never fabricates values: valid JSON is returned
+            // unchanged, so the Claude/Bedrock happy path is byte-identical.
+            for (_id, _name, input) in &mut pending_tool_uses {
+                if let Some(repaired) = crate::toolcall::repair_json(input) {
+                    if repaired != *input {
+                        *input = repaired;
+                    }
+                }
+            }
+
             self.session.messages.push(assistant_message.clone());
             assistant_messages.push(assistant_message);
 
             if pending_tool_uses.is_empty() {
-                break;
+                // Text fallback (P2 CP 2.3, gated by hint — off by default): some
+                // models with weak native function-calling describe the call in
+                // prose. Recover it, attach a matching ToolUse to the assistant
+                // message (so the tool result has a partner), and execute it.
+                let recovered = if self
+                    .model_hints
+                    .as_ref()
+                    .is_some_and(|hints| hints.text_tool_fallback)
+                {
+                    assistant_messages
+                        .last()
+                        .map(message_text)
+                        .and_then(|text| crate::toolcall::parse_tool_call_from_text(&text))
+                } else {
+                    None
+                };
+                match recovered {
+                    Some(call) => {
+                        let id = format!("fallback-{iterations}");
+                        if let Some(last) = self.session.messages.last_mut() {
+                            last.blocks.push(ContentBlock::ToolUse {
+                                id: id.clone(),
+                                name: call.name.clone(),
+                                input: call.input.clone(),
+                            });
+                        }
+                        pending_tool_uses.push((id, call.name, call.input));
+                    }
+                    None => break,
+                }
             }
+
+            // Validate known tool calls (P2 CP 2.2). Calls that don't parse or
+            // fail schema validation become re-prompt tool results instead of
+            // executing; only valid calls proceed. Tools without a registered
+            // schema pass through unchanged (no control-path regression).
+            let mut toolcall_failures: Vec<(String, String, String)> = Vec::new();
+            pending_tool_uses.retain(|(id, name, input)| {
+                match validate_tool_call(name, input, &self.tool_schemas) {
+                    Ok(()) => true,
+                    Err(message) => {
+                        toolcall_failures.push((id.clone(), name.clone(), message));
+                        false
+                    }
+                }
+            });
+            let executed_count = pending_tool_uses.len();
 
             let authorized: Vec<_> = pending_tool_uses
                 .iter()
@@ -592,6 +680,20 @@ where
                 tool_results.push(result_message);
             }
 
+            // Append re-prompt results for tool calls that failed validation
+            // (P2 CP 2.2): each carries the exact parse/validation error plus a
+            // compact schema and "re-emit only the corrected call".
+            for (id, name, message) in &toolcall_failures {
+                let result = ConversationMessage::tool_result(
+                    id.clone(),
+                    name.clone(),
+                    message.clone(),
+                    true,
+                );
+                self.session.messages.push(result.clone());
+                tool_results.push(result);
+            }
+
             // Re-prompt cap (B6 / D4): a failed edit leaves an enriched,
             // tagged tool result in the conversation so the model can correct
             // on the next turn. But if edits keep failing with no progress, end
@@ -605,6 +707,18 @@ where
                 }
             } else {
                 consecutive_edit_failures = 0;
+            }
+
+            // Same cap for malformed tool calls (D4): if every tool call in a
+            // turn fails validation, terminate after `max_toolcall_retries`
+            // consecutive such turns instead of looping forever.
+            if !toolcall_failures.is_empty() && executed_count == 0 {
+                consecutive_toolcall_failures += 1;
+                if consecutive_toolcall_failures > self.max_toolcall_retries {
+                    break;
+                }
+            } else {
+                consecutive_toolcall_failures = 0;
             }
         }
 
@@ -786,6 +900,49 @@ where
 
         Ok(text)
     }
+}
+
+/// Validate a tool call against its registered schema (P2 CP 2.2). Returns
+/// `Ok(())` for tools with no schema (pass-through) and for valid calls;
+/// otherwise an actionable re-prompt message naming the problem, the compact
+/// schema, and "re-emit only the corrected call".
+fn validate_tool_call(
+    tool_name: &str,
+    input: &str,
+    schemas: &BTreeMap<String, serde_json::Value>,
+) -> Result<(), String> {
+    let Some(schema) = schemas.get(tool_name) else {
+        return Ok(());
+    };
+    let value: serde_json::Value = match serde_json::from_str(input) {
+        Ok(value) => value,
+        Err(err) => {
+            return Err(format!(
+                "tool '{tool_name}': arguments are not valid JSON ({err}). Expected fields — {}. \
+                 Re-emit ONLY the corrected tool call as valid JSON.",
+                crate::toolcall::describe_schema(schema)
+            ));
+        }
+    };
+    crate::toolcall::validate_against_schema(tool_name, &value, schema).map_err(|message| {
+        format!(
+            "{message}. Expected fields — {}. Re-emit ONLY the corrected tool call.",
+            crate::toolcall::describe_schema(schema)
+        )
+    })
+}
+
+/// Concatenate the text blocks of a message (for the text-tool fallback).
+fn message_text(message: &ConversationMessage) -> String {
+    message
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Classification of a tool execution for the edit re-prompt cap (B6).
@@ -1624,5 +1781,271 @@ mod tests {
         // (well before the 50-iteration ceiling).
         assert_eq!(summary.iterations, 3);
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// Executor that only succeeds when its input is valid JSON — used to prove
+    /// the loop repairs malformed args before dispatch.
+    #[derive(Clone)]
+    struct JsonValidatingExecutor;
+
+    impl ToolExecutor for JsonValidatingExecutor {
+        fn execute(&mut self, _tool_name: &str, input: &str) -> Result<String, ToolError> {
+            serde_json::from_str::<serde_json::Value>(input)
+                .map(|_| "ok".to_string())
+                .map_err(|e| ToolError::new(format!("invalid json: {e}")))
+        }
+    }
+
+    /// Emits a tool call whose JSON args are malformed (trailing comma) but
+    /// repairable, then a final text turn.
+    struct ScriptedMalformedToolClient {
+        call_count: usize,
+    }
+
+    impl ApiClient for ScriptedMalformedToolClient {
+        fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+            self.call_count += 1;
+            if self.call_count == 1 {
+                Ok(vec![
+                    AssistantEvent::ToolUse {
+                        id: "t1".to_string(),
+                        name: "noop".to_string(),
+                        // trailing comma → invalid JSON until repaired
+                        input: r#"{"path":"x.txt","value":1,}"#.to_string(),
+                    },
+                    AssistantEvent::MessageStop,
+                ])
+            } else {
+                Ok(vec![
+                    AssistantEvent::TextDelta("done".to_string()),
+                    AssistantEvent::MessageStop,
+                ])
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_but_repairable_tool_call_executes() {
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedMalformedToolClient { call_count: 0 },
+            JsonValidatingExecutor,
+            PermissionPolicy::new(PermissionMode::Allow),
+            vec!["system".to_string()],
+        );
+
+        let summary = runtime.run_turn("go", None).expect("loop ok");
+
+        // The repaired (valid) JSON reached the executor, so the tool result is
+        // a success, not a JSON parse error.
+        let succeeded = summary.tool_results.iter().any(|message| {
+            message.blocks.iter().any(|block| {
+                matches!(
+                    block,
+                    ContentBlock::ToolResult {
+                        is_error: false,
+                        ..
+                    }
+                )
+            })
+        });
+        assert!(succeeded, "repaired tool call should have executed cleanly");
+        let errored = summary.tool_results.iter().any(|message| {
+            message
+                .blocks
+                .iter()
+                .any(|block| matches!(block, ContentBlock::ToolResult { is_error: true, .. }))
+        });
+        assert!(!errored, "no tool result should be an error");
+    }
+
+    fn demo_schema() -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": { "path": { "type": "string" } },
+            "required": ["path"]
+        })
+    }
+
+    /// Emits a call missing a required field, then a valid one, then text.
+    struct ScriptedInvalidThenValid {
+        call_count: usize,
+    }
+
+    impl ApiClient for ScriptedInvalidThenValid {
+        fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+            self.call_count += 1;
+            match self.call_count {
+                1 => Ok(vec![
+                    AssistantEvent::ToolUse {
+                        id: "t1".to_string(),
+                        name: "demo".to_string(),
+                        input: r#"{"wrong":"x"}"#.to_string(),
+                    },
+                    AssistantEvent::MessageStop,
+                ]),
+                2 => Ok(vec![
+                    AssistantEvent::ToolUse {
+                        id: "t2".to_string(),
+                        name: "demo".to_string(),
+                        input: r#"{"path":"x"}"#.to_string(),
+                    },
+                    AssistantEvent::MessageStop,
+                ]),
+                _ => Ok(vec![
+                    AssistantEvent::TextDelta("done".to_string()),
+                    AssistantEvent::MessageStop,
+                ]),
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_tool_call_reprompts_then_model_corrects() {
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedInvalidThenValid { call_count: 0 },
+            JsonValidatingExecutor,
+            PermissionPolicy::new(PermissionMode::Allow),
+            vec!["system".to_string()],
+        )
+        .with_tool_schemas([("demo".to_string(), demo_schema())]);
+
+        let summary = runtime.run_turn("go", None).expect("loop ok");
+
+        // invalid (re-prompt) → valid (execute) → text = 3 iterations.
+        assert_eq!(summary.iterations, 3);
+        // The re-prompt named the missing required field.
+        let reprompted = summary.tool_results.iter().any(|message| {
+            message.blocks.iter().any(|block| {
+                matches!(block, ContentBlock::ToolResult { output, is_error: true, .. }
+                    if output.contains("path"))
+            })
+        });
+        assert!(reprompted, "expected a validation re-prompt naming 'path'");
+        // And the corrected call executed.
+        let executed = summary.tool_results.iter().any(|message| {
+            message.blocks.iter().any(|block| {
+                matches!(
+                    block,
+                    ContentBlock::ToolResult {
+                        is_error: false,
+                        ..
+                    }
+                )
+            })
+        });
+        assert!(executed, "corrected call should have executed");
+    }
+
+    struct ScriptedAlwaysInvalid;
+
+    impl ApiClient for ScriptedAlwaysInvalid {
+        fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+            Ok(vec![
+                AssistantEvent::ToolUse {
+                    id: "t".to_string(),
+                    name: "demo".to_string(),
+                    input: r#"{"wrong":"x"}"#.to_string(),
+                },
+                AssistantEvent::MessageStop,
+            ])
+        }
+    }
+
+    #[test]
+    fn repeated_invalid_tool_calls_terminate_at_cap() {
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedAlwaysInvalid,
+            JsonValidatingExecutor,
+            PermissionPolicy::new(PermissionMode::Allow),
+            vec!["system".to_string()],
+        )
+        .with_tool_schemas([("demo".to_string(), demo_schema())])
+        .with_max_toolcall_retries(2)
+        .with_max_iterations(50);
+
+        let summary = runtime
+            .run_turn("go", None)
+            .expect("turn should terminate via the cap, not error out");
+
+        // initial + 2 retries = 3, then the cap ends the turn.
+        assert_eq!(summary.iterations, 3);
+    }
+
+    /// Describes a tool call in plain text (no native ToolUse), then says done.
+    struct ScriptedTextToolClient {
+        call_count: usize,
+    }
+
+    impl ApiClient for ScriptedTextToolClient {
+        fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+            self.call_count += 1;
+            if self.call_count == 1 {
+                Ok(vec![
+                    AssistantEvent::TextDelta(
+                        "I'll call: {\"name\": \"noop\", \"arguments\": {\"x\": 1}}".to_string(),
+                    ),
+                    AssistantEvent::MessageStop,
+                ])
+            } else {
+                Ok(vec![
+                    AssistantEvent::TextDelta("done".to_string()),
+                    AssistantEvent::MessageStop,
+                ])
+            }
+        }
+    }
+
+    #[test]
+    fn text_described_tool_call_is_recovered_when_enabled() {
+        let mut hints = crate::ModelHints::for_model("generic");
+        hints.text_tool_fallback = true;
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedTextToolClient { call_count: 0 },
+            JsonValidatingExecutor,
+            PermissionPolicy::new(PermissionMode::Allow),
+            vec!["system".to_string()],
+        )
+        .with_model_hints(hints);
+
+        let summary = runtime.run_turn("go", None).expect("loop ok");
+
+        let executed = summary.tool_results.iter().any(|message| {
+            message.blocks.iter().any(|block| {
+                matches!(
+                    block,
+                    ContentBlock::ToolResult {
+                        is_error: false,
+                        ..
+                    }
+                )
+            })
+        });
+        assert!(
+            executed,
+            "fallback should recover and execute the text tool call"
+        );
+        // text-with-tool (recovered+executed) then final text = 2 iterations.
+        assert_eq!(summary.iterations, 2);
+    }
+
+    #[test]
+    fn text_tool_call_ignored_when_fallback_disabled() {
+        // No model hints → fallback is off → the text-only turn just ends.
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedTextToolClient { call_count: 0 },
+            JsonValidatingExecutor,
+            PermissionPolicy::new(PermissionMode::Allow),
+            vec!["system".to_string()],
+        );
+
+        let summary = runtime.run_turn("go", None).expect("loop ok");
+
+        assert_eq!(summary.iterations, 1);
+        assert!(summary.tool_results.is_empty());
     }
 }

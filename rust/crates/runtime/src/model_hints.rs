@@ -121,6 +121,48 @@ pub struct ModelHints {
     /// Which edit-ladder rungs are enabled for this model. Defaults to
     /// exact + whitespace + fuzzy (anchored is opt-in; see `EditStrategySet`).
     pub enabled_edit_strategies: EditStrategySet,
+    /// Recover tool calls described in assistant *text* when no native tool-use
+    /// block is emitted (P2 CP 2.3). Off by default; opt-in for models with
+    /// weak native function-calling.
+    pub text_tool_fallback: bool,
+    /// How the provider's `tool_choice` is set (P2 CP 2.4). Defaults to `Auto`,
+    /// keeping the Claude/Bedrock/OpenAI happy path unchanged.
+    pub tool_choice_mode: ToolChoiceMode,
+}
+
+/// Per-model `tool_choice` policy (P2 CP 2.4). Maps to each provider's wire
+/// value. `Auto` lets the model decide (the default everywhere).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ToolChoiceMode {
+    /// The model decides whether to call a tool.
+    #[default]
+    Auto,
+    /// The model must call some tool this turn.
+    Required,
+    /// The model may not call tools.
+    None,
+}
+
+impl ToolChoiceMode {
+    /// The OpenAI-compatible `tool_choice` string.
+    #[must_use]
+    pub fn openai_value(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Required => "required",
+            Self::None => "none",
+        }
+    }
+
+    /// The Anthropic / Anthropic-on-Bedrock `tool_choice` `type`.
+    #[must_use]
+    pub fn anthropic_type(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Required => "any",
+            Self::None => "none",
+        }
+    }
 }
 
 impl ModelHints {
@@ -197,6 +239,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         } else if model_lower.contains("glm")
             || model_lower.contains("glm5.1")
@@ -230,6 +274,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         } else if model_lower.contains("qwen") {
             Self {
@@ -259,6 +305,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         } else if model_lower.contains("deepseek") {
             Self {
@@ -290,6 +338,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         } else if model_lower.contains("opus") {
             Self {
@@ -320,6 +370,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         } else if model_lower.contains("sonnet") {
             Self {
@@ -349,6 +401,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         } else if model_lower.contains("haiku") {
             Self {
@@ -378,6 +432,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         } else if model_lower.contains("bedrock") || model_lower.contains("anthropic") {
             Self {
@@ -403,6 +459,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         } else if model_lower.contains("gpt") || model_lower.contains("openai") {
             Self {
@@ -428,6 +486,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         } else if model_lower.contains("kimi-coding")
             || model_lower == "k2.6"
@@ -489,6 +549,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         } else if model_lower.contains("kimi") || model_lower.contains("moonshot") {
             Self {
@@ -518,6 +580,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         } else {
             Self {
@@ -542,6 +606,8 @@ impl ModelHints {
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
                 enabled_edit_strategies: EditStrategySet::default(),
+                text_tool_fallback: false,
+                tool_choice_mode: ToolChoiceMode::Auto,
             }
         }
     }
@@ -844,6 +910,22 @@ mod tests {
         assert!(!hints.supports_ultra_planning);
         assert_eq!(hints.max_plan_phases, 4);
         assert_eq!(hints.plan_thinking_budget, 18_000);
+    }
+
+    #[test]
+    fn default_tool_choice_is_auto_per_provider() {
+        let hints = ModelHints::for_model("sonnet");
+        assert_eq!(hints.tool_choice_mode, ToolChoiceMode::Auto);
+        assert_eq!(hints.tool_choice_mode.openai_value(), "auto");
+        assert_eq!(hints.tool_choice_mode.anthropic_type(), "auto");
+    }
+
+    #[test]
+    fn tool_choice_modes_map_to_provider_wire_values() {
+        assert_eq!(ToolChoiceMode::Required.openai_value(), "required");
+        assert_eq!(ToolChoiceMode::Required.anthropic_type(), "any");
+        assert_eq!(ToolChoiceMode::None.openai_value(), "none");
+        assert_eq!(ToolChoiceMode::None.anthropic_type(), "none");
     }
 
     #[test]
