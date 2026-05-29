@@ -15,7 +15,9 @@
 //! git repository.
 
 pub mod recorder;
+pub mod report;
 pub mod runner;
 
 pub use recorder::{CountingRecorder, Metrics};
+pub use report::{BenchReport, ModelReport};
 pub use runner::{run_task, RealToolExecutor, RunOutcome, SeedFile, TaskSpec};
