@@ -120,6 +120,7 @@ Verified against the source on 2026-05-28. **Trust these over your priors;** re-
 - **B4 — Anthropic cache tokens are hardcoded to `0`.** In `AnthropicRuntimeClient` (`main.rs`, `MessageDelta` handler) `cache_creation_input_tokens`/`cache_read_input_tokens` are set to `0`, though `api::Usage` carries them and Anthropic returns them (cache fields arrive on `message_start`'s usage). **P4 fixes this first (T-4.1.0)** or Claude — the control — has zero cache accounting.
 - **B5 — `runtime` cannot import `tools` (circular).** P2's repair/validate lives in `runtime` and must validate against the tool definitions **already carried in the `ApiRequest`** the runtime assembles (schemas travel as JSON to the model), not by importing `tools::mvp_tool_specs()`. If the request does not already expose schemas to `runtime`, pass them into `ConversationRuntime` as data (T-2.1.2 covers this).
 - **B6 — Edit failure needs a structured signal.** Tools return `Result<String, String>`, so `runtime` can't distinguish "edit `NoMatch` → re-prompt with file content" from a generic error. P1.4.2 introduces a **structured/recognizable edit-failure signal** (a typed error or reserved machine-readable marker in the tool result), defined in `runtime` (per B1), so the loop detects it without parsing prose.
+- **B7 — Real `ApiClient` impls live in a binary-only crate (discovered during CP 0.1; BLOCKS CP 0.2's live runs).** `AnthropicRuntimeClient`/`openai`/`bedrock` are defined in `rusty-claude-cli`, which has **only `src/main.rs` (no `lib.rs`)**, so the `bench` crate cannot import them. The CP 0.1 runner is therefore generic over `runtime::ApiClient` and is exercised offline with a scripted client. **Before CP 0.2 can run a live baseline, the provider HTTP clients must be reachable as a library** — options: (a) add a `lib.rs` to `rusty-claude-cli` re-exporting the client impls; (b) extract the HTTP clients into a new `providers` crate that both the CLI and `bench` depend on (cleaner, but larger); (c) move them into `runtime` (rejected — keeps `runtime` HTTP-free by design). **Decision reserved for the human** (it reshapes crate boundaries). Default if unreserved at 0.2 start: option (a), the least invasive.
 
 ---
 
@@ -128,7 +129,9 @@ Verified against the source on 2026-05-28. **Trust these over your priors;** re-
 
 Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is how any agent resumes.
 
-> **Current focus (updated 2026-05-28):** Checkpoint **0.1** (Bench harness skeleton) is `IN-PROGRESS` on branch `feat/p0-bench-harness`. Per-task progress is tracked with `[ ]`/`[x]` checkboxes in each checkpoint's task list below. Work is local-only (not pushed). Next unblocked after 0.1 merges: 0.2, and the parallel-safe 1.1 / 2.1 / 3.1 / 4.1.
+> **Current focus (updated 2026-05-28):** Checkpoint **0.1** (Bench harness skeleton) is **code-complete and DoD-green locally** on branch `feat/p0-bench-harness` — all four tasks (T-0.1.1–0.1.4) done and checked. Status stays `IN-PROGRESS` (not `MERGED`) because it has **not been pushed/merged** (no push authorized yet). Local DoD verified: `cargo fmt --all --check`, `cargo clippy --workspace --all-features --exclude compat-harness -- -D warnings`, `cargo build --workspace`, `cargo test --workspace --exclude compat-harness` (runtime 166 incl. +2 recorder tests, bench 7), and `cargo run -p bench -- --help` exit 0. Claude/Bedrock control path unchanged (recorder is `None` by default).
+>
+> **To resume / next steps:** (1) When authorized, push `feat/p0-bench-harness`, open the PR, and on green CI set this row to `MERGED` + tag `bench-baseline-v0` only after 0.2. (2) **Before CP 0.2** resolve blocker **B7** (real `ApiClient` impls are in the binary-only `rusty-claude-cli` crate — the bench runner can't reach them for live runs). (3) Then CP **0.2** (corpus + baseline) plus the parallel-safe 1.1 / 2.1 / 3.1 / 4.1. Per-task progress is tracked with `[ ]`/`[x]` checkboxes below.
 
 | CP | Title | Status | Depends on | Branch | Owns (file scope) | Parallel-safe with |
 |----|-------|--------|-----------|--------|-------------------|--------------------|
@@ -537,7 +540,7 @@ Tasks:
 | Anthropic runtime client (cache-0 bug, B4) | `impl ApiClient for AnthropicRuntimeClient`, `MessageDelta` | `rust/crates/rusty-claude-cli/src/main.rs` |
 | Tool spec / schema struct | `struct ToolSpec`, `mvp_tool_specs` | `rust/crates/tools/src/lib.rs` |
 | Tool dispatch | `fn execute_tool` | `rust/crates/tools/src/lib.rs` |
-| Edit apply | `fn edit_file` | `rust/crates/tools/src/lib.rs` |
+| Edit apply (corrected CP 0.1) | `fn edit_file` | `rust/crates/runtime/src/file_ops.rs` (NOT `tools/src/lib.rs`; `tools` only wraps it via `run_edit_file`/`execute_tool`) |
 | Conversation loop / tool extraction | `fn run`, tool-use extraction, retry/backoff | `rust/crates/runtime/src/conversation.rs` |
 | Auto-compaction | `compact`, context-window check | `runtime/src/compact.rs`, `conversation.rs` |
 | Token estimate | `estimate_tokens` | `runtime/src/tokenizer.rs` |

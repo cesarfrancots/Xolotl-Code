@@ -28,9 +28,9 @@ impl ModelReport {
     pub fn aggregate(model: impl Into<String>, outcomes: &[RunOutcome]) -> Self {
         let tasks_total = outcomes.len();
         let tasks_completed = outcomes.iter().filter(|outcome| outcome.completed).count();
-        let metrics = outcomes
-            .iter()
-            .fold(Metrics::default(), |acc, outcome| acc.merged(outcome.metrics));
+        let metrics = outcomes.iter().fold(Metrics::default(), |acc, outcome| {
+            acc.merged(outcome.metrics)
+        });
         Self {
             model: model.into(),
             tasks_total,
