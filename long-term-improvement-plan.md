@@ -132,7 +132,9 @@ Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is
 
 > **Current focus (updated 2026-05-29):** Autonomous full-plan execution authorized — implementing every phase to DoD-green and **pushing each phase directly to `main`** (not via PR). CP **0.1 MERGED** (PR #3). **Phase 1 (Resilient Edit) COMPLETE + SHIPPED** — tag `edit-layer-v1`, commit d4fcecc. **Phase 2 (Malformed Tool-Call Recovery) COMPLETE + SHIPPED** — CP 2.1–2.4 all DoD-green (runtime 265 tests, clippy/fmt clean), tag `toolcall-recovery-v1`, commit 48b7682. **P2 deviations (intended):** CP 2.4 scoped to `openai.rs` + `bedrock.rs` only (Anthropic/Claude client left at `Auto` to keep the control byte-identical, per plan); the toolcall module lives in `runtime/src/toolcall/` (B5: validates against schemas carried as data via `with_tool_schemas`, never imports `tools`). The text/XML fallback parser (CP 2.3) is gated off by default (`ModelHints.text_tool_fallback = false`) so Claude is unaffected. Both P1 and P2 passed a phase-boundary adversarial-review workflow (15 + 12 confirmed findings, all fixed before push).
 >
-> **To resume / next steps:** working order = P1 ✅ → P2 ✅ → **P4 (calibration, incl. B4 Claude-cache fix)** next → P3 (verify) → B7+B8+CP 0.2 corpus → P5 → P6. Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
+> **Phase 4 (Context & Cost Calibration) COMPLETE + SHIPPED** — CP 4.1–4.4 all DoD-green (runtime 280 tests, cli 62, clippy/fmt clean), tag `calibration-v1`, commit 5d5c557. Passed a phase-boundary adversarial-review workflow (12 findings, **0 confirmed** — all refuted; the B4 merge and the Claude/Bedrock compaction + threshold paths were verified byte-identical to before). **P4 deviations/decisions (intended):** (a) the pricing table (T-4.1.1) carries verified rates only for Claude tiers (control, unchanged) and DeepSeek (sourced from the desktop app's `tauri-app/src/lib/cost.ts`); kimi/minimax/glm/qwen are left **explicit unknown → $0** rather than invented — to be filled by the §5 live cost target. (b) Anthropic cache fix (T-4.1.0) lives in `rusty-claude-cli/src/main.rs` (`combine_anthropic_usage`), not `usage.rs` — the bug was in the CLI's stream consumer. (c) Per-family tokenizer only shifts OpenAI to o200k; all other families (incl. Claude) stay cl100k, so the control estimate is byte-identical. (d) Compaction was already largely model-aware via `with_model_hints`; CP 4.3 centralized it in `CompactionConfig::from_model_hints` and wired the per-family estimate in — Claude path unchanged. (e) Graphify retrieval (T-4.4.1, optional) is opt-in/no-op by default with no production caller yet.
+>
+> **To resume / next steps:** working order = P1 ✅ → P2 ✅ → P4 ✅ → **P3 (verify, in-loop per B3)** next → B7+B8+CP 0.2 corpus → P5 → P6. Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
 
 | CP | Title | Status | Depends on | Branch | Owns (file scope) | Parallel-safe with |
 |----|-------|--------|-----------|--------|-------------------|--------------------|
@@ -149,10 +151,10 @@ Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is
 | 3.1 | Project command detection | TODO | 0.1 | `feat/p3-project-detect` | `rust/crates/runtime/src/verify/**` | 1.x, 2.x, 4.x |
 | 3.2 | Post-edit verification (in-loop, B3) | TODO | 3.1, 1.1 | `feat/p3-verify-hook` | `runtime/src/verify/**`, `conversation.rs` (in-loop step) | — |
 | 3.3 | LSP diagnostics (feature-flagged) | TODO | 3.2 | `feat/p3-lsp` | `rust/crates/lsp/**` | 4.x, 5.x |
-| 4.1 | Pricing table + Anthropic cache fix (B4) | TODO | — | `feat/p4-pricing` | `runtime/src/usage.rs`, `rusty-claude-cli/src/main.rs` (usage plumbing) | 1.x, 2.x, 3.x |
-| 4.2 | Per-model tokenization | TODO | — | `feat/p4-tokenizer` | `runtime/src/tokenizer.rs` | 1.x, 2.x, 3.x |
-| 4.3 | Compaction calibration | TODO | 4.2 | `feat/p4-compaction` | `runtime/src/compact.rs` | 1.x, 2.x |
-| 4.4 | graphify retrieval (optional) | TODO | — | `feat/p4-graphify-retrieval` | `runtime/src/` (new retrieval mod) | 1.x, 2.x |
+| 4.1 | Pricing table + Anthropic cache fix (B4) | MERGED | — | direct→`main` | `runtime/src/usage.rs`, `rusty-claude-cli/src/main.rs` (usage plumbing) | 1.x, 2.x, 3.x |
+| 4.2 | Per-model tokenization | MERGED | — | direct→`main` | `runtime/src/tokenizer.rs` | 1.x, 2.x, 3.x |
+| 4.3 | Compaction calibration | MERGED | 4.2 | direct→`main` | `runtime/src/compact.rs` | 1.x, 2.x |
+| 4.4 | graphify retrieval (optional) | MERGED | — | direct→`main` | `runtime/src/retrieval.rs` (new) | 1.x, 2.x |
 | 5.1 | Headless NDJSON protocol | TODO | — | `feat/p5-headless` | `rusty-claude-cli/src/` (new), `runtime` events (read-only) | 1.x, 4.x |
 | 5.2 | MCP server | TODO | 5.1 | `feat/p5-mcp-server` | `rust/crates/mcp-server/**` | 1.x, 4.x |
 | 5.3 | Bash sandboxing | TODO | — | `feat/p5-sandbox` | `runtime/src/permissions.rs`, bash tool | 1.x, 4.x |
@@ -402,28 +404,28 @@ Tasks:
 
 ### Checkpoint 4.1 — Per-provider pricing + Anthropic cache-usage fix
 **Owns:** `runtime/src/usage.rs`, `rusty-claude-cli/src/main.rs` (Anthropic usage plumbing only).
-- [ ] **T-4.1.0 — Fix Anthropic cache-token plumbing (B4) — DO THIS FIRST.** In `AnthropicRuntimeClient` (`main.rs`), the `MessageDelta` handler hardcodes `cache_creation_input_tokens`/`cache_read_input_tokens` to `0`. Read them from the stream — Anthropic returns cache fields in the `message_start` usage (and output in `message_delta`); accumulate both into the emitted `TokenUsage`. Without this, Claude (the control) reports zero cache usage and cost. Test first: a `ScriptedApiClient`/SSE fixture carrying cache tokens → emitted `TokenUsage` preserves them. Verify: `cargo test`.
-- [ ] **T-4.1.1 — Replace `contains()` ladder with a data table** keyed by model id (input/output/cache-write/cache-read + "last verified" date) for every README-matrix provider. Unknown model → explicit "unknown" (not Opus). Test first: per-model lookup; unknown → unknown. Verify: `cargo test -p runtime`.
+- [x] **T-4.1.0 — Fix Anthropic cache-token plumbing (B4) — DO THIS FIRST.** In `AnthropicRuntimeClient` (`main.rs`), the `MessageDelta` handler hardcodes `cache_creation_input_tokens`/`cache_read_input_tokens` to `0`. Read them from the stream — Anthropic returns cache fields in the `message_start` usage (and output in `message_delta`); accumulate both into the emitted `TokenUsage`. Without this, Claude (the control) reports zero cache usage and cost. Test first: a `ScriptedApiClient`/SSE fixture carrying cache tokens → emitted `TokenUsage` preserves them. Verify: `cargo test`.
+- [x] **T-4.1.1 — Replace `contains()` ladder with a data table** keyed by model id (input/output/cache-write/cache-read + "last verified" date) for every README-matrix provider. Unknown model → explicit "unknown" (not Opus). Test first: per-model lookup; unknown → unknown. Verify: `cargo test -p runtime`.
 
 **CI Gate / DoD:** global DoD. *(T-4.1.0 fixes Claude cache accounting; T-4.1.1 fixes the leaderboard cost axis.)*
 **Benchmark Target:** cost error ≤ 2% vs a real provider usage page (record manually).
 
 ### Checkpoint 4.2 — Per-model tokenization
 **Owns:** `runtime/src/tokenizer.rs`.
-- [ ] **T-4.2.1 — Encoder selection by model family; provider-reported usage as truth for accounting** (estimates only for pre-send budgeting; OAI usage already parsed — locate usage fields in `openai.rs`). Test first: family→encoder; reported usage overrides estimate. Verify: `cargo test -p runtime`.
+- [x] **T-4.2.1 — Encoder selection by model family; provider-reported usage as truth for accounting** (estimates only for pre-send budgeting; OAI usage already parsed — locate usage fields in `openai.rs`). Test first: family→encoder; reported usage overrides estimate. Verify: `cargo test -p runtime`.
 
 **CI Gate / DoD:** global DoD.
 **Benchmark Target:** token-count error ≤ 5% (record).
 
 ### Checkpoint 4.3 — Compaction calibration
 **Owns:** `runtime/src/compact.rs`. Depends on 4.2.
-- [ ] **T-4.3.1 — Threshold from `model_hints` context window** (not a global 120K). Test first: synthetic 900K-token session on a 1M-context model does NOT compact at 120K. Verify: `cargo test -p runtime`.
+- [x] **T-4.3.1 — Threshold from `model_hints` context window** (not a global 120K). Test first: synthetic 900K-token session on a 1M-context model does NOT compact at 120K. Verify: `cargo test -p runtime`.
 
 **CI Gate / DoD:** global DoD.
 
 ### Checkpoint 4.4 — graphify retrieval (optional)
 **Owns:** new retrieval module in `runtime/src/`.
-- [ ] **T-4.4.1 — Optional read-only retrieval** consulting `graphify-out/` (god nodes/community map) to target reads on large repos; opt-in flag. Test first: retrieval returns ranked files for a fixture graph; absent graph → no-op. Verify: `cargo test -p runtime`.
+- [x] **T-4.4.1 — Optional read-only retrieval** consulting `graphify-out/` (god nodes/community map) to target reads on large repos; opt-in flag. Test first: retrieval returns ranked files for a fixture graph; absent graph → no-op. Verify: `cargo test -p runtime`.
 
 **CI Gate / DoD:** global DoD; opt-in, no default behavior change.
 **Tag on merge:** `calibration-v1`.
