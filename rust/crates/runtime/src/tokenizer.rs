@@ -47,9 +47,7 @@ pub fn estimate_tokens_for_family(text: &str, family: ModelFamily) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        encoding_name_for_family, estimate_tokens, estimate_tokens_for_family,
-    };
+    use super::{encoding_name_for_family, estimate_tokens, estimate_tokens_for_family};
     use crate::model_hints::ModelFamily;
 
     #[test]
