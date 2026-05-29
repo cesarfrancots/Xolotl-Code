@@ -4,6 +4,7 @@
 //! message}` records so the post-edit verification step can feed the model a
 //! compact, structured failure digest instead of raw console noise.
 
+use std::fmt::Write as _;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -160,13 +161,13 @@ pub fn format_digest(diagnostics: &[Diagnostic], limit: usize) -> String {
             (true, _) => String::new(),
         };
         if location.is_empty() {
-            out.push_str(&format!("- {}\n", diag.message));
+            let _ = writeln!(out, "- {}", diag.message);
         } else {
-            out.push_str(&format!("- {}: {}\n", location, diag.message));
+            let _ = writeln!(out, "- {location}: {}", diag.message);
         }
     }
     if diagnostics.len() > limit {
-        out.push_str(&format!("- ... and {} more\n", diagnostics.len() - limit));
+        let _ = writeln!(out, "- ... and {} more", diagnostics.len() - limit);
     }
     out
 }

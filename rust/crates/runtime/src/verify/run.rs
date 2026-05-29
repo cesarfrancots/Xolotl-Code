@@ -4,6 +4,7 @@
 //! The runner is a trait so the in-loop verification step can be unit-tested
 //! with canned results instead of spawning real `cargo`/`tsc`/`pytest`.
 
+use std::fmt::Write as _;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -90,10 +91,11 @@ impl VerifyRunner for ProcessVerifyRunner {
             output.push_str(&err);
         }
         if timed_out {
-            output.push_str(&format!(
+            let _ = write!(
+                output,
                 "\n[verification timed out after {}s]",
                 timeout.as_secs()
-            ));
+            );
         }
         VerifyOutcome {
             success: !timed_out && exit_success,
@@ -182,8 +184,10 @@ impl VerifyConfig {
             .get("min_iterations_between")
             .and_then(JsonValue::as_i64)
         {
-            if n >= 1 {
-                cfg.min_iterations_between = n.unsigned_abs() as usize;
+            if let Ok(n) = usize::try_from(n) {
+                if n >= 1 {
+                    cfg.min_iterations_between = n;
+                }
             }
         }
         Some(cfg)
