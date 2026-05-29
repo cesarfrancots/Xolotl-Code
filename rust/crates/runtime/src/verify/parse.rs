@@ -207,9 +207,7 @@ pub fn format_digest(diagnostics: &[Diagnostic], limit: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        format_digest, parse_cargo, parse_check_output, parse_pyright, parse_pytest, parse_tsc,
-    };
+    use super::{format_digest, parse_cargo, parse_check_output, parse_pytest, parse_tsc};
     use crate::verify::ProjectKind;
 
     #[test]
