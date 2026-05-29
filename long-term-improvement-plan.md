@@ -136,12 +136,14 @@ Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is
 >
 > **Phase 3 (Correctness Feedback Loop) COMPLETE + SHIPPED** — CP 3.1–3.3 all DoD-green (runtime 306 tests, cli 62, lsp 11, clippy/fmt clean incl. a dedicated `--features lsp` CI job), tag `feedback-loop-v1`, commit b77d838. Passed a phase-boundary adversarial review (15 findings, **4 confirmed and fixed**: percent_decode multibyte panic, ProcessVerifyRunner grandchild-hang, Python pyright-vs-pytest parser dispatch, pytest deepest-frame). **P3 notes:** verification is opt-in via `verify.post_edit:true` in `.claude/settings.json` (default off → control byte-identical); CP 3.3 LSP is a feature-flagged crate whose pure framing/protocol/digest are tested offline while live language-server runs + the agent-loop `get_diagnostics` tool registration are the integration boundary (deferred like live benchmarks).
 >
-> **To resume / next steps:** working order = P1 ✅ → P2 ✅ → P4 ✅ → P3 ✅ → **B7+B8+CP 0.2 corpus** next → P5 → P6. Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
+> **CP 0.2 CI-gate COMPLETE (`MERGED*`)** — `bench::corpus` loader + a representative 5-category corpus + `bench --corpus` listing, loader tests green (commit 475ff3b). `*` = the live baseline (T-0.2.2) and scaling to D9's 30 tasks are **deferred** (need API keys + spend, plus B7/B8); recorded TBD per the plan, and the `bench-baseline-v0` tag is withheld until a real baseline exists. **B7** (lib.rs re-exporting provider clients) + **B8** (working-dir-aware paths) are live-run prerequisites — deferred with rationale (B7 is a large CLI-crate restructure with control-path risk and no runnable payoff while live runs are blocked).
+>
+> **To resume / next steps:** working order = P1 ✅ → P2 ✅ → P4 ✅ → P3 ✅ → CP 0.2 (offline) ✅ → **P5 (headless / MCP server / sandbox / ACP)** next → P6 (eval flywheel). Live baseline + B7/B8 deferred (keys/$). Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
 
 | CP | Title | Status | Depends on | Branch | Owns (file scope) | Parallel-safe with |
 |----|-------|--------|-----------|--------|-------------------|--------------------|
 | 0.1 | Bench harness skeleton | MERGED | — | `feat/p0-bench-harness` | `rust/crates/bench/**`, `runtime/src/bench.rs` (recorder trait, B1), recorder calls in `conversation.rs` + `tools/src/lib.rs` | — |
-| 0.2 | Corpus + baseline | TODO | 0.1 | `feat/p0-corpus-baseline` | `rust/crates/bench/corpus/**`, `bench/results/**` | 4.x |
+| 0.2 | Corpus + baseline | MERGED* | 0.1 | direct→`main` | `rust/crates/bench/corpus/**`, `bench/results/**` | 4.x |
 | 1.1 | Edit strategy scaffold (exact parity) | MERGED | 0.1 | direct→`main` | `runtime/src/edit/**` (NOT tools — see deviation), `file_ops.rs` | 4.x, 5.x |
 | 1.2 | Whitespace + anchored strategies | MERGED | 1.1 | direct→`main` | `runtime/src/edit/**` | 4.x, 5.x |
 | 1.3 | Fuzzy + confidence gate | MERGED | 1.2 | direct→`main` | `runtime/src/edit/**` | 4.x, 5.x |
@@ -262,7 +264,7 @@ Tasks:
 **Owns:** `rust/crates/bench/corpus/**`, `bench/results/**`. Depends on 0.1.
 
 Tasks:
-- [ ] **T-0.2.1 — Corpus (D9: 30 tasks).** Categories: single-file edit, multi-file edit, create-from-scratch, bugfix-with-failing-test, refactor-preserving-API, navigate-large-repo-then-change-one-thing. Each task dir = `prompt.md` + seed repo snapshot + `verify.sh`/expected-diff acceptance. Test first: corpus loader validates all task manifests. Verify: `cargo test -p bench` (loader test).
+- [x] **T-0.2.1 — Corpus (D9: 30 tasks).** Categories: single-file edit, multi-file edit, create-from-scratch, bugfix-with-failing-test, refactor-preserving-API, navigate-large-repo-then-change-one-thing. Each task dir = `prompt.md` + seed repo snapshot + `verify.sh`/expected-diff acceptance. Test first: corpus loader validates all task manifests. Verify: `cargo test -p bench` (loader test).
 - [ ] **T-0.2.2 — Run baseline & commit.** Run `cargo run -p bench -- --models <D11>`; commit `results/baseline-<date>.{json,md}`; fill §5 baseline column in this file. (Requires keys — run locally, not in CI.) Verify: results files exist; metrics table updated.
 
 **CI Gate / DoD:** global DoD; corpus loader test green.
