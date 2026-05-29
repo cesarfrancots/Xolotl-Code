@@ -47,7 +47,7 @@ mod web_fetch;
 pub use memory::{MemoryConfig, MemorySearchResult, MemorySystem, ObsidianVault, SessionNote};
 pub use model_hints::{EffortLevel, ModelHints, ToolChoiceMode};
 pub use sdd::{Complexity, ComplexityDetector, InternalSpec, SddEngine, SddPhase, SddState};
-pub use tokenizer::estimate_tokens;
+pub use tokenizer::{encoding_name_for_family, estimate_tokens, estimate_tokens_for_family};
 
 pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
 pub use bench::{BenchRecorder, EditOutcome, SharedBenchRecorder};
