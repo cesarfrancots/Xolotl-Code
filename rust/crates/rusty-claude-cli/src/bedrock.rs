@@ -487,6 +487,8 @@ pub struct BedrockRuntimeClient {
     tool_specs: Vec<DynamicToolSpec>,
     enable_tools: bool,
     max_tokens: u32,
+    /// Anthropic `tool_choice` type (P2 CP 2.4); "auto" by default.
+    tool_choice_type: &'static str,
 }
 
 impl BedrockRuntimeClient {
@@ -495,6 +497,7 @@ impl BedrockRuntimeClient {
         tool_specs: Vec<DynamicToolSpec>,
         enable_tools: bool,
         max_tokens: u32,
+        tool_choice_type: &'static str,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config = resolve_bedrock(model_spec).map_err(Box::<dyn std::error::Error>::from)?;
         Ok(Self {
@@ -504,6 +507,7 @@ impl BedrockRuntimeClient {
             tool_specs,
             enable_tools,
             max_tokens,
+            tool_choice_type,
         })
     }
 
@@ -569,7 +573,7 @@ impl BedrockRuntimeClient {
             body.insert("tools".to_string(), serde_json::json!(tools));
             body.insert(
                 "tool_choice".to_string(),
-                serde_json::json!({"type": "auto"}),
+                serde_json::json!({"type": self.tool_choice_type}),
             );
         }
 

@@ -3151,6 +3151,7 @@ fn build_single_client(
             tool_specs,
             enable_tools,
             hints.max_completion_tokens,
+            hints.tool_choice_mode.anthropic_type(),
         )?))
     } else if openai::is_anthropic_model(model) {
         Ok(AnyApiClient::Anthropic(AnthropicRuntimeClient::new(
@@ -3245,6 +3246,12 @@ fn build_runtime(
     } else {
         Vec::new()
     };
+    // Tool JSON schemas for malformed-tool-call validation (P2 CP 2.2). Captured
+    // before `tool_specs` is moved into the client builders.
+    let tool_schemas: Vec<(String, serde_json::Value)> = tool_specs
+        .iter()
+        .map(|spec| (spec.name.clone(), spec.input_schema.clone()))
+        .collect();
 
     let hints = if let Some(plus) = model.find('+') {
         model_hints_for_runtime_model(&model[..plus])
@@ -3290,7 +3297,8 @@ fn build_runtime(
             .unwrap_or(5),
     )
     .with_model(model.clone())
-    .with_model_hints(hints))
+    .with_model_hints(hints)
+    .with_tool_schemas(tool_schemas))
 }
 
 /// Build a child runtime for in-process sub-agent execution.
@@ -4249,11 +4257,17 @@ impl ApiClient for OpenAiRuntimeClient {
             Some(thinking)
         };
 
+        // Per-model tool_choice (P2 CP 2.4); defaults to "auto" so untuned
+        // models are unchanged.
+        let tool_choice_value = self
+            .model_hints
+            .as_ref()
+            .map_or("auto", |hints| hints.tool_choice_mode.openai_value());
         let body = openai::OaiRequest {
             model: self.config.model.clone(),
             messages,
             tools,
-            tool_choice: self.enable_tools.then_some("auto"),
+            tool_choice: self.enable_tools.then_some(tool_choice_value),
             stream: true,
             stream_options: Some(openai::OaiStreamOptions {
                 include_usage: true,
