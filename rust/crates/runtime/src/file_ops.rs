@@ -252,10 +252,12 @@ pub fn edit_file(
     ) {
         crate::edit::EditApply::Applied(updated) => updated,
         crate::edit::EditApply::NoMatch => {
-            // Structured failure (B6): tag + the relevant file region so the
-            // loop recognizes it and the model can re-emit a correct edit. The
-            // NotFound kind and the "old_string not found" wording are
-            // preserved for back-compat with callers that match on them.
+            // Structured failure (B6): the message carries a machine tag
+            // (`[edit_file:no_match]`) plus the relevant file region so the loop
+            // recognizes it (via `EditFailure::is_edit_failure`) and the model
+            // can re-emit a correct edit. The `io::ErrorKind::NotFound` kind is
+            // preserved; the legacy literal "old_string not found in file"
+            // wording is NOT — back-compat detection relies on the tag.
             let failure = crate::edit::EditFailure {
                 kind: crate::edit::EditFailureKind::NoMatch,
                 region: crate::edit::locate_region(&original_file, old_string),

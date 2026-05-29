@@ -118,7 +118,8 @@ pub struct ModelHints {
     pub effort_level: EffortLevel,
     /// Preferred edit payload format (D3: `OldNew` for every model by default).
     pub preferred_edit_format: EditFormat,
-    /// Which edit-ladder rungs are enabled for this model (D3: all by default).
+    /// Which edit-ladder rungs are enabled for this model. Defaults to
+    /// exact + whitespace + fuzzy (anchored is opt-in; see `EditStrategySet`).
     pub enabled_edit_strategies: EditStrategySet,
 }
 
@@ -195,7 +196,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         } else if model_lower.contains("glm")
             || model_lower.contains("glm5.1")
@@ -228,7 +229,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         } else if model_lower.contains("qwen") {
             Self {
@@ -257,7 +258,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         } else if model_lower.contains("deepseek") {
             Self {
@@ -288,7 +289,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         } else if model_lower.contains("opus") {
             Self {
@@ -318,7 +319,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         } else if model_lower.contains("sonnet") {
             Self {
@@ -347,7 +348,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         } else if model_lower.contains("haiku") {
             Self {
@@ -376,7 +377,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         } else if model_lower.contains("bedrock") || model_lower.contains("anthropic") {
             Self {
@@ -401,7 +402,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         } else if model_lower.contains("gpt") || model_lower.contains("openai") {
             Self {
@@ -426,7 +427,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         } else if model_lower.contains("kimi-coding")
             || model_lower == "k2.6"
@@ -487,7 +488,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         } else if model_lower.contains("kimi") || model_lower.contains("moonshot") {
             Self {
@@ -516,7 +517,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         } else {
             Self {
@@ -540,7 +541,7 @@ impl ModelHints {
                 ),
                 effort_level: EffortLevel::Standard,
                 preferred_edit_format: EditFormat::OldNew,
-                enabled_edit_strategies: EditStrategySet::all(),
+                enabled_edit_strategies: EditStrategySet::default(),
             }
         }
     }

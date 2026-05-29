@@ -6,7 +6,7 @@
 //! Safety (R1): if more than one block matches and `replace_all` is false, the
 //! match is [`EditApply::Ambiguous`] and nothing is applied.
 
-use super::util::{leading_whitespace, line_ending, reindent, splice};
+use super::util::{reindent_block, splice};
 use super::{EditApply, EditStrategy};
 
 pub struct WhitespaceStrategy;
@@ -34,7 +34,6 @@ impl EditStrategy for WhitespaceStrategy {
             return EditApply::NoMatch;
         }
 
-        let old_base = leading_whitespace(old_lines[0]);
         let span = old_lines.len();
         let matches: Vec<usize> = (0..=file_lines.len() - span)
             .filter(|&i| block_matches(&file_lines[i..i + span], &old_lines))
@@ -49,12 +48,20 @@ impl EditStrategy for WhitespaceStrategy {
                 return EditApply::Ambiguous(matches.len());
             }
             let i = matches[0];
-            let replacement = reindent(new, old_base, leading_whitespace(file_lines[i]));
-            return EditApply::Applied(splice(content, &file_lines, i, i + span, &replacement));
+            // None ⇒ indentation cannot be reconciled (tab vs space); decline
+            // rather than emit corrupted mixed indentation.
+            return match reindent_block(new, &old_lines, &file_lines[i..i + span]) {
+                Some(replacement) => {
+                    EditApply::Applied(splice(content, &file_lines, i, i + span, &replacement))
+                }
+                None => EditApply::NoMatch,
+            };
         }
 
         // replace_all: replace every non-overlapping match (greedy, left to
-        // right), splicing right-to-left so earlier indices stay valid.
+        // right). Splice right-to-left against the mutating content so earlier
+        // (lower) indices stay valid; `splice` preserves untouched lines'
+        // endings. Matches that cannot be safely reindented are skipped.
         let mut non_overlapping = Vec::new();
         let mut next_free = 0usize;
         for &i in &matches {
@@ -63,17 +70,22 @@ impl EditStrategy for WhitespaceStrategy {
                 next_free = i + span;
             }
         }
-        let mut lines: Vec<String> = file_lines.iter().map(|s| (*s).to_string()).collect();
+        let mut current = content.to_string();
+        let mut applied_any = false;
         for &i in non_overlapping.iter().rev() {
-            let replacement = reindent(new, old_base, leading_whitespace(file_lines[i]));
-            lines.splice(i..i + span, replacement);
+            let lines: Vec<&str> = current.lines().collect();
+            if let Some(replacement) = reindent_block(new, &old_lines, &lines[i..i + span]) {
+                let next = splice(&current, &lines, i, i + span, &replacement);
+                drop(lines);
+                current = next;
+                applied_any = true;
+            }
         }
-        let nl = line_ending(content);
-        let mut result = lines.join(nl);
-        if content.ends_with('\n') {
-            result.push_str(nl);
+        if applied_any {
+            EditApply::Applied(current)
+        } else {
+            EditApply::NoMatch
         }
-        EditApply::Applied(result)
     }
 }
 
@@ -142,5 +154,27 @@ mod tests {
     fn no_match_when_absent() {
         let outcome = WhitespaceStrategy.try_apply("a\nb\n", "zzz", "q", false);
         assert_eq!(outcome, EditApply::NoMatch);
+    }
+
+    #[test]
+    fn tab_indented_file_gets_correct_tab_indentation_not_mixed() {
+        // The file uses tabs; the model wrote 4/8 spaces. The result must use the
+        // file's tab indentation, never a mix of spaces and a tab.
+        let content = "fn f() {\n\t\tbody();\n}\n";
+        let outcome =
+            WhitespaceStrategy.try_apply(content, "        body();", "        body2();", false);
+        assert_eq!(
+            outcome,
+            EditApply::Applied("fn f() {\n\t\tbody2();\n}\n".to_string())
+        );
+    }
+
+    #[test]
+    fn does_not_corrupt_untouched_mixed_line_endings() {
+        // 'a' is CRLF, the matched line and 'c' are LF; the untouched a/c must
+        // keep their original endings.
+        let content = "a\r\nfoo \nc\n";
+        let outcome = WhitespaceStrategy.try_apply(content, "foo", "FOO", false);
+        assert_eq!(outcome, EditApply::Applied("a\r\nFOO\nc\n".to_string()));
     }
 }

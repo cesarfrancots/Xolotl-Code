@@ -19,28 +19,110 @@ pub(super) fn leading_whitespace(line: &str) -> &str {
     &line[..line.len() - line.trim_start().len()]
 }
 
-/// Re-indent the lines of `new` for insertion at a block whose base indentation
-/// is `file_base`, given that the model wrote `new` against base indentation
-/// `old_base`. Each non-blank line has its `old_base` prefix swapped for
-/// `file_base`; blank lines stay blank (no trailing whitespace); lines that are
-/// less-indented than `old_base` are left as the model wrote them.
-pub(super) fn reindent(new: &str, old_base: &str, file_base: &str) -> Vec<String> {
-    new.lines()
-        .map(|line| {
-            if line.trim().is_empty() {
-                String::new()
-            } else if let Some(rest) = line.strip_prefix(old_base) {
-                format!("{file_base}{rest}")
-            } else {
-                line.to_string()
+/// The longest common leading-whitespace prefix across the non-blank lines.
+fn common_leading_whitespace(lines: &[&str]) -> String {
+    let mut common: Option<String> = None;
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let lw = leading_whitespace(line);
+        common = Some(match common {
+            None => lw.to_string(),
+            Some(prefix) => {
+                let shared = prefix
+                    .chars()
+                    .zip(lw.chars())
+                    .take_while(|(a, b)| a == b)
+                    .count();
+                prefix.chars().take(shared).collect()
             }
-        })
-        .collect()
+        });
+    }
+    common.unwrap_or_default()
 }
 
-/// Rebuild `content` with `file_lines[start..end]` replaced by `replacement`.
-/// `file_lines` must be `content.lines()` collected. Reconstructs using the
-/// file's line ending and preserves a trailing newline if the original had one.
+/// Re-indent `new` to fit the matched `file_block` it will replace, given the
+/// model wrote it against `old_lines`' indentation.
+///
+/// When `new` has the same number of lines as `file_block`, each new line takes
+/// the **exact** indentation of the corresponding file line — perfect for the
+/// common content-only edit and guaranteed never to mix tabs and spaces. When
+/// the line counts differ (e.g. lines added/removed), it shifts each line by the
+/// common-indent delta; if the file and old indentation use incompatible
+/// whitespace (tab vs space), it returns `None` so the caller declines rather
+/// than emit corrupted (mixed tab/space) indentation.
+pub(super) fn reindent_block(
+    new: &str,
+    old_lines: &[&str],
+    file_block: &[&str],
+) -> Option<Vec<String>> {
+    let new_lines: Vec<&str> = new.lines().collect();
+
+    if new_lines.len() == file_block.len() {
+        return Some(
+            new_lines
+                .iter()
+                .enumerate()
+                .map(|(i, line)| {
+                    if line.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!("{}{}", leading_whitespace(file_block[i]), line.trim_start())
+                    }
+                })
+                .collect(),
+        );
+    }
+
+    // Differing line counts: shift by the common-indent delta.
+    let old_base = common_leading_whitespace(old_lines);
+    let file_base = common_leading_whitespace(file_block);
+    if let (Some(o), Some(f)) = (old_base.chars().next(), file_base.chars().next()) {
+        if o != f {
+            return None; // incompatible indent characters (tab vs space)
+        }
+    }
+    Some(
+        new_lines
+            .iter()
+            .map(|line| {
+                if line.trim().is_empty() {
+                    String::new()
+                } else if let Some(rest) = line.strip_prefix(old_base.as_str()) {
+                    format!("{file_base}{rest}")
+                } else {
+                    (*line).to_string()
+                }
+            })
+            .collect(),
+    )
+}
+
+/// Byte offset where line `line_idx` (0-indexed, per `str::lines` semantics)
+/// begins in `content`; `content.len()` when `line_idx` is past the last line.
+fn line_start_offset(content: &str, line_idx: usize) -> usize {
+    if line_idx == 0 {
+        return 0;
+    }
+    let mut seen = 0usize;
+    for (i, byte) in content.bytes().enumerate() {
+        if byte == b'\n' {
+            seen += 1;
+            if seen == line_idx {
+                return i + 1;
+            }
+        }
+    }
+    content.len()
+}
+
+/// Rebuild `content` with lines `[start, end)` (per `content.lines()`) replaced
+/// by `replacement`. The bytes outside the replaced range — including every
+/// untouched line's *original* ending — are preserved verbatim, so a file with
+/// mixed line endings is never silently normalized (the line-ending bug). The
+/// replacement uses the ending found inside the replaced region (CRLF if any),
+/// and keeps the region's trailing-newline state.
 pub(super) fn splice(
     content: &str,
     file_lines: &[&str],
@@ -48,22 +130,30 @@ pub(super) fn splice(
     end: usize,
     replacement: &[String],
 ) -> String {
-    let nl = line_ending(content);
-    let mut lines: Vec<&str> =
-        Vec::with_capacity(file_lines.len() - (end - start) + replacement.len());
-    lines.extend_from_slice(&file_lines[..start]);
-    lines.extend(replacement.iter().map(String::as_str));
-    lines.extend_from_slice(&file_lines[end..]);
-    let mut result = lines.join(nl);
-    if content.ends_with('\n') {
-        result.push_str(nl);
+    let _ = file_lines; // indices are resolved against `content` directly
+    let start_off = line_start_offset(content, start);
+    let end_off = line_start_offset(content, end);
+    let prefix = &content[..start_off];
+    let suffix = &content[end_off..];
+    let replaced = &content[start_off..end_off];
+
+    let nl = if replaced.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let region_has_trailing_newline = replaced.ends_with('\n');
+
+    let mut mid = replacement.join(nl);
+    if region_has_trailing_newline && !replacement.is_empty() {
+        mid.push_str(nl);
     }
-    result
+    format!("{prefix}{mid}{suffix}")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{leading_whitespace, line_ending, reindent, splice};
+    use super::{leading_whitespace, line_ending, reindent_block, splice};
 
     #[test]
     fn detects_line_endings() {
@@ -79,23 +169,49 @@ mod tests {
     }
 
     #[test]
-    fn reindents_from_four_to_eight_spaces() {
-        let out = reindent("    if x:\n        return 2", "    ", "        ");
+    fn equal_line_count_takes_file_indentation_per_line() {
+        // The model wrote tabs; the file uses 4/8 spaces. Per-line indentation
+        // from the matched block yields correct, non-mixed indentation.
+        let old_lines = vec!["\tfn f() {", "\t\tbody();", "\t}"];
+        let file_block = vec!["    fn f() {", "        body();", "    }"];
+        let new = "\tfn f() {\n\t\tbody2();\n\t}";
+        let out = reindent_block(new, &old_lines, &file_block).expect("equal-count reindent");
         assert_eq!(
             out,
             vec![
-                "        if x:".to_string(),
-                "            return 2".to_string()
+                "    fn f() {".to_string(),
+                "        body2();".to_string(), // 8 spaces, NOT "    \tbody2();"
+                "    }".to_string(),
             ]
         );
+        for line in &out {
+            let lw = leading_whitespace(line);
+            assert!(
+                !(lw.contains('\t') && lw.contains(' ')),
+                "mixed tab/space indent: {line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn differing_line_count_declines_incompatible_indent() {
+        // tab old vs space file, with a line-count change → cannot safely
+        // reindent without mixing → None (caller declines).
+        let old_lines = vec!["\tfn f() {", "\t}"];
+        let file_block = vec!["    fn f() {", "        a();", "    }"];
+        let new = "\tfn f() {\n\t\tx();\n\t\ty();\n\t}"; // 4 lines vs 3-line block
+        assert_eq!(reindent_block(new, &old_lines, &file_block), None);
     }
 
     #[test]
     fn reindent_keeps_blank_lines_blank() {
-        let out = reindent("    a\n\n    b", "    ", "  ");
+        let old_lines = vec!["a", "b"];
+        let file_block = vec!["  a", "  b"];
+        let out = reindent_block("a\n\nb", &old_lines, &file_block);
+        // line counts differ (3 vs 2) → delta path; blank line stays blank
         assert_eq!(
             out,
-            vec!["  a".to_string(), String::new(), "  b".to_string()]
+            Some(vec!["  a".to_string(), String::new(), "  b".to_string()])
         );
     }
 
@@ -113,5 +229,15 @@ mod tests {
         let file_lines: Vec<&str> = content.lines().collect();
         let out = splice(content, &file_lines, 0, 1, &["A".to_string()]);
         assert_eq!(out, "A\nb\nc");
+    }
+
+    #[test]
+    fn splice_preserves_mixed_line_endings_of_untouched_lines() {
+        // 'a' is CRLF, 'b' and 'c' are LF. Replacing 'b' must NOT convert the
+        // untouched a/c lines to CRLF (the line-ending corruption bug).
+        let content = "a\r\nb\nc\n";
+        let file_lines: Vec<&str> = content.lines().collect();
+        let out = splice(content, &file_lines, 1, 2, &["B".to_string()]);
+        assert_eq!(out, "a\r\nB\nc\n");
     }
 }

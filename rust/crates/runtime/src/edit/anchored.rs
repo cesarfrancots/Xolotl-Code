@@ -10,7 +10,7 @@
 //! - the bounded file block is capped relative to `old`'s size so a stray
 //!   anchor pair can never trigger a catastrophic large-region replacement.
 
-use super::util::{leading_whitespace, reindent, splice};
+use super::util::{reindent_block, splice};
 use super::{EditApply, EditStrategy};
 
 pub struct AnchoredStrategy;
@@ -66,12 +66,12 @@ impl EditStrategy for AnchoredStrategy {
             return EditApply::NoMatch;
         }
 
-        let replacement = reindent(
-            new,
-            leading_whitespace(old_lines[0]),
-            leading_whitespace(file_lines[fi]),
-        );
-        EditApply::Applied(splice(content, &file_lines, fi, li + 1, &replacement))
+        match reindent_block(new, &old_lines, &file_lines[fi..=li]) {
+            Some(replacement) => {
+                EditApply::Applied(splice(content, &file_lines, fi, li + 1, &replacement))
+            }
+            None => EditApply::NoMatch,
+        }
     }
 }
 

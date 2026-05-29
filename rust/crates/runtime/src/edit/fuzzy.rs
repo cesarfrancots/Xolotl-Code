@@ -1,15 +1,22 @@
-//! Fuzzy strategy — the last resort. When exact, whitespace, and anchored all
-//! miss, this ranks file blocks by similarity to `old` and applies the best one
-//! **only** if it clears the confidence threshold (D2 = 0.85) and is unique.
+//! Fuzzy strategy — the last resort. When exact and whitespace miss, this ranks
+//! same-height file blocks by similarity to `old` and applies the best one
+//! **only** if it clears the confidence threshold (D2 = 0.85) and is the unique
+//! placement.
 //!
 //! Similarity (D1) is a difflib-style Ratcliff–Obershelp ratio over the
 //! whitespace-normalized text, implemented in pure Rust (no new dependency).
 //!
-//! Safety (R1): below threshold → `NoMatch`; two or more high-confidence matches
-//! in distinct regions → `Ambiguous`. A wrong fuzzy apply is the single biggest
-//! risk in this layer, so the gate is deliberately strict and never guesses.
+//! Safety (R1) — a wrong fuzzy apply is the single biggest risk in this layer:
+//! - below threshold → `NoMatch`;
+//! - two or more **non-overlapping** high-confidence placements → `Ambiguous`
+//!   (this correctly catches duplicated multi-line blocks, not just spaced-out
+//!   ones);
+//! - a **single-line** match is accepted only when `old` and the candidate
+//!   differ purely in whitespace. This refuses the dangerous near-twin case
+//!   where a one-character logic flip (a dropped `!`, `==` vs `!=`, `+` vs `-`)
+//!   scores far above 0.85 — applying there would silently invert the line.
 
-use super::util::{leading_whitespace, reindent, splice};
+use super::util::{reindent_block, splice};
 use super::{EditApply, EditStrategy};
 
 /// Minimum similarity (D2) for a fuzzy match to be eligible to apply.
@@ -79,7 +86,10 @@ fn matching_chars(a: &[char], b: &[char]) -> usize {
 /// when `old` or `content` is empty or `old` is taller than the file.
 pub(super) fn best_window(content: &str, old: &str) -> Option<usize> {
     let normalized_old = normalize(old);
-    if normalized_old.is_empty() {
+    // Cap the comparison cost on the failure path too (locate_region calls this
+    // on every NoMatch/Ambiguous): without the cap a large minified file could
+    // hang the loop for seconds.
+    if normalized_old.is_empty() || normalized_old.len() > MAX_NORMALIZED_LEN {
         return None;
     }
     let file_lines: Vec<&str> = content.lines().collect();
@@ -90,6 +100,9 @@ pub(super) fn best_window(content: &str, old: &str) -> Option<usize> {
     let mut best: Option<(usize, f64)> = None;
     for i in 0..=file_lines.len() - span {
         let window = normalize(&file_lines[i..i + span].join("\n"));
+        if window.len() > MAX_NORMALIZED_LEN {
+            continue;
+        }
         let score = ratio(&normalized_old, &window);
         if best.is_none_or(|(_, b)| score > b) {
             best = Some((i, score));
@@ -98,12 +111,32 @@ pub(super) fn best_window(content: &str, old: &str) -> Option<usize> {
     best.map(|(i, _)| i)
 }
 
+/// All characters of `text` with every whitespace character removed.
+fn strip_whitespace(text: &str) -> String {
+    text.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+/// Greedy maximum set of non-overlapping window start indices (each at least
+/// `span` apart). Two non-overlapping high-confidence windows mean `old` fits in
+/// two genuinely distinct places — ambiguous.
+fn non_overlapping(sorted_indices: &[usize], span: usize) -> Vec<usize> {
+    let mut picked = Vec::new();
+    let mut next_free = 0usize;
+    for &i in sorted_indices {
+        if picked.is_empty() || i >= next_free {
+            picked.push(i);
+            next_free = i + span;
+        }
+    }
+    picked
+}
+
 impl EditStrategy for FuzzyStrategy {
     fn name(&self) -> &'static str {
         "fuzzy"
     }
 
-    fn try_apply(&self, content: &str, old: &str, new: &str, _replace_all: bool) -> EditApply {
+    fn try_apply(&self, content: &str, old: &str, new: &str, replace_all: bool) -> EditApply {
         let old_lines: Vec<&str> = old.lines().collect();
         if old_lines.is_empty() {
             return EditApply::NoMatch;
@@ -118,57 +151,66 @@ impl EditStrategy for FuzzyStrategy {
         if span > file_lines.len() {
             return EditApply::NoMatch;
         }
+        let single_line = span == 1;
+        let old_stripped = strip_whitespace(old);
 
-        // Score every same-height window that clears the confidence threshold.
-        let mut hits: Vec<(usize, f64)> = Vec::new();
+        // Collect every same-height window that clears the confidence threshold.
+        // For a single-line match, additionally require a *whitespace-only*
+        // difference — a one-character logic flip must never be fuzzily applied.
+        let mut hits: Vec<usize> = Vec::new();
         for i in 0..=file_lines.len() - span {
             let window = file_lines[i..i + span].join("\n");
             let normalized_window = normalize(&window);
             if normalized_window.len() > MAX_NORMALIZED_LEN {
                 continue;
             }
-            let score = ratio(&normalized_old, &normalized_window);
-            if score >= CONFIDENCE_THRESHOLD {
-                hits.push((i, score));
+            if ratio(&normalized_old, &normalized_window) < CONFIDENCE_THRESHOLD {
+                continue;
             }
+            if single_line && strip_whitespace(&window) != old_stripped {
+                continue;
+            }
+            hits.push(i);
         }
 
         if hits.is_empty() {
             return EditApply::NoMatch;
         }
 
-        // Cluster overlapping/adjacent high-confidence windows into regions
-        // (windows within `span` of each other describe the same region). Two
-        // distinct regions ⇒ genuinely ambiguous; never guess.
-        hits.sort_by_key(|(i, _)| *i);
-        let mut regions = 1usize;
-        for pair in hits.windows(2) {
-            if pair[1].0 - pair[0].0 >= span {
-                regions += 1;
+        let placements = non_overlapping(&hits, span);
+
+        if replace_all {
+            // Apply to every distinct placement (each already passed the gate),
+            // splicing right-to-left so earlier indices stay valid.
+            let mut current = content.to_string();
+            let mut applied_any = false;
+            for &i in placements.iter().rev() {
+                let lines: Vec<&str> = current.lines().collect();
+                if let Some(replacement) = reindent_block(new, &old_lines, &lines[i..i + span]) {
+                    let next = splice(&current, &lines, i, i + span, &replacement);
+                    drop(lines);
+                    current = next;
+                    applied_any = true;
+                }
             }
-        }
-        if regions > 1 {
-            return EditApply::Ambiguous(regions);
+            return if applied_any {
+                EditApply::Applied(current)
+            } else {
+                EditApply::NoMatch
+            };
         }
 
-        // Single region: apply the highest-scoring window in it.
-        let (best_index, _) = hits
-            .iter()
-            .copied()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .expect("hits is non-empty");
-        let replacement = reindent(
-            new,
-            leading_whitespace(old_lines[0]),
-            leading_whitespace(file_lines[best_index]),
-        );
-        EditApply::Applied(splice(
-            content,
-            &file_lines,
-            best_index,
-            best_index + span,
-            &replacement,
-        ))
+        // Two or more distinct placements ⇒ ambiguous; never guess.
+        if placements.len() > 1 {
+            return EditApply::Ambiguous(placements.len());
+        }
+        let i = placements[0];
+        match reindent_block(new, &old_lines, &file_lines[i..i + span]) {
+            Some(replacement) => {
+                EditApply::Applied(splice(content, &file_lines, i, i + span, &replacement))
+            }
+            None => EditApply::NoMatch,
+        }
     }
 }
 
@@ -234,5 +276,56 @@ mod tests {
             false,
         );
         assert!(matches!(outcome, EditApply::Applied(_)), "got {outcome:?}");
+    }
+
+    #[test]
+    fn refuses_single_line_negation_flip() {
+        // The file has `!is_blocked`; the model's old dropped the `!`. The
+        // one-char diff scores ~0.98 but is semantically opposite — fuzzy must
+        // refuse it (whitespace-only guard) rather than silently invert the line.
+        let content = "        let allowed = !is_blocked(user);\n";
+        let outcome = FuzzyStrategy.try_apply(
+            content,
+            "        let allowed = is_blocked(user);",
+            "        let allowed = is_blocked(user) && quota_ok(user);",
+            false,
+        );
+        assert_eq!(outcome, EditApply::NoMatch);
+    }
+
+    #[test]
+    fn refuses_single_line_operator_flip() {
+        let content = "    if status == 200 { ok(); }\n";
+        let outcome = FuzzyStrategy.try_apply(
+            content,
+            "    if status != 200 { ok(); }",
+            "    ok();",
+            false,
+        );
+        assert_eq!(outcome, EditApply::NoMatch);
+    }
+
+    #[test]
+    fn duplicate_multiline_run_is_ambiguous_not_silently_applied() {
+        // Four identical lines hold two distinct non-overlapping 2-line
+        // placements for old → ambiguous, never an arbitrary silent single apply.
+        let content = "P(a,b);\nP(a,b);\nP(a,b);\nP(a,b);\n";
+        let outcome =
+            FuzzyStrategy.try_apply(content, "P(a, b);\nP(a, b);", "Q(a, b);\nQ(a, b);", false);
+        assert!(
+            matches!(outcome, EditApply::Ambiguous(_)),
+            "got {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn replace_all_applies_to_each_distinct_placement() {
+        let content = "P(a,b);\nP(a,b);\nP(a,b);\nP(a,b);\n";
+        let outcome =
+            FuzzyStrategy.try_apply(content, "P(a, b);\nP(a, b);", "Q(a, b);\nQ(a, b);", true);
+        assert_eq!(
+            outcome,
+            EditApply::Applied("Q(a, b);\nQ(a, b);\nQ(a, b);\nQ(a, b);\n".to_string())
+        );
     }
 }

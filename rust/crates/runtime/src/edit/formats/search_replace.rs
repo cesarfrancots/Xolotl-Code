@@ -29,15 +29,20 @@ pub fn parse_search_replace(payload: &str) -> Result<Vec<EditOp>, String> {
             i += 1;
             continue;
         }
-        // Collect the SEARCH side until the divider.
+        // Collect the SEARCH side until the divider. A second SEARCH header
+        // before the divider is malformed — reject rather than swallow it.
         let mut search = Vec::new();
         i += 1;
         let mut saw_divider = false;
         while i < lines.len() {
-            if lines[i].trim_end() == DIVIDER {
+            let trimmed = lines[i].trim_end();
+            if trimmed == DIVIDER {
                 saw_divider = true;
                 i += 1;
                 break;
+            }
+            if trimmed == SEARCH {
+                return Err("nested '<<<<<<< SEARCH' before '======='".to_string());
             }
             search.push(lines[i]);
             i += 1;
@@ -45,14 +50,22 @@ pub fn parse_search_replace(payload: &str) -> Result<Vec<EditOp>, String> {
         if !saw_divider {
             return Err("search/replace block missing '=======' divider".to_string());
         }
-        // Collect the REPLACE side until the closing marker.
+        // Collect the REPLACE side until the closing marker. A new SEARCH or a
+        // second divider before the REPLACE marker means the block was never
+        // closed — reject rather than merge it with the following block.
         let mut replace = Vec::new();
         let mut saw_close = false;
         while i < lines.len() {
-            if lines[i].trim_end() == REPLACE {
+            let trimmed = lines[i].trim_end();
+            if trimmed == REPLACE {
                 saw_close = true;
                 i += 1;
                 break;
+            }
+            if trimmed == SEARCH || trimmed == DIVIDER {
+                return Err(
+                    "search/replace block missing '>>>>>>> REPLACE' before next marker".to_string(),
+                );
             }
             replace.push(lines[i]);
             i += 1;
@@ -111,6 +124,19 @@ mod tests {
     #[test]
     fn rejects_no_block() {
         assert!(parse_search_replace("just some text\n").is_err());
+    }
+
+    #[test]
+    fn rejects_nested_search_before_divider() {
+        let payload = "<<<<<<< SEARCH\n<<<<<<< SEARCH\n=======\nNEW\n>>>>>>> REPLACE\n";
+        assert!(parse_search_replace(payload).is_err());
+    }
+
+    #[test]
+    fn rejects_block_missing_replace_that_would_merge_with_next() {
+        let payload =
+            "<<<<<<< SEARCH\nA\n=======\nB\n<<<<<<< SEARCH\nC\n=======\nD\n>>>>>>> REPLACE\n";
+        assert!(parse_search_replace(payload).is_err());
     }
 
     #[test]

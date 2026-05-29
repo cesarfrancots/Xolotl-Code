@@ -123,7 +123,7 @@ pub struct EditStrategySet {
 }
 
 impl EditStrategySet {
-    /// All rungs enabled (the D3 default for every model).
+    /// Every rung enabled, including the higher-risk `anchored`. Opt-in only.
     #[must_use]
     pub fn all() -> Self {
         Self {
@@ -136,18 +136,28 @@ impl EditStrategySet {
 }
 
 impl Default for EditStrategySet {
+    /// The shipped default: exact + whitespace + fuzzy. `anchored` is **off** by
+    /// default. Its evidence is only the unique first/last lines of `old`, after
+    /// which it replaces the *entire* bracketed region; an adversarial review
+    /// confirmed two coincidentally-unique anchors can bracket and silently
+    /// destroy unrelated code (R1). It remains available via opt-in
+    /// ([`EditStrategySet::all`]) for models/contexts that benchmark favorably.
     fn default() -> Self {
-        Self::all()
+        Self {
+            exact: true,
+            whitespace: true,
+            anchored: false,
+            fuzzy: true,
+        }
     }
 }
 
-/// The default edit ladder, ordered tightest → loosest. `exact` runs first so
-/// the Claude/Bedrock happy path (exact-string edits) is byte-identical;
-/// whitespace and anchored only fire when an exact match is impossible, and
-/// `fuzzy` is the gated last resort.
+/// The default edit ladder, ordered tightest → loosest: `exact` (byte-identical
+/// Claude/Bedrock happy path), then `whitespace`, then the gated `fuzzy` last
+/// resort. `anchored` is excluded by default (see [`EditStrategySet::default`]).
 #[must_use]
 pub fn default_ladder() -> Vec<Box<dyn EditStrategy>> {
-    ladder_from_set(EditStrategySet::all())
+    ladder_from_set(EditStrategySet::default())
 }
 
 /// Build the ladder containing only the rungs enabled in `set`, preserving the
@@ -225,10 +235,11 @@ mod tests {
     }
 
     #[test]
-    fn default_ladder_is_ordered_tightest_first() {
+    fn default_ladder_is_ordered_tightest_first_and_excludes_anchored() {
         let ladder = default_ladder();
         let names: Vec<&str> = ladder.iter().map(|s| s.name()).collect();
-        assert_eq!(names, vec!["exact", "whitespace", "anchored", "fuzzy"]);
+        // anchored is opt-in (off by default) due to its weak two-line evidence.
+        assert_eq!(names, vec!["exact", "whitespace", "fuzzy"]);
     }
 
     #[test]
