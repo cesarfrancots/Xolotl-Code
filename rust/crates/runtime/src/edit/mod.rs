@@ -16,9 +16,14 @@
 //! finds more than one plausible location returns [`EditApply::Ambiguous`], and
 //! the caller turns that into a re-prompt rather than guessing.
 
+mod anchored;
 mod exact;
+mod util;
+mod whitespace;
 
+pub use anchored::AnchoredStrategy;
 pub use exact::ExactStrategy;
+pub use whitespace::WhitespaceStrategy;
 
 /// Result of attempting to apply an edit to file *content* (no I/O).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,12 +75,17 @@ pub fn apply_edit(
     }
 }
 
-/// The default edit ladder. CP 1.1 ships exact-only — byte-identical to the
-/// historical `edit_file` behavior. Later checkpoints append the
-/// whitespace / anchored / fuzzy strategies.
+/// The default edit ladder, ordered tightest → loosest. `exact` runs first so
+/// the Claude/Bedrock happy path (exact-string edits) is byte-identical;
+/// whitespace and anchored only fire when an exact match is impossible. The
+/// fuzzy rung is appended in CP 1.3.
 #[must_use]
 pub fn default_ladder() -> Vec<Box<dyn EditStrategy>> {
-    vec![Box::new(ExactStrategy)]
+    vec![
+        Box::new(ExactStrategy),
+        Box::new(WhitespaceStrategy),
+        Box::new(AnchoredStrategy),
+    ]
 }
 
 #[cfg(test)]
@@ -130,9 +140,22 @@ mod tests {
     }
 
     #[test]
-    fn default_ladder_is_exact_only() {
+    fn default_ladder_is_ordered_tightest_first() {
         let ladder = default_ladder();
-        assert_eq!(ladder.len(), 1);
-        assert_eq!(ladder[0].name(), "exact");
+        let names: Vec<&str> = ladder.iter().map(|s| s.name()).collect();
+        assert_eq!(names, vec!["exact", "whitespace", "anchored"]);
+    }
+
+    #[test]
+    fn exact_wins_over_looser_strategies_when_it_matches() {
+        // "x = 1" appears once verbatim and once with different indentation.
+        // Exact must replace the verbatim one and stop (no ambiguity), even
+        // though whitespace would consider both blocks.
+        let content = "x = 1\n    x = 1\n";
+        let outcome = apply_edit(content, "x = 1", "x = 2", false, &default_ladder());
+        assert_eq!(
+            outcome,
+            EditApply::Applied("x = 2\n    x = 1\n".to_string())
+        );
     }
 }
