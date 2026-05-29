@@ -131,14 +131,18 @@ fn uri_to_path(uri: &str) -> String {
 }
 
 /// Minimal percent-decoding sufficient for `file://` paths (handles `%20` etc.).
+///
+/// Parses the two hex digits directly from the byte slice — never slices the
+/// `&str` — so a stray `%` before a multibyte UTF-8 character cannot panic on a
+/// non-char-boundary slice.
 fn percent_decode(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(&input[i + 1..i + 3], 16) {
-                out.push(byte);
+            if let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
+                out.push((hi << 4) | lo);
                 i += 3;
                 continue;
             }
@@ -147,6 +151,16 @@ fn percent_decode(input: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// ASCII hex digit → value, or `None` if not a hex digit.
+fn hex_val(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 /// The language-server command for a file extension (D7), as `(program, args)`.
@@ -244,6 +258,28 @@ mod tests {
             "pyright-langserver"
         );
         assert!(server_command_for_extension("rb").is_none());
+    }
+
+    #[test]
+    fn percent_decode_stray_percent_before_multibyte_does_not_panic() {
+        // Regression: `%` immediately followed by a multibyte char must not panic
+        // on a non-char-boundary &str slice. Also exercises a valid %20 decode.
+        let params = parse_publish_diagnostics(&json!({
+            "params": {
+                "uri": "file:///repo/a%20b/%\u{4f60}/main.rs",
+                "diagnostics": [{
+                    "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
+                    "severity": 1, "message": "boom"
+                }]
+            }
+        }))
+        .unwrap();
+        let digest = format_diagnostics_digest(&params, 10);
+        // %20 decoded to a space; the stray % was kept literally; no panic.
+        assert!(
+            digest.contains("/repo/a b/%\u{4f60}/main.rs:1:1 error: boom"),
+            "{digest}"
+        );
     }
 
     #[test]

@@ -26,7 +26,15 @@ pub fn parse_check_output(kind: ProjectKind, output: &str) -> Vec<Diagnostic> {
     match kind {
         ProjectKind::Rust => parse_cargo(output),
         ProjectKind::Node => parse_tsc(output),
-        ProjectKind::Python => parse_pytest(output),
+        // The default Python post-edit check is pyright (a typecheck); the test
+        // command is pytest. Parse both formats so the diagnostic digest works
+        // whichever command produced the output. Their line shapes are distinct,
+        // so running both never cross-matches.
+        ProjectKind::Python => {
+            let mut diagnostics = parse_pyright(output);
+            diagnostics.extend(parse_pytest(output));
+            diagnostics
+        }
         ProjectKind::Unknown => Vec::new(),
     }
 }
@@ -108,6 +116,28 @@ pub fn parse_tsc(output: &str) -> Vec<Diagnostic> {
         .collect()
 }
 
+// ── pyright ─────────────────────────────────────────────────────────────────
+
+static PYRIGHT_LINE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(.+?):(\d+):(\d+)\s+-\s+(?:error|warning):\s+(.+)$").unwrap());
+
+/// pyright text output: `path:line:col - error: message`.
+#[must_use]
+pub fn parse_pyright(output: &str) -> Vec<Diagnostic> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let caps = PYRIGHT_LINE.captures(line.trim())?;
+            Some(Diagnostic {
+                file: caps[1].to_string(),
+                line: caps[2].parse().ok(),
+                column: caps[3].parse().ok(),
+                message: caps[4].trim().to_string(),
+            })
+        })
+        .collect()
+}
+
 // ── pytest ──────────────────────────────────────────────────────────────────
 
 static PYTEST_FAILED: LazyLock<Regex> =
@@ -119,12 +149,15 @@ static PYTEST_LOCATION: LazyLock<Regex> =
 /// with line numbers from `path.py:line:` traceback lines where available.
 #[must_use]
 pub fn parse_pytest(output: &str) -> Vec<Diagnostic> {
-    // Collect file -> line from traceback lines first.
+    // Collect file -> line from traceback lines, keeping the LAST occurrence per
+    // file: pytest prints frames outermost-first and ends each failure with the
+    // assertion site, so the deepest (most relevant) line wins. (Multiple failures
+    // in the same file still share one line — acceptable for a best-effort digest.)
     let mut file_lines: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     for line in output.lines() {
         if let Some(caps) = PYTEST_LOCATION.captures(line.trim()) {
             if let Ok(n) = caps[2].parse::<u32>() {
-                file_lines.entry(caps[1].to_string()).or_insert(n);
+                file_lines.insert(caps[1].to_string(), n);
             }
         }
     }
@@ -174,7 +207,9 @@ pub fn format_digest(diagnostics: &[Diagnostic], limit: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_digest, parse_cargo, parse_check_output, parse_pytest, parse_tsc};
+    use super::{
+        format_digest, parse_cargo, parse_check_output, parse_pyright, parse_pytest, parse_tsc,
+    };
     use crate::verify::ProjectKind;
 
     #[test]
@@ -242,6 +277,45 @@ FAILED tests/test_math.py::test_addition - assert 3 == 4
         assert_eq!(diags[0].file, "tests/test_math.py");
         assert_eq!(diags[0].line, Some(5));
         assert!(diags[0].message.contains("assert 3 == 4"));
+    }
+
+    #[test]
+    fn parses_pyright_diagnostics_for_python_default() {
+        // The default Python post-edit check is pyright; parse_check_output(Python)
+        // must understand its output (regression for the kind/command mismatch).
+        let output = "\
+/repo/app.py:10:5 - error: \"x\" is not defined (reportUndefinedVariable)
+/repo/app.py:12:1 - warning: Import unused
+2 errors, 1 warning, 0 informations
+";
+        let diags = parse_check_output(ProjectKind::Python, output);
+        assert_eq!(diags.len(), 2);
+        assert_eq!(diags[0].file, "/repo/app.py");
+        assert_eq!(diags[0].line, Some(10));
+        assert_eq!(diags[0].column, Some(5));
+        assert!(diags[0].message.contains("is not defined"));
+    }
+
+    #[test]
+    fn pytest_line_uses_deepest_assertion_frame() {
+        // Outer test-entry frame first, deeper assertion frame last; the digest
+        // must report the deepest line, not the first.
+        let output = "\
+tests/t.py:10: in test_foo
+    helper()
+tests/t.py:3: in helper
+    assert False
+tests/t.py:3: AssertionError
+FAILED tests/t.py::test_foo - assert False
+";
+        let diags = parse_pytest(output);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].file, "tests/t.py");
+        assert_eq!(
+            diags[0].line,
+            Some(3),
+            "should pick the deepest assertion line"
+        );
     }
 
     #[test]

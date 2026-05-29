@@ -53,10 +53,21 @@ impl VerifyRunner for ProcessVerifyRunner {
             }
         };
 
+        // Drain stdout/stderr on detached threads that send their result over a
+        // channel. We never `join` them: if the killed command left grandchildren
+        // (rustc, node, pytest workers) holding the pipe write-ends, `read_to_string`
+        // would block until those exit. Bounding the collection with `recv_timeout`
+        // guarantees the runner returns within `timeout + grace` regardless.
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
-        let out_handle = std::thread::spawn(move || read_all(stdout));
-        let err_handle = std::thread::spawn(move || read_all(stderr));
+        let (out_tx, out_rx) = std::sync::mpsc::channel();
+        let (err_tx, err_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = out_tx.send(read_all(stdout));
+        });
+        std::thread::spawn(move || {
+            let _ = err_tx.send(read_all(stderr));
+        });
 
         let start = Instant::now();
         let mut exit_success = false;
@@ -82,8 +93,10 @@ impl VerifyRunner for ProcessVerifyRunner {
             }
         };
 
-        let mut output = out_handle.join().unwrap_or_default();
-        let err = err_handle.join().unwrap_or_default();
+        // Grace period to collect output after the process exits or is killed.
+        let grace = Duration::from_secs(2);
+        let mut output = out_rx.recv_timeout(grace).unwrap_or_default();
+        let err = err_rx.recv_timeout(grace).unwrap_or_default();
         if !err.is_empty() {
             if !output.is_empty() {
                 output.push('\n');
@@ -312,6 +325,28 @@ mod tests {
             panic!("expected a failure digest");
         };
         assert!(digest.contains("opaque error"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_does_not_hang_when_grandchild_holds_the_pipe() {
+        // `sh` exits immediately but the backgrounded `sleep` inherits stdout and
+        // keeps the pipe open. The channel-bounded reads must return within the
+        // grace period rather than blocking until the grandchild exits.
+        let start = std::time::Instant::now();
+        let outcome = ProcessVerifyRunner.run(
+            &VerifyCommand {
+                program: "sh".to_string(),
+                args: vec!["-c".to_string(), "sleep 10 &".to_string()],
+            },
+            Path::new("."),
+            Duration::from_secs(60),
+        );
+        assert!(
+            start.elapsed() < Duration::from_secs(6),
+            "runner hung on a grandchild holding the pipe"
+        );
+        let _ = outcome;
     }
 
     #[test]
