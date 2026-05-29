@@ -43,17 +43,40 @@ pub fn validate_against_schema(
         }
     }
 
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|r| r.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+
     if let Some(props) = schema.get("properties").and_then(Value::as_object) {
         for (key, value) in obj {
-            if let Some(expected) = props
-                .get(key)
-                .and_then(|prop| prop.get("type"))
-                .and_then(Value::as_str)
-            {
+            // Explicit JSON null for a non-required field is valid: serde
+            // deserializes it to `Option::None`, so rejecting it would bounce a
+            // call that would otherwise have executed (control regression).
+            if value.is_null() && !required.contains(&key.as_str()) {
+                continue;
+            }
+            let Some(prop) = props.get(key) else {
+                continue;
+            };
+            if let Some(expected) = prop.get("type").and_then(Value::as_str) {
                 if !json_matches_type(value, expected) {
                     return Err(format!(
                         "tool '{tool_name}': field '{key}' should be {expected}, got {}",
                         value_kind(value)
+                    ));
+                }
+            }
+            // Honor a numeric `minimum` (the tool schemas use it to mark
+            // unsigned fields). A negative value would fail deserialization into
+            // usize/u64 anyway, so reject it here with a clearer message.
+            if let (Some(min), Some(actual)) =
+                (prop.get("minimum").and_then(Value::as_f64), value.as_f64())
+            {
+                if actual < min {
+                    return Err(format!(
+                        "tool '{tool_name}': field '{key}' must be >= {min}, got {actual}"
                     ));
                 }
             }
@@ -63,15 +86,15 @@ pub fn validate_against_schema(
     Ok(())
 }
 
-/// Whether `value` satisfies a JSON-schema primitive `type`. Lenient: an integer
-/// expectation also accepts a whole-valued float (e.g. `120000.0`), and unknown
-/// type names never reject.
+/// Whether `value` satisfies a JSON-schema primitive `type`. An `integer`
+/// expectation requires an actual integer (not a float): the downstream tool
+/// structs use `u64`/`usize`, into which serde refuses to deserialize a float,
+/// so accepting `120000.0` here would only defer the failure. Unknown type
+/// names never reject.
 fn json_matches_type(value: &Value, expected: &str) -> bool {
     match expected {
         "string" => value.is_string(),
-        "integer" => {
-            value.is_i64() || value.is_u64() || value.as_f64().is_some_and(|f| f.fract() == 0.0)
-        }
+        "integer" => value.is_i64() || value.is_u64(),
         "number" => value.is_number(),
         "boolean" => value.is_boolean(),
         "array" => value.is_array(),
@@ -166,10 +189,35 @@ mod tests {
     }
 
     #[test]
-    fn integer_accepts_whole_float() {
+    fn null_for_optional_field_is_accepted() {
+        // serde deserializes JSON null into Option::None, so this must NOT be
+        // rejected (control-regression guard).
+        let schema = json!({
+            "type": "object",
+            "properties": {"command": {"type": "string"}, "timeout": {"type": "integer"}},
+            "required": ["command"]
+        });
+        let args = json!({"command": "ls", "timeout": null});
+        assert!(validate_against_schema("bash", &args, &schema).is_ok());
+    }
+
+    #[test]
+    fn float_for_integer_field_is_rejected() {
+        // would fail serde deserialization into u64/usize, so reject early.
         let schema = json!({"type": "object", "properties": {"timeout": {"type": "integer"}}, "required": []});
         let args = json!({"timeout": 120000.0});
-        assert!(validate_against_schema("bash", &args, &schema).is_ok());
+        assert!(validate_against_schema("bash", &args, &schema).is_err());
+    }
+
+    #[test]
+    fn negative_below_minimum_is_rejected() {
+        let schema = json!({
+            "type": "object",
+            "properties": {"offset": {"type": "integer", "minimum": 0}},
+            "required": []
+        });
+        let args = json!({"offset": -1});
+        assert!(validate_against_schema("read_file", &args, &schema).is_err());
     }
 
     #[test]

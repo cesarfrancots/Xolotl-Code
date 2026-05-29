@@ -28,21 +28,35 @@ const ARG_KEYS: &[&str] = &["arguments", "input", "parameters", "args", "params"
 /// tool-call structure is present.
 #[must_use]
 pub fn parse_tool_call_from_text(text: &str) -> Option<ParsedToolCall> {
-    // 1. Fenced code block (```tool / ```json / ```), then any candidate JSON.
-    for candidate in candidate_json_blocks(text) {
-        if let Some(call) = from_json_str(&candidate) {
+    let candidates = candidate_json_blocks(text);
+    // Pass 1: prefer a candidate that carries an explicit arguments OBJECT. This
+    // wins over a name-only example block (avoids selecting the wrong tool) and
+    // is the only shape accepted for a *bare* (non-structural) prose object —
+    // so incidental data JSON like `{"name":"x","role":"y"}` is NOT a tool call.
+    for (candidate, _structural) in &candidates {
+        if let Some(call) = from_json_str(candidate, true) {
             return Some(call);
+        }
+    }
+    // Pass 2: a *structural* block (fenced / <tool_use>) with a name but no args
+    // is still a legitimate no-argument call (e.g. ```tool {"name":"todo_read"}).
+    for (candidate, structural) in &candidates {
+        if *structural {
+            if let Some(call) = from_json_str(candidate, false) {
+                return Some(call);
+            }
         }
     }
     None
 }
 
-/// Yield JSON-ish substrings worth trying, most-specific first: fenced blocks,
-/// XML-tag bodies, then the first balanced `{…}` object in the text.
-fn candidate_json_blocks(text: &str) -> Vec<String> {
+/// Yield `(json_substring, is_structural)` candidates. Structural ones come from
+/// an explicit tool-call wrapper (fenced block / XML tag); the trailing bare
+/// balanced object from free prose is non-structural.
+fn candidate_json_blocks(text: &str) -> Vec<(String, bool)> {
     let mut candidates = Vec::new();
 
-    // Fenced blocks.
+    // Fenced blocks (structural).
     let mut rest = text;
     while let Some(open) = rest.find("```") {
         let after = &rest[open + 3..];
@@ -50,14 +64,14 @@ fn candidate_json_blocks(text: &str) -> Vec<String> {
         let body_start = after.find('\n').map_or(after.len(), |i| i + 1);
         let body = &after[body_start..];
         if let Some(close) = body.find("```") {
-            candidates.push(body[..close].trim().to_string());
+            candidates.push((body[..close].trim().to_string(), true));
             rest = &body[close + 3..];
         } else {
             break;
         }
     }
 
-    // XML-ish wrappers.
+    // XML-ish wrappers (structural).
     for (open, close) in [
         ("<tool_use>", "</tool_use>"),
         ("<tool_call>", "</tool_call>"),
@@ -65,14 +79,14 @@ fn candidate_json_blocks(text: &str) -> Vec<String> {
         if let Some(start) = text.find(open) {
             let after = &text[start + open.len()..];
             if let Some(end) = after.find(close) {
-                candidates.push(after[..end].trim().to_string());
+                candidates.push((after[..end].trim().to_string(), true));
             }
         }
     }
 
-    // First balanced top-level object anywhere in the text.
+    // First balanced top-level object anywhere in the text (non-structural).
     if let Some(object) = first_balanced_object(text) {
-        candidates.push(object);
+        candidates.push((object, false));
     }
 
     candidates
@@ -110,9 +124,13 @@ fn first_balanced_object(text: &str) -> Option<String> {
     None
 }
 
-/// Parse a candidate JSON string into a tool call (with repair), pulling the
-/// name from any of [`NAME_KEYS`] and the arguments from any of [`ARG_KEYS`].
-fn from_json_str(candidate: &str) -> Option<ParsedToolCall> {
+/// Parse a candidate JSON string into a tool call (with repair). Requires a
+/// non-empty name from [`NAME_KEYS`]. The arguments must be a JSON *object*
+/// taken from the first [`ARG_KEYS`] key whose value is an object (a scalar
+/// `input`/`args` is ignored, so the real `parameters` object isn't shadowed).
+/// When `require_args` is true, a candidate with no arguments object is
+/// rejected.
+fn from_json_str(candidate: &str, require_args: bool) -> Option<ParsedToolCall> {
     let repaired = repair_json(candidate)?;
     let value: serde_json::Value = serde_json::from_str(&repaired).ok()?;
     let object = value.as_object()?;
@@ -127,12 +145,19 @@ fn from_json_str(candidate: &str) -> Option<ParsedToolCall> {
 
     let arguments = ARG_KEYS
         .iter()
-        .find_map(|key| object.get(*key))
-        .cloned()
-        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-    let input = arguments.to_string();
-
-    Some(ParsedToolCall { name, input })
+        .find_map(|key| object.get(*key).filter(|value| value.is_object()))
+        .cloned();
+    match arguments {
+        Some(arguments) => Some(ParsedToolCall {
+            name,
+            input: arguments.to_string(),
+        }),
+        None if require_args => None,
+        None => Some(ParsedToolCall {
+            name,
+            input: "{}".to_string(),
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -193,5 +218,36 @@ mod tests {
             parse_tool_call_from_text("Here is data: {\"path\": \"x\", \"value\": 1}"),
             None
         );
+    }
+
+    #[test]
+    fn prose_object_with_only_a_name_is_not_a_tool_call() {
+        // Incidental data JSON in prose carrying a "name" key must NOT be taken
+        // as a tool call (a bare object needs an arguments object).
+        assert_eq!(
+            parse_tool_call_from_text(
+                "Here is the user record: {\"name\": \"delete_old_logs\", \"role\": \"admin\"}"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn prefers_the_block_that_carries_arguments() {
+        // An example block (name only) precedes the real call (name + args); the
+        // real one must win.
+        let text = "```json\n{\"name\": \"production\", \"function\": \"web-server\"}\n```\n\
+                    ```tool\n{\"name\": \"bash\", \"arguments\": {\"command\": \"deploy\"}}\n```";
+        let call = parse_tool_call_from_text(text).expect("parse");
+        assert_eq!(call.name, "bash");
+        assert_eq!(call.input, r#"{"command":"deploy"}"#);
+    }
+
+    #[test]
+    fn picks_the_object_valued_argument_key_over_a_scalar() {
+        let text = "{\"name\": \"search\", \"input\": \"user typed this\", \"parameters\": {\"q\": \"rust\"}}";
+        let call = parse_tool_call_from_text(text).expect("parse");
+        assert_eq!(call.name, "search");
+        assert_eq!(call.input, r#"{"q":"rust"}"#);
     }
 }

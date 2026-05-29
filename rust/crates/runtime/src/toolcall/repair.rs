@@ -30,11 +30,12 @@ pub fn repair_json(raw: &str) -> Option<String> {
     if is_valid(&balanced) {
         return Some(balanced);
     }
-    // Truncation can leave a trailing comma exposed only after closing.
-    let balanced_no_commas = remove_trailing_commas(&balanced);
-    if is_valid(&balanced_no_commas) {
-        return Some(balanced_no_commas);
-    }
+    // NOTE: we deliberately do NOT run remove_trailing_commas *after* balancing.
+    // A payload truncated right after a separating comma (e.g. `{"xs":[1,2,`)
+    // balances to `{"xs":[1,2,]}`; stripping that comma would silently assert
+    // the collection was complete at 2 elements when the source signalled a 3rd
+    // was coming — a fabrication (R2). Leaving it invalid returns `None`, which
+    // is the correct "don't guess" outcome.
     None
 }
 
@@ -43,18 +44,25 @@ fn is_valid(text: &str) -> bool {
 }
 
 /// Remove a wrapping markdown code fence (```json / ```tool / ```), if present.
+///
+/// Handles both multi-line fences (opening ``` on its own line) and single-line
+/// fences (```json{...}```). The closing fence is only stripped when it is a
+/// genuine trailing ``` — never via a content-blind search, so a literal ```
+/// inside a JSON string value can't truncate the payload.
 fn strip_code_fences(text: &str) -> String {
     let trimmed = text.trim();
-    if !trimmed.starts_with("```") {
+    let Some(after_ticks) = trimmed.strip_prefix("```") else {
         return trimmed.to_string();
-    }
-    // Drop the opening fence line (``` plus an optional language tag).
-    let after_open = trimmed.find('\n').map_or("", |idx| &trimmed[idx + 1..]);
-    // Drop a closing fence if present.
-    let body = match after_open.rfind("```") {
-        Some(idx) => &after_open[..idx],
-        None => after_open,
     };
+    // The opening fence info (optional language tag) ends at the first newline;
+    // for a single-line fence, skip just the leading language token.
+    let body = match after_ticks.find('\n') {
+        Some(nl) => &after_ticks[nl + 1..],
+        None => after_ticks.trim_start_matches(|c: char| c.is_ascii_alphanumeric()),
+    };
+    // Strip a trailing closing fence only if it really is at the end.
+    let body = body.trim();
+    let body = body.strip_suffix("```").unwrap_or(body);
     body.trim().to_string()
 }
 
@@ -193,5 +201,31 @@ mod tests {
         let repaired = repair_json(r#"{"msg": "a, b, c",}"#).expect("repairable");
         let v: serde_json::Value = serde_json::from_str(&repaired).unwrap();
         assert_eq!(v["msg"], "a, b, c");
+    }
+
+    #[test]
+    fn embedded_backticks_in_value_are_not_truncated() {
+        // A fenced payload whose value contains a literal ``` must keep that
+        // value intact (the old content-blind rfind silently truncated it).
+        let raw = "```\n{\"cmd\":\"run ```\"}";
+        let repaired = repair_json(raw).expect("repairable");
+        let v: serde_json::Value = serde_json::from_str(&repaired).unwrap();
+        assert_eq!(v["cmd"], "run ```");
+    }
+
+    #[test]
+    fn strips_single_line_fence() {
+        assert_eq!(
+            repair_json("```json{\"path\":\"x\"}```").as_deref(),
+            Some(r#"{"path":"x"}"#)
+        );
+    }
+
+    #[test]
+    fn truncation_after_separator_is_not_silently_completed() {
+        // `{"xs":[1,2,` signals a 3rd element was coming; repair must NOT assert
+        // a complete 2-element array — it returns None (don't guess).
+        assert_eq!(repair_json(r#"{"xs":[1,2,"#), None);
+        assert_eq!(repair_json(r#"{"a":1,"#), None);
     }
 }
