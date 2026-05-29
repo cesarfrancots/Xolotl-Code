@@ -145,7 +145,7 @@ pub struct VerifyConfig {
 }
 
 impl VerifyConfig {
-    /// Build a config with sensible guardrail defaults (120s timeout, run on
+    /// Build a config with sensible guardrail defaults (90s timeout, run on
     /// every edit-applying turn, 10-diagnostic digest cap).
     #[must_use]
     pub fn new(
@@ -156,7 +156,7 @@ impl VerifyConfig {
         Self {
             commands,
             workdir: workdir.into(),
-            timeout: Duration::from_secs(120),
+            timeout: Duration::from_secs(90),
             min_iterations_between: 1,
             max_diagnostics: 10,
             runner,
@@ -340,7 +340,7 @@ mod tests {
                 args: vec!["-c".to_string(), "sleep 10 &".to_string()],
             },
             Path::new("."),
-            Duration::from_secs(60),
+            Duration::from_secs(30),
         );
         assert!(
             start.elapsed() < Duration::from_secs(6),
