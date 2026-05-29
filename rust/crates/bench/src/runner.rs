@@ -54,6 +54,15 @@ pub struct RunOutcome {
 }
 
 /// A [`ToolExecutor`] backed by the production `tools::execute_tool` dispatch.
+///
+/// Path resolution caveat (CP 0.2 prerequisite): `execute_tool` resolves
+/// *relative* paths against the process's current working directory, which this
+/// executor does not change. The offline test uses absolute paths into the task
+/// dir, so isolation holds. Live runs (CP 0.2), where the model emits relative
+/// paths, must resolve this — by running each task in its own process, by
+/// rewriting model paths to absolute, or by a working-dir-aware executor.
+/// Setting the process CWD globally here is unsafe under the parallel test
+/// harness, so it is deliberately deferred.
 #[derive(Clone, Default)]
 pub struct RealToolExecutor;
 
@@ -157,8 +166,13 @@ mod tests {
     }
 
     fn unique_temp_dir(tag: &str) -> PathBuf {
+        // Process id + a monotonic counter keeps the path unique even when the
+        // test harness runs multiple tests concurrently in one process.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
         let mut dir = std::env::temp_dir();
-        dir.push(format!("xolotl-bench-{tag}-{}", std::process::id()));
+        dir.push(format!("xolotl-bench-{tag}-{}-{seq}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }

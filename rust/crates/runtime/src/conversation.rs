@@ -738,9 +738,13 @@ where
 
 /// Record the outcome of an `edit_file` tool call to the benchmark recorder, if
 /// one is attached. No-op for every other tool and when no recorder is present.
+///
 /// Classification is coarse (the precise structured edit-failure signal is a
-/// later phase, B6); `result` is `Ok` when the tool returned success and `Err`
-/// carries the failure message.
+/// later phase, B6). It keys on `edit_file`'s own hardcoded NoMatch message
+/// (`"old_string not found in file"` from `file_ops::edit_file`), which is
+/// locale-independent — so a `NoMatch` is always recognized regardless of OS
+/// language. Genuine I/O failures (e.g. a missing file from `normalize_path`)
+/// carry OS-localized text and correctly fall through to `Error`.
 fn record_edit_outcome(
     recorder: Option<&Arc<dyn BenchRecorder>>,
     tool_name: &str,
@@ -754,7 +758,7 @@ fn record_edit_outcome(
     }
     match result {
         Ok(()) => recorder.record_edit(EditOutcome::Applied, "applied"),
-        Err(message) if message.contains("not found") => {
+        Err(message) if message.contains("old_string not found") => {
             recorder.record_edit(EditOutcome::NoMatch, message);
         }
         Err(message) => recorder.record_edit(EditOutcome::Error, message),
@@ -944,7 +948,7 @@ impl ToolExecutor for StaticToolExecutor {
 mod tests {
     use super::{
         ApiClient, ApiRequest, AssistantEvent, ConversationRuntime, RuntimeError,
-        StaticToolExecutor, ToolError,
+        StaticToolExecutor, ToolError, ToolExecutor,
     };
     use crate::bench::{BenchRecorder, EditOutcome};
     use crate::compact::CompactionConfig;
@@ -1305,5 +1309,106 @@ mod tests {
         assert_eq!(recorder.edits_applied.load(Ordering::Relaxed), 0);
         assert_eq!(recorder.edits_no_match.load(Ordering::Relaxed), 1);
         assert_eq!(recorder.edits_error.load(Ordering::Relaxed), 0);
+    }
+
+    /// Always-succeeding executor that can be invoked any number of times
+    /// (unlike `StaticToolExecutor`, whose handlers are consumed once).
+    #[derive(Clone)]
+    struct AlwaysOkExecutor;
+
+    impl ToolExecutor for AlwaysOkExecutor {
+        fn execute(&mut self, _tool_name: &str, _input: &str) -> Result<String, ToolError> {
+            Ok("ok".to_string())
+        }
+    }
+
+    /// Emits several `edit_file` calls in a single assistant turn so the loop
+    /// executes them on parallel worker threads.
+    struct ScriptedMultiEditClient {
+        call_count: usize,
+        edit_calls: usize,
+    }
+
+    impl ApiClient for ScriptedMultiEditClient {
+        fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+            self.call_count += 1;
+            if self.call_count == 1 {
+                let mut events: Vec<AssistantEvent> = (0..self.edit_calls)
+                    .map(|i| AssistantEvent::ToolUse {
+                        id: format!("edit-{i}"),
+                        name: "edit_file".to_string(),
+                        input: r#"{"path":"x.txt","old_string":"a","new_string":"b"}"#.to_string(),
+                    })
+                    .collect();
+                events.push(AssistantEvent::MessageStop);
+                Ok(events)
+            } else {
+                Ok(vec![
+                    AssistantEvent::TextDelta("done".to_string()),
+                    AssistantEvent::MessageStop,
+                ])
+            }
+        }
+    }
+
+    #[test]
+    fn bench_recorder_counts_parallel_edits_without_races() {
+        let edit_calls = 8;
+        let recorder = Arc::new(CountingRecorder::default());
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedMultiEditClient {
+                call_count: 0,
+                edit_calls,
+            },
+            AlwaysOkExecutor,
+            PermissionPolicy::new(PermissionMode::Allow),
+            vec!["system".to_string()],
+        )
+        .with_bench_recorder(recorder.clone());
+
+        runtime
+            .run_turn("edit the file repeatedly", None)
+            .expect("loop should succeed");
+
+        assert_eq!(recorder.tool_calls.load(Ordering::Relaxed), edit_calls);
+        assert_eq!(recorder.parsed_ok.load(Ordering::Relaxed), edit_calls);
+        assert_eq!(recorder.edits_applied.load(Ordering::Relaxed), edit_calls);
+        assert_eq!(recorder.edits_no_match.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn no_recorder_path_matches_recorder_path() {
+        // Run the identical edit scenario with and without a recorder attached
+        // and confirm the observable loop outcome is byte-identical (the
+        // production control path is unaffected by instrumentation).
+        fn run(recorder: Option<Arc<CountingRecorder>>) -> super::TurnSummary {
+            let executor =
+                StaticToolExecutor::new().register("edit_file", |_input| Ok("edited".to_string()));
+            let mut runtime = ConversationRuntime::new(
+                Session::new(),
+                ScriptedEditClient { call_count: 0 },
+                executor,
+                PermissionPolicy::new(PermissionMode::Allow),
+                vec!["system".to_string()],
+            );
+            if let Some(recorder) = recorder {
+                runtime = runtime.with_bench_recorder(recorder);
+            }
+            runtime
+                .run_turn("edit the file", None)
+                .expect("loop should succeed")
+        }
+
+        let without = run(None);
+        let with = run(Some(Arc::new(CountingRecorder::default())));
+
+        assert_eq!(without.iterations, with.iterations);
+        assert_eq!(
+            without.assistant_messages.len(),
+            with.assistant_messages.len()
+        );
+        assert_eq!(without.tool_results.len(), with.tool_results.len());
+        assert_eq!(without.tool_results, with.tool_results);
     }
 }
