@@ -18,11 +18,13 @@
 
 mod anchored;
 mod exact;
+mod fuzzy;
 mod util;
 mod whitespace;
 
 pub use anchored::AnchoredStrategy;
 pub use exact::ExactStrategy;
+pub use fuzzy::FuzzyStrategy;
 pub use whitespace::WhitespaceStrategy;
 
 /// Result of attempting to apply an edit to file *content* (no I/O).
@@ -48,9 +50,10 @@ pub trait EditStrategy {
     fn try_apply(&self, content: &str, old: &str, new: &str, replace_all: bool) -> EditApply;
 }
 
-/// Try each strategy in order and return the first `Applied`. If no strategy
-/// applies, report `Ambiguous` when any strategy saw an ambiguous match (more
-/// actionable for a re-prompt than a bare miss), otherwise `NoMatch`.
+/// Try each strategy in order. Return the first `Applied`. If a strategy reports
+/// `Ambiguous`, stop and return that immediately: a tighter strategy already
+/// found more than one plausible match, and a looser one cannot safely
+/// disambiguate it (R1). If every strategy misses, return `NoMatch`.
 #[must_use]
 pub fn apply_edit(
     content: &str,
@@ -59,32 +62,27 @@ pub fn apply_edit(
     replace_all: bool,
     ladder: &[Box<dyn EditStrategy>],
 ) -> EditApply {
-    let mut ambiguous: Option<usize> = None;
     for strategy in ladder {
         match strategy.try_apply(content, old, new, replace_all) {
             EditApply::Applied(updated) => return EditApply::Applied(updated),
-            EditApply::Ambiguous(count) => {
-                ambiguous.get_or_insert(count);
-            }
+            EditApply::Ambiguous(count) => return EditApply::Ambiguous(count),
             EditApply::NoMatch => {}
         }
     }
-    match ambiguous {
-        Some(count) => EditApply::Ambiguous(count),
-        None => EditApply::NoMatch,
-    }
+    EditApply::NoMatch
 }
 
 /// The default edit ladder, ordered tightest → loosest. `exact` runs first so
 /// the Claude/Bedrock happy path (exact-string edits) is byte-identical;
-/// whitespace and anchored only fire when an exact match is impossible. The
-/// fuzzy rung is appended in CP 1.3.
+/// whitespace and anchored only fire when an exact match is impossible, and
+/// `fuzzy` is the gated last resort.
 #[must_use]
 pub fn default_ladder() -> Vec<Box<dyn EditStrategy>> {
     vec![
         Box::new(ExactStrategy),
         Box::new(WhitespaceStrategy),
         Box::new(AnchoredStrategy),
+        Box::new(FuzzyStrategy),
     ]
 }
 
@@ -117,11 +115,13 @@ mod tests {
     }
 
     #[test]
-    fn orchestrator_prefers_ambiguous_over_no_match_when_nothing_applies() {
+    fn orchestrator_stops_at_ambiguous_and_never_reaches_looser_strategy() {
+        // A NoMatch, then Ambiguous, then a strategy that WOULD apply: the
+        // ambiguous result wins and the looser strategy is never consulted.
         let ladder: Vec<Box<dyn EditStrategy>> = vec![
             Box::new(FixedStrategy("a", EditApply::NoMatch)),
             Box::new(FixedStrategy("b", EditApply::Ambiguous(3))),
-            Box::new(FixedStrategy("c", EditApply::NoMatch)),
+            Box::new(FixedStrategy("c", EditApply::Applied("unsafe".to_string()))),
         ];
         assert_eq!(
             apply_edit("x", "x", "y", false, &ladder),
@@ -143,7 +143,7 @@ mod tests {
     fn default_ladder_is_ordered_tightest_first() {
         let ladder = default_ladder();
         let names: Vec<&str> = ladder.iter().map(|s| s.name()).collect();
-        assert_eq!(names, vec!["exact", "whitespace", "anchored"]);
+        assert_eq!(names, vec!["exact", "whitespace", "anchored", "fuzzy"]);
     }
 
     #[test]

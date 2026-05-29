@@ -65,7 +65,7 @@ pub use conversation::{
 };
 pub use edit::{
     apply_edit, default_ladder, AnchoredStrategy, EditApply, EditStrategy, ExactStrategy,
-    WhitespaceStrategy,
+    FuzzyStrategy, WhitespaceStrategy,
 };
 pub use file_ops::{
     edit_file, file_info, glob_search, grep_search, list_directory, read_file, read_image_base64,
