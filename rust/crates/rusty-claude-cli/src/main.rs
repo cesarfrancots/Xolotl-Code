@@ -3268,7 +3268,7 @@ fn build_runtime(
         build_single_client(&model, tool_specs, enable_tools, &hints, cache_scope)?
     };
 
-    Ok(ConversationRuntime::new(
+    let mut runtime = ConversationRuntime::new(
         session,
         client,
         tool_executor,
@@ -3283,7 +3283,20 @@ fn build_runtime(
     )
     .with_model(model.clone())
     .with_model_hints(hints)
-    .with_tool_schemas(tool_schemas))
+    .with_tool_schemas(tool_schemas);
+
+    // Opt-in post-edit verification (P3 CP 3.2): enabled only when
+    // `.claude/settings.json` sets `verify.post_edit: true`. Absent/false →
+    // no verify config → the happy path is unchanged.
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Ok(config) = runtime::ConfigLoader::default_for(&cwd).load() {
+            if let Some(verify_config) = runtime::VerifyConfig::from_settings(&cwd, &config) {
+                runtime = runtime.with_verification(verify_config);
+            }
+        }
+    }
+
+    Ok(runtime)
 }
 
 /// Build a child runtime for in-process sub-agent execution.

@@ -11,8 +11,9 @@ use crate::compact::{
 use crate::hooks::{HookEvent, HookManager};
 use crate::model_hints::ModelHints;
 use crate::permissions::{PermissionOutcome, PermissionPolicy, PermissionPrompter};
-use crate::session::{ContentBlock, ConversationMessage, Session};
+use crate::session::{ContentBlock, ConversationMessage, MessageRole, Session};
 use crate::usage::{TokenUsage, UsageTracker};
+use crate::verify::{VerifyCommand, VerifyConfig};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiRequest {
@@ -141,6 +142,9 @@ pub struct ConversationRuntime<C, T> {
     /// passed in as data since `runtime` cannot import `tools`). Empty by
     /// default → validation is skipped and behavior is unchanged.
     tool_schemas: BTreeMap<String, serde_json::Value>,
+    /// Opt-in post-edit verification (P3 CP 3.2). `None` by default → the step
+    /// is skipped entirely and the Claude/Bedrock happy path is unchanged.
+    verify_config: Option<VerifyConfig>,
 }
 
 impl<C, T> ConversationRuntime<C, T>
@@ -179,7 +183,16 @@ where
             max_edit_retries: 2,
             max_toolcall_retries: 2,
             tool_schemas: BTreeMap::new(),
+            verify_config: None,
         }
+    }
+
+    /// Enable opt-in post-edit verification (P3 CP 3.2). With no config set the
+    /// step is skipped and behavior is unchanged (control).
+    #[must_use]
+    pub fn with_verification(mut self, config: VerifyConfig) -> Self {
+        self.verify_config = Some(config);
+        self
     }
 
     /// Set the number of consecutive failed `edit_file` attempts tolerated
@@ -428,6 +441,7 @@ where
         let mut iterations = 0;
         let mut consecutive_edit_failures = 0usize;
         let mut consecutive_toolcall_failures = 0usize;
+        let mut last_verify_iteration: Option<usize> = None;
 
         let effective_max_iterations = self.model_hints.as_ref().map_or(self.max_iterations, |h| {
             h.effective_max_iterations(self.max_iterations)
@@ -694,6 +708,15 @@ where
                 tool_results.push(result);
             }
 
+            // Post-edit verification (P3 CP 3.2, B3): after an edit applies, run
+            // the project's detected check from inside the loop and append a
+            // synthetic system message with the failure digest for the next turn.
+            // Opt-in (skipped entirely when no verify config is set), debounced,
+            // and only-on-edit — so the Claude/Bedrock happy path is unchanged.
+            if edit_applied {
+                self.run_post_edit_verification(iterations, &mut last_verify_iteration);
+            }
+
             // Re-prompt cap (B6 / D4): a failed edit leaves an enriched,
             // tagged tool result in the conversation so the model can correct
             // on the next turn. But if edits keep failing with no progress, end
@@ -728,6 +751,44 @@ where
             iterations,
             usage: self.usage_tracker.cumulative_usage(),
         })
+    }
+
+    /// Run the opt-in post-edit check and, on failure, append a synthetic system
+    /// message carrying the diagnostic digest so the next turn can fix it (B3:
+    /// hooks can't inject, so this is an in-loop step using the normal append
+    /// path). No-op when verification is disabled or debounced.
+    fn run_post_edit_verification(&mut self, iteration: usize, last_verify: &mut Option<usize>) {
+        let message = {
+            let Some(config) = self.verify_config.as_ref() else {
+                return;
+            };
+            if let Some(prev) = *last_verify {
+                if iteration.saturating_sub(prev) < config.min_iterations_between {
+                    return;
+                }
+            }
+            let Some(result) = config.run_post_edit() else {
+                return;
+            };
+            *last_verify = Some(iteration);
+            match result {
+                Ok(()) => return,
+                Err(digest) => {
+                    let command = config
+                        .commands
+                        .post_edit_check()
+                        .map_or_else(String::new, VerifyCommand::display);
+                    format!(
+                        "Automated post-edit verification failed (`{command}`):\n{digest}\nFix the reported errors before continuing."
+                    )
+                }
+            }
+        };
+        self.session.messages.push(ConversationMessage {
+            role: MessageRole::System,
+            blocks: vec![ContentBlock::Text { text: message }],
+            usage: None,
+        });
     }
 
     #[must_use]
@@ -1170,8 +1231,8 @@ impl ToolExecutor for StaticToolExecutor {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApiClient, ApiRequest, AssistantEvent, ConversationRuntime, RuntimeError,
-        StaticToolExecutor, ToolError, ToolExecutor,
+        message_text, ApiClient, ApiRequest, AssistantEvent, ConversationRuntime, RuntimeError,
+        StaticToolExecutor, ToolError, ToolExecutor, VerifyConfig,
     };
     use crate::bench::{BenchRecorder, EditOutcome};
     use crate::compact::CompactionConfig;
@@ -1295,6 +1356,166 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// Emits an `edit_file` call on the first turn, then plain text on the second.
+    struct VerifyEditClient {
+        call_count: usize,
+        /// When set, the second turn asserts it received a system verification note.
+        expect_verify_note: bool,
+    }
+
+    impl ApiClient for VerifyEditClient {
+        fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+            self.call_count += 1;
+            match self.call_count {
+                1 => Ok(vec![
+                    AssistantEvent::ToolUse {
+                        id: "edit-1".to_string(),
+                        name: "edit_file".to_string(),
+                        input: "{\"path\":\"src/main.rs\"}".to_string(),
+                    },
+                    AssistantEvent::MessageStop,
+                ]),
+                2 => {
+                    let saw_verify_note = request.messages.iter().any(|m| {
+                        m.role == MessageRole::System
+                            && message_text(m).contains("post-edit verification failed")
+                    });
+                    assert_eq!(
+                        saw_verify_note, self.expect_verify_note,
+                        "verification note presence on next turn should match expectation"
+                    );
+                    Ok(vec![
+                        AssistantEvent::TextDelta("done".to_string()),
+                        AssistantEvent::MessageStop,
+                    ])
+                }
+                _ => Err(RuntimeError::new("unexpected extra API call")),
+            }
+        }
+    }
+
+    struct AllowAll;
+    impl PermissionPrompter for AllowAll {
+        fn decide(&mut self, _request: &PermissionRequest) -> PermissionPromptDecision {
+            PermissionPromptDecision::Allow
+        }
+    }
+
+    struct CannedVerifyRunner {
+        success: bool,
+        output: String,
+    }
+    impl crate::verify::VerifyRunner for CannedVerifyRunner {
+        fn run(
+            &self,
+            _command: &crate::verify::VerifyCommand,
+            _dir: &std::path::Path,
+            _timeout: std::time::Duration,
+        ) -> crate::verify::VerifyOutcome {
+            crate::verify::VerifyOutcome {
+                success: self.success,
+                output: self.output.clone(),
+            }
+        }
+    }
+
+    fn edit_runtime_with_verification(
+        verify: Option<VerifyConfig>,
+        expect_verify_note: bool,
+    ) -> ConversationRuntime<VerifyEditClient, StaticToolExecutor> {
+        let api_client = VerifyEditClient {
+            call_count: 0,
+            expect_verify_note,
+        };
+        let tool_executor =
+            StaticToolExecutor::new().register("edit_file", |_input| Ok("applied".to_string()));
+        let permission_policy = PermissionPolicy::new(PermissionMode::Prompt);
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            api_client,
+            tool_executor,
+            permission_policy,
+            vec!["system".to_string()],
+        );
+        if let Some(config) = verify {
+            runtime = runtime.with_verification(config);
+        }
+        runtime
+    }
+
+    fn rust_verify_commands() -> crate::verify::VerifyCommands {
+        crate::verify::VerifyCommands {
+            kind: crate::verify::ProjectKind::Rust,
+            build: None,
+            test: None,
+            typecheck: Some(crate::verify::VerifyCommand {
+                program: "cargo".to_string(),
+                args: vec!["check".to_string()],
+            }),
+        }
+    }
+
+    #[test]
+    fn post_edit_verification_failure_surfaces_to_next_turn() {
+        let runner = Arc::new(CannedVerifyRunner {
+            success: false,
+            output: "error[E0425]: cannot find value `x`\n  --> src/main.rs:3:13\n".to_string(),
+        });
+        let config = VerifyConfig::new(rust_verify_commands(), ".", runner);
+        let mut runtime = edit_runtime_with_verification(Some(config), true);
+
+        runtime
+            .run_turn("edit the file", Some(&mut AllowAll))
+            .expect("loop should succeed");
+
+        // A synthetic system verification message must be in the session.
+        let note = runtime.session().messages.iter().find(|m| {
+            m.role == MessageRole::System
+                && message_text(m).contains("post-edit verification failed")
+        });
+        let note = note.expect("verification failure note should be appended");
+        assert!(message_text(note).contains("src/main.rs:3"));
+    }
+
+    #[test]
+    fn post_edit_verification_success_appends_nothing() {
+        let runner = Arc::new(CannedVerifyRunner {
+            success: true,
+            output: String::new(),
+        });
+        let config = VerifyConfig::new(rust_verify_commands(), ".", runner);
+        let mut runtime = edit_runtime_with_verification(Some(config), false);
+
+        runtime
+            .run_turn("edit the file", Some(&mut AllowAll))
+            .expect("loop should succeed");
+
+        assert!(
+            !runtime
+                .session()
+                .messages
+                .iter()
+                .any(|m| m.role == MessageRole::System),
+            "a passing check must not inject any message"
+        );
+    }
+
+    #[test]
+    fn verification_disabled_is_a_no_op_control() {
+        let mut runtime = edit_runtime_with_verification(None, false);
+        runtime
+            .run_turn("edit the file", Some(&mut AllowAll))
+            .expect("loop should succeed");
+        // Control: with verification off, no synthetic system message exists and
+        // the session is exactly user, assistant(tool_use), tool_result, assistant.
+        assert!(!runtime
+            .session()
+            .messages
+            .iter()
+            .any(|m| m.role == MessageRole::System));
+        assert_eq!(runtime.session().messages.len(), 4);
     }
 
     #[test]

@@ -8,8 +8,10 @@
 
 mod detect;
 mod parse;
+mod run;
 
 pub use detect::{
     detect_project, resolve_verify_commands, ProjectKind, VerifyCommand, VerifyCommands,
 };
 pub use parse::{format_digest, parse_check_output, Diagnostic};
+pub use run::{ProcessVerifyRunner, VerifyConfig, VerifyOutcome, VerifyRunner};

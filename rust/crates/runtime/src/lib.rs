@@ -112,6 +112,7 @@ pub use toolcall::{repair_json, validate_against_schema};
 pub use usage::{cost_for_usage, pricing_for, ModelPricing, TokenUsage, UsageTracker};
 pub use verify::{
     detect_project, format_digest, parse_check_output, resolve_verify_commands, Diagnostic,
-    ProjectKind, VerifyCommand, VerifyCommands,
+    ProcessVerifyRunner, ProjectKind, VerifyCommand, VerifyCommands, VerifyConfig, VerifyOutcome,
+    VerifyRunner,
 };
 pub use web_fetch::{web_fetch, web_search, SearchResult, WebFetchInput, WebFetchOutput};
