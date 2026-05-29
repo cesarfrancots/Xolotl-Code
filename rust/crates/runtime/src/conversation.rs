@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::bench::{BenchRecorder, EditOutcome};
 use crate::compact::{
-    compact_session, estimate_session_tokens, should_compact, CompactionConfig, CompactionResult,
+    compact_session, estimate_session_tokens, estimate_session_tokens_for_family, should_compact,
+    CompactionConfig, CompactionResult,
 };
 use crate::hooks::{HookEvent, HookManager};
 use crate::model_hints::ModelHints;
@@ -244,14 +245,8 @@ where
 
     #[must_use]
     pub fn with_model_hints(mut self, hints: ModelHints) -> Self {
-        #[allow(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            clippy::cast_precision_loss
-        )]
-        {
-            self.max_context_tokens = (hints.max_context as f32 * hints.compaction_ratio) as usize;
-        }
+        // Scale the compaction threshold to the model's context window (CP 4.3).
+        self.max_context_tokens = CompactionConfig::from_model_hints(&hints).max_estimated_tokens;
         self.model_hints = Some(hints);
         self
     }
@@ -381,7 +376,12 @@ where
     /// If the session exceeds the context threshold, auto-compact in place.
     /// Returns `true` if compaction occurred.
     fn maybe_auto_compact(&mut self) -> bool {
-        let estimated = estimate_session_tokens(&self.session);
+        // Estimate with the model's own encoder when known (CP 4.2/4.3); for Claude
+        // and other cl100k families this is identical to the default estimate.
+        let estimated = self.model_hints.as_ref().map_or_else(
+            || estimate_session_tokens(&self.session),
+            |hints| estimate_session_tokens_for_family(&self.session, hints.family),
+        );
         if estimated < self.max_context_tokens {
             return false;
         }

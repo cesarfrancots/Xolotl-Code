@@ -53,8 +53,9 @@ pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
 pub use bench::{BenchRecorder, EditOutcome, SharedBenchRecorder};
 pub use bootstrap::{BootstrapPhase, BootstrapPlan};
 pub use compact::{
-    compact_session, estimate_session_tokens, format_compact_summary,
-    get_compact_continuation_message, should_compact, CompactionConfig, CompactionResult,
+    compact_session, estimate_session_tokens, estimate_session_tokens_for_family,
+    format_compact_summary, get_compact_continuation_message, should_compact, CompactionConfig,
+    CompactionResult,
 };
 pub use config::{
     ConfigEntry, ConfigError, ConfigLoader, ConfigSource, RuntimeConfig,

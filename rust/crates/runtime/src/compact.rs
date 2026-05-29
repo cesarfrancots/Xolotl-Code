@@ -1,5 +1,6 @@
-use crate::estimate_tokens;
+use crate::model_hints::{ModelFamily, ModelHints};
 use crate::session::{ContentBlock, ConversationMessage, MessageRole, Session};
+use crate::{estimate_tokens, estimate_tokens_for_family};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompactionConfig {
@@ -16,6 +17,28 @@ impl Default for CompactionConfig {
     }
 }
 
+impl CompactionConfig {
+    /// Build a config whose compaction threshold scales with the model's context
+    /// window — `max_context * compaction_ratio`, the same value as
+    /// [`ModelHints::context_near_limit`] — instead of a fixed global limit.
+    ///
+    /// This is why a 1M-context model does not compact at the legacy 120K global:
+    /// its threshold is derived from its own window.
+    #[must_use]
+    pub fn from_model_hints(hints: &ModelHints) -> Self {
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        let max_estimated_tokens = (hints.max_context as f32 * hints.compaction_ratio) as usize;
+        Self {
+            preserve_recent_messages: 6,
+            max_estimated_tokens,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompactionResult {
     pub summary: String,
@@ -26,6 +49,41 @@ pub struct CompactionResult {
 #[must_use]
 pub fn estimate_session_tokens(session: &Session) -> usize {
     session.messages.iter().map(estimate_message_tokens).sum()
+}
+
+/// Like [`estimate_session_tokens`] but using `family`'s encoder for the estimate
+/// (e.g. `o200k_base` for OpenAI). For families that map to `cl100k_base` — which
+/// includes Claude — this is byte-identical to [`estimate_session_tokens`].
+#[must_use]
+pub fn estimate_session_tokens_for_family(session: &Session, family: ModelFamily) -> usize {
+    session
+        .messages
+        .iter()
+        .map(|message| estimate_message_tokens_for_family(message, family))
+        .sum()
+}
+
+fn estimate_message_tokens_for_family(message: &ConversationMessage, family: ModelFamily) -> usize {
+    message
+        .blocks
+        .iter()
+        .map(|block| estimate_block_tokens_for_family(block, family))
+        .sum()
+}
+
+fn estimate_block_tokens_for_family(block: &ContentBlock, family: ModelFamily) -> usize {
+    let est = |text: &str| estimate_tokens_for_family(text, family);
+    match block {
+        ContentBlock::Text { text } => est(text),
+        ContentBlock::Thinking { thinking, .. } => est(thinking),
+        ContentBlock::Image { source } => match source {
+            crate::session::ImageSource::Base64 { data, .. } => est(data),
+        },
+        ContentBlock::ToolUse { name, input, .. } => est(name) + est(input),
+        ContentBlock::ToolResult {
+            tool_name, output, ..
+        } => est(tool_name) + est(output),
+    }
 }
 
 #[must_use]
@@ -216,10 +274,67 @@ fn collapse_blank_lines(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        compact_session, estimate_session_tokens, format_compact_summary, should_compact,
-        CompactionConfig,
+        compact_session, estimate_session_tokens, estimate_session_tokens_for_family,
+        format_compact_summary, should_compact, CompactionConfig,
     };
+    use crate::model_hints::{ModelFamily, ModelHints};
     use crate::session::{ContentBlock, ConversationMessage, MessageRole, Session};
+
+    /// A session of `messages` assistant turns, each `tokens_each` tokens.
+    fn session_with(messages: usize, tokens_each: usize) -> Session {
+        Session {
+            version: 1,
+            messages: (0..messages)
+                .map(|_| {
+                    ConversationMessage::assistant(vec![ContentBlock::Text {
+                        // "word " is ~1 token under cl100k.
+                        text: "word ".repeat(tokens_each),
+                    }])
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn compaction_threshold_scales_to_model_context_window() {
+        // T-4.3.1: the threshold derives from the model's own window, not 120K.
+        let large = CompactionConfig::from_model_hints(&ModelHints::for_model("minimax"));
+        let small = CompactionConfig::from_model_hints(&ModelHints::for_model("claude-opus-4-8"));
+        assert!(
+            large.max_estimated_tokens > 120_000,
+            "1M-context model must not be capped at the legacy 120K global"
+        );
+        assert!(
+            large.max_estimated_tokens > small.max_estimated_tokens,
+            "1M-context model gets a higher threshold than a 200K-context model"
+        );
+    }
+
+    #[test]
+    fn large_context_model_keeps_a_session_the_default_would_compact() {
+        // ~20K tokens across 10 messages: above the 10K default and the message
+        // floor, but far below a 1M-context model's window.
+        let session = session_with(10, 2_000);
+        let estimated = estimate_session_tokens(&session);
+        assert!(estimated > 10_000 && estimated < 120_000);
+
+        // Default config compacts it; the model-aware config does not.
+        assert!(should_compact(&session, CompactionConfig::default()));
+        let model_config = CompactionConfig::from_model_hints(&ModelHints::for_model("minimax"));
+        assert!(!should_compact(&session, model_config));
+    }
+
+    #[test]
+    fn family_estimate_matches_default_for_cl100k_families() {
+        let session = session_with(3, 50);
+        // Claude maps to cl100k, so its family estimate equals the default estimate.
+        assert_eq!(
+            estimate_session_tokens_for_family(&session, ModelFamily::Claude),
+            estimate_session_tokens(&session)
+        );
+        // OpenAI uses o200k; the estimate is still a positive count.
+        assert!(estimate_session_tokens_for_family(&session, ModelFamily::OpenAI) > 0);
+    }
 
     #[test]
     fn formats_compact_summary_like_upstream() {
