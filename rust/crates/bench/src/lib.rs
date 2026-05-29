@@ -15,5 +15,7 @@
 //! git repository.
 
 pub mod recorder;
+pub mod runner;
 
 pub use recorder::{CountingRecorder, Metrics};
+pub use runner::{run_task, RealToolExecutor, RunOutcome, SeedFile, TaskSpec};
