@@ -65,6 +65,39 @@ jobs:
         working-directory: rust
         run: cargo +1.95.0 test --workspace --exclude compat-harness --verbose
 
+  lsp-feature:
+    name: LSP feature build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy
+
+      - name: Pin default toolchain
+        run: |
+          rustup default 1.95.0
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Restore cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-latest-cargo-cache
+          workspaces: ./rust -> target
+
+      # CP 3.3: the LSP client is gated behind `--features lsp`; build, lint, and
+      # test it explicitly so the feature-gated code stays green even though the
+      # default workspace build excludes it.
+      - name: Build, clippy and test lsp crate with --features lsp
+        working-directory: rust
+        run: |
+          cargo +1.95.0 build -p lsp --features lsp --verbose
+          cargo +1.95.0 clippy -p lsp --features lsp -- -D warnings
+          cargo +1.95.0 test -p lsp --features lsp --verbose
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

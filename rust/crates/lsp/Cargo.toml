@@ -1,0 +1,19 @@
+[package]
+name = "lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+
+[features]
+# Gates the process-spawning LSP client (T-3.3). The pure framing/protocol/digest
+# logic is always available and unit-tested; the client that launches real
+# language servers is only compiled with `--features lsp`.
+lsp = []
+
+[lints]
+workspace = true
