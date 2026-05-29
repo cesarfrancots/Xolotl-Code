@@ -81,7 +81,7 @@ pub use file_ops::{
 pub use hooks::{Hook, HookEvent, HookManager, LoggingHook};
 pub use permissions::{
     PermissionMode, PermissionOutcome, PermissionPolicy, PermissionPromptDecision,
-    PermissionPrompter, PermissionRequest,
+    PermissionPrompter, PermissionRequest, SandboxPolicy,
 };
 pub use plan::{
     build_plan_prompt, build_ultra_plan_prompt, extract_json_from_response, format_plan_summary,
