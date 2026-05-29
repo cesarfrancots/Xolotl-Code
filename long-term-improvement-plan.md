@@ -130,18 +130,18 @@ Verified against the source on 2026-05-28. **Trust these over your priors;** re-
 
 Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is how any agent resumes.
 
-> **Current focus (updated 2026-05-28):** Checkpoint **0.1** (Bench harness skeleton) is **code-complete and DoD-green locally** on branch `feat/p0-bench-harness` — all four tasks (T-0.1.1–0.1.4) done and checked. Status stays `IN-PROGRESS` (not `MERGED`) because it has **not been pushed/merged** (no push authorized yet). Local DoD verified: `cargo fmt --all --check`, `cargo clippy --workspace --all-features --exclude compat-harness -- -D warnings`, `cargo build --workspace`, `cargo test --workspace --exclude compat-harness` (runtime 166 incl. +2 recorder tests, bench 7), and `cargo run -p bench -- --help` exit 0. Claude/Bedrock control path unchanged (recorder is `None` by default).
+> **Current focus (updated 2026-05-29):** Autonomous full-plan execution authorized — implementing every phase to DoD-green and **pushing each phase directly to `main`** (not via PR). CP **0.1 MERGED** (PR #3). **Phase 1 (Resilient Edit) COMPLETE** — CP 1.1–1.4 all DoD-green (runtime 216 tests, clippy/fmt clean). **Deviation (intended, per appendix correction):** the edit-strategy ladder lives in **`runtime/src/edit/`** (exact/whitespace/anchored/fuzzy + formats + structured `EditFailure`), NOT `tools/src/edit/` — because the real `edit_file` is in `runtime/src/file_ops.rs` and `tools → runtime` is one-way. The re-prompt cap (B6/D4) is an in-loop step in `conversation.rs` (`max_edit_retries`); the Claude happy path is byte-identical (control test `no_recorder_path` + exact-wins tests green).
 >
-> **To resume / next steps:** (1) **PR open: [cesarfrancots/Claw-code2#3](https://github.com/cesarfrancots/Claw-code2/pull/3)** (head `feat/p0-bench-harness` → base `docs/long-term-improvement-plan`), pushed to remote `claw-code2`. Awaiting CI + review; on merge set this row to `MERGED` (tag `bench-baseline-v0` only after 0.2). (2) **Before CP 0.2** resolve blocker **B7** — human chose **adding a `lib.rs` to `rusty-claude-cli`** that re-exports the provider `ApiClient` impls so `bench` can drive live runs; also address **B8** (per-task CWD isolation for relative paths). (3) Then CP **0.2** (corpus + baseline) plus the parallel-safe 1.1 / 2.1 / 3.1 / 4.1. Per-task progress is tracked with `[ ]`/`[x]` checkboxes below.
+> **To resume / next steps:** working order = P1 ✅ → **P2 (toolcall recovery)** next → P4 (calibration, incl. B4 Claude-cache fix) → P3 (verify) → B7+B8+CP 0.2 corpus → P5 → P6. Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
 
 | CP | Title | Status | Depends on | Branch | Owns (file scope) | Parallel-safe with |
 |----|-------|--------|-----------|--------|-------------------|--------------------|
-| 0.1 | Bench harness skeleton | IN-PROGRESS | — | `feat/p0-bench-harness` | `rust/crates/bench/**`, `runtime/src/bench.rs` (recorder trait, B1), recorder calls in `conversation.rs` + `tools/src/lib.rs` | — |
+| 0.1 | Bench harness skeleton | MERGED | — | `feat/p0-bench-harness` | `rust/crates/bench/**`, `runtime/src/bench.rs` (recorder trait, B1), recorder calls in `conversation.rs` + `tools/src/lib.rs` | — |
 | 0.2 | Corpus + baseline | TODO | 0.1 | `feat/p0-corpus-baseline` | `rust/crates/bench/corpus/**`, `bench/results/**` | 4.x |
-| 1.1 | Edit strategy scaffold (exact parity) | TODO | 0.1 | `feat/p1-edit-strategy-scaffold` | `rust/crates/tools/src/edit/**`, `tools/src/lib.rs` (edit only) | 4.x, 5.x |
-| 1.2 | Whitespace + anchored strategies | TODO | 1.1 | `feat/p1-ws-anchored` | `rust/crates/tools/src/edit/**` | 4.x, 5.x |
-| 1.3 | Fuzzy + confidence gate | TODO | 1.2 | `feat/p1-fuzzy` | `rust/crates/tools/src/edit/**` | 4.x, 5.x |
-| 1.4 | Alt formats + re-prompt + hints | TODO | 1.3 | `feat/p1-formats-reprompt` | `tools/src/edit/**`, `runtime/src/conversation.rs`, `runtime/src/model_hints.rs` | 5.x |
+| 1.1 | Edit strategy scaffold (exact parity) | MERGED | 0.1 | direct→`main` | `runtime/src/edit/**` (NOT tools — see deviation), `file_ops.rs` | 4.x, 5.x |
+| 1.2 | Whitespace + anchored strategies | MERGED | 1.1 | direct→`main` | `runtime/src/edit/**` | 4.x, 5.x |
+| 1.3 | Fuzzy + confidence gate | MERGED | 1.2 | direct→`main` | `runtime/src/edit/**` | 4.x, 5.x |
+| 1.4 | Alt formats + re-prompt + hints | MERGED | 1.3 | direct→`main` | `runtime/src/edit/**`, `runtime/src/conversation.rs`, `runtime/src/model_hints.rs` | 5.x |
 | 2.1 | JSON repair + validation | TODO | 0.1 | `feat/p2-json-repair` | `rust/crates/runtime/src/toolcall/**`, `conversation.rs` | 4.x |
 | 2.2 | Tool-call re-prompt protocol | TODO | 2.1 | `feat/p2-toolcall-reprompt` | `runtime/src/toolcall/**`, `conversation.rs` | 4.x |
 | 2.3 | Text/XML fallback parser | TODO | 2.1 | `feat/p2-fallback-parser` | `runtime/src/toolcall/**` | 4.x |
