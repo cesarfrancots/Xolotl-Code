@@ -130,9 +130,9 @@ Verified against the source on 2026-05-28. **Trust these over your priors;** re-
 
 Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is how any agent resumes.
 
-> **Current focus (updated 2026-05-29):** Autonomous full-plan execution authorized — implementing every phase to DoD-green and **pushing each phase directly to `main`** (not via PR). CP **0.1 MERGED** (PR #3). **Phase 1 (Resilient Edit) COMPLETE** — CP 1.1–1.4 all DoD-green (runtime 216 tests, clippy/fmt clean). **Deviation (intended, per appendix correction):** the edit-strategy ladder lives in **`runtime/src/edit/`** (exact/whitespace/anchored/fuzzy + formats + structured `EditFailure`), NOT `tools/src/edit/` — because the real `edit_file` is in `runtime/src/file_ops.rs` and `tools → runtime` is one-way. The re-prompt cap (B6/D4) is an in-loop step in `conversation.rs` (`max_edit_retries`); the Claude happy path is byte-identical (control test `no_recorder_path` + exact-wins tests green).
+> **Current focus (updated 2026-05-29):** Autonomous full-plan execution authorized — implementing every phase to DoD-green and **pushing each phase directly to `main`** (not via PR). CP **0.1 MERGED** (PR #3). **Phase 1 (Resilient Edit) COMPLETE + SHIPPED** — tag `edit-layer-v1`, commit d4fcecc. **Phase 2 (Malformed Tool-Call Recovery) COMPLETE + SHIPPED** — CP 2.1–2.4 all DoD-green (runtime 265 tests, clippy/fmt clean), tag `toolcall-recovery-v1`, commit 48b7682. **P2 deviations (intended):** CP 2.4 scoped to `openai.rs` + `bedrock.rs` only (Anthropic/Claude client left at `Auto` to keep the control byte-identical, per plan); the toolcall module lives in `runtime/src/toolcall/` (B5: validates against schemas carried as data via `with_tool_schemas`, never imports `tools`). The text/XML fallback parser (CP 2.3) is gated off by default (`ModelHints.text_tool_fallback = false`) so Claude is unaffected. Both P1 and P2 passed a phase-boundary adversarial-review workflow (15 + 12 confirmed findings, all fixed before push).
 >
-> **To resume / next steps:** working order = P1 ✅ → **P2 (toolcall recovery)** next → P4 (calibration, incl. B4 Claude-cache fix) → P3 (verify) → B7+B8+CP 0.2 corpus → P5 → P6. Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
+> **To resume / next steps:** working order = P1 ✅ → P2 ✅ → **P4 (calibration, incl. B4 Claude-cache fix)** next → P3 (verify) → B7+B8+CP 0.2 corpus → P5 → P6. Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
 
 | CP | Title | Status | Depends on | Branch | Owns (file scope) | Parallel-safe with |
 |----|-------|--------|-----------|--------|-------------------|--------------------|
@@ -142,10 +142,10 @@ Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is
 | 1.2 | Whitespace + anchored strategies | MERGED | 1.1 | direct→`main` | `runtime/src/edit/**` | 4.x, 5.x |
 | 1.3 | Fuzzy + confidence gate | MERGED | 1.2 | direct→`main` | `runtime/src/edit/**` | 4.x, 5.x |
 | 1.4 | Alt formats + re-prompt + hints | MERGED | 1.3 | direct→`main` | `runtime/src/edit/**`, `runtime/src/conversation.rs`, `runtime/src/model_hints.rs` | 5.x |
-| 2.1 | JSON repair + validation | TODO | 0.1 | `feat/p2-json-repair` | `rust/crates/runtime/src/toolcall/**`, `conversation.rs` | 4.x |
-| 2.2 | Tool-call re-prompt protocol | TODO | 2.1 | `feat/p2-toolcall-reprompt` | `runtime/src/toolcall/**`, `conversation.rs` | 4.x |
-| 2.3 | Text/XML fallback parser | TODO | 2.1 | `feat/p2-fallback-parser` | `runtime/src/toolcall/**` | 4.x |
-| 2.4 | Per-model tool_choice | TODO | 2.1 | `feat/p2-tool-choice-hints` | `model_hints.rs`, `openai.rs`, `bedrock.rs` (tool_choice only) | — |
+| 2.1 | JSON repair + validation | MERGED | 0.1 | direct→`main` | `rust/crates/runtime/src/toolcall/**`, `conversation.rs` | 4.x |
+| 2.2 | Tool-call re-prompt protocol | MERGED | 2.1 | direct→`main` | `runtime/src/toolcall/**`, `conversation.rs` | 4.x |
+| 2.3 | Text/XML fallback parser | MERGED | 2.1 | direct→`main` | `runtime/src/toolcall/**` | 4.x |
+| 2.4 | Per-model tool_choice | MERGED | 2.1 | direct→`main` | `model_hints.rs`, `openai.rs`, `bedrock.rs` (tool_choice only) | — |
 | 3.1 | Project command detection | TODO | 0.1 | `feat/p3-project-detect` | `rust/crates/runtime/src/verify/**` | 1.x, 2.x, 4.x |
 | 3.2 | Post-edit verification (in-loop, B3) | TODO | 3.1, 1.1 | `feat/p3-verify-hook` | `runtime/src/verify/**`, `conversation.rs` (in-loop step) | — |
 | 3.3 | LSP diagnostics (feature-flagged) | TODO | 3.2 | `feat/p3-lsp` | `rust/crates/lsp/**` | 4.x, 5.x |
@@ -325,31 +325,31 @@ Tasks:
 
 ### Checkpoint 2.1 — JSON repair + validation
 **Owns:** `rust/crates/runtime/src/toolcall/**`, `conversation.rs` (extraction site).
-- [ ] **T-2.1.1 — `toolcall/repair.rs` (D5).** Strip ``` fences, fix trailing commas, balance/close unterminated strings/braces where unambiguous, handle truncation. **Never fabricate values.** Test first: fenced/trailing-comma/unterminated/truncated → expected; irreparable → `None` (not a guess). Verify: `cargo test -p runtime`.
-- [ ] **T-2.1.2 — `toolcall/validate.rs`.** Validate args vs the tool's JSON schema **as carried in the `ApiRequest`** (B5 — do not import `tools`); if the request doesn't already expose schemas to `runtime`, pass them into `ConversationRuntime` as data. Emit a model-targeted error naming the bad field. Test first: wrong type / missing field → correct message. Verify: `cargo test -p runtime`.
-- [ ] **T-2.1.3 — Wire before deserialize** in extraction. Test first: malformed-but-repairable call now executes. Verify: `cargo test -p runtime`.
+- [x] **T-2.1.1 — `toolcall/repair.rs` (D5).** Strip ``` fences, fix trailing commas, balance/close unterminated strings/braces where unambiguous, handle truncation. **Never fabricate values.** Test first: fenced/trailing-comma/unterminated/truncated → expected; irreparable → `None` (not a guess). Verify: `cargo test -p runtime`.
+- [x] **T-2.1.2 — `toolcall/validate.rs`.** Validate args vs the tool's JSON schema **as carried in the `ApiRequest`** (B5 — do not import `tools`); if the request doesn't already expose schemas to `runtime`, pass them into `ConversationRuntime` as data. Emit a model-targeted error naming the bad field. Test first: wrong type / missing field → correct message. Verify: `cargo test -p runtime`.
+- [x] **T-2.1.3 — Wire before deserialize** in extraction. Test first: malformed-but-repairable call now executes. Verify: `cargo test -p runtime`.
 
 **CI Gate / DoD:** global DoD; repair never fabricates values (audited test, merge blocker).
 **Benchmark Target:** parse rate ↑ (record).
 
 ### Checkpoint 2.2 — Re-prompt protocol
 **Owns:** `runtime/src/toolcall/**`, `conversation.rs`. Depends on 2.1.
-- [ ] **T-2.2.1 — Re-prompt on parse/validation failure.** Tool result carries exact error + compact schema + "re-emit only the corrected call". Cap `max_toolcall_retries` (D4=2). Test first: mocked malformed→corrected completes; cap terminates. Verify: `cargo test -p runtime`.
+- [x] **T-2.2.1 — Re-prompt on parse/validation failure.** Tool result carries exact error + compact schema + "re-emit only the corrected call". Cap `max_toolcall_retries` (D4=2). Test first: mocked malformed→corrected completes; cap terminates. Verify: `cargo test -p runtime`.
 
 **CI Gate / DoD:** global DoD; control unchanged.
 **Benchmark Target:** recovery rate ↑ (record).
 
 ### Checkpoint 2.3 — Text/XML fallback parser
 **Owns:** `runtime/src/toolcall/**`. Depends on 2.1.
-- [ ] **T-2.3.1 — `toolcall/fallback_parser.rs`.** Extract tool intent from assistant *text*: fenced ```tool blocks, `<tool_use>`-style tags, "I'll call X with {…}". Normalize to internal `ToolUse`. Test first: real-transcript fixtures → normalized call; negative (no intent) → none. Verify: `cargo test -p runtime`.
-- [ ] **T-2.3.2 — Invoke when no native tool call present** (gated per model via hints). Test first: model-without-native-calls path. Verify: `cargo test -p runtime`.
+- [x] **T-2.3.1 — `toolcall/fallback_parser.rs`.** Extract tool intent from assistant *text*: fenced ```tool blocks, `<tool_use>`-style tags, "I'll call X with {…}". Normalize to internal `ToolUse`. Test first: real-transcript fixtures → normalized call; negative (no intent) → none. Verify: `cargo test -p runtime`.
+- [x] **T-2.3.2 — Invoke when no native tool call present** (gated per model via hints). Test first: model-without-native-calls path. Verify: `cargo test -p runtime`.
 
 **CI Gate / DoD:** global DoD; disabled-by-default for models that have native calls (no Claude impact).
 **Benchmark Target:** parse/recovery rate ↑ for affected models (record).
 
 ### Checkpoint 2.4 — Per-model tool_choice
 **Owns:** `model_hints.rs`, `openai.rs` & `bedrock.rs` (tool_choice expressions only). Depends on 2.1.
-- [ ] **T-2.4.1 — `tool_choice_mode` hint (`auto|required|single`).** Replace hardcoded `"auto"` (locate `tool_choice` in `openai.rs` and `bedrock.rs`) with hint-derived value; default `auto`. Test first: hint → correct wire value per provider. Verify: `cargo test`.
+- [x] **T-2.4.1 — `tool_choice_mode` hint (`auto|required|single`).** Replace hardcoded `"auto"` (locate `tool_choice` in `openai.rs` and `bedrock.rs`) with hint-derived value; default `auto`. Test first: hint → correct wire value per provider. Verify: `cargo test`.
 
 **CI Gate / DoD:** global DoD; default `auto` keeps Claude unchanged.
 **Benchmark Target:** completion/turns ↑ for tuned models (record).
