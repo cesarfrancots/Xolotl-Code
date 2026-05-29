@@ -43,6 +43,7 @@ mod todo;
 mod tokenizer;
 mod toolcall;
 mod usage;
+mod verify;
 mod web_fetch;
 
 pub use memory::{MemoryConfig, MemorySearchResult, MemorySystem, ObsidianVault, SessionNote};
@@ -109,4 +110,7 @@ pub use todo::{
 };
 pub use toolcall::{repair_json, validate_against_schema};
 pub use usage::{cost_for_usage, pricing_for, ModelPricing, TokenUsage, UsageTracker};
+pub use verify::{
+    detect_project, resolve_verify_commands, ProjectKind, VerifyCommand, VerifyCommands,
+};
 pub use web_fetch::{web_fetch, web_search, SearchResult, WebFetchInput, WebFetchOutput};
