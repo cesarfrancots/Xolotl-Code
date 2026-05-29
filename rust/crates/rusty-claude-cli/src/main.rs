@@ -42,6 +42,7 @@ use api::{
     AnthropicClient, ContentBlockDelta, ImageSource as ApiImageSource, InputContentBlock,
     InputMessage, MessageRequest, OutputContentBlock, StreamEvent as ApiStreamEvent,
     SystemContentBlock, ThinkingConfig, ToolChoice, ToolDefinition, ToolResultContentBlock,
+    Usage as ApiUsage,
 };
 
 use commands::handle_slash_command;
@@ -3425,6 +3426,9 @@ impl ApiClient for AnthropicRuntimeClient {
             let mut pending_tool: Option<(String, String, String)> = None;
             let mut saw_stop = false;
             let mut interrupted = false;
+            // Anthropic carries prompt/cache token counts on `message_start`; keep them
+            // so the `message_delta` handler can emit complete usage (B4 fix).
+            let mut start_usage: Option<ApiUsage> = None;
 
             loop {
                 tokio::select! {
@@ -3436,6 +3440,7 @@ impl ApiClient for AnthropicRuntimeClient {
                         };
                         match event {
                             ApiStreamEvent::MessageStart(start) => {
+                                start_usage = Some(start.message.usage);
                                 for block in start.message.content {
                                     push_output_block(block, &mut stdout, &mut events, &mut pending_tool)?;
                                 }
@@ -3475,12 +3480,10 @@ impl ApiClient for AnthropicRuntimeClient {
                                 }
                             }
                             ApiStreamEvent::MessageDelta(delta) => {
-                                events.push(AssistantEvent::Usage(TokenUsage {
-                                    input_tokens: delta.usage.input_tokens,
-                                    output_tokens: delta.usage.output_tokens,
-                                    cache_creation_input_tokens: 0,
-                                    cache_read_input_tokens: 0,
-                                }));
+                                events.push(AssistantEvent::Usage(combine_anthropic_usage(
+                                    start_usage.as_ref(),
+                                    &delta.usage,
+                                )));
                             }
                             ApiStreamEvent::MessageStop(_) => {
                                 saw_stop = true;
@@ -3512,6 +3515,30 @@ impl ApiClient for AnthropicRuntimeClient {
 
             Ok(events)
         })
+    }
+}
+
+/// Merge Anthropic streaming usage across the `message_start` and `message_delta`
+/// events into a single [`TokenUsage`].
+///
+/// Anthropic reports the prompt-side token counts — `input_tokens` and the cache
+/// create/read counts — in the `message_start` event's usage, and the cumulative
+/// `output_tokens` in `message_delta`. The runtime client previously hardcoded the
+/// cache fields to `0` (blocker B4), so Claude — the control — reported zero cache
+/// usage and therefore zero cache cost. This carries the start-side counts forward
+/// and merges them with the delta's output count. `max` is used per field so that
+/// whichever event actually populated a value wins, without ever double-counting
+/// when an API version echoes the same value in both events.
+fn combine_anthropic_usage(start: Option<&ApiUsage>, delta: &ApiUsage) -> TokenUsage {
+    TokenUsage {
+        input_tokens: start.map_or(0, |u| u.input_tokens).max(delta.input_tokens),
+        output_tokens: delta.output_tokens,
+        cache_creation_input_tokens: start
+            .map_or(0, |u| u.cache_creation_input_tokens)
+            .max(delta.cache_creation_input_tokens),
+        cache_read_input_tokens: start
+            .map_or(0, |u| u.cache_read_input_tokens)
+            .max(delta.cache_read_input_tokens),
     }
 }
 
@@ -4494,11 +4521,74 @@ fn run_subagent(
 #[cfg(test)]
 mod tests {
     use super::{
-        default_model, local_manifest_counts, parse_args, resolve_session_path, sessions_dir,
-        CliAction,
+        combine_anthropic_usage, default_model, local_manifest_counts, parse_args,
+        resolve_session_path, sessions_dir, ApiUsage, CliAction,
     };
     use runtime::{ContentBlock, ConversationMessage, MessageRole};
     use std::path::PathBuf;
+
+    #[test]
+    fn combines_cache_tokens_from_message_start_with_delta_output() {
+        // Anthropic puts prompt + cache counts on `message_start` (output ~0 there),
+        // and the cumulative output count on `message_delta` (no cache fields).
+        let start = ApiUsage {
+            input_tokens: 1200,
+            cache_creation_input_tokens: 500,
+            cache_read_input_tokens: 8000,
+            output_tokens: 1,
+        };
+        let delta = ApiUsage {
+            input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 640,
+        };
+        let combined = combine_anthropic_usage(Some(&start), &delta);
+        // The B4 bug hardcoded these to 0; the fix must preserve them.
+        assert_eq!(combined.cache_creation_input_tokens, 500);
+        assert_eq!(combined.cache_read_input_tokens, 8000);
+        assert_eq!(combined.input_tokens, 1200);
+        assert_eq!(combined.output_tokens, 640);
+    }
+
+    #[test]
+    fn combine_usage_falls_back_to_delta_when_no_message_start() {
+        // Defensive: a stream lacking `message_start` still yields the delta's counts.
+        let delta = ApiUsage {
+            input_tokens: 42,
+            cache_creation_input_tokens: 3,
+            cache_read_input_tokens: 7,
+            output_tokens: 9,
+        };
+        let combined = combine_anthropic_usage(None, &delta);
+        assert_eq!(combined.input_tokens, 42);
+        assert_eq!(combined.output_tokens, 9);
+        assert_eq!(combined.cache_creation_input_tokens, 3);
+        assert_eq!(combined.cache_read_input_tokens, 7);
+    }
+
+    #[test]
+    fn combine_usage_does_not_double_count_echoed_fields() {
+        // If a future API version echoes the same input/cache counts in both events,
+        // `max` keeps a single copy rather than summing them.
+        let start = ApiUsage {
+            input_tokens: 1000,
+            cache_creation_input_tokens: 100,
+            cache_read_input_tokens: 200,
+            output_tokens: 1,
+        };
+        let delta = ApiUsage {
+            input_tokens: 1000,
+            cache_creation_input_tokens: 100,
+            cache_read_input_tokens: 200,
+            output_tokens: 500,
+        };
+        let combined = combine_anthropic_usage(Some(&start), &delta);
+        assert_eq!(combined.input_tokens, 1000);
+        assert_eq!(combined.cache_creation_input_tokens, 100);
+        assert_eq!(combined.cache_read_input_tokens, 200);
+        assert_eq!(combined.output_tokens, 500);
+    }
 
     #[test]
     fn defaults_to_repl_when_no_args() {
