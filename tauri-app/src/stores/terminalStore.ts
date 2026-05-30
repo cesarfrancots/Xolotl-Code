@@ -29,16 +29,20 @@ function newKey(): string {
   return `t-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
 }
 
-export const useTerminalStore = create<TerminalState>((set, get) => ({
+// Monotonic so default titles never repeat after a close (avoids two
+// "Terminal 2" tabs — duplicate titles + ambiguous close-button labels).
+let nextTerminalNum = 0;
+
+export const useTerminalStore = create<TerminalState>((set) => ({
   tabs: [],
   activeKey: null,
   addTab: (title) => {
     const key = newKey();
-    const n = get().tabs.length + 1;
+    nextTerminalNum += 1;
     set((s) => ({
       tabs: [
         ...s.tabs,
-        { key, backendId: null, title: title ?? `Terminal ${n}`, exited: false },
+        { key, backendId: null, title: title ?? `Terminal ${nextTerminalNum}`, exited: false },
       ],
       activeKey: key,
     }));

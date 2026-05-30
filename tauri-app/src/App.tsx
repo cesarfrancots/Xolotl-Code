@@ -6,7 +6,9 @@ import { AgentPanel } from "./components/agent/AgentPanel";
 import { AgentOutputView } from "./components/agent/AgentOutputView";
 import { MergeCheckpointView } from "./components/agent/MergeCheckpointView";
 import { useAgentStore } from "./stores/agentStore";
-import { Loader2, MessagesSquare, TestTubeDiagonal, Waves } from "lucide-react";
+import { useUiStore } from "./stores/uiStore";
+import { useTerminalStore } from "./stores/terminalStore";
+import { Loader2, MessagesSquare, Terminal as TerminalIcon, TestTubeDiagonal, Waves } from "lucide-react";
 import { centerTabFromSearch, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
 
 const loadEvalView = () => import("./components/eval/EvalView");
@@ -14,6 +16,11 @@ const loadEvalView = () => import("./components/eval/EvalView");
 const LazyEvalView = lazy(async () => {
   const module = await loadEvalView();
   return { default: module.EvalView };
+});
+
+const LazyTerminalDock = lazy(async () => {
+  const module = await import("./components/terminal/TerminalDock");
+  return { default: module.TerminalDock };
 });
 
 const COMPACT_SHELL_QUERY = "(max-width: 899px)";
@@ -28,6 +35,10 @@ export default function App() {
   const expandedAgentId = useAgentStore((s) => s.expandedAgentId);
   const mergeCheckpointGroupId = useAgentStore((s) => s.mergeCheckpointGroupId);
   const showAgentView = expandedAgentId || mergeCheckpointGroupId;
+  const terminalPanelOpen = useUiStore((s) => s.terminalPanelOpen);
+  const terminalTabCount = useTerminalStore((s) => s.tabs.length);
+  // Keep the dock mounted (and shells alive) while it is open or has tabs.
+  const terminalDockMounted = terminalPanelOpen || terminalTabCount > 0;
 
   const selectCenterTab = useCallback((tab: CenterTab) => {
     setCenterTab(tab);
@@ -51,6 +62,17 @@ export default function App() {
     syncCompactShell();
     query.addEventListener("change", syncCompactShell);
     return () => query.removeEventListener("change", syncCompactShell);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "`" || e.code === "Backquote")) {
+        e.preventDefault();
+        useUiStore.getState().toggleTerminalPanel();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   function renderCenter() {
@@ -97,11 +119,31 @@ export default function App() {
                 label="Eval"
               />
             </div>
+            <button
+              type="button"
+              onClick={() => useUiStore.getState().toggleTerminalPanel()}
+              title="Toggle terminal (Ctrl+`)"
+              aria-label="Toggle terminal panel"
+              aria-pressed={terminalPanelOpen}
+              className={[
+                "flex items-center justify-center h-8 w-8 rounded-md border transition-all",
+                terminalPanelOpen
+                  ? "border-[oklch(0.42_0.025_195)] bg-[oklch(0.14_0.010_205)] text-[oklch(0.74_0.045_195)]"
+                  : "border-[oklch(0.24_0.010_235)] bg-[oklch(0.10_0.004_250)] text-[oklch(0.54_0.012_235)] hover:text-[oklch(0.82_0.015_220)] hover:bg-[oklch(0.16_0.006_245)]",
+              ].join(" ")}
+            >
+              <TerminalIcon className="w-4 h-4" />
+            </button>
           </div>
         )}
         <WorkspaceErrorBoundary key={`${centerTab}:${expandedAgentId ?? ""}:${mergeCheckpointGroupId ?? ""}`}>
           <div className="flex-1 min-h-0 flex flex-col">{renderCenter()}</div>
         </WorkspaceErrorBoundary>
+        {terminalDockMounted && (
+          <Suspense fallback={null}>
+            <LazyTerminalDock />
+          </Suspense>
+        )}
       </div>
       <AgentPanel forceCollapsed={compactShell} />
     </div>
