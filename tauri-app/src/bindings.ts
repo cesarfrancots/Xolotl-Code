@@ -116,6 +116,16 @@ export const commands = {
 	 *  TurnCompleted or Error event to know the turn finished.
 	 */
 	chatTurn: (turnId: string, messages: ChatMessage[], model: string, enabledSkills: string[] | null, reasoningEffort: string | null) => typedError<null, string>(__TAURI_INVOKE("chat_turn", { turnId, messages, model, enabledSkills, reasoningEffort })),
+	/**  Spawn a new PTY-backed terminal. Returns its metadata (including the generated id). */
+	terminalSpawn: (cwd: string | null, shell: string | null, cols: number, rows: number) => typedError<TerminalInfo, string>(__TAURI_INVOKE("terminal_spawn", { cwd, shell, cols, rows })),
+	/**  Write input (keystrokes) to a terminal. */
+	terminalWrite: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("terminal_write", { id, data })),
+	/**  Resize a terminal's PTY. */
+	terminalResize: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("terminal_resize", { id, cols, rows })),
+	/**  Kill a terminal and remove it from the registry. */
+	terminalKill: (id: string) => typedError<null, string>(__TAURI_INVOKE("terminal_kill", { id })),
+	/**  List all live terminals. */
+	terminalList: () => __TAURI_INVOKE<TerminalInfo[]>("terminal_list"),
 };
 
 /* Types */
@@ -349,6 +359,13 @@ export type McpTestResult = {
 	message: string,
 	/**  Round-trip latency in ms (None on failure). */
 	latency_ms: number | null,
+};
+
+/**  Metadata for one integrated terminal. */
+export type TerminalInfo = {
+	id: string,
+	shell: string,
+	cwd: string,
 };
 
 export type ModelEvalResult = {

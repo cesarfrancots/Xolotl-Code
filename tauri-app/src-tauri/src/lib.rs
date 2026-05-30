@@ -20,11 +20,16 @@ use crate::skills_mcp::{
     list_mcp_servers, list_skills, read_skill, test_mcp_server, McpServerConfig, McpTestResult,
     SkillManifest,
 };
+use crate::terminal::{
+    terminal_kill, terminal_list, terminal_resize, terminal_spawn, terminal_write, TerminalInfo,
+    TerminalManager,
+};
 use runtime::{AgentEvent, AgentId, AgentState, AgentSupervisor};
 
 mod commands;
 mod permission_prompter;
 pub mod skills_mcp;
+mod terminal;
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
@@ -72,6 +77,11 @@ fn make_builder() -> Builder<tauri::Wry> {
             cleanup_eval_processes,
             cancel_chat_turn,
             chat_turn,
+            terminal_spawn,
+            terminal_write,
+            terminal_resize,
+            terminal_kill,
+            terminal_list,
         ])
         .typ::<AgentId>()
         .typ::<AgentState>()
@@ -101,6 +111,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<SkillManifest>()
         .typ::<McpServerConfig>()
         .typ::<McpTestResult>()
+        .typ::<TerminalInfo>()
 }
 
 pub fn export_bindings(path: &str) {
@@ -134,6 +145,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(Arc::new(AgentSupervisor::new(repo_root)))
         .manage(PendingPrompts::default())
+        .manage(TerminalManager::default())
         .on_window_event(|_window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 crate::commands::cleanup_eval_processes();
