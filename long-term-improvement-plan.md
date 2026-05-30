@@ -138,7 +138,7 @@ Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is
 >
 > **CP 0.2 CI-gate COMPLETE (`MERGED*`)** — `bench::corpus` loader + a representative 5-category corpus + `bench --corpus` listing, loader tests green (commit 475ff3b). `*` = the live baseline (T-0.2.2) and scaling to D9's 30 tasks are **deferred** (need API keys + spend, plus B7/B8); recorded TBD per the plan, and the `bench-baseline-v0` tag is withheld until a real baseline exists. **B7** (lib.rs re-exporting provider clients) + **B8** (working-dir-aware paths) are live-run prerequisites — deferred with rationale (B7 is a large CLI-crate restructure with control-path risk and no runnable payoff while live runs are blocked).
 >
-> **To resume / next steps:** working order = P1 ✅ → P2 ✅ → P4 ✅ → P3 ✅ → CP 0.2 offline ✅ → CP 5.3 sandbox ✅ → **CP 5.1 headless NDJSON ✅ (shipped 2026-05-30)** → next: **CP 5.2 MCP server** (`crates/mcp-server`, mirror `mcp.rs`; expose selected tools + agent-spawn over MCP stdio; depends on 5.1), CP 5.4 ACP (optional), then P6 (eval flywheel — Tauri). Tag `parity-v1` at the last P5 CP. Deferred (keys/$): T-0.2.2 live baseline + §5 numbers, B7/B8, CP 3.3 live LSP + `get_diagnostics` tool. **Run all gates with `cargo +1.95.0` (CI pins 1.95; local default is gnu 1.94 and misses 1.95-only lints).** Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
+> **To resume / next steps:** working order = P1 ✅ → P2 ✅ → P4 ✅ → P3 ✅ → CP 0.2 offline ✅ → CP 5.3 sandbox ✅ → CP 5.1 headless NDJSON ✅ → **CP 5.2 MCP server ✅ (shipped 2026-05-30: `mcp-server` crate + `xolotl mcp-serve`)** + integrated multi-terminal dock (Tauri) ✅ → next: CP 5.4 ACP (optional — last remaining P5 item), then P6 (eval flywheel — Tauri). Tag `parity-v1` at the last P5 CP (after 5.4, or now if 5.4 is skipped as optional). Deferred (keys/$): T-0.2.2 live baseline + §5 numbers, B7/B8, CP 3.3 live LSP + `get_diagnostics` tool. **Run all gates with `cargo +1.95.0` (CI pins 1.95; local default is gnu 1.94 and misses 1.95-only lints).** Live baseline runs (T-0.2.2 + all §5 *Benchmark Targets*) need API keys/$ and are deferred — the harness is built and ready; record "TBD (needs live run)" rather than inventing numbers. Per-task `[ ]`/`[x]` checkboxes below track granular progress.
 
 | CP | Title | Status | Depends on | Branch | Owns (file scope) | Parallel-safe with |
 |----|-------|--------|-----------|--------|-------------------|--------------------|
@@ -160,7 +160,7 @@ Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is
 | 4.3 | Compaction calibration | MERGED | 4.2 | direct→`main` | `runtime/src/compact.rs` | 1.x, 2.x |
 | 4.4 | graphify retrieval (optional) | MERGED | — | direct→`main` | `runtime/src/retrieval.rs` (new) | 1.x, 2.x |
 | 5.1 | Headless NDJSON protocol | MERGED | — | direct→`main` | `rusty-claude-cli/src/headless.rs`, stream-output gating, `agent` subcommand | 1.x, 4.x |
-| 5.2 | MCP server | TODO | 5.1 | `feat/p5-mcp-server` | `rust/crates/mcp-server/**` | 1.x, 4.x |
+| 5.2 | MCP server | MERGED | — | direct→`main` | `rust/crates/mcp-server/**`, `xolotl mcp-serve` subcommand | 1.x, 4.x |
 | 5.3 | Bash sandboxing | MERGED | — | direct→`main` | `runtime/src/permissions.rs`, bash tool | 1.x, 4.x |
 | 5.4 | ACP adapter (optional) | TODO | 5.1 | `feat/p5-acp` | `rust/crates/acp/**` (new) | 1.x, 4.x |
 | 6.1 | Eval-lab metric capture | TODO | 0.1, 1.1, 2.1 | `feat/p6-eval-metrics` | `tauri-app/src-tauri/**`, `tauri-app/src/**` | — |
@@ -455,7 +455,7 @@ Tasks:
 
 ### Checkpoint 5.2 — MCP server
 **Owns:** `rust/crates/mcp-server/**`. Depends on 5.1.
-- [ ] **T-5.2.1 — Expose selected tools + agent-spawn over MCP stdio**, mirroring the client. Test first: `initialize` + `tools/list` + one tool round-trip vs a test client. Verify: `cargo test -p mcp-server`.
+- [x] **T-5.2.1 — Expose selected tools + agent-spawn over MCP stdio**, mirroring the client. Test first: `initialize` + `tools/list` + one tool round-trip vs a test client. Verify: `cargo test -p mcp-server`. **(MERGED 2026-05-30: `mcp-server` lib crate — `serve()` JSON-RPC 2.0 over newline stdio, `2024-11-05`; exposes every MVP tool except `ask_user` (stdin/transport conflict); `task` agent-spawn included; tool errors → `isError:true` results; run via `xolotl mcp-serve`. 6 unit tests inc. the round-trip; e2e smoke verified pure-JSON-RPC stdout. See `docs/mcp-server.md`.)**
 
 **CI Gate / DoD:** global DoD.
 

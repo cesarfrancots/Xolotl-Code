@@ -16,6 +16,7 @@ ring = { workspace = true }
 serde = { workspace = true }
 commands = { path = "../commands" }
 compat-harness = { path = "../compat-harness" }
+mcp-server = { path = "../mcp-server" }
 crossterm = { workspace = true }
 pulldown-cmark = { workspace = true }
 runtime = { path = "../runtime" }

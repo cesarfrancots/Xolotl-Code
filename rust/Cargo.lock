@@ -785,6 +785,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mcp-server"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tools",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1307,6 +1315,7 @@ dependencies = [
  "commands",
  "compat-harness",
  "crossterm",
+ "mcp-server",
  "pulldown-cmark",
  "reqwest",
  "ring",

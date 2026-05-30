@@ -1,0 +1,13 @@
+[package]
+name = "mcp-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tools = { path = "../tools" }
+serde_json = "1"
+
+[lints]
+workspace = true

@@ -501,6 +501,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             LiveCli::new(model, true, auto_accept)?.run_turn(&prompt)?;
         }
         CliAction::Agent { prompt, model } => run_agent_headless(prompt, model)?,
+        CliAction::McpServe => run_mcp_server()?,
         CliAction::Repl {
             model,
             auto_accept,
@@ -542,6 +543,7 @@ enum CliAction {
         prompt: String,
         model: String,
     },
+    McpServe,
     Repl {
         model: String,
         auto_accept: bool,
@@ -697,6 +699,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             })
         }
         "agent" => parse_agent_args(&rest[1..], model),
+        "mcp-serve" | "mcp-server" => Ok(CliAction::McpServe),
         other => Err(format!("unknown subcommand: {other}")),
     }
 }
@@ -800,6 +803,22 @@ fn run_agent_headless(prompt: String, model: String) -> Result<(), Box<dyn std::
     if matches!(events.last(), Some(headless::HeadlessEvent::Error { .. })) {
         std::process::exit(1);
     }
+    Ok(())
+}
+
+/// Run as an MCP (Model Context Protocol) server over stdio, exposing Xolotl's
+/// tools — including agent-spawn (`task`) — to any MCP client. See
+/// `docs/mcp-server.md`. stdout is the JSON-RPC transport and must stay pure, so
+/// inline streaming is disabled and interactive tools are signalled to stay
+/// headless (the same posture as `agent --protocol ndjson`).
+fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
+    set_stream_output(false);
+    set_show_thinking(false);
+    env::set_var("XOLOTL_HEADLESS", "1");
+
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    mcp_server::serve(stdin.lock(), stdout.lock())?;
     Ok(())
 }
 
@@ -4604,6 +4623,7 @@ fn print_help() {
     println!("  xolotl --model opusplan                   Opus plans, Sonnet executes");
     println!("  xolotl prompt TEXT                         Send one prompt and exit");
     println!("  xolotl --resume SESSION.json              Resume a saved session");
+    println!("  xolotl mcp-serve                          Run as an MCP server over stdio (expose tools to MCP clients)");
     println!("  xolotl --version                          Show version");
     println!();
     println!("Model aliases:  sonnet · opus · haiku · opusplan · minimax2.7 · deepseek · glm5.1 · qwen3.6 · kimi2.6 · kimi-coding");
