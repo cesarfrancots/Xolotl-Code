@@ -560,6 +560,14 @@ fn run_file_info(input: FileInfoInput) -> Result<String, String> {
 #[allow(clippy::needless_pass_by_value)]
 fn run_ask_user(input: AskUserInput) -> Result<String, String> {
     use std::io::{self, Write};
+    // Headless protocols (`xolotl agent --protocol ndjson`) set XOLOTL_HEADLESS=1.
+    // ask_user would write a prompt to stdout (corrupting the NDJSON stream) and
+    // block on stdin, so refuse instead — the model proceeds without asking.
+    if std::env::var_os("XOLOTL_HEADLESS").is_some() {
+        return Err(
+            "ask_user is unavailable in headless mode; proceed without user input".to_string(),
+        );
+    }
     println!("\n  [xolotl asks] {}", input.question);
     print!("  Your response: ");
     io::stdout().flush().map_err(|e| e.to_string())?;
@@ -829,5 +837,16 @@ mod tests {
     fn rejects_unknown_tool_names() {
         let error = execute_tool("nope", &json!({})).expect_err("tool should be rejected");
         assert!(error.contains("unsupported tool"));
+    }
+
+    #[test]
+    fn ask_user_is_disabled_in_headless_mode() {
+        // Headless protocols set XOLOTL_HEADLESS=1; ask_user must refuse rather
+        // than write a prompt to stdout / block on stdin (CP 5.1 stdout purity).
+        std::env::set_var("XOLOTL_HEADLESS", "1");
+        let result = execute_tool("ask_user", &json!({ "question": "proceed?" }));
+        std::env::remove_var("XOLOTL_HEADLESS");
+        let error = result.expect_err("ask_user must refuse in headless mode");
+        assert!(error.contains("headless"), "unexpected error: {error}");
     }
 }

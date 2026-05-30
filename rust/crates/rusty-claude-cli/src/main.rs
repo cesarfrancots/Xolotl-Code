@@ -25,6 +25,7 @@
 )]
 
 mod bedrock;
+mod headless;
 mod input;
 mod mcp;
 mod openai;
@@ -54,7 +55,7 @@ use runtime::{
     ContentBlock, ConversationMessage, ConversationRuntime, MemorySystem, MessageRole,
     PermissionMode, PermissionPolicy, PermissionPromptDecision, PermissionPrompter,
     PermissionRequest, PlanArtifact, RuntimeError, SddEngine, Session, TokenUsage, ToolError,
-    ToolExecutor,
+    ToolExecutor, TurnSummary,
 };
 use tools::{execute_tool, mvp_tool_specs, DynamicToolSpec};
 
@@ -64,6 +65,7 @@ const CLAW_VERSION: &str = "0.2.1";
 
 static STDOUT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static SHOW_THINKING: AtomicBool = AtomicBool::new(false);
+static STREAM_OUTPUT: AtomicBool = AtomicBool::new(true);
 
 fn stdout_lock() -> &'static Mutex<()> {
     STDOUT_LOCK.get_or_init(|| Mutex::new(()))
@@ -77,6 +79,21 @@ pub fn should_show_thinking() -> bool {
 /// Set whether thinking/reasoning output should be displayed.
 pub fn set_show_thinking(show: bool) {
     SHOW_THINKING.store(show, Ordering::Relaxed);
+}
+
+/// Whether streamed assistant text should be written to stdout as it arrives.
+///
+/// Enabled for the interactive REPL and one-shot `prompt` mode. Disabled by the
+/// headless protocols (e.g. `agent --protocol ndjson`) so that stdout remains a
+/// pure machine-readable event stream — the streamed deltas are still captured
+/// as `AssistantEvent`s and re-emitted as structured events after the turn.
+pub fn stream_output_enabled() -> bool {
+    STREAM_OUTPUT.load(Ordering::Relaxed)
+}
+
+/// Enable or disable inline streaming of assistant text to stdout.
+pub fn set_stream_output(enabled: bool) {
+    STREAM_OUTPUT.store(enabled, Ordering::Relaxed);
 }
 
 /// Returns the default model.
@@ -483,6 +500,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             LiveCli::new(model, true, auto_accept)?.run_turn(&prompt)?;
         }
+        CliAction::Agent { prompt, model } => run_agent_headless(prompt, model)?,
         CliAction::Repl {
             model,
             auto_accept,
@@ -519,6 +537,10 @@ enum CliAction {
         prompt: String,
         model: String,
         auto_accept: bool,
+    },
+    Agent {
+        prompt: String,
+        model: String,
     },
     Repl {
         model: String,
@@ -674,8 +696,111 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 auto_accept,
             })
         }
+        "agent" => parse_agent_args(&rest[1..], model),
         other => Err(format!("unknown subcommand: {other}")),
     }
+}
+
+/// Parse `agent --protocol <name> [prompt...]`.
+///
+/// `--protocol`/`ndjson` arrive here as positional `rest` entries because the
+/// global flag loop forwards unrecognized flags. Only `ndjson` is supported.
+fn parse_agent_args(args: &[String], model: String) -> Result<CliAction, String> {
+    let mut protocol = "ndjson".to_string();
+    let mut prompt_parts: Vec<String> = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--protocol" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --protocol".to_string())?;
+                protocol.clone_from(value);
+                index += 2;
+            }
+            flag if flag.starts_with("--protocol=") => {
+                protocol = flag["--protocol=".len()..].to_string();
+                index += 1;
+            }
+            other => {
+                prompt_parts.push(other.to_string());
+                index += 1;
+            }
+        }
+    }
+
+    if protocol != "ndjson" {
+        return Err(format!(
+            "unsupported agent protocol: {protocol} (only 'ndjson' is supported)"
+        ));
+    }
+
+    Ok(CliAction::Agent {
+        prompt: prompt_parts.join(" "),
+        model,
+    })
+}
+
+/// Run a single turn headlessly and emit the result as an NDJSON event stream on
+/// stdout (see `docs/headless-protocol.md`). Inline streaming to stdout is
+/// suppressed so the stream stays purely machine-readable.
+///
+/// The prompt comes from the trailing CLI args; if empty, all of stdin is read
+/// as the prompt so editors can pipe a task in. Runs autonomously (auto-accept)
+/// — an interactive permission prompt would otherwise block the session.
+fn run_agent_headless(prompt: String, model: String) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::{IsTerminal as _, Read as _};
+
+    // stdout must stay a pure NDJSON event stream; signal interactive tools
+    // (e.g. `ask_user`) to stay non-interactive.
+    set_stream_output(false);
+    set_show_thinking(false);
+    env::set_var("XOLOTL_HEADLESS", "1");
+
+    // Resolve the prompt: trailing CLI args, else piped stdin. Every failure
+    // becomes a terminal NDJSON `error` event (never bare stderr / a hang), so
+    // the documented "last event is turn_complete or error" guarantee holds.
+    let resolved: Result<String, String> = if !prompt.trim().is_empty() {
+        Ok(prompt)
+    } else if io::stdin().is_terminal() {
+        // No piped input and an interactive TTY: reading would block forever.
+        Err("agent mode requires a prompt (CLI argument or piped stdin)".to_string())
+    } else {
+        let mut buf = String::new();
+        match io::stdin().read_to_string(&mut buf) {
+            Ok(_) if !buf.trim().is_empty() => Ok(buf),
+            Ok(_) => Err("agent mode requires a prompt (CLI argument or piped stdin)".to_string()),
+            Err(error) => Err(format!("failed to read prompt from stdin: {error}")),
+        }
+    };
+
+    let events = match resolved {
+        Err(message) => vec![headless::HeadlessEvent::Error { message }],
+        Ok(prompt) => match LiveCli::new(model, true, true) {
+            Ok(mut cli) => match cli.run_turn_headless(&prompt) {
+                Ok(summary) => headless::events_from_turn(&summary),
+                Err(error) => vec![headless::HeadlessEvent::Error {
+                    message: error.to_string(),
+                }],
+            },
+            Err(error) => vec![headless::HeadlessEvent::Error {
+                message: error.to_string(),
+            }],
+        },
+    };
+
+    let ndjson = headless::to_ndjson(&events);
+    let stdout = io::stdout();
+    {
+        let mut lock = stdout.lock();
+        lock.write_all(ndjson.as_bytes())?;
+        lock.flush()?;
+    }
+
+    if matches!(events.last(), Some(headless::HeadlessEvent::Error { .. })) {
+        std::process::exit(1);
+    }
+    Ok(())
 }
 
 fn parse_system_prompt_args(args: &[String], model: String) -> Result<CliAction, String> {
@@ -1550,6 +1675,19 @@ impl LiveCli {
                 Err(Box::new(error))
             }
         }
+    }
+
+    /// Run a turn for headless mode and return the raw [`TurnSummary`].
+    ///
+    /// Unlike [`Self::run_turn`] this prints nothing to stdout: no cost footer
+    /// and a silent auto-save. It also deliberately skips memory-context
+    /// injection — a one-shot, editor-driven headless turn runs without
+    /// past-session augmentation (it shouldn't flavor an external task with
+    /// unrelated prior REPL sessions). Callers serialize the summary to NDJSON.
+    fn run_turn_headless(&mut self, input: &str) -> Result<TurnSummary, RuntimeError> {
+        let summary = self.runtime.run_turn(input, Some(&mut self.prompter))?;
+        let _ = self.runtime.session().save_to_path(&self.auto_save_path);
+        Ok(summary)
     }
 
     fn toggle_auto_accept(&mut self) {
@@ -3453,9 +3591,13 @@ impl ApiClient for AnthropicRuntimeClient {
                             ApiStreamEvent::ContentBlockDelta(delta) => match delta.delta {
                                 ContentBlockDelta::TextDelta { text } => {
                                     if !text.is_empty() {
-                                        write!(stdout, "{text}")
-                                            .and_then(|()| stdout.flush())
-                                            .map_err(|error| RuntimeError::new(error.to_string()))?;
+                                        if stream_output_enabled() {
+                                            write!(stdout, "{text}")
+                                                .and_then(|()| stdout.flush())
+                                                .map_err(|error| {
+                                                    RuntimeError::new(error.to_string())
+                                                })?;
+                                        }
                                         events.push(AssistantEvent::TextDelta(text));
                                     }
                                 }
@@ -3548,9 +3690,11 @@ fn push_output_block(
     match block {
         OutputContentBlock::Text { text } => {
             if !text.is_empty() {
-                write!(out, "{text}")
-                    .and_then(|()| out.flush())
-                    .map_err(|error| RuntimeError::new(error.to_string()))?;
+                if stream_output_enabled() {
+                    write!(out, "{text}")
+                        .and_then(|()| out.flush())
+                        .map_err(|error| RuntimeError::new(error.to_string()))?;
+                }
                 events.push(AssistantEvent::TextDelta(text));
             }
         }
@@ -3966,9 +4110,14 @@ impl CliToolExecutor {
 impl ToolExecutor for CliToolExecutor {
     fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
         let (result, display) = self.execute_with_display(tool_name, input);
-        let _guard = stdout_lock().lock().unwrap();
-        for line in display {
-            println!("{line}");
+        // In headless modes (`agent --protocol ndjson`) stdout is a pure NDJSON
+        // stream — suppress the human-readable tool-call box. STREAM_OUTPUT is
+        // process-wide, so this also silences sub-agent (`task`) executors.
+        if stream_output_enabled() {
+            let _guard = stdout_lock().lock().unwrap();
+            for line in display {
+                println!("{line}");
+            }
         }
         result
     }

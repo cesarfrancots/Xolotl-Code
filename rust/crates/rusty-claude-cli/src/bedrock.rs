@@ -405,8 +405,10 @@ fn process_bedrock_chunk(
                     // Initial text (usually empty)
                     if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
                         if !text.is_empty() {
-                            let _ = write!(stdout, "{text}");
-                            let _ = stdout.flush();
+                            if crate::stream_output_enabled() {
+                                let _ = write!(stdout, "{text}");
+                                let _ = stdout.flush();
+                            }
                             events.push(AssistantEvent::TextDelta(text.to_string()));
                         }
                     }
@@ -428,8 +430,10 @@ fn process_bedrock_chunk(
                     "text_delta" => {
                         if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
                             if !text.is_empty() {
-                                let _ = write!(stdout, "{text}");
-                                let _ = stdout.flush();
+                                if crate::stream_output_enabled() {
+                                    let _ = write!(stdout, "{text}");
+                                    let _ = stdout.flush();
+                                }
                                 events.push(AssistantEvent::TextDelta(text.to_string()));
                             }
                         }

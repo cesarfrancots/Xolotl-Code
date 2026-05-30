@@ -791,8 +791,10 @@ fn process_sse_line(
 
         if let Some(content) = &choice.delta.content {
             if !content.is_empty() {
-                let _ = write!(stdout, "{content}");
-                let _ = stdout.flush();
+                if crate::stream_output_enabled() {
+                    let _ = write!(stdout, "{content}");
+                    let _ = stdout.flush();
+                }
                 events.push(AssistantEvent::TextDelta(content.clone()));
             }
         }
