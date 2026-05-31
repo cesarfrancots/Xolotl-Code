@@ -388,6 +388,9 @@ mod tests {
         // Second pass must still see exactly one profile (the proposals/ subdir
         // and its *.json contents are not re-ingested).
         let second = build_hint_proposals_from_dir(&profiles, &proposals).expect("second ok");
-        assert_eq!(second.models, 1, "proposals/ subdir must not be read as a profile");
+        assert_eq!(
+            second.models, 1,
+            "proposals/ subdir must not be read as a profile"
+        );
     }
 }
