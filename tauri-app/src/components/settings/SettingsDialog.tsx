@@ -225,6 +225,8 @@ function ProvidersPanel({ open }: { open: boolean }) {
                 />
                 <button
                   type="button"
+                  aria-label={ps.showKey ? "Hide API key" : "Show API key"}
+                  title={ps.showKey ? "Hide API key" : "Show API key"}
                   onClick={() => updateProvider(provider.id, { showKey: !ps.showKey })}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-[oklch(0.46_0.010_225)] hover:text-[oklch(0.72_0.015_220)]"
                 >

@@ -688,7 +688,7 @@ export function MessageInput() {
                 <span>Full access</span>
                 <ChevronDown className="h-3 w-3" />
               </button>
-              <div className="ml-auto flex items-center gap-1.5">
+              <div className="ml-auto flex min-w-0 items-center gap-1.5">
                 <ModelMenu
                   model={model}
                   groupedModels={groupedModels}
@@ -808,7 +808,7 @@ function ModelMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex h-7 max-w-[170px] items-center gap-1 rounded-md px-2 text-xs text-[oklch(0.72_0_0)] hover:bg-[oklch(0.25_0_0)] hover:text-[oklch(0.90_0_0)]"
+          className="flex h-7 min-w-0 max-w-[170px] items-center gap-1 overflow-hidden rounded-md px-2 text-xs text-[oklch(0.72_0_0)] hover:bg-[oklch(0.25_0_0)] hover:text-[oklch(0.90_0_0)]"
           title="Model"
         >
           <span className="truncate font-mono">{modelLabel(model)}</span>

@@ -67,11 +67,11 @@ export function ToolBlock({ toolCall }: ToolBlockProps) {
           <span className="text-[oklch(0.55_0_0)]">
             <ToolIcon tool={toolCall.tool} />
           </span>
-          <span className="text-xs text-[oklch(0.55_0_0)] font-medium">{toolCall.tool}</span>
-          <span className="text-xs text-[oklch(0.38_0_0)] flex-1 text-left truncate">
-            {toolCall.loading ? "running…" : inputPreview}
+          <span className="text-xs text-[oklch(0.55_0_0)] font-medium flex-none">{toolCall.tool}</span>
+          <span className="text-xs text-[oklch(0.38_0_0)] flex-1 min-w-0 text-left truncate">
+            {toolCall.loading && !output ? "running…" : inputPreview}
           </span>
-          {toolCall.loading ? (
+          {toolCall.loading && !output ? (
             <Loader2 className="h-3.5 w-3.5 text-[oklch(0.38_0_0)] animate-spin" />
           ) : isOpen ? (
             <ChevronDown className="h-3.5 w-3.5 text-[oklch(0.38_0_0)]" />

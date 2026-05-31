@@ -33,22 +33,22 @@ export function ChatPane() {
           <h1 className="truncate text-sm font-semibold text-[oklch(0.92_0_0)]">
             {title}
           </h1>
-          <Button variant="ghost" size="icon-sm" className="h-7 w-7 text-[oklch(0.55_0_0)]">
+          <Button variant="ghost" size="icon-sm" aria-label="More options" title="More options" className="h-7 w-7 flex-none text-[oklch(0.55_0_0)]">
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-none items-center gap-3 pl-3">
           {enabledSkills.length > 0 && (
             <span
-              className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-[oklch(0.30_0.018_195)] bg-[oklch(0.14_0.008_195)] text-[oklch(0.72_0.035_190)]"
+              className="flex flex-none items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-[oklch(0.30_0.018_195)] bg-[oklch(0.14_0.008_195)] text-[oklch(0.72_0.035_190)]"
               title={`Skills advertised to model: ${enabledSkills.join(", ")}`}
             >
               <BadgeCheck className="w-3 h-3" />
               {enabledSkills.length} {enabledSkills.length === 1 ? "skill" : "skills"}
             </span>
           )}
-          <span className="text-xs text-[oklch(0.55_0_0)] font-mono tabular-nums">{costBarText}</span>
+          <span className="whitespace-nowrap text-xs text-[oklch(0.55_0_0)] font-mono tabular-nums">{costBarText}</span>
           {isStreaming && <StopButton />}
         </div>
       </div>
