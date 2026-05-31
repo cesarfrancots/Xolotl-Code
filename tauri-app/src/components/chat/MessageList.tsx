@@ -1,7 +1,66 @@
 import { useRef, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { GitPullRequest, Wrench, ListChecks, Compass } from "lucide-react";
 import { useChatStore } from "../../stores/chatStore";
 import { MessageItem, StreamingMessage } from "./Message";
+
+const WELCOME_SUGGESTIONS: {
+  id: string;
+  title: string;
+  desc: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  { id: "review", title: "Review code", desc: "Audit a diff or file for bugs and quality", icon: GitPullRequest },
+  { id: "fix", title: "Fix a bug", desc: "Reproduce, diagnose, then patch it", icon: Wrench },
+  { id: "test", title: "Write tests", desc: "Cover behavior with focused tests", icon: ListChecks },
+  { id: "plan", title: "Plan work", desc: "Break a goal into a clear plan", icon: Compass },
+];
+
+/** Premium welcome shown before the first message. Suggestion cards seed the
+ *  input via a window event the MessageInput listens for. */
+function WelcomeScreen() {
+  const seed = (id: string) =>
+    window.dispatchEvent(new CustomEvent("xolotl:seed-prompt", { detail: { id } }));
+
+  return (
+    <div className="xolotl-rise w-full max-w-[620px] pt-5">
+      <div className="flex flex-col items-center text-center">
+        <div className="relative mb-6 grid place-items-center">
+          <div className="xolotl-welcome-orb pointer-events-none absolute -inset-12" aria-hidden="true" />
+          <div className="relative grid h-14 w-14 place-items-center rounded-2xl border border-[oklch(0.30_0.020_195)] bg-[oklch(0.13_0.008_220)] shadow-[0_14px_44px_oklch(0.03_0_0_/_0.55)]">
+            <div className="xolotl-mark scale-110" aria-hidden="true" />
+          </div>
+        </div>
+        <h2 className="text-[22px] font-semibold tracking-[-0.02em] text-[oklch(0.94_0.008_220)]">
+          What should we build?
+        </h2>
+        <p className="mt-2 max-w-md text-sm leading-relaxed text-[oklch(0.56_0.014_230)]">
+          Ask a question, paste code, or attach files — or start from a workflow below.
+        </p>
+      </div>
+
+      <div className="mt-8 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+        {WELCOME_SUGGESTIONS.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => seed(s.id)}
+            title={`Start: ${s.title}`}
+            className="group flex items-start gap-3 rounded-xl border border-[oklch(0.20_0.006_245)] bg-[oklch(0.118_0.004_245)] px-3.5 py-3 text-left transition-all hover:-translate-y-px hover:border-[oklch(0.34_0.020_200)] hover:bg-[oklch(0.142_0.006_240)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.55_0.045_190)]"
+          >
+            <span className="grid h-8 w-8 flex-none place-items-center rounded-lg border border-[oklch(0.24_0.012_205)] bg-[oklch(0.15_0.010_205)] text-[oklch(0.70_0.050_190)] transition-colors group-hover:text-[oklch(0.80_0.060_190)]">
+              <s.icon className="h-4 w-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-[oklch(0.86_0.012_220)]">{s.title}</span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-[oklch(0.52_0.012_230)]">{s.desc}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Virtualized message list.
@@ -47,12 +106,7 @@ export function MessageList() {
   if (items.length === 0 && !isStreaming) {
     return (
       <div ref={parentRef} className="h-full overflow-y-auto flex items-center justify-center px-8 pb-28">
-        <div className="w-full max-w-[760px] pt-5 text-center">
-          <p className="text-base font-semibold text-[oklch(0.90_0_0)]">What should we work on?</p>
-          <p className="text-sm text-[oklch(0.54_0_0)] mt-1">
-            Ask a question, paste code, or attach files.
-          </p>
-        </div>
+        <WelcomeScreen />
       </div>
     );
   }

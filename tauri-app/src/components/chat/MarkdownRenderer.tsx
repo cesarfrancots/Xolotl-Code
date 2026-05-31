@@ -25,18 +25,18 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
   // `@theme` tokens don't always propagate into `.prose` so we set them here.
   const proseVars: React.CSSProperties = {
     // @ts-expect-error CSS custom properties
-    "--tw-prose-body": "oklch(0.95 0 0)",
-    "--tw-prose-headings": "oklch(0.97 0 0)",
-    "--tw-prose-bold": "oklch(0.98 0 0)",
-    "--tw-prose-code": "oklch(0.88 0.06 250)",
-    "--tw-prose-pre-bg": "oklch(0.16 0 0)",
-    "--tw-prose-pre-code": "oklch(0.92 0 0)",
-    "--tw-prose-links": "oklch(0.72 0.18 250)",
-    "--tw-prose-quotes": "oklch(0.80 0 0)",
-    "--tw-prose-quote-borders": "oklch(0.30 0 0)",
-    "--tw-prose-hr": "oklch(0.28 0 0)",
-    "--tw-prose-bullets": "oklch(0.60 0 0)",
-    "--tw-prose-counters": "oklch(0.60 0 0)",
+    "--tw-prose-body": "oklch(0.92 0.006 220)",
+    "--tw-prose-headings": "oklch(0.96 0.006 220)",
+    "--tw-prose-bold": "oklch(0.97 0.006 220)",
+    "--tw-prose-code": "oklch(0.84 0.05 205)",
+    "--tw-prose-pre-bg": "oklch(0.135 0.004 245)",
+    "--tw-prose-pre-code": "oklch(0.90 0.008 220)",
+    "--tw-prose-links": "oklch(0.74 0.085 198)",
+    "--tw-prose-quotes": "oklch(0.66 0.014 230)",
+    "--tw-prose-quote-borders": "oklch(0.28 0.012 200)",
+    "--tw-prose-hr": "oklch(0.24 0.008 240)",
+    "--tw-prose-bullets": "oklch(0.50 0.012 230)",
+    "--tw-prose-counters": "oklch(0.50 0.012 230)",
   };
   return (
     <div className="prose prose-sm max-w-none" style={proseVars}>
@@ -49,7 +49,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             return (
               <div className="not-prose relative group my-2">
                 <code
-                  className={`${className} block overflow-x-auto rounded-md bg-[oklch(0.16_0_0)] text-sm leading-relaxed`}
+                  className={`${className} block overflow-x-auto rounded-lg border border-[oklch(0.20_0.006_245)] bg-[oklch(0.135_0.004_245)] text-sm leading-relaxed`}
                   {...props}
                 >
                   {children}
@@ -60,7 +60,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
           }
           return (
             <code
-              className="bg-[oklch(0.20_0_0)] text-[oklch(0.85_0.04_250)] px-1 py-0.5 rounded text-sm font-mono"
+              className="bg-[oklch(0.17_0.006_245)] text-[oklch(0.82_0.045_205)] px-1 py-0.5 rounded text-sm font-mono"
               {...props}
             >
               {children}
@@ -104,14 +104,14 @@ function CopyButton({ text }: { text: string }) {
     <Button
       variant="ghost"
       size="icon"
-      className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity bg-[oklch(0.20_0_0)] hover:bg-[oklch(0.22_0_0)]"
+      className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity bg-[oklch(0.18_0.006_245)] hover:bg-[oklch(0.22_0.008_240)]"
       title="Copy code"
       onClick={() => void handleCopy()}
     >
       {copied ? (
-        <Check className="h-3 w-3 text-[oklch(0.60_0.16_145)]" />
+        <Check className="h-3 w-3 text-[oklch(0.66_0.075_155)]" />
       ) : (
-        <Copy className="h-3 w-3 text-[oklch(0.55_0_0)]" />
+        <Copy className="h-3 w-3 text-[oklch(0.55_0.014_230)]" />
       )}
     </Button>
   );

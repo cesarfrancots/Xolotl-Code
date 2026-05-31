@@ -63,28 +63,28 @@ export function ToolBlock({ toolCall }: ToolBlockProps) {
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen} className="my-1">
       <CollapsibleTrigger className="w-full">
-        <div className="flex items-center gap-2 px-3 h-9 rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.135_0.004_245)] hover:bg-[oklch(0.155_0.004_240)] transition-colors cursor-pointer">
-          <span className="text-[oklch(0.55_0_0)]">
+        <div className="flex items-center gap-2 px-3 h-9 rounded-lg border border-[oklch(0.22_0.008_240)] bg-[oklch(0.132_0.004_245)] hover:bg-[oklch(0.155_0.005_240)] hover:border-[oklch(0.28_0.012_215)] transition-colors cursor-pointer">
+          <span className="text-[oklch(0.58_0.025_195)]">
             <ToolIcon tool={toolCall.tool} />
           </span>
-          <span className="text-xs text-[oklch(0.55_0_0)] font-medium flex-none">{toolCall.tool}</span>
-          <span className="text-xs text-[oklch(0.38_0_0)] flex-1 min-w-0 text-left truncate">
+          <span className="text-xs text-[oklch(0.62_0.014_225)] font-medium flex-none">{toolCall.tool}</span>
+          <span className="text-xs text-[oklch(0.45_0.010_230)] flex-1 min-w-0 text-left truncate">
             {toolCall.loading && !output ? "running…" : inputPreview}
           </span>
           {toolCall.loading && !output ? (
-            <Loader2 className="h-3.5 w-3.5 text-[oklch(0.38_0_0)] animate-spin" />
+            <Loader2 className="h-3.5 w-3.5 text-[oklch(0.58_0.030_195)] animate-spin" />
           ) : isOpen ? (
-            <ChevronDown className="h-3.5 w-3.5 text-[oklch(0.38_0_0)]" />
+            <ChevronDown className="h-3.5 w-3.5 text-[oklch(0.45_0.010_230)]" />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5 text-[oklch(0.38_0_0)]" />
+            <ChevronRight className="h-3.5 w-3.5 text-[oklch(0.45_0.010_230)]" />
           )}
         </div>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="px-3 pb-3 pt-2 border border-t-0 border-[oklch(0.22_0.008_240)] rounded-b-md bg-[oklch(0.135_0.004_245)]">
+        <div className="px-3 pb-3 pt-2 border border-t-0 border-[oklch(0.22_0.008_240)] rounded-b-lg bg-[oklch(0.115_0.004_245)]">
           {/* Tool output */}
           {output && (
-            <pre className="text-xs text-[oklch(0.55_0_0)] whitespace-pre-wrap font-mono leading-relaxed max-h-60 overflow-y-auto">
+            <pre className="text-xs text-[oklch(0.60_0.012_230)] whitespace-pre-wrap font-mono leading-relaxed max-h-60 overflow-y-auto">
               {displayOutput}
             </pre>
           )}

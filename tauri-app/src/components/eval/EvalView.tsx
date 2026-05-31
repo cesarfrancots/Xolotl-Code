@@ -1434,7 +1434,13 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
   }
 
   if (items.length === 0) {
-    return <div className="text-xs text-[oklch(0.44_0.008_225)] p-3">No past evals.</div>;
+    return (
+      <div className="flex flex-col items-center gap-1.5 px-4 py-10 text-center">
+        <History className="h-5 w-5 text-[oklch(0.40_0.012_230)]" />
+        <div className="text-xs font-medium text-[oklch(0.62_0.014_225)]">No past evals yet</div>
+        <div className="text-[11px] leading-relaxed text-[oklch(0.44_0.010_230)]">Runs you complete will appear here.</div>
+      </div>
+    );
   }
   return (
     <div className="flex flex-col gap-1 p-2 overflow-y-auto">
@@ -3006,7 +3012,7 @@ export function EvalView() {
                           className={`gap-1.5 text-white disabled:opacity-50 ${
                             mode === "goal"
                               ? "bg-[oklch(0.46_0.045_190)] hover:bg-[oklch(0.42_0.045_190)]"
-                              : "bg-[oklch(0.40_0.020_235)] hover:bg-[oklch(0.36_0.020_235)]"
+                              : "bg-[oklch(0.46_0.048_196)] hover:bg-[oklch(0.51_0.055_196)]"
                           }`}
                         >
                           {mode === "goal" ? <Target className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}

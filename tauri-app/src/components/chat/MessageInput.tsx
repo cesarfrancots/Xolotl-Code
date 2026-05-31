@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { ArrowUp, Check, ChevronDown, Command as CommandIcon, FileText, Gauge, GitPullRequest, ListChecks, Paperclip, ShieldCheck, Wrench, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Command as CommandIcon, FileText, Gauge, Paperclip, ShieldCheck, X } from "lucide-react";
 import { CommandsPalette } from "./CommandsPalette";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/button";
@@ -287,7 +287,6 @@ export function MessageInput() {
     setModel,
     reasoningEffort,
     setReasoningEffort,
-    items,
   } = useChatStore();
   const { activeSessionId } = useSessionStore();
   const [availableModels, setAvailableModels] = useState<string[]>([model]);
@@ -361,6 +360,17 @@ export function MessageInput() {
       }
     });
   }, []);
+
+  // Welcome-screen suggestion cards seed the input via a window event so the
+  // empty state stays decoupled from this component's local state.
+  useEffect(() => {
+    const onSeed = (e: Event) => {
+      const id = (e as CustomEvent<{ id?: Parameters<typeof getWorkflowPrompt>[0] }>).detail?.id;
+      if (id) seedWorkflowPrompt(getWorkflowPrompt(id));
+    };
+    window.addEventListener("xolotl:seed-prompt", onSeed);
+    return () => window.removeEventListener("xolotl:seed-prompt", onSeed);
+  }, [seedWorkflowPrompt]);
 
   function executeSlashCommand(cmd: string) {
     const command = findSlashCommand(cmd);
@@ -555,7 +565,6 @@ export function MessageInput() {
   }
 
   const canSend = (value.trim().length > 0 || attachments.length > 0) && !isStreaming;
-  const showWorkflowStarters = items.length === 0 && attachments.length === 0 && value.trim().length === 0;
 
   return (
     <div
@@ -614,36 +623,13 @@ export function MessageInput() {
         </div>
       )}
 
-      {showWorkflowStarters && (
-        <div className="mx-auto mb-2 flex max-w-[760px] flex-wrap items-center gap-1.5">
-          <WorkflowStarter
-            icon={GitPullRequest}
-            label="Review"
-            title="Seed a code-review prompt"
-            onClick={() => seedWorkflowPrompt(getWorkflowPrompt("review"))}
-          />
-          <WorkflowStarter
-            icon={Wrench}
-            label="Fix"
-            title="Seed a bug-fix prompt"
-            onClick={() => seedWorkflowPrompt(getWorkflowPrompt("fix"))}
-          />
-          <WorkflowStarter
-            icon={ListChecks}
-            label="Test"
-            title="Seed a test-writing prompt"
-            onClick={() => seedWorkflowPrompt(getWorkflowPrompt("test"))}
-          />
-        </div>
-      )}
-
       <Popover open={paletteOpen} onOpenChange={setPaletteOpen}>
         <PopoverAnchor asChild>
           <div
             className={[
-              "mx-auto max-w-[760px] rounded-[22px] border bg-[oklch(0.185_0_0)] transition-colors shadow-[0_18px_45px_oklch(0_0_0_/_0.22)]",
-              "focus-within:border-[oklch(1_0_0_/_0.18)] focus-within:shadow-[0_18px_45px_oklch(0_0_0_/_0.26),0_0_0_1px_oklch(1_0_0_/_0.045)]",
-              dragOver ? "border-[oklch(0.58_0.12_65)]" : "border-[oklch(1_0_0_/_0.10)]",
+              "mx-auto max-w-[760px] rounded-[22px] border bg-[oklch(0.155_0.005_245)] transition-all shadow-[0_18px_45px_oklch(0_0_0_/_0.28)]",
+              "focus-within:border-[oklch(0.46_0.045_195)] focus-within:shadow-[0_18px_50px_oklch(0_0_0_/_0.32),0_0_0_1px_oklch(0.46_0.045_195_/_0.32)]",
+              dragOver ? "border-[oklch(0.55_0.075_190)]" : "border-[oklch(0.24_0.010_235)]",
             ].join(" ")}
           >
             <textarea
@@ -655,7 +641,7 @@ export function MessageInput() {
               rows={1}
               className={[
                 "w-full resize-none bg-transparent border-0",
-                "px-3.5 pt-3 pb-1.5 text-sm text-[oklch(0.92_0_0)] placeholder:text-[oklch(0.38_0_0)]",
+                "px-3.5 pt-3 pb-1.5 text-sm text-[oklch(0.92_0.010_220)] placeholder:text-[oklch(0.42_0.010_235)]",
                 "min-h-[44px] max-h-[200px] overflow-y-auto",
                 "focus:outline-none",
               ].join(" ")}
@@ -665,7 +651,7 @@ export function MessageInput() {
             <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
               <Button
                 size="icon-sm" variant="ghost" type="button"
-                className="text-[oklch(0.63_0_0)] hover:text-[oklch(0.88_0_0)]"
+                className="text-[oklch(0.58_0.012_230)] hover:text-[oklch(0.86_0.012_220)]"
                 title="Attach files (drag-drop also works)"
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -673,7 +659,7 @@ export function MessageInput() {
               </Button>
               <Button
                 size="icon-sm" variant="ghost" type="button"
-                className="text-[oklch(0.63_0_0)] hover:text-[oklch(0.88_0_0)]"
+                className="text-[oklch(0.58_0.012_230)] hover:text-[oklch(0.86_0.012_220)]"
                 title="Commands & shortcuts (Ctrl+K)"
                 onClick={() => setCommandsOpen(true)}
               >
@@ -681,7 +667,7 @@ export function MessageInput() {
               </Button>
               <button
                 type="button"
-                className="ml-0.5 flex h-7 items-center gap-1 rounded-md px-2 text-xs text-[oklch(0.78_0.12_55)] hover:bg-[oklch(0.24_0.015_55)]"
+                className="ml-0.5 flex h-7 items-center gap-1 rounded-md px-2 text-xs text-[oklch(0.68_0.050_158)] hover:bg-[oklch(0.15_0.012_180)]"
                 title="Current permission mode"
               >
                 <ShieldCheck className="h-3.5 w-3.5" />
@@ -703,8 +689,8 @@ export function MessageInput() {
                   className={[
                     "h-8 w-8 p-0 rounded-full transition-all",
                     canSend
-                      ? "bg-[oklch(0.96_0_0)] hover:bg-[oklch(0.88_0_0)] text-[oklch(0.12_0_0)] shadow-none"
-                      : "bg-[oklch(0.30_0_0)] text-[oklch(0.55_0_0)] cursor-not-allowed",
+                      ? "bg-[oklch(0.72_0.075_190)] hover:bg-[oklch(0.77_0.080_190)] text-[oklch(0.14_0.02_220)] shadow-[0_2px_10px_oklch(0.70_0.07_190_/_0.30)]"
+                      : "bg-[oklch(0.22_0.008_240)] text-[oklch(0.45_0.010_235)] cursor-not-allowed",
                   ].join(" ")}
                   disabled={!canSend}
                   title="Send message"
@@ -770,30 +756,6 @@ export function MessageInput() {
   );
 }
 
-function WorkflowStarter({
-  icon: Icon,
-  label,
-  title,
-  onClick,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  title: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="flex h-7 items-center gap-1.5 rounded-md border border-[oklch(1_0_0_/_0.09)] bg-[oklch(0.14_0_0)] px-2 text-xs text-[oklch(0.72_0_0)] hover:border-[oklch(1_0_0_/_0.16)] hover:bg-[oklch(0.18_0_0)] hover:text-[oklch(0.90_0_0)]"
-      title={title}
-      onClick={onClick}
-    >
-      <Icon className="h-3.5 w-3.5 text-[oklch(0.64_0.035_190)]" />
-      <span>{label}</span>
-    </button>
-  );
-}
-
 function ModelMenu({
   model,
   groupedModels,
@@ -808,11 +770,11 @@ function ModelMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex h-7 min-w-0 max-w-[170px] items-center gap-1 overflow-hidden rounded-md px-2 text-xs text-[oklch(0.72_0_0)] hover:bg-[oklch(0.25_0_0)] hover:text-[oklch(0.90_0_0)]"
+          className="flex h-7 min-w-0 max-w-[170px] items-center gap-1 overflow-hidden rounded-md px-2 text-xs text-[oklch(0.70_0.014_225)] hover:bg-[oklch(0.18_0.008_240)] hover:text-[oklch(0.88_0.012_220)]"
           title="Model"
         >
           <span className="truncate font-mono">{modelLabel(model)}</span>
-          <ChevronDown className="h-3 w-3 flex-none text-[oklch(0.52_0_0)]" />
+          <ChevronDown className="h-3 w-3 flex-none text-[oklch(0.50_0.012_230)]" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-[280px]">
@@ -855,12 +817,12 @@ function EffortMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-[oklch(0.72_0_0)] hover:bg-[oklch(0.25_0_0)] hover:text-[oklch(0.90_0_0)]"
+          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-[oklch(0.70_0.014_225)] hover:bg-[oklch(0.18_0.008_240)] hover:text-[oklch(0.88_0.012_220)]"
           title="Thinking effort"
         >
           <Gauge className="h-3.5 w-3.5" />
           <span>{effortLabel(effort)}</span>
-          <ChevronDown className="h-3 w-3 text-[oklch(0.52_0_0)]" />
+          <ChevronDown className="h-3 w-3 text-[oklch(0.50_0.012_230)]" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-[180px]">

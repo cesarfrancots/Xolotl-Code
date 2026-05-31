@@ -43,20 +43,20 @@ function ReasoningBlock({
   return (
     <details
       open={defaultOpen ? true : undefined}
-      className="group mt-1 mb-1 max-w-[760px] rounded-md border border-[oklch(0.22_0_0)] bg-[oklch(0.13_0_0)]/60"
+      className="group mt-1 mb-1 max-w-[760px] rounded-lg border border-[oklch(0.22_0.008_240)] bg-[oklch(0.122_0.004_245)]/70"
     >
-      <summary className="flex items-center gap-1.5 cursor-pointer select-none px-2.5 py-1.5 text-xs text-[oklch(0.55_0_0)] hover:text-[oklch(0.75_0_0)] transition-colors list-none [&::-webkit-details-marker]:hidden">
+      <summary className="flex items-center gap-1.5 cursor-pointer select-none px-2.5 py-1.5 text-xs text-[oklch(0.55_0.014_230)] hover:text-[oklch(0.78_0.014_220)] transition-colors list-none [&::-webkit-details-marker]:hidden">
         <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" />
         <span>
           {isStreaming ? "Thinking..." : "Thinking"}
           {!isStreaming && (
-            <span className="ml-1 text-[oklch(0.40_0_0)]">
+            <span className="ml-1 text-[oklch(0.42_0.010_230)]">
               ({text.length} chars)
             </span>
           )}
         </span>
       </summary>
-      <div className="px-3 pb-2 pt-1 text-[13px] leading-relaxed text-[oklch(0.62_0_0)] italic whitespace-pre-wrap break-words">
+      <div className="px-3 pb-2 pt-1 text-[13px] leading-relaxed text-[oklch(0.60_0.012_230)] italic whitespace-pre-wrap break-words">
         {text}
       </div>
     </details>
@@ -65,8 +65,8 @@ function ReasoningBlock({
 
 function ThinkingStatus() {
   return (
-    <div className="mt-1 mb-1 flex max-w-[760px] items-center gap-2 rounded-md border border-[oklch(0.22_0_0)] bg-[oklch(0.13_0_0)]/60 px-2.5 py-1.5 text-xs text-[oklch(0.55_0_0)]">
-      <Loader2 className="h-3 w-3 animate-spin text-[oklch(0.62_0.040_190)]" />
+    <div className="mt-1 mb-1 flex max-w-[760px] items-center gap-2 rounded-lg border border-[oklch(0.22_0.008_240)] bg-[oklch(0.122_0.004_245)]/70 px-2.5 py-1.5 text-xs text-[oklch(0.55_0.014_230)]">
+      <Loader2 className="h-3 w-3 animate-spin text-[oklch(0.66_0.050_190)]" />
       <span>Thinking...</span>
     </div>
   );
@@ -76,7 +76,7 @@ function UserMessage({ message }: { message: Message }) {
   return (
     <div className="py-3 px-4">
       <div className="mx-auto flex w-full max-w-[760px] justify-end">
-        <p className="max-w-[min(680px,100%)] rounded-[22px] bg-[oklch(0.20_0_0)] px-4 py-3 text-[14px] leading-relaxed text-[oklch(0.95_0_0)] whitespace-pre-wrap break-words shadow-[inset_0_0_0_1px_oklch(1_0_0_/_0.055)]">
+        <p className="max-w-[min(680px,100%)] rounded-[20px] rounded-br-[6px] bg-[oklch(0.188_0.010_235)] px-4 py-3 text-[14px] leading-relaxed text-[oklch(0.94_0.008_220)] whitespace-pre-wrap break-words shadow-[inset_0_0_0_1px_oklch(0.70_0.05_195_/_0.12)]">
           {message.content}
         </p>
       </div>
@@ -97,7 +97,7 @@ function AssistantMessage({ message }: { message: Message }) {
       <div className="mx-auto w-full max-w-[760px]">
         {reasoning && <ReasoningBlock text={reasoning} defaultOpen={false} />}
         {visibleContent && (
-          <div className="text-[14.5px] leading-7 text-[oklch(0.93_0_0)]">
+          <div className="text-[14.5px] leading-7 text-[oklch(0.92_0.006_220)]">
             <MarkdownRenderer content={visibleContent} />
           </div>
         )}
@@ -109,7 +109,7 @@ function AssistantMessage({ message }: { message: Message }) {
           </div>
         )}
         {message.usage && (
-          <p className="text-xs text-[oklch(0.45_0_0)] mt-1">
+          <p className="text-xs text-[oklch(0.45_0.010_230)] mt-1">
             {formatTurnFootnote(message.usage, model)}
             {message.stopped && (
               <span className="ml-2 text-[oklch(0.60_0.20_25)]">(stopped)</span>
@@ -147,10 +147,10 @@ export function StreamingMessage({
         )}
         {!reasoningText && !hasVisibleContent && <ThinkingStatus />}
         {hasVisibleContent ? (
-          <div className="text-[14.5px] leading-7 text-[oklch(0.93_0_0)] relative">
+          <div className="text-[14.5px] leading-7 text-[oklch(0.92_0.006_220)] relative">
             <MarkdownRenderer content={visibleContent} />
             <span
-              className="inline-block w-0.5 h-[14px] bg-[oklch(0.62_0.040_190)] animate-pulse ml-0.5 align-text-bottom"
+              className="inline-block w-0.5 h-[14px] bg-[oklch(0.66_0.050_190)] animate-pulse ml-0.5 align-text-bottom"
               aria-label="xolotl is typing"
             />
           </div>

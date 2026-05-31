@@ -27,13 +27,13 @@ export function ChatPane() {
       : "New chat";
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col bg-[oklch(0.092_0_0)]">
-      <div className="h-11 flex-none flex items-center justify-between px-4 border-b border-[oklch(1_0_0_/_0.08)] bg-[oklch(0.105_0_0)]">
+    <div className="flex-1 min-w-0 flex flex-col xolotl-chat">
+      <div className="h-11 flex-none flex items-center justify-between px-4 border-b border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)]/70 backdrop-blur-sm">
         <div className="min-w-0 flex items-center gap-2">
-          <h1 className="truncate text-sm font-semibold text-[oklch(0.92_0_0)]">
+          <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-[oklch(0.92_0.010_220)]">
             {title}
           </h1>
-          <Button variant="ghost" size="icon-sm" aria-label="More options" title="More options" className="h-7 w-7 flex-none text-[oklch(0.55_0_0)]">
+          <Button variant="ghost" size="icon-sm" aria-label="More options" title="More options" className="h-7 w-7 flex-none text-[oklch(0.52_0.012_230)]">
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </div>
@@ -41,14 +41,14 @@ export function ChatPane() {
         <div className="flex flex-none items-center gap-3 pl-3">
           {enabledSkills.length > 0 && (
             <span
-              className="flex flex-none items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-[oklch(0.30_0.018_195)] bg-[oklch(0.14_0.008_195)] text-[oklch(0.72_0.035_190)]"
+              className="flex flex-none items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border border-[oklch(0.30_0.018_195)] bg-[oklch(0.14_0.008_195)] text-[oklch(0.72_0.035_190)]"
               title={`Skills advertised to model: ${enabledSkills.join(", ")}`}
             >
               <BadgeCheck className="w-3 h-3" />
               {enabledSkills.length} {enabledSkills.length === 1 ? "skill" : "skills"}
             </span>
           )}
-          <span className="whitespace-nowrap text-xs text-[oklch(0.55_0_0)] font-mono tabular-nums">{costBarText}</span>
+          <span className="whitespace-nowrap text-xs text-[oklch(0.50_0.012_230)] font-mono tabular-nums">{costBarText}</span>
           {isStreaming && <StopButton />}
         </div>
       </div>
