@@ -163,10 +163,10 @@ Statuses: `TODO` · `IN-PROGRESS` · `MERGED`. Keep this table current — it is
 | 5.2 | MCP server | MERGED | — | direct→`main` | `rust/crates/mcp-server/**`, `xolotl mcp-serve` subcommand | 1.x, 4.x |
 | 5.3 | Bash sandboxing | MERGED | — | direct→`main` | `runtime/src/permissions.rs`, bash tool | 1.x, 4.x |
 | 5.4 | ACP adapter (optional) | TODO | 5.1 | `feat/p5-acp` | `rust/crates/acp/**` (new) | 1.x, 4.x |
-| 6.1 | Eval-lab metric capture | TODO | 0.1, 1.1, 2.1 | `feat/p6-eval-metrics` | `tauri-app/src-tauri/**`, `tauri-app/src/**` | — |
-| 6.2 | Reliability profiles | TODO | 6.1 | `feat/p6-profiles` | profiles writer (runtime or tauri) | — |
-| 6.3 | Hint tuning (propose-only) | TODO | 6.2 | `feat/p6-hint-tuning` | tuning module, `model_hints.rs` (read) | — |
-| 6.4 | Regression dashboard | TODO | 6.1 | `feat/p6-dashboard` | `tauri-app/src/**` | — |
+| 6.1 | Eval-lab metric capture | MERGED | 0.1, 1.1, 2.1 | direct→`main` | `tauri-app/src-tauri/**`, `tauri-app/src/**` | — |
+| 6.2 | Reliability profiles | MERGED | 6.1 | direct→`main` | `runtime/src/reliability_profile.rs` (aggregator+writer) | — |
+| 6.3 | Hint tuning (propose-only) | MERGED | 6.2 | direct→`main` | `runtime/src/hint_tuning.rs`, `model_hints.rs` (read) | — |
+| 6.4 | Regression dashboard | MERGED | 6.1 | direct→`main` | `tauri-app/src/**` (Flywheel view), list commands | — |
 
 **Tags applied at phase close:** `bench-baseline-v0` (0.2), `edit-layer-v1` (1.4), `toolcall-recovery-v1` (2.4), `feedback-loop-v1` (3.3), `calibration-v1` (4.4), `parity-v1` (5.x last), `flywheel-v1` (6.4).
 
@@ -485,25 +485,25 @@ Tasks:
 
 ### Checkpoint 6.1 — Eval-lab metric capture
 **Owns:** `tauri-app/src-tauri/**`, `tauri-app/src/**`. Depends on 0.1, 1.1, 2.1.
-- [ ] **T-6.1.1 — Record §5 reliability metrics during normal eval runs**, persist into `~/.xolotl-code/evals/<id>.json`. Test first: vitest on new UI bits; Rust unit on the recorder; `npx tsc --noEmit` clean (bindings regenerated). Verify: `npm test && npx tsc --noEmit`.
+- [x] **T-6.1.1 — Record §5 reliability metrics during normal eval runs**, persist into `~/.xolotl-code/evals/<id>.json`. Test first: vitest on new UI bits; Rust unit on the recorder; `npx tsc --noEmit` clean (bindings regenerated). Verify: `npm test && npx tsc --noEmit`. **(MERGED — commit 44d6f2c. `ReliabilityMetrics` per model: cost (runtime pricing, honest unknown), tok/s, token-count error (incl. reasoning text for reasoning models), reasoning chars; `Option<HashMap>` so old evals aren't mutated. Surfaced in a Reliability & calibration panel. 20-agent review → 9 fixed.)**
 
 **CI Gate / DoD:** both CI workflows green; bindings regenerated (not hand-edited).
 
 ### Checkpoint 6.2 — Reliability profiles
 **Owns:** profiles writer. Depends on 6.1.
-- [ ] **T-6.2.1 — Aggregate runs → `~/.xolotl-code/profiles/<model>.json`** (edit-apply by format, recovery rate, optimal read threshold, observed effective context). Test first: aggregation from synthetic records. Verify: `cargo test`/`npm test`.
+- [x] **T-6.2.1 — Aggregate runs → `~/.xolotl-code/profiles/<model>.json`** (edit-apply by format, recovery rate, optimal read threshold, observed effective context). Test first: aggregation from synthetic records. Verify: `cargo test`/`npm test`. **(MERGED — commit 482a2dd. `runtime/src/reliability_profile.rs`: pure+deterministic `aggregate_profile` (means over successful runs, summed cost, calibration rate) + tolerant `build_profiles_from_dir` writer; `build_reliability_profiles` command. Eval-lab is single-turn, so the agentic edit-apply/recovery metrics stay bench-fed; these profiles capture the signals the eval-lab actually produces. 6 unit tests.)**
 
 ### Checkpoint 6.3 — Hint tuning (propose-only)
 **Owns:** tuning module; reads `model_hints.rs`. Depends on 6.2.
-- [ ] **T-6.3.1 — profile → proposed hint overrides → reviewable file.** **No silent auto-merge into shipped defaults** (human ratifies). Test first: determinism (same profile → same proposal). Verify: `cargo test`.
+- [x] **T-6.3.1 — profile → proposed hint overrides → reviewable file.** **No silent auto-merge into shipped defaults** (human ratifies). Test first: determinism (same profile → same proposal). Verify: `cargo test`. **(MERGED — commit 830501e. `runtime/src/hint_tuning.rs`: deterministic `propose_hint_overrides` (raise `max_completion_tokens` when output hugs the cap; lower `compaction_ratio` (floored 0.5) when token budgeting is unreliable; flag high error rate) → `~/.xolotl-code/profiles/proposals/<model>.json` via `build_hint_proposals`. Thin samples propose nothing. 8 unit tests incl. determinism + nested-dir.)**
 
 ### Checkpoint 6.4 — Regression dashboard
 **Owns:** `tauri-app/src/**`. Depends on 6.1.
-- [ ] **T-6.4.1 — Eval-lab view of per-model metrics over time/versions.** Test first: vitest surfaces an injected regression. Verify: `npm test && npx tsc --noEmit`.
+- [x] **T-6.4.1 — Eval-lab view of per-model metrics over time/versions.** Test first: vitest surfaces an injected regression. Verify: `npm test && npx tsc --noEmit`. **(MERGED — commit f87b1d8. Lazy, error-boundaried Flywheel view in the Eval Lab: per-model profile cards + propose-only hints, a Rebuild action, and regression badges vs a localStorage baseline. `profileRegression.ts` is a pure deterministic diff (calibration/error-rate/throughput, direction-aware) — 12 vitest cases incl. injected regression. 17-agent review → 12 confirmed, 10 fixed.)**
 
 **CI Gate / DoD:** both workflows green.
-**Benchmark Target:** ratified hints improve that model's completion vs its pre-tuning baseline (re-run P0; record on a **held-out** task set never used for tuning).
-**Tag on merge:** `flywheel-v1`. Refresh full §5 table — milestone closeout.
+**Benchmark Target:** ratified hints improve that model's completion vs its pre-tuning baseline (re-run P0; record on a **held-out** task set never used for tuning). *(Deferred — needs live keys/$, like all §5 numbers.)*
+**Tag on merge:** `flywheel-v1`. Refresh full §5 table — milestone closeout. **✅ P6 COMPLETE 2026-05-30 — tag `flywheel-v1`.**
 
 **Risks:** overfitting → held-out set, report both; auto-tuning instability → propose-only, human-ratified.
 
