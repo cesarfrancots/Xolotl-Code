@@ -306,7 +306,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       if (!state.streamingContent && !state.streamingReasoning && !state.isStreaming) {
         return state;
       }
-      const partial = state.streamingContent + "\n\n— *generation stopped*";
+      // Avoid a leading blank line when only reasoning (no answer text) had
+      // streamed before the user hit stop.
+      const stoppedMarker = "— *generation stopped*";
+      const partial = state.streamingContent
+        ? `${state.streamingContent}\n\n${stoppedMarker}`
+        : stoppedMarker;
       const assistantMessage: Message = {
         id: generateId(),
         role: "assistant",

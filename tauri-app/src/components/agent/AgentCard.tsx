@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ChevronRight, Square } from "lucide-react";
 import { Button } from "../ui/button";
 import { AgentStateBadge } from "./AgentStateBadge";
@@ -16,11 +17,18 @@ export function AgentCard({ agent }: { agent: AgentRecord }) {
   useAgentPanelEvents(agent.id);
 
   const setExpanded = useAgentStore((s) => s.setExpandedAgent);
+  const [stopping, setStopping] = useState(false);
 
   async function handleStop() {
-    const result = await commands.stopAgent(agent.id);
-    if (result.status === "error") {
-      console.error("stop_agent error:", result.error);
+    if (stopping) return; // guard against double-clicks sending two stop calls
+    setStopping(true);
+    try {
+      const result = await commands.stopAgent(agent.id);
+      if (result.status === "error") {
+        console.error("stop_agent error:", result.error);
+      }
+    } finally {
+      setStopping(false);
     }
   }
 
@@ -52,7 +60,8 @@ export function AgentCard({ agent }: { agent: AgentRecord }) {
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            title="Stop agent"
+            title={stopping ? "Stopping…" : "Stop agent"}
+            disabled={stopping}
             onClick={() => void handleStop()}
           >
             <Square className="h-3 w-3" />

@@ -42,12 +42,30 @@ interface PermissionRequestPayload {
 export function useAgentEvents(agentId: string | null) {
   const deltaBuffer = useRef<string>("");
   const rafId = useRef<number | null>(null);
+  const reasoningBuffer = useRef<string>("");
+  const reasoningRafId = useRef<number | null>(null);
 
   useEffect(() => {
     if (!agentId) return;
 
-    // Unlisten functions collected for cleanup
+    // Unlisten functions collected for cleanup. `cancelled` guards the async
+    // listen() resolutions so a listener that resolves AFTER this effect's
+    // cleanup is torn down immediately instead of leaking.
     const unlisteners: Array<() => void> = [];
+    let cancelled = false;
+    const registerUnlisten = (fn: () => void) => {
+      if (cancelled) fn();
+      else unlisteners.push(fn);
+    };
+    const flushReasoning = () => {
+      if (reasoningRafId.current !== null) {
+        cancelAnimationFrame(reasoningRafId.current);
+        reasoningRafId.current = null;
+      }
+      const text = reasoningBuffer.current;
+      reasoningBuffer.current = "";
+      if (text) useChatStore.getState().appendStreamingReasoning(text);
+    };
 
     const agentChannel = `agent-event:${agentId}`;
 
@@ -68,6 +86,22 @@ export function useAgentEvents(agentId: string | null) {
               // Functional update inside appendStreamingContent — no stale closure
               useChatStore.getState().appendStreamingContent(delta);
             }
+          });
+        }
+        return;
+      }
+
+      if ("ReasoningDelta" in payload) {
+        // Reasoning models (Kimi, DeepSeek, Claude extended thinking) stream
+        // chain-of-thought separately; buffer + flush per rAF like TextDelta so
+        // the Thinking block shows in agent-mode turns too (not just direct chat).
+        reasoningBuffer.current += payload.ReasoningDelta;
+        if (reasoningRafId.current === null) {
+          reasoningRafId.current = requestAnimationFrame(() => {
+            const text = reasoningBuffer.current;
+            reasoningBuffer.current = "";
+            reasoningRafId.current = null;
+            if (text) useChatStore.getState().appendStreamingReasoning(text);
           });
         }
         return;
@@ -98,6 +132,7 @@ export function useAgentEvents(agentId: string | null) {
           deltaBuffer.current = "";
           if (delta) useChatStore.getState().appendStreamingContent(delta);
         }
+        flushReasoning();
         useChatStore.getState().finalizeStream(usage);
 
         // Auto-save session after every turn.
@@ -127,6 +162,7 @@ export function useAgentEvents(agentId: string | null) {
           cancelAnimationFrame(rafId.current);
           rafId.current = null;
         }
+        flushReasoning();
         useChatStore.getState().finalizeStream({
           input_tokens: 0,
           output_tokens: 0,
@@ -145,7 +181,7 @@ export function useAgentEvents(agentId: string | null) {
       // StateChanged — no UI update needed beyond implicit streaming state
     });
 
-    agentUnlistenPromise.then((fn) => unlisteners.push(fn));
+    agentUnlistenPromise.then(registerUnlisten);
 
     // --- Permission request listener ---
     const permUnlistenPromise = listen<PermissionRequestPayload>(
@@ -173,13 +209,18 @@ export function useAgentEvents(agentId: string | null) {
       }
     );
 
-    permUnlistenPromise.then((fn) => unlisteners.push(fn));
+    permUnlistenPromise.then(registerUnlisten);
 
     // Cleanup: cancel rAF and call all unlisten functions
     return () => {
+      cancelled = true;
       if (rafId.current !== null) {
         cancelAnimationFrame(rafId.current);
         rafId.current = null;
+      }
+      if (reasoningRafId.current !== null) {
+        cancelAnimationFrame(reasoningRafId.current);
+        reasoningRafId.current = null;
       }
       for (const unlisten of unlisteners) {
         unlisten();

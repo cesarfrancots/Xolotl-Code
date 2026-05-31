@@ -71,7 +71,7 @@ const GOAL_AXES: { key: string; label: string; color: string; hint: string }[] =
   { key: "goal_decomposition",    label: "Goal Decomposition",  color: UI_ACCENT, hint: "Does it break the goal into right sub-tasks?" },
   { key: "assumption_quality",    label: "Assumption Quality",  color: UI_ACCENT_DIM, hint: "Are assumptions explicit and reasonable?" },
   { key: "self_correction",       label: "Self-Correction",     color: UI_SUCCESS, hint: "Does it catch and fix its own mistakes?" },
-  { key: "plan_action_coherence", label: "Planâ†”Action",         color: UI_WARNING,  hint: "Do actions match the stated plan?" },
+  { key: "plan_action_coherence", label: "Plan↔Action",         color: UI_WARNING,  hint: "Do actions match the stated plan?" },
   { key: "goal_achievement",      label: "Goal Achievement",    color: UI_MUTED,  hint: "Was the goal actually reached?" },
 ];
 
@@ -517,7 +517,8 @@ function OutcomePreview({
                 key={artifact.id}
                 type="button"
                 onClick={() => void startArtifact(artifact)}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.66_0.020_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)]"
+                disabled={launch.state === "starting" || launch.state === "ok"}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.66_0.020_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
                 title={launch.message || artifact.title}
               >
                 <ExternalLink className="h-3 w-3" />
@@ -1460,7 +1461,7 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
                 </span>
                 {m.suite_id && <span className="text-[oklch(0.68_0.040_205)]">[{m.suite_id}]</span>}
                 <span>{m.models.length} models</span>
-                <span>Â·</span>
+                <span>·</span>
                 {(m.manual_review_count ?? 0) > 0 && (
                   <>
                     <span>{m.manual_review_count} reviewed</span>
@@ -3269,7 +3270,7 @@ export function EvalView() {
 
               {activeEval.suite_run_id && (
                 <div className="text-[10px] text-[oklch(0.45_0_0)] text-center">
-                  Suite run: <span className="font-mono">{activeEval.suite_run_id.slice(0, 8)}</span> Â· prompt {activeEval.suite_prompt_id}
+                  Suite run: <span className="font-mono">{activeEval.suite_run_id.slice(0, 8)}</span> · prompt {activeEval.suite_prompt_id}
                 </div>
               )}
             </div>

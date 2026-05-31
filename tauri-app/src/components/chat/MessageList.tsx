@@ -35,7 +35,10 @@ export function MessageList() {
     if (!el) return;
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
     const hasNewItems = totalCount > prevItemCount.current;
-    if (isNearBottom || hasNewItems || isStreaming) {
+    // Don't yank the viewport down on every streaming delta — only follow the
+    // stream when the user is already near the bottom (isNearBottom), or when a
+    // brand-new message/turn appears (hasNewItems). Respects manual scroll-up.
+    if (isNearBottom || hasNewItems) {
       virtualizer.scrollToIndex(totalCount - 1, { align: "end", behavior: "auto" });
     }
     prevItemCount.current = totalCount;
