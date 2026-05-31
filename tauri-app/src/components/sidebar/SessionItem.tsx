@@ -23,12 +23,23 @@ export function SessionItem({ session, isActive, onResume, onDelete }: SessionIt
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Open session: ${session.title || `Session ${session.id.slice(0, 8)}`}`}
+      aria-current={isActive ? "true" : undefined}
       className={[
         "group relative flex items-start gap-2 px-4 py-2 cursor-pointer min-h-[40px]",
         "hover:bg-[oklch(0.155_0.004_240)] transition-colors",
+        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[oklch(0.60_0.045_190)]",
         isActive ? "bg-[oklch(0.155_0.006_220)] border-l-2 border-[oklch(0.58_0.035_190)]" : "border-l-2 border-transparent",
       ].join(" ")}
       onClick={onResume}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onResume();
+        }
+      }}
     >
       <div className="flex-1 min-w-0">
         <p className="text-sm text-[oklch(0.90_0.015_220)] truncate">

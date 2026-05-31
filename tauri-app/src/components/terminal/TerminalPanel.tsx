@@ -32,17 +32,25 @@ export function TerminalPanel() {
     <div className="flex h-full min-h-0 flex-col bg-[oklch(0.085_0.004_250)]">
       <div className="flex-none flex items-center gap-1.5 border-b border-[oklch(0.20_0.008_240)] bg-[oklch(0.10_0.004_248)] px-2 h-9">
         <TerminalSquare className="h-3.5 w-3.5 flex-none text-[oklch(0.52_0.02_205)]" />
-        <div className="flex items-center gap-1 overflow-x-auto min-w-0">
+        <div role="tablist" aria-label="Terminal tabs" className="flex items-center gap-1 overflow-x-auto min-w-0">
           {tabs.map((tab) => {
             const isActive = tab.key === activeKey;
             return (
               <div
                 key={tab.key}
                 role="tab"
+                tabIndex={0}
                 aria-selected={isActive}
                 onClick={() => useTerminalStore.getState().setActive(tab.key)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    useTerminalStore.getState().setActive(tab.key);
+                  }
+                }}
                 className={[
                   "group flex items-center gap-1.5 rounded-md pl-2.5 pr-1 py-1 text-xs cursor-pointer transition-colors select-none",
+                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.55_0.04_195)]",
                   isActive
                     ? "bg-[oklch(0.15_0.010_205)] text-[oklch(0.80_0.04_195)] shadow-[inset_0_0_0_1px_oklch(0.40_0.025_195)]"
                     : "text-[oklch(0.55_0.012_235)] hover:text-[oklch(0.82_0.015_220)] hover:bg-[oklch(0.14_0.006_245)]",

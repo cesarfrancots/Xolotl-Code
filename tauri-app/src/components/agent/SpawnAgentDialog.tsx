@@ -57,6 +57,10 @@ export function SpawnAgentDialog({
       setError("Task is required.");
       return;
     }
+    if (!model) {
+      setError("No model available — configure a provider in Settings.");
+      return;
+    }
     let budgetDollars: number | null = null;
     if (budget.trim() !== "") {
       const parsed = Number(budget);
@@ -104,8 +108,8 @@ export function SpawnAgentDialog({
           <div className="flex flex-col gap-1">
             <label className="text-xs text-[oklch(0.56_0.014_225)]">Model</label>
             <Select value={model} onValueChange={setModel}>
-              <SelectTrigger className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] text-[oklch(0.84_0.012_220)]">
-                <SelectValue />
+              <SelectTrigger aria-label="Model" className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] text-[oklch(0.84_0.012_220)]">
+                <SelectValue placeholder="No models available" />
               </SelectTrigger>
               <SelectContent className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.115_0.004_245)] text-[oklch(0.86_0.012_220)]">
                 {models.map((m) => (
@@ -115,10 +119,16 @@ export function SpawnAgentDialog({
                 ))}
               </SelectContent>
             </Select>
+            {models.length === 0 && !error && (
+              <p className="text-xs text-[oklch(0.66_0.050_70)]">
+                No models available — configure a provider in Settings first.
+              </p>
+            )}
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-[oklch(0.56_0.014_225)]">Task</label>
+            <label htmlFor="spawn-task" className="text-xs text-[oklch(0.56_0.014_225)]">Task</label>
             <textarea
+              id="spawn-task"
               value={task}
               onChange={(e) => setTask(e.target.value)}
               rows={4}
@@ -127,8 +137,9 @@ export function SpawnAgentDialog({
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-[oklch(0.56_0.014_225)]">Budget (USD, optional)</label>
+            <label htmlFor="spawn-budget" className="text-xs text-[oklch(0.56_0.014_225)]">Budget (USD, optional)</label>
             <input
+              id="spawn-budget"
               type="number"
               step="0.01"
               min="0"
@@ -148,7 +159,7 @@ export function SpawnAgentDialog({
           <Button variant="ghost" className="text-[oklch(0.58_0.012_230)] hover:text-[oklch(0.86_0.015_220)]" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button className="bg-[oklch(0.46_0.040_190)] text-white hover:bg-[oklch(0.42_0.040_190)]" onClick={() => void handleSpawn()} disabled={submitting}>
+          <Button className="bg-[oklch(0.46_0.040_190)] text-white hover:bg-[oklch(0.42_0.040_190)]" onClick={() => void handleSpawn()} disabled={submitting || !model || !task.trim()}>
             {submitting ? "Spawning..." : "Spawn Agent"}
           </Button>
         </DialogFooter>
