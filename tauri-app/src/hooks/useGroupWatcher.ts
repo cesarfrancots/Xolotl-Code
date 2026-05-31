@@ -35,6 +35,7 @@ export function useGroupWatcher(): void {
   // Listen for Rust merge completion event
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
     listen<{ groupId: string; state: string }>("group-state-changed", (event) => {
       const { groupId, state } = event.payload;
       if (state === "Merged") {
@@ -45,9 +46,13 @@ export function useGroupWatcher(): void {
         }, 1500);
       }
     }).then((fn) => {
-      unlisten = fn;
+      // If the effect was already cleaned up before listen() resolved, tear the
+      // listener down immediately instead of leaking it.
+      if (cancelled) fn();
+      else unlisten = fn;
     });
     return () => {
+      cancelled = true;
       unlisten?.();
     };
   }, []); // mount once — event listener for group-state-changed

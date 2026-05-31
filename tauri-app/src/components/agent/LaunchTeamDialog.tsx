@@ -161,6 +161,8 @@ export function LaunchTeamDialog({
         {/* Mode toggle */}
         <div className="flex w-fit gap-1 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.105_0.004_245)] p-1">
           <button
+            type="button"
+            aria-pressed={mode === "team"}
             className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
               mode === "team"
                 ? "bg-[oklch(0.145_0.010_195)] text-[oklch(0.76_0.040_190)] shadow-[inset_0_0_0_1px_oklch(0.36_0.022_195)]"
@@ -171,6 +173,8 @@ export function LaunchTeamDialog({
             Team
           </button>
           <button
+            type="button"
+            aria-pressed={mode === "swarm"}
             className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
               mode === "swarm"
                 ? "bg-[oklch(0.145_0.010_195)] text-[oklch(0.76_0.040_190)] shadow-[inset_0_0_0_1px_oklch(0.36_0.022_195)]"

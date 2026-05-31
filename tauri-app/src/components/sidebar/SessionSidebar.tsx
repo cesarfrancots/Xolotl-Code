@@ -122,13 +122,17 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
             {(sessions ?? []).slice(0, 8).map((session) => (
               <button
                 key={session.id}
+                type="button"
                 onClick={() => void handleResumeSession(session.id)}
                 className={[
                   "w-8 h-8 flex-none flex items-center justify-center rounded-md transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.55_0.04_195)]",
                   session.id === activeSessionId
                     ? "bg-[oklch(0.16_0.012_195)] text-[oklch(0.76_0.040_190)] border border-[oklch(0.42_0.025_195)]/70"
                     : "text-[oklch(0.50_0.006_230)] hover:bg-[oklch(0.16_0.004_240)] hover:text-[oklch(0.82_0.015_220)]",
                 ].join(" ")}
+                aria-label={`Open ${session.title || `Session ${session.id.slice(0, 6)}`}`}
+                aria-current={session.id === activeSessionId ? "true" : undefined}
                 title={session.title || `Session ${session.id.slice(0, 6)}`}
               >
                 <MessageCircle className="h-3.5 w-3.5" />
