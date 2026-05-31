@@ -2865,6 +2865,44 @@ pub fn build_hint_proposals() -> Result<ProposalBuildResult, String> {
     })
 }
 
+/// Read every `*.json` file (non-recursively) in `dir`, parsing each into `T`.
+/// Unparseable / unreadable files are skipped; a missing dir yields an empty
+/// vec. Paths are sorted so the result order is stable.
+fn read_json_dir<T: serde::de::DeserializeOwned>(dir: &Path) -> Vec<T> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    let mut paths: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("json"))
+        .collect();
+    paths.sort();
+    for path in paths {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            if let Ok(value) = serde_json::from_str::<T>(&text) {
+                out.push(value);
+            }
+        }
+    }
+    out
+}
+
+/// List the per-model reliability profiles written by `build_reliability_profiles` (P6.4).
+#[tauri::command]
+#[specta::specta]
+pub fn list_reliability_profiles() -> Vec<runtime::ReliabilityProfile> {
+    read_json_dir(&home_profiles_dir())
+}
+
+/// List the per-model propose-only hint proposals written by `build_hint_proposals` (P6.4).
+#[tauri::command]
+#[specta::specta]
+pub fn list_hint_proposals() -> Vec<runtime::HintProposal> {
+    read_json_dir(&home_proposals_dir())
+}
+
 /// Heuristic: extract the outermost {...} or [...] from text (strips prose/fences).
 fn extract_json_candidate(text: &str) -> String {
     let trimmed = text.trim();

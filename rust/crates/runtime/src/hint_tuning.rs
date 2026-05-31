@@ -32,7 +32,7 @@ const HIGH_ERROR_RATE: f64 = 0.25;
 const COMPACTION_FLOOR: f32 = 0.5;
 
 /// A single proposed override of one `ModelHints` field.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 pub struct ProposedOverride {
     /// `ModelHints` field name, e.g. `"max_completion_tokens"`.
     pub field: String,
@@ -45,7 +45,7 @@ pub struct ProposedOverride {
 }
 
 /// Proposed hint overrides for one model. Empty `proposals` = no change advised.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 pub struct HintProposal {
     pub model: String,
     /// Total runs the profile aggregated.
@@ -364,5 +364,30 @@ mod tests {
         .unwrap();
         assert_eq!(written.model, "claude-sonnet-4-6");
         assert!(!written.proposals.is_empty());
+    }
+
+    #[test]
+    fn nested_proposals_subdir_is_not_ingested_as_a_profile() {
+        // Production layout: proposals/ lives INSIDE the profiles dir. A second
+        // build pass must not try to read the proposals/ subdir's files as
+        // profiles, and the subdir entry must not error the read.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let profiles = dir.path().join("profiles");
+        let proposals = profiles.join("proposals"); // nested, as in production
+        std::fs::create_dir_all(&profiles).unwrap();
+
+        std::fs::write(
+            profiles.join("claude-sonnet-4-6.json"),
+            serde_json::to_string(&profile("claude-sonnet-4-6")).unwrap(),
+        )
+        .unwrap();
+
+        // First pass creates proposals/ inside profiles/.
+        let first = build_hint_proposals_from_dir(&profiles, &proposals).expect("first ok");
+        assert_eq!(first.models, 1);
+        // Second pass must still see exactly one profile (the proposals/ subdir
+        // and its *.json contents are not re-ingested).
+        let second = build_hint_proposals_from_dir(&profiles, &proposals).expect("second ok");
+        assert_eq!(second.models, 1, "proposals/ subdir must not be read as a profile");
     }
 }

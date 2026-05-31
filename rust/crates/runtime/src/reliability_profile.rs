@@ -50,7 +50,7 @@ pub struct ReliabilityRecord {
 /// Means are taken over *successful* runs only (a provider error yields zero
 /// tokens/duration and would otherwise skew throughput and calibration). Cost
 /// is summed across all runs.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 pub struct ReliabilityProfile {
     pub model: String,
     /// Total runs aggregated (successful + errored).

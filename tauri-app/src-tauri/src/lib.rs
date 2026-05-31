@@ -4,8 +4,8 @@ use tauri_specta::{collect_commands, Builder};
 
 use crate::commands::{
     build_hint_proposals, build_reliability_profiles, cancel_chat_turn, chat_turn,
-    cleanup_eval_processes, delete_eval,
-    delete_session, get_api_key_status, get_worktree_diff, launch_swarm, launch_team, list_agents,
+    cleanup_eval_processes, delete_eval, delete_session, get_api_key_status, get_worktree_diff,
+    launch_swarm, launch_team, list_agents, list_hint_proposals, list_reliability_profiles,
     list_eval_suites, list_evals, list_models, list_prompt_commands, list_sessions, load_eval,
     load_session, merge_worktrees, respond_to_permission, run_agent_turn, run_eval_suite,
     run_goal_grade, run_llm_judge, save_human_scores, save_manual_reviews, save_session,
@@ -25,7 +25,10 @@ use crate::terminal::{
     terminal_kill, terminal_list, terminal_resize, terminal_spawn, terminal_write, TerminalInfo,
     TerminalManager,
 };
-use runtime::{AgentEvent, AgentId, AgentState, AgentSupervisor};
+use runtime::{
+    AgentEvent, AgentId, AgentState, AgentSupervisor, HintProposal, ProposedOverride,
+    ReliabilityProfile,
+};
 
 mod commands;
 mod permission_prompter;
@@ -77,6 +80,8 @@ fn make_builder() -> Builder<tauri::Wry> {
             start_eval_artifact,
             build_reliability_profiles,
             build_hint_proposals,
+            list_reliability_profiles,
+            list_hint_proposals,
             cleanup_eval_processes,
             cancel_chat_turn,
             chat_turn,
@@ -102,6 +107,9 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<ReliabilityMetrics>()
         .typ::<ProfileBuildResult>()
         .typ::<ProposalBuildResult>()
+        .typ::<ReliabilityProfile>()
+        .typ::<HintProposal>()
+        .typ::<ProposedOverride>()
         .typ::<HumanScores>()
         .typ::<ManualReview>()
         .typ::<AutoScores>()

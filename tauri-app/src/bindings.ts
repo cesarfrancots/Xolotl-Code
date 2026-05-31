@@ -82,6 +82,8 @@ export const commands = {
 	startEvalArtifact: (request: EvalArtifactRequest) => typedError<EvalArtifactLaunchResult, string>(__TAURI_INVOKE("start_eval_artifact", { request })),
 	buildReliabilityProfiles: () => typedError<ProfileBuildResult, string>(__TAURI_INVOKE("build_reliability_profiles")),
 	buildHintProposals: () => typedError<ProposalBuildResult, string>(__TAURI_INVOKE("build_hint_proposals")),
+	listReliabilityProfiles: () => __TAURI_INVOKE<ReliabilityProfile[]>("list_reliability_profiles"),
+	listHintProposals: () => __TAURI_INVOKE<HintProposal[]>("list_hint_proposals"),
 	cleanupEvalProcesses: () => __TAURI_INVOKE<number>("cleanup_eval_processes"),
 	cancelChatTurn: (turnId: string) => __TAURI_INVOKE<boolean>("cancel_chat_turn", { turnId }),
 	listSkills: () => __TAURI_INVOKE<SkillManifest[]>("list_skills"),
@@ -292,6 +294,54 @@ export type ProposalBuildResult = {
 	overrides: number,
 	/**  Absolute path of the proposals directory written to. */
 	proposals_dir: string,
+};
+
+/**
+ *  Aggregate reliability profile for one model, computed from many eval runs.
+ */
+export type ReliabilityProfile = {
+	model: string,
+	/**  Total runs aggregated (successful + errored). */
+	runs: number,
+	/**  Runs that did not return a provider error. */
+	successful_runs: number,
+	/**  Fraction of runs that returned a provider error (0.0–1.0). */
+	error_rate: number,
+	/**  Mean output throughput over successful runs (tok/s). */
+	mean_tokens_per_sec: number,
+	/**  Mean relative token-count error over successful runs (0.0+). */
+	mean_token_count_error: number,
+	/**  Fraction of successful runs whose token-count error ≤ 5%. */
+	token_calibration_rate: number,
+	/**  True only if every aggregated run had verified pricing. */
+	cost_known: boolean,
+	/**  Total computed dollar cost across all aggregated runs. */
+	total_cost_usd: number,
+	/**  Mean reported output tokens over successful runs. */
+	mean_output_tokens: number,
+	/**  Mean reasoning-trace length (chars) over successful runs. */
+	mean_reasoning_chars: number,
+};
+
+/**
+ *  A single proposed override of one ModelHints field (propose-only).
+ */
+export type ProposedOverride = {
+	field: string,
+	current: string,
+	proposed: string,
+	rationale: string,
+};
+
+/**
+ *  Proposed hint overrides for one model. Empty `proposals` = no change advised.
+ */
+export type HintProposal = {
+	model: string,
+	runs: number,
+	confidence: number,
+	proposals: ProposedOverride[],
+	note: string,
 };
 
 export type EvalArtifactRequest = {

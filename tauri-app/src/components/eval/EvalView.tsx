@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense, Component, type ReactNode } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   FlaskConical, Play, RotateCcw, ChevronDown, ChevronUp, Save,
@@ -29,6 +29,27 @@ import {
 } from "../../lib/evalReadiness";
 import { arenaCreatureClass, arenaCreatureStatusLabel } from "../../lib/evalArena";
 import { calibrationVerdict, reliabilityRows, type CalibrationTone } from "../../lib/reliability";
+
+const ReliabilityDashboard = lazy(() => import("./ReliabilityDashboard"));
+
+/** Contains a crash in the lazy flywheel dashboard so it can't unmount the whole Eval Lab. */
+class DashboardErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="px-4 py-10 text-center">
+        <div className="mx-auto max-w-md rounded-md border border-[oklch(0.34_0.035_28)] bg-[oklch(0.13_0.010_28)] px-4 py-3 text-sm text-[oklch(0.78_0.055_28)]">
+          <div className="font-semibold">Flywheel view failed</div>
+          <div className="mt-1 text-xs leading-relaxed text-[oklch(0.68_0.045_28)]">{this.state.error.message}</div>
+        </div>
+      </div>
+    );
+  }
+}
 import { extractEvalArtifacts, type EvalArtifact } from "../../lib/evalArtifacts";
 import { buildEvalComparison, FINAL_AI_WEIGHT, FINAL_HUMAN_WEIGHT, SCORE_SOURCE_LABELS, type EvalComparison } from "../../lib/evalComparison";
 import {
@@ -1936,6 +1957,7 @@ export function EvalView() {
   const [reviewNotice, setReviewNotice] = useState<ReviewNotice | null>(null);
   const [setupStep, setSetupStep] = useState<SetupStepId>("models");
   const [evalStage, setEvalStage] = useState<EvalFlowStage>("battle");
+  const [showDashboard, setShowDashboard] = useState(false);
   const isBrowserPreview = typeof window !== "undefined" && Boolean(window.__XOLOTL_BROWSER_PREVIEW__);
 
   const activeEval = useEvalStore((s) => s.activeEval);
@@ -2229,6 +2251,7 @@ export function EvalView() {
     await cleanupEvalProcessesQuietly();
     setPrompt("");
     setReviewNotice(null);
+    setShowDashboard(false);
     setEvalStage("battle");
     setSetupStep("models");
     setRunning(false);
@@ -2672,6 +2695,16 @@ export function EvalView() {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowDashboard((v) => !v)}
+              aria-pressed={showDashboard}
+              className={`text-xs h-7 gap-1 ${showDashboard ? "text-[oklch(0.70_0.055_190)]" : "text-[oklch(0.58_0.025_230)]"}`}
+              title="Per-model reliability profiles, hint proposals, and regressions"
+            >
+              <Gauge className="w-3.5 h-3.5" /> Flywheel
+            </Button>
             {!historyOpen && (
               <Button size="sm" variant="ghost" onClick={() => setHistoryOpen(true)} className="text-xs h-7 gap-1 text-[oklch(0.58_0.025_230)]">
                 <History className="w-3.5 h-3.5" /> History
@@ -2711,7 +2744,16 @@ export function EvalView() {
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        {showDashboard && (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <DashboardErrorBoundary>
+              <Suspense fallback={<div className="px-4 py-10 text-center text-sm text-[oklch(0.55_0.012_230)]">Loading flywheel...</div>}>
+                <ReliabilityDashboard />
+              </Suspense>
+            </DashboardErrorBoundary>
+          </div>
+        )}
+        <div className={`flex-1 min-h-0 overflow-y-auto ${showDashboard ? "hidden" : ""}`}>
           {!activeEval && (
           <>
           <BenchmarkLeaderboardPanel />
