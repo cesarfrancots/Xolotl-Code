@@ -12,8 +12,8 @@ use crate::commands::{
     stop_agent, test_api_connection, test_permission_prompt, AutoScores, ChatMessage,
     EvalArtifactFileInput, EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta, EvalResult,
     EvalSuite, FileDiff, GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores, JudgeScores,
-    ManualReview, ModelEvalResult, PromptCommand, ReasoningFlag, RoleConfig, SessionMeta,
-    SuitePrompt,
+    ManualReview, ModelEvalResult, PromptCommand, ReasoningFlag, ReliabilityMetrics, RoleConfig,
+    SessionMeta, SuitePrompt,
 };
 use crate::permission_prompter::{PendingPrompts, PermissionDecision};
 use crate::skills_mcp::{
@@ -96,6 +96,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<EvalMeta>()
         .typ::<EvalResult>()
         .typ::<ModelEvalResult>()
+        .typ::<ReliabilityMetrics>()
         .typ::<HumanScores>()
         .typ::<ManualReview>()
         .typ::<AutoScores>()

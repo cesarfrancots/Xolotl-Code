@@ -1,7 +1,8 @@
 use crate::permission_prompter::{PendingPrompts, PermissionDecision, PermissionRequestPayload};
 use futures_util::StreamExt;
 use runtime::{
-    slugify_task, AgentEvent, AgentHandle, AgentId, AgentState, AgentSupervisor, TokenUsage,
+    cost_for_usage, estimate_tokens_for_family, pricing_for, slugify_task, AgentEvent, AgentHandle,
+    AgentId, AgentState, AgentSupervisor, ModelHints, TokenUsage,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -489,7 +490,48 @@ pub struct EvalResult {
     /// If part of a suite run, the SuitePrompt.id for this row.
     #[serde(default)]
     pub suite_prompt_id: Option<String>,
+    /// Per-model reliability/calibration signals (tokens, cost, tok/s,
+    /// token-count error). Captured at run time and persisted so the P6
+    /// profile aggregator can read past runs. `None` (absent) for eval files
+    /// that predate metric capture or runs that produced no model results —
+    /// kept distinct from `Some({})` so a read-mutate-write of an old eval
+    /// (judge / goal-grade) never fabricates an empty-but-present block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reliability_metrics: Option<HashMap<String, ReliabilityMetrics>>,
     pub created_at: u64,
+}
+
+/// Per-model reliability and calibration signals produced by a single eval run.
+///
+/// These are the §5 metrics the single-turn eval-lab can actually produce
+/// (tokens/cost/token-count-error/duration/throughput) — the agentic
+/// edit-apply / tool-call metrics come from the separate bench harness. Cost
+/// and the token estimate are computed with the authoritative `runtime`
+/// pricing + tokenizer so they match the CLI engine, not a UI approximation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct ReliabilityMetrics {
+    pub model: String,
+    /// Provider-reported input/output tokens for the turn (authoritative for cost).
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub duration_ms: u64,
+    /// Output tokens per wall-clock second; 0 when duration or output is 0.
+    pub tokens_per_sec: f32,
+    /// Dollar cost from the `runtime` pricing table. 0 when the model has no
+    /// verified pricing (see `cost_known`) — never an Opus-rate guess.
+    pub cost_usd: f64,
+    /// False when the model has no verified pricing entry, so `cost_usd` is a
+    /// genuine "unknown" rather than a real $0.
+    pub cost_known: bool,
+    /// `runtime` tokenizer estimate of the response, for the model's family.
+    pub estimated_output_tokens: u32,
+    /// |estimate − reported| / reported. 0 when reported output is 0. The §5
+    /// "token-count error" signal (target ≤ 5%).
+    pub token_count_error: f32,
+    /// Characters of streamed chain-of-thought (0 for non-reasoning models).
+    pub reasoning_chars: u32,
+    /// True when the provider returned an error for this model.
+    pub had_error: bool,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, specta::Type)]
@@ -1432,6 +1474,24 @@ async fn start_eval_inner_full(
             .unwrap_or(usize::MAX)
     });
 
+    // Capture per-model reliability/calibration signals (cost, tok/s,
+    // token-count error) from the authoritative runtime pricing + tokenizer.
+    // Left as `None` (absent on disk) when no model produced a result, so the
+    // P6 aggregator can tell "no data captured" from "captured but empty".
+    let mut metrics_map: HashMap<String, ReliabilityMetrics> = HashMap::new();
+    for res in &all_results {
+        let reasoning = reasoning_map.get(&res.model).map_or("", String::as_str);
+        metrics_map.insert(
+            res.model.clone(),
+            compute_reliability_metrics(&res.model, res, reasoning),
+        );
+    }
+    let reliability_metrics = if metrics_map.is_empty() {
+        None
+    } else {
+        Some(metrics_map)
+    };
+
     let eval_result = EvalResult {
         id: eval_id.clone(),
         prompt: prompt.clone(),
@@ -1452,6 +1512,7 @@ async fn start_eval_inner_full(
         suite_id,
         suite_run_id,
         suite_prompt_id,
+        reliability_metrics,
         created_at,
     };
 
@@ -2488,6 +2549,105 @@ mod auto_grader_tests {
             "ideal len ({ideal}) should beat too-long ({too_long})"
         );
     }
+
+    fn model_result(model: &str, input: u32, output: u32, dur: u64, content: &str) -> ModelEvalResult {
+        ModelEvalResult {
+            model: model.to_string(),
+            content: content.to_string(),
+            input_tokens: input,
+            output_tokens: output,
+            duration_ms: dur,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn reliability_known_model_prices_and_rates() {
+        // Sonnet is in the runtime pricing table → cost_known, non-zero cost.
+        let res = model_result("claude-sonnet-4-6", 1000, 500, 2000, "hello world");
+        let m = compute_reliability_metrics("claude-sonnet-4-6", &res, "");
+        assert!(m.cost_known, "sonnet must be a known/priced model");
+        // 1000 in @ $3/M + 500 out @ $15/M = 0.003 + 0.0075 = 0.0105
+        assert!((m.cost_usd - 0.0105).abs() < 1e-9, "cost was {}", m.cost_usd);
+        // 500 output tokens over 2.0s = 250 tok/s.
+        assert!((m.tokens_per_sec - 250.0).abs() < 0.01, "tps was {}", m.tokens_per_sec);
+        assert!(!m.had_error);
+        let fam = ModelHints::for_model("claude-sonnet-4-6").family;
+        assert_eq!(
+            m.estimated_output_tokens,
+            estimate_tokens_for_family("hello world", fam) as u32
+        );
+    }
+
+    #[test]
+    fn reliability_unknown_model_is_honest_zero_cost() {
+        // Kimi has no verified pricing → cost is an explicit unknown ($0), NOT
+        // an Opus-rate guess.
+        let res = model_result("kimi-k2-turbo-preview", 1000, 1000, 1000, "x");
+        let m = compute_reliability_metrics("kimi-k2-turbo-preview", &res, "");
+        assert!(!m.cost_known);
+        assert!((m.cost_usd - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn reliability_token_count_error_is_relative() {
+        // reported 100, estimate ~differs → error is |est-100|/100, finite & >= 0.
+        let res = model_result("claude-haiku-4-5", 10, 100, 500, "the quick brown fox jumps");
+        let m = compute_reliability_metrics("claude-haiku-4-5", &res, "thinking....");
+        assert!(m.token_count_error >= 0.0 && m.token_count_error.is_finite());
+        assert_eq!(m.reasoning_chars, 12);
+        // Zero reported output → error defined as 0 (no division by zero).
+        let empty = model_result("claude-haiku-4-5", 10, 0, 0, "");
+        let m0 = compute_reliability_metrics("claude-haiku-4-5", &empty, "");
+        assert_eq!(m0.token_count_error, 0.0);
+        assert_eq!(m0.tokens_per_sec, 0.0);
+    }
+
+    #[test]
+    fn reliability_token_count_error_small_when_estimate_matches() {
+        // The §5 ≤5% target is reachable: when reported output equals the
+        // engine's own estimate, the error is ~0. Guards against a regression
+        // in the tokenizer-family dispatch or the error formula.
+        let text = "The quick brown fox jumps over the lazy dog, repeatedly and deliberately.";
+        let fam = ModelHints::for_model("claude-sonnet-4-6").family;
+        let reported = u32::try_from(estimate_tokens_for_family(text, fam)).unwrap();
+        let res = model_result("claude-sonnet-4-6", 50, reported, 1000, text);
+        let m = compute_reliability_metrics("claude-sonnet-4-6", &res, "");
+        assert!(m.token_count_error <= 0.05, "error was {}", m.token_count_error);
+    }
+
+    #[test]
+    fn reliability_estimate_includes_reasoning_for_reasoning_models() {
+        // Reasoning models report CoT tokens inside output_tokens, so the
+        // estimate MUST cover the reasoning stream — answer-only would be far off.
+        let answer = "Final answer: 42.";
+        let reasoning = "Let me think step by step about this problem in great detail. ".repeat(20);
+        let fam = ModelHints::for_model("deepseek-v4-pro").family;
+        let reported =
+            u32::try_from(estimate_tokens_for_family(&format!("{answer}{reasoning}"), fam)).unwrap();
+        let res = model_result("deepseek-v4-pro", 30, reported, 2000, answer);
+        let with_reasoning = compute_reliability_metrics("deepseek-v4-pro", &res, &reasoning);
+        let answer_only = compute_reliability_metrics("deepseek-v4-pro", &res, "");
+        assert!(
+            with_reasoning.token_count_error <= 0.05,
+            "with-reasoning error {}",
+            with_reasoning.token_count_error
+        );
+        assert!(
+            answer_only.token_count_error > 0.5,
+            "answer-only should be far off, was {}",
+            answer_only.token_count_error
+        );
+        assert!(with_reasoning.reasoning_chars > 0);
+    }
+
+    #[test]
+    fn reliability_flags_provider_error() {
+        let mut res = model_result("claude-sonnet-4-6", 0, 0, 0, "");
+        res.error = Some("rate limited".to_string());
+        let m = compute_reliability_metrics("claude-sonnet-4-6", &res, "");
+        assert!(m.had_error);
+    }
 }
 
 // ── Auto-grader ───────────────────────────────────────────────────────────────
@@ -2578,6 +2738,68 @@ pub fn compute_auto_scores(text: &str, grader: &str) -> AutoScores {
         word_count,
         char_count,
         slop_hits,
+    }
+}
+
+/// Compute per-model reliability/calibration signals for one eval result.
+///
+/// Pure function (no I/O). Cost comes from the `runtime` pricing table and the
+/// token estimate from the `runtime` family-aware tokenizer, so both match the
+/// CLI engine rather than a UI approximation. `reasoning` is the captured
+/// chain-of-thought stream (empty for non-reasoning models) — it MUST be
+/// included in the estimate because reasoning models report their CoT tokens
+/// inside the provider's `output_tokens`, so estimating the answer alone would
+/// make `token_count_error` meaninglessly large for them.
+pub fn compute_reliability_metrics(
+    model: &str,
+    result: &ModelEvalResult,
+    reasoning: &str,
+) -> ReliabilityMetrics {
+    let usage = TokenUsage {
+        input_tokens: result.input_tokens,
+        output_tokens: result.output_tokens,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+    };
+    let cost_usd = cost_for_usage(usage, model);
+    let cost_known = pricing_for(model).is_some();
+
+    let family = ModelHints::for_model(model).family;
+    // Estimate over the same text the provider counted: answer + reasoning.
+    let estimate_text = if reasoning.is_empty() {
+        result.content.clone()
+    } else {
+        format!("{}{}", result.content, reasoning)
+    };
+    let estimated_output_tokens =
+        u32::try_from(estimate_tokens_for_family(&estimate_text, family)).unwrap_or(u32::MAX);
+    let reasoning_chars = u32::try_from(reasoning.chars().count()).unwrap_or(u32::MAX);
+
+    let token_count_error = if result.output_tokens > 0 {
+        (f64::from(estimated_output_tokens) - f64::from(result.output_tokens)).abs()
+            / f64::from(result.output_tokens)
+    } else {
+        0.0
+    } as f32;
+
+    let tokens_per_sec = if result.duration_ms > 0 && result.output_tokens > 0 {
+        (f64::from(result.output_tokens) / result.duration_ms as f64 * 1000.0) as f32
+    } else {
+        0.0
+    };
+
+    ReliabilityMetrics {
+        model: model.to_string(),
+        input_tokens: result.input_tokens,
+        output_tokens: result.output_tokens,
+        duration_ms: result.duration_ms,
+        tokens_per_sec,
+        cost_usd,
+        cost_known,
+        estimated_output_tokens,
+        token_count_error,
+        reasoning_chars,
+        had_error: result.error.is_some(),
     }
 }
 

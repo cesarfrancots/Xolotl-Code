@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
-import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalGrade, JudgeScores, ManualReview } from "../../bindings";
+import type { HumanScores, EvalSuite, EvalMeta, EvalResult, ReasoningFlag, GoalGrade, JudgeScores, ManualReview, ReliabilityMetrics } from "../../bindings";
 import { HUMAN_SCORE_KEYS, buildBlindLabels, getBlindReviewProgress, getReviewOrder, useEvalStore } from "../../stores/evalStore";
 import { MarkdownRenderer } from "../chat/MarkdownRenderer";
 import {
@@ -28,6 +28,7 @@ import {
   type GoalWorkflowStep,
 } from "../../lib/evalReadiness";
 import { arenaCreatureClass, arenaCreatureStatusLabel } from "../../lib/evalArena";
+import { calibrationVerdict, reliabilityRows, type CalibrationTone } from "../../lib/reliability";
 import { extractEvalArtifacts, type EvalArtifact } from "../../lib/evalArtifacts";
 import { buildEvalComparison, FINAL_AI_WEIGHT, FINAL_HUMAN_WEIGHT, SCORE_SOURCE_LABELS, type EvalComparison } from "../../lib/evalComparison";
 import {
@@ -731,6 +732,79 @@ function comparisonDecisionCopy(
   if (decision === "clear") return { label: "Clear lead", detail: marginText };
   if (decision === "single") return { label: "Single model", detail: "Only one scored model is available." };
   return { label: "Unscored", detail: "No scored outputs are available." };
+}
+
+const CALIBRATION_TONE: Record<CalibrationTone, { color: string; bg: string; border: string }> = {
+  good: { color: "oklch(0.80 0.075 155)", bg: "oklch(0.13 0.010 155)", border: "oklch(0.32 0.030 155)" },
+  warn: { color: "oklch(0.82 0.085 72)",  bg: "oklch(0.13 0.012 72)",  border: "oklch(0.34 0.035 72)" },
+  bad:  { color: "oklch(0.76 0.080 28)",  bg: "oklch(0.13 0.012 28)",  border: "oklch(0.34 0.035 28)" },
+  none: { color: "oklch(0.60 0.012 230)", bg: "oklch(0.11 0.004 245)", border: "oklch(0.26 0.010 235)" },
+};
+
+/**
+ * Per-model reliability & calibration readout (P6.1). Surfaces the
+ * backend-captured signals — authoritative cost, throughput, token-count
+ * accuracy, reasoning volume — that the P6.2 profile aggregator consumes.
+ * Renders nothing until metrics are hydrated (after a run completes / reloads).
+ */
+function ReliabilityPanel({
+  models,
+  metrics,
+  displayNameOf,
+  revealed,
+}: {
+  models: string[];
+  metrics: Record<string, ReliabilityMetrics>;
+  displayNameOf: (model: string) => string;
+  /** False in blind mode — keeps the avatar from leaking provider identity via color. */
+  revealed: boolean;
+}) {
+  const present = models.filter((model) => metrics[model]);
+  if (present.length === 0) return null;
+
+  return (
+    <section className="rounded-md border border-[oklch(0.20_0.006_245)] bg-[oklch(0.108_0.004_245)] p-4">
+      <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[oklch(0.56_0.020_205)]">
+        <Gauge className="h-3.5 w-3.5" />
+        Reliability &amp; calibration
+      </div>
+      <div className="mb-3 text-xs text-[oklch(0.52_0.012_230)]">
+        Engine-computed cost, throughput, and token-count accuracy per model. Calibration compares the engine&apos;s
+        token estimate against the provider&apos;s reported usage (target within 5%).
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {present.map((model) => {
+          const m = metrics[model];
+          const verdict = calibrationVerdict(m);
+          const tone = CALIBRATION_TONE[verdict.tone];
+          const rows = reliabilityRows(m);
+          return (
+            <div key={`reliability-${model}`} className="rounded-md border border-[oklch(0.18_0.006_245)] bg-[oklch(0.096_0.003_245)] p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <ModelAvatar model={model} displayName={displayNameOf(model)} revealed={revealed} size="sm" />
+                <span className="truncate text-sm font-semibold text-[oklch(0.84_0.014_225)]">{displayNameOf(model)}</span>
+                <span
+                  className="ml-auto rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em]"
+                  style={{ color: tone.color, background: tone.bg, borderColor: tone.border }}
+                  title={`Token-count error: ${(m.token_count_error * 100).toFixed(1)}%`}
+                >
+                  {verdict.label}
+                </span>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                {rows.map((row) => (
+                  <div key={row.key} className="flex items-center justify-between gap-2" title={row.title}>
+                    <dt className="text-[11px] text-[oklch(0.52_0.012_230)]">{row.label}</dt>
+                    <dd className="font-mono text-[11px] tabular-nums text-[oklch(0.82_0.016_220)]">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function ComparisonResultsPanel({
@@ -1875,7 +1949,7 @@ export function EvalView() {
   const {
     startEval, setModelRunning, appendModelDelta, appendModelReasoning, pushReasoningFlag,
     completeModel, finalizeEval, failEval, setJudge, setGoalGrades, markHumanScoresSaved,
-    setManualReview, markManualReviewsSaved,
+    setManualReview, markManualReviewsSaved, setReliabilityMetrics,
   } = useEvalStore.getState();
 
   const reviewMode = useMemo<EvalReviewMode>(
@@ -2084,7 +2158,26 @@ export function EvalView() {
           break;
         case "EvalComplete": {
           finalizeEval(evalId);
-          setRunning(false);
+          // During a suite run, each prompt fires its own EvalComplete; the run
+          // is only finished on SuiteComplete. Clearing `running` per-prompt
+          // would briefly re-enable the run button between prompts.
+          if (!suiteUnlistenRef.current) setRunning(false);
+          // Pull the just-persisted reliability metrics (cost / tok-s /
+          // token-count error) into the store without disturbing the live
+          // model states. Non-blocking and best-effort.
+          void (async () => {
+            try {
+              const reloaded = await commands.loadEval(evalId);
+              if (reloaded.status === "ok") {
+                const parsed: EvalResult = JSON.parse(reloaded.data);
+                if (parsed.reliability_metrics && Object.keys(parsed.reliability_metrics).length > 0) {
+                  setReliabilityMetrics(evalId, parsed.reliability_metrics);
+                }
+              }
+            } catch (error) {
+              console.error("reliability hydrate error:", error);
+            }
+          })();
           const completedEval = useEvalStore.getState().activeEval;
           if (completedEval?.id === evalId) {
             const completedReviewMode = determineEvalReviewMode({
@@ -3110,14 +3203,24 @@ export function EvalView() {
                   {resultsGate.resultsLocked
                     ? <BlindResultsLockPanel gate={resultsGate} progressLabel={blindProgressLabel} />
                     : comparison && (
-                      <ComparisonResultsPanel
-                        comparison={comparison}
-                        reviewMode={reviewMode}
-                        reviewDirty={reviewDirty}
-                        savingReview={savingReview}
-                        onManualReviewChange={setManualReview}
-                        onSaveManualReviews={saveManualReviews}
-                      />
+                      <>
+                        <ComparisonResultsPanel
+                          comparison={comparison}
+                          reviewMode={reviewMode}
+                          reviewDirty={reviewDirty}
+                          savingReview={savingReview}
+                          onManualReviewChange={setManualReview}
+                          onSaveManualReviews={saveManualReviews}
+                        />
+                        {activeEval.reliabilityMetrics && (
+                          <ReliabilityPanel
+                            models={activeEval.models}
+                            metrics={activeEval.reliabilityMetrics}
+                            displayNameOf={(model) => (blindMode ? activeEval.blindLabels[model] ?? model : model)}
+                            revealed={!blindMode}
+                          />
+                        )}
+                      </>
                     )}
                 </>
               )}

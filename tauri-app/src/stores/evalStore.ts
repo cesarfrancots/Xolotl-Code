@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { EvalResult, HumanScores, AutoScores, JudgeScores, ReasoningFlag, GoalGrade, ManualReview } from "../bindings";
+import type { EvalResult, HumanScores, AutoScores, JudgeScores, ReasoningFlag, GoalGrade, ManualReview, ReliabilityMetrics } from "../bindings";
 
 export const HUMAN_SCORE_KEYS: (keyof HumanScores)[] = [
   "accuracy",
@@ -49,6 +49,12 @@ export interface ActiveEval {
   is_goal_eval?: boolean;
   /** Live supervisor enabled for this run? Toggle persists for UI state. */
   live_supervisor?: boolean;
+  /**
+   * Per-model reliability/calibration metrics (cost, tok/s, token-count error),
+   * captured by the backend and persisted. Present after a run is reloaded or
+   * hydrated post-completion; undefined while a fresh run is still streaming.
+   */
+  reliabilityMetrics?: Record<string, ReliabilityMetrics>;
 }
 
 export interface SuiteRunState {
@@ -93,6 +99,9 @@ export interface EvalState {
   failEval: (evalId: string, error: string) => void;
   setJudge: (judge: JudgeScores) => void;
   setGoalGrades: (grades: Record<string, GoalGrade>) => void;
+  /** Merge backend-captured reliability metrics into the active eval without
+   * disturbing its live model states / blind labels / human scores. */
+  setReliabilityMetrics: (evalId: string, metrics: Record<string, ReliabilityMetrics>) => void;
   loadEval: (result: EvalResult) => void;
   setHumanScore: (model: string, dimension: keyof HumanScores, value: number) => void;
   setManualReview: (model: string, review: Partial<ManualReview>) => void;
@@ -367,6 +376,12 @@ export const useEvalStore = create<EvalState>()((set) => ({
       return { activeEval: { ...s.activeEval, modelStates: next } };
     }),
 
+  setReliabilityMetrics: (evalId, metrics) =>
+    set((s) => {
+      if (!s.activeEval || s.activeEval.id !== evalId) return s;
+      return { activeEval: { ...s.activeEval, reliabilityMetrics: metrics } };
+    }),
+
   loadEval: (result) => {
     const modelStates: Record<string, EvalModelState> = {};
     for (const r of result.results) {
@@ -402,6 +417,10 @@ export const useEvalStore = create<EvalState>()((set) => ({
         suite_prompt_id: result.suite_prompt_id ?? null,
         judge: result.judge ?? null,
         is_goal_eval: result.is_goal_eval ?? false,
+        reliabilityMetrics:
+          result.reliability_metrics && Object.keys(result.reliability_metrics).length > 0
+            ? result.reliability_metrics
+            : undefined,
       },
       humanScores,
       manualReviews: result.manual_reviews ?? {},

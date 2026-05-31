@@ -247,6 +247,11 @@ export type EvalResult = {
 	suite_run_id?: string | null,
 	/**  If part of a suite run, the SuitePrompt.id for this row. */
 	suite_prompt_id?: string | null,
+	/**
+	 *  Per-model reliability/calibration signals (tokens, cost, tok/s,
+	 *  token-count error). Captured at run time and persisted. Older eval files lack this.
+	 */
+	reliability_metrics?: { [key in string]: ReliabilityMetrics },
 	created_at: number,
 };
 
@@ -375,6 +380,30 @@ export type ModelEvalResult = {
 	output_tokens: number,
 	duration_ms: number,
 	error: string | null,
+};
+
+/**
+ *  Per-model reliability and calibration signals produced by a single eval run.
+ */
+export type ReliabilityMetrics = {
+	model: string,
+	input_tokens: number,
+	output_tokens: number,
+	duration_ms: number,
+	/**  Output tokens per wall-clock second; 0 when duration or output is 0. */
+	tokens_per_sec: number,
+	/**  Dollar cost from the runtime pricing table. 0 when pricing is unknown. */
+	cost_usd: number,
+	/**  False when the model has no verified pricing entry (cost_usd is "unknown"). */
+	cost_known: boolean,
+	/**  runtime tokenizer estimate of the response, for the model's family. */
+	estimated_output_tokens: number,
+	/**  |estimate − reported| / reported. 0 when reported output is 0. */
+	token_count_error: number,
+	/**  Characters of streamed chain-of-thought (0 for non-reasoning models). */
+	reasoning_chars: number,
+	/**  True when the provider returned an error for this model. */
+	had_error: boolean,
 };
 
 /**
