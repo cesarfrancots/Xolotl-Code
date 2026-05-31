@@ -81,6 +81,7 @@ export const commands = {
 	runGoalGrade: (id: string, judgeModel: string) => typedError<string, string>(__TAURI_INVOKE("run_goal_grade", { id, judgeModel })),
 	startEvalArtifact: (request: EvalArtifactRequest) => typedError<EvalArtifactLaunchResult, string>(__TAURI_INVOKE("start_eval_artifact", { request })),
 	buildReliabilityProfiles: () => typedError<ProfileBuildResult, string>(__TAURI_INVOKE("build_reliability_profiles")),
+	buildHintProposals: () => typedError<ProposalBuildResult, string>(__TAURI_INVOKE("build_hint_proposals")),
 	cleanupEvalProcesses: () => __TAURI_INVOKE<number>("cleanup_eval_processes"),
 	cancelChatTurn: (turnId: string) => __TAURI_INVOKE<boolean>("cancel_chat_turn", { turnId }),
 	listSkills: () => __TAURI_INVOKE<SkillManifest[]>("list_skills"),
@@ -279,6 +280,18 @@ export type ProfileBuildResult = {
 	evals_scanned: number,
 	/**  Absolute path of the profiles directory written to. */
 	profiles_dir: string,
+};
+
+/**
+ *  Summary returned after (re)building the propose-only hint overrides.
+ */
+export type ProposalBuildResult = {
+	/**  Models a proposal file was written for. */
+	models: number,
+	/**  Total field overrides proposed across all models. */
+	overrides: number,
+	/**  Absolute path of the proposals directory written to. */
+	proposals_dir: string,
 };
 
 export type EvalArtifactRequest = {

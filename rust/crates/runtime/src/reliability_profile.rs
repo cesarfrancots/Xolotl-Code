@@ -160,7 +160,7 @@ pub struct ProfileBuildSummary {
 }
 
 /// Make a model id safe to use as a file stem (bedrock ids contain `/`, `:`, …).
-fn sanitize_model_filename(model: &str) -> String {
+pub(crate) fn sanitize_model_filename(model: &str) -> String {
     let cleaned: String = model
         .chars()
         .map(|c| {

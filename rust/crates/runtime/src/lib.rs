@@ -27,6 +27,7 @@ mod config;
 mod conversation;
 mod edit;
 mod file_ops;
+mod hint_tuning;
 mod hooks;
 mod json;
 mod memory;
@@ -78,6 +79,10 @@ pub use file_ops::{
     write_file, DirEntry, EditFileOutput, FileInfoOutput, GlobSearchOutput, GrepSearchInput,
     GrepSearchOutput, ListDirectoryOutput, ReadFileOutput, StructuredPatchHunk, TextFilePayload,
     WriteFileOutput,
+};
+pub use hint_tuning::{
+    build_hint_proposals_from_dir, propose_hint_overrides, HintProposal, ProposalBuildSummary,
+    ProposedOverride,
 };
 pub use hooks::{Hook, HookEvent, HookManager, LoggingHook};
 pub use permissions::{

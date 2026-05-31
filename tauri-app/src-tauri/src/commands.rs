@@ -2836,6 +2836,35 @@ pub fn build_reliability_profiles() -> Result<ProfileBuildResult, String> {
     })
 }
 
+/// Summary returned after (re)building the propose-only hint overrides.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ProposalBuildResult {
+    /// Models a proposal file was written for.
+    pub models: u32,
+    /// Total field overrides proposed across all models.
+    pub overrides: u32,
+    /// Absolute path of the proposals directory written to.
+    pub proposals_dir: String,
+}
+
+/// Derive propose-only `ModelHints` overrides from each reliability profile and
+/// write them to `~/.xolotl-code/profiles/proposals/<model>.json` (P6.3).
+///
+/// Reviewable only — never merges into the shipped hint defaults.
+#[tauri::command]
+#[specta::specta]
+pub fn build_hint_proposals() -> Result<ProposalBuildResult, String> {
+    let profiles_dir = home_profiles_dir();
+    let proposals_dir = home_proposals_dir();
+    let summary = runtime::build_hint_proposals_from_dir(&profiles_dir, &proposals_dir)
+        .map_err(|e| e.to_string())?;
+    Ok(ProposalBuildResult {
+        models: summary.models,
+        overrides: summary.overrides,
+        proposals_dir: proposals_dir.to_string_lossy().into_owned(),
+    })
+}
+
 /// Heuristic: extract the outermost {...} or [...] from text (strips prose/fences).
 fn extract_json_candidate(text: &str) -> String {
     let trimmed = text.trim();
@@ -3213,6 +3242,10 @@ fn home_profiles_dir() -> PathBuf {
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".xolotl-code").join("profiles")
+}
+
+fn home_proposals_dir() -> PathBuf {
+    home_profiles_dir().join("proposals")
 }
 
 fn unix_timestamp_secs() -> Result<u64, String> {
