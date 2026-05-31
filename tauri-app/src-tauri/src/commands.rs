@@ -2803,6 +2803,39 @@ pub fn compute_reliability_metrics(
     }
 }
 
+/// Summary returned after (re)building the per-model reliability profiles.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ProfileBuildResult {
+    /// Distinct models that got a profile written.
+    pub models: u32,
+    /// Total per-model records aggregated across all eval files.
+    pub records: u32,
+    /// Eval files that contributed at least one reliability record.
+    pub evals_scanned: u32,
+    /// Absolute path of the profiles directory written to.
+    pub profiles_dir: String,
+}
+
+/// Aggregate every persisted eval's reliability metrics (P6.1) into per-model
+/// reliability profiles under `~/.xolotl-code/profiles/<model>.json` (P6.2).
+///
+/// Pure aggregation lives in the `runtime` crate (offline-tested); this command
+/// just resolves the home directories and reports what was produced.
+#[tauri::command]
+#[specta::specta]
+pub fn build_reliability_profiles() -> Result<ProfileBuildResult, String> {
+    let evals_dir = home_evals_dir();
+    let profiles_dir = home_profiles_dir();
+    let summary =
+        runtime::build_profiles_from_dir(&evals_dir, &profiles_dir).map_err(|e| e.to_string())?;
+    Ok(ProfileBuildResult {
+        models: summary.models,
+        records: summary.records,
+        evals_scanned: summary.evals_scanned,
+        profiles_dir: profiles_dir.to_string_lossy().into_owned(),
+    })
+}
+
 /// Heuristic: extract the outermost {...} or [...] from text (strips prose/fences).
 fn extract_json_candidate(text: &str) -> String {
     let trimmed = text.trim();
@@ -3173,6 +3206,13 @@ fn home_evals_dir() -> PathBuf {
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".xolotl-code").join("evals")
+}
+
+fn home_profiles_dir() -> PathBuf {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".xolotl-code").join("profiles")
 }
 
 fn unix_timestamp_secs() -> Result<u64, String> {

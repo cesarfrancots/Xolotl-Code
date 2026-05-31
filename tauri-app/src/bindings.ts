@@ -80,6 +80,7 @@ export const commands = {
  */
 	runGoalGrade: (id: string, judgeModel: string) => typedError<string, string>(__TAURI_INVOKE("run_goal_grade", { id, judgeModel })),
 	startEvalArtifact: (request: EvalArtifactRequest) => typedError<EvalArtifactLaunchResult, string>(__TAURI_INVOKE("start_eval_artifact", { request })),
+	buildReliabilityProfiles: () => typedError<ProfileBuildResult, string>(__TAURI_INVOKE("build_reliability_profiles")),
 	cleanupEvalProcesses: () => __TAURI_INVOKE<number>("cleanup_eval_processes"),
 	cancelChatTurn: (turnId: string) => __TAURI_INVOKE<boolean>("cancel_chat_turn", { turnId }),
 	listSkills: () => __TAURI_INVOKE<SkillManifest[]>("list_skills"),
@@ -264,6 +265,20 @@ export type EvalArtifactLaunchResult = {
 	artifact_dir: string,
 	entry_path: string,
 	message: string,
+};
+
+/**
+ *  Summary returned after (re)building the per-model reliability profiles.
+ */
+export type ProfileBuildResult = {
+	/**  Distinct models that got a profile written. */
+	models: number,
+	/**  Total per-model records aggregated across all eval files. */
+	records: number,
+	/**  Eval files that contributed at least one reliability record. */
+	evals_scanned: number,
+	/**  Absolute path of the profiles directory written to. */
+	profiles_dir: string,
 };
 
 export type EvalArtifactRequest = {

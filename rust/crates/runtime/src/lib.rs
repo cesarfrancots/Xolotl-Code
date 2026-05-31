@@ -34,6 +34,7 @@ mod model_hints;
 mod permissions;
 mod plan;
 mod prompt;
+mod reliability_profile;
 mod retrieval;
 mod sdd;
 mod session;
@@ -92,6 +93,10 @@ pub use prompt::{
     load_system_prompt, load_system_prompt_with_hints, prepend_bullets, ContextFile,
     ProjectContext, PromptBuildError, SystemPromptBuilder, FRONTIER_MODEL_NAME,
     SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+};
+pub use reliability_profile::{
+    aggregate_profile, build_profiles_from_dir, ProfileBuildSummary, ReliabilityProfile,
+    ReliabilityRecord,
 };
 pub use retrieval::{GraphRetrieval, RankedFile};
 pub use session::{
