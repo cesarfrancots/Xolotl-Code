@@ -1,0 +1,92 @@
+name: Release Build
+
+# Builds native desktop installers on real runners and attaches them to a
+# GitHub Release you can download from any machine:
+#   - macOS: universal .dmg + .app  (runs on Apple Silicon AND Intel Macs)
+#   - Windows: NSIS installer .exe
+#
+# Trigger it manually from the Actions tab (Run workflow), or by pushing a
+# version tag like v0.1.0.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. ui-preview or v0.1.0)"
+        required: true
+        default: "ui-preview"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target universal-apple-darwin --bundles dmg,app"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          - platform: windows-latest
+            args: "--bundles nsis"
+            rust-targets: ""
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tauri-app/package-lock.json
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "tauri-app/src-tauri -> target"
+
+      - name: Install frontend dependencies
+        working-directory: tauri-app
+        run: npm ci
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build app and publish to release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: tauri-app
+          tagName: ${{ steps.tag.outputs.value }}
+          releaseName: "Xolotl ${{ steps.tag.outputs.value }}"
+          releaseBody: |
+            Automated desktop build.
+
+            **macOS** is unsigned, so Gatekeeper will block the first launch.
+            After installing, either right-click the app and choose **Open**, or run:
+            `xattr -cr /Applications/xolotl.app`
+
+            Download the `.dmg` (macOS) or the setup `.exe` (Windows) below.
+          releaseDraft: false
+          prerelease: true
+          args: ${{ matrix.args }}
