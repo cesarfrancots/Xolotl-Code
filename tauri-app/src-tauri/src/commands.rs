@@ -4048,13 +4048,11 @@ pub(crate) fn spawn_agent_executor(_agent_id: AgentId, handle: AgentHandle) {
             .await;
 
         let xolotl = find_xolotl_bin();
-        let output_file = std::env::temp_dir().join(format!(
-            "xolotl-agent-{}.txt",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.subsec_nanos())
-                .unwrap_or(0)
-        ));
+        // Unique per spawn — a timestamp's sub-second nanos collide when a swarm
+        // spawns several executors in the same millisecond, clobbering each
+        // other's output file.
+        let output_file =
+            std::env::temp_dir().join(format!("xolotl-agent-{}.txt", uuid::Uuid::new_v4()));
 
         let output_file_clone = output_file.clone();
         let task_clone = task.clone();

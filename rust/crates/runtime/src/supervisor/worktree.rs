@@ -195,11 +195,14 @@ impl WorktreeManager {
         active.get(agent_id).map(|(_, branch)| branch.clone())
     }
 
-    /// Return a list of file paths changed on this agent's branch vs main.
+    /// Return a list of file paths changed on this agent's branch vs the repo's
+    /// default branch.
     ///
-    /// Uses `git diff main...HEAD --name-only` (three-dot diff) to capture all
-    /// commits on the branch since it diverged from main — handles both staged
-    /// and committed branch changes.
+    /// Uses `git diff <base>...HEAD --name-only` (three-dot diff) to capture all
+    /// commits on the branch since it diverged from the base — handles both
+    /// staged and committed branch changes. The base branch is detected
+    /// dynamically (`origin/HEAD`, then a local `main`/`master`) so repos whose
+    /// default branch is not literally `main` still produce a correct diff.
     ///
     /// # Errors
     /// Returns `WorktreeError::NotAssigned` if `agent_id` has no active worktree.
@@ -212,8 +215,10 @@ impl WorktreeManager {
                 .map(|(p, _)| p.clone())
                 .ok_or_else(|| WorktreeError::NotAssigned(agent_id.clone()))?
         };
+        let base = detect_base_branch(&path);
+        let range = format!("{base}...HEAD");
         let output = std::process::Command::new("git")
-            .args(["diff", "main...HEAD", "--name-only"])
+            .args(["diff", &range, "--name-only"])
             .current_dir(&path)
             .output()?;
         if !output.status.success() {
@@ -228,6 +233,42 @@ impl WorktreeManager {
             .collect();
         Ok(files)
     }
+}
+
+/// Detect the repo's default/base branch for a diff range.
+///
+/// Prefers the remote's default (`origin/HEAD` → e.g. `main`/`master`/`trunk`),
+/// then a local `main`, then a local `master`, falling back to `main`. This
+/// avoids hard-coding `main`, which silently breaks `master`-default repos.
+fn detect_base_branch(repo_path: &std::path::Path) -> String {
+    let run = |args: &[&str]| -> Option<String> {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(repo_path)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
+    };
+
+    if let Some(head) = run(&["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
+        return head
+            .strip_prefix("origin/")
+            .map_or_else(|| head.clone(), std::string::ToString::to_string);
+    }
+    for candidate in ["main", "master"] {
+        if run(&["rev-parse", "--verify", "--quiet", candidate]).is_some() {
+            return candidate.to_string();
+        }
+    }
+    "main".to_string()
 }
 
 #[cfg(test)]

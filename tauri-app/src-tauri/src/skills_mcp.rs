@@ -382,24 +382,29 @@ pub async fn test_mcp_server(name: String) -> McpTestResult {
                         .map_err(|e| e.to_string())?;
                 }
 
-                // Best-effort: wait up to 3s for any stdout, then kill.
-                let mut buf = [0u8; 4096];
+                // Best-effort: wait up to 3s for any stdout, then kill. The
+                // blocking `read()` has no deadline of its own — a server that
+                // opens the pipe but stays silent (no write, no EOF) would hang
+                // the first `read()` forever, wedging this thread and the whole
+                // command. So read on a side thread bounded by `recv_timeout`,
+                // and kill the child to unblock that thread on timeout.
                 let mut got_bytes = 0usize;
                 if let Some(mut stdout) = child.stdout.take() {
-                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-                    while std::time::Instant::now() < deadline {
-                        match stdout.read(&mut buf) {
-                            Ok(0) => break,
-                            Ok(n) => {
-                                got_bytes = n;
-                                break;
-                            }
-                            Err(_) => break,
-                        }
-                    }
+                    let (tx, rx) = std::sync::mpsc::channel::<usize>();
+                    let reader = std::thread::spawn(move || {
+                        let mut buf = [0u8; 4096];
+                        let _ = tx.send(stdout.read(&mut buf).unwrap_or(0));
+                    });
+                    got_bytes = rx
+                        .recv_timeout(std::time::Duration::from_secs(3))
+                        .unwrap_or(0);
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = reader.join();
+                } else {
+                    let _ = child.kill();
+                    let _ = child.wait();
                 }
-                let _ = child.kill();
-                let _ = child.wait();
                 Ok::<usize, String>(got_bytes)
             })
             .await;
