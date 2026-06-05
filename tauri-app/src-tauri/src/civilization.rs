@@ -984,7 +984,106 @@ fn generate_world(seed: u32, civ_count: u32) -> CivWorld {
         found_colony(&mut world, &mut rng, i as usize, spawn_x);
     }
 
+    // Thread depth-banded ore veins through the substrate. MUST run AFTER the
+    // found_colony loop so it consumes rng strictly after the founders — keeping
+    // the founder draws (and the determinism tests) byte-stable.
+    seed_underground_veins(&mut world.tiles, &col_floor, &col_biome, &mut rng, width);
+
     world
+}
+
+/// Threads short, depth-banded ore veins through the buried substrate: common
+/// stone/clay shallow, ore/sulfur (and coral on reefs) mid, rare glowshards/amber
+/// deep — deeper bands are rarer but richer. Adds NO tiles (only sets resource +
+/// amount on existing substrate), so the tile count is unchanged. Deterministic
+/// given the rng; must run after founders so the founder rng stays unperturbed.
+fn seed_underground_veins(
+    tiles: &mut [CivTile],
+    col_floor: &[u32],
+    col_biome: &[usize],
+    rng: &mut u32,
+    width: u32,
+) {
+    for x in 0..width {
+        let floor = col_floor[x as usize];
+        let biome = &BIOMES[col_biome[x as usize]];
+        // Skip the top 2 substrate rows (reserved for surface belts/larders).
+        let mut y = floor + 2;
+        while y < WORLD_HEIGHT {
+            let idx = (y * width + x) as usize;
+            let d = y - floor;
+            // Rarer with depth: shallow seeds often, deep seldom.
+            let gate = if d < 8 {
+                7
+            } else if d < 18 {
+                11
+            } else {
+                18
+            };
+            if next_rng(rng).is_multiple_of(gate)
+                && idx < tiles.len()
+                && is_substrate(&tiles[idx].terrain)
+                && tiles[idx].resource.is_none()
+            {
+                let (res, base) = vein_for_depth(d, biome, rng);
+                grow_vein(tiles, col_floor, width, (x, y), res, base, rng);
+            }
+            y += 1;
+        }
+    }
+}
+
+/// (resource, base amount) for a vein at depth `d` below the seabed in `biome`.
+/// Deeper bands yield rarer, more valuable minerals in richer deposits.
+fn vein_for_depth(d: u32, biome: &BiomeDef, rng: &mut u32) -> (&'static str, i32) {
+    if d < 8 {
+        let res = if next_rng(rng).is_multiple_of(2) { "stone" } else { "clay" };
+        (res, 6 + (next_rng(rng) % 5) as i32)
+    } else if d < 18 {
+        let pool: &[&str] = if biome.id == "coralreef" {
+            &["ore", "sulfur", "coral"]
+        } else {
+            &["ore", "sulfur"]
+        };
+        let res = pool[(next_rng(rng) as usize) % pool.len()];
+        (res, 10 + (next_rng(rng) % 7) as i32)
+    } else {
+        let res = if next_rng(rng).is_multiple_of(2) { "glowshards" } else { "amber" };
+        (res, 16 + (next_rng(rng) % 13) as i32)
+    }
+}
+
+/// Walks a short (3-6 tile) vein of `res` from (sx, sy) through adjacent buried
+/// substrate, staying at least 2 rows below each column's seabed.
+fn grow_vein(
+    tiles: &mut [CivTile],
+    col_floor: &[u32],
+    width: u32,
+    start: (u32, u32),
+    res: &str,
+    base: i32,
+    rng: &mut u32,
+) {
+    let len = 3 + next_rng(rng) % 4;
+    let (mut x, mut y) = start;
+    for _ in 0..len {
+        let idx = (y * width + x) as usize;
+        if idx < tiles.len() && is_substrate(&tiles[idx].terrain) {
+            tiles[idx].resource = Some(res.to_string());
+            tiles[idx].amount = (base + (next_rng(rng) % 4) as i32 - 1).max(1);
+        }
+        let (nx, ny) = match next_rng(rng) % 4 {
+            0 => (x.saturating_sub(1), y),
+            1 => ((x + 1).min(width.saturating_sub(1)), y),
+            2 => (x, (y + 1).min(WORLD_HEIGHT - 1)),
+            _ => (x, y.saturating_sub(1)),
+        };
+        // Stay buried (>= 2 rows below the neighbour column's seabed).
+        if ny > col_floor[nx as usize] + 1 {
+            x = nx;
+            y = ny;
+        }
+    }
 }
 
 /// Plants one civ's founding colony near `spawn_x`: a starter larder, a pond
@@ -1209,6 +1308,23 @@ fn nearest_resource_tile(
         .filter(|t| t.amount > 0 && t.resource.as_deref() == Some(resource))
         .min_by_key(|t| dist2(t.x, t.y, cx, cy))
         .map(|t| (t.x, t.y.saturating_sub(1)))
+}
+
+/// Like `nearest_resource_tile` but returns the resource tile's own coordinates
+/// (not the swim-target one row above), so mining can find and mutate the block.
+fn nearest_resource_pos(
+    snapshot: &CivSessionSnapshot,
+    civ_id: &str,
+    resource: &str,
+) -> Option<(u32, u32)> {
+    let (cx, cy) = colony_center(snapshot, civ_id);
+    snapshot
+        .world
+        .tiles
+        .iter()
+        .filter(|t| t.amount > 0 && t.resource.as_deref() == Some(resource))
+        .min_by_key(|t| dist2(t.x, t.y, cx, cy))
+        .map(|t| (t.x, t.y))
 }
 
 /// Clears `civ_id`'s axolotls' per-turn activity so the next turn starts fresh.
@@ -1491,30 +1607,72 @@ fn gather(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionA
         .workers
         .unwrap_or(1)
         .clamp(1, snapshot.civs[ci].population.max(1));
-    let mut amount = (workers as i32) * 3;
+    let mut rate = (workers as i32) * 3;
     if has_modifier(snapshot, "abundant_moss") && matches!(resource, "food" | "fiber") {
-        amount += workers as i32;
+        rate += workers as i32;
     }
     if has_modifier(snapshot, "drought") && resource == "clean_water" {
-        amount = (amount / 2).max(1);
+        rate = (rate / 2).max(1);
     }
     if resource == "tools" || resource == "glowshards" {
-        amount = (amount / 2).max(1);
+        rate = (rate / 2).max(1);
     }
     // Send the gatherers to swim toward the matching resource and work it.
     let tile_resource = if resource == "food" { "moss" } else { resource };
     let target = nearest_resource_tile(snapshot, civ_id, tile_resource);
     assign_activity(snapshot, civ_id, workers as usize, "gather", target);
-    *snapshot.civs[ci]
-        .resources
-        .entry(resource.to_string())
-        .or_insert(0) += amount;
+
+    // Finite minerals are MINED from a block: yield is capped by what the block
+    // holds, the block depletes, and an emptied block floods to water (terraform).
+    // Renewables keep their flat yield so colonies never hard-stall on local scarcity.
+    let mined;
+    let mut dug_out = false;
+    if is_finite_mineral(resource) {
+        let pos = nearest_resource_pos(snapshot, civ_id, tile_resource);
+        if let Some((tx, ty)) = pos {
+            if let Some(tile) = snapshot
+                .world
+                .tiles
+                .iter_mut()
+                .find(|t| t.x == tx && t.y == ty)
+            {
+                mined = rate.min(tile.amount.max(0));
+                tile.amount = (tile.amount - mined).max(0);
+                if tile.amount == 0 {
+                    tile.resource = None;
+                    tile.terrain = if tile.y >= DEEP_WATER_Y { "deepwater" } else { "water" }.to_string();
+                    dug_out = true;
+                }
+            } else {
+                mined = 0;
+            }
+        } else {
+            mined = 0;
+        }
+    } else {
+        mined = rate;
+    }
+
+    if mined > 0 {
+        *snapshot.civs[ci]
+            .resources
+            .entry(resource.to_string())
+            .or_insert(0) += mined;
+    }
     push_log(
         snapshot,
         "action",
         "Gathered resources",
-        &format!("{workers} workers gathered {amount} {resource}."),
+        &format!("{workers} workers gathered {mined} {resource}."),
     );
+    if dug_out {
+        push_log(
+            snapshot,
+            "terraform",
+            "A block was dug out",
+            &format!("Mining exhausted a {resource} block; water rushed in to fill the void."),
+        );
+    }
 }
 
 fn build(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionAction) {
@@ -2248,6 +2406,15 @@ fn has_modifier(snapshot: &CivSessionSnapshot, kind: &str) -> bool {
     snapshot.modifiers.iter().any(|modifier| modifier.kind == kind)
 }
 
+/// Minerals mined from finite blocks: the block depletes and floods to water when
+/// emptied. Renewables (food/water/wood/fiber/kelp/herbs) keep a flat yield.
+fn is_finite_mineral(resource: &str) -> bool {
+    matches!(
+        resource,
+        "stone" | "clay" | "ore" | "sulfur" | "coral" | "glowshards" | "amber" | "ice"
+    )
+}
+
 fn known_resource(resource: &str) -> bool {
     matches!(
         resource,
@@ -2705,6 +2872,11 @@ mod tests {
             serde_json::to_string(&a.tiles).unwrap(),
             serde_json::to_string(&b.tiles).unwrap()
         );
+        assert_eq!(
+            serde_json::to_string(&a.entities).unwrap(),
+            serde_json::to_string(&b.entities).unwrap(),
+            "founders must be byte-identical (the ore-vein pass must not perturb founder rng)"
+        );
         assert!(a.entities.iter().any(|entity| entity.kind == "axolotl"));
     }
 
@@ -3052,5 +3224,111 @@ mod tests {
         // With no eggs left, a population-0 colony truly collapses.
         s.world.entities.retain(|e| e.kind != "egg");
         assert!(should_collapse(&s, &cid));
+    }
+
+    fn gather_action(resource: &str, workers: u32) -> CivDecisionAction {
+        CivDecisionAction {
+            action_type: "gather".to_string(),
+            resource: Some(resource.to_string()),
+            workers: Some(workers),
+            building: None,
+            x: None,
+            y: None,
+            tech_id: None,
+            direction: None,
+            policy: None,
+            event_id: None,
+        }
+    }
+
+    #[test]
+    fn world_has_depth_banded_veins() {
+        // Bucket every resourced substrate tile by depth below its column's seabed:
+        // deep veins should be fewer but richer than shallow ones.
+        let w = generate_world(2024, 1);
+        let mut shallow = (0u32, 0i64); // (count, sum amount) for depth 2..8
+        let mut deep = (0u32, 0i64); //   (count, sum amount) for depth >= 18
+        for t in &w.tiles {
+            if t.resource.is_none() || !is_substrate(&t.terrain) {
+                continue;
+            }
+            let floor = seabed_row_at(&w, t.x);
+            if t.y <= floor {
+                continue;
+            }
+            let d = t.y - floor;
+            if (2..8).contains(&d) {
+                shallow.0 += 1;
+                shallow.1 += i64::from(t.amount);
+            } else if d >= 18 {
+                deep.0 += 1;
+                deep.1 += i64::from(t.amount);
+            }
+        }
+        assert!(shallow.0 > 0, "expected shallow veins");
+        assert!(deep.0 > 0, "expected deep veins");
+        assert!(deep.0 < shallow.0, "deep veins should be rarer than shallow");
+        let shallow_mean = shallow.1 as f64 / f64::from(shallow.0);
+        let deep_mean = deep.1 as f64 / f64::from(deep.0);
+        assert!(
+            deep_mean > shallow_mean,
+            "deep veins should be richer (deep mean {deep_mean} vs shallow {shallow_mean})"
+        );
+    }
+
+    #[test]
+    fn mining_caps_yield_and_floods_emptied_block() {
+        let mut s = initial_snapshot("mine".to_string(), "M".to_string(), "m".to_string(), 5, 1);
+        let cid = first_civ_id(&s);
+        let (cx, _) = colony_center(&s, &cid);
+        // Leave exactly one ore block (5 units) on the colony's seabed; clear the
+        // rest so it is unambiguously the nearest.
+        for t in s.world.tiles.iter_mut() {
+            if t.resource.as_deref() == Some("ore") {
+                t.resource = None;
+                t.amount = 0;
+            }
+        }
+        let ty = seabed_row_at(&s.world, cx);
+        {
+            let tile = s
+                .world
+                .tiles
+                .iter_mut()
+                .find(|t| t.x == cx && t.y == ty)
+                .expect("a seabed tile at the colony");
+            tile.resource = Some("ore".to_string());
+            tile.amount = 5;
+        }
+        let before = *s.civs[0].resources.get("ore").unwrap_or(&0);
+        // 8 workers would gather 24, but the block only holds 5.
+        gather(&mut s, &cid, &gather_action("ore", 8));
+        let after = *s.civs[0].resources.get("ore").unwrap_or(&0);
+        assert_eq!(after - before, 5, "yield is capped by the block's amount");
+        let tile = s.world.tiles.iter().find(|t| t.x == cx && t.y == ty).unwrap();
+        assert_eq!(tile.amount, 0);
+        assert!(tile.resource.is_none(), "an emptied block clears its resource");
+        assert!(
+            tile.terrain == "water" || tile.terrain == "deepwater",
+            "an emptied block floods to water, got {}",
+            tile.terrain
+        );
+    }
+
+    #[test]
+    fn renewable_gather_is_not_block_limited() {
+        let mut s = initial_snapshot("ren".to_string(), "R".to_string(), "m".to_string(), 5, 1);
+        let cid = first_civ_id(&s);
+        // No moss tiles anywhere: food (a renewable) must still yield its flat rate.
+        for t in s.world.tiles.iter_mut() {
+            if t.resource.as_deref() == Some("moss") {
+                t.resource = None;
+                t.amount = 0;
+            }
+        }
+        let before = *s.civs[0].resources.get("food").unwrap_or(&0);
+        gather(&mut s, &cid, &gather_action("food", 8));
+        let after = *s.civs[0].resources.get("food").unwrap_or(&0);
+        assert_eq!(after - before, 24, "renewables keep a flat yield even with no block");
     }
 }
