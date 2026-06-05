@@ -1,8 +1,54 @@
 # Xolotl Civilization Lab → Living Multi-Civ World
 
 > Spec-of-record for the `feat/civ-multi-civ-world` effort. Lands as **one PR**, sequenced
-> into dependency-ordered workstreams (W1–W9) so it can be built bottom-up and kept testable.
-> Progress is tracked in the session task list; each workstream is committed atomically.
+> into dependency-ordered workstreams (W1–W9, plus W10 world refinement) so it can be built
+> bottom-up and kept testable. Progress is tracked in the session task list; each workstream
+> is committed atomically.
+
+---
+
+## Status — updated 2026-06-05
+
+Branch `feat/civ-multi-civ-world` (off `main` `f9a19ca`). Not pushed yet — this is the eventual single PR.
+
+### Achieved
+- **W1 — multi-civ data model** ✅ (commits `21faf8d`, `9d3e360`). Snapshot is now `civs: Vec<CivCivilization>`
+  (id/model/color/spawn/home-region/alive/diplomacy) + `version` (schema v2) + `environment`; every entity
+  carries a `civ_id`; `CivRegion.owner` is claimed at spawn; all colony helpers + the turn loop are civ-scoped;
+  modifier countdown ticks once per turn (`tick_modifiers`); collapse is gated by `should_collapse` (no
+  axolotls **and** no pending eggs); legacy v1→v2 saves migrate on load. Adversarial review: 8 findings, 2 fixed.
+- **W2 — world generation at scale** ✅ (commits `b18a7f8`, `392d054`). Height 96; `world_width(civ_count)`
+  scales the continent; 14 biomes (6 new) with 6 new terrains + 7 new resources; multi-spawn founds one colony
+  per civ in a distinct livable region via the shared `found_colony` (reused by W9 add-civ). Adversarial review:
+  6 findings, 2 fixed (centered single-civ spawn; >8-civ spread).
+
+### Constraints learned (carry forward)
+- **Backend tests don't run on Windows** (WebView2 loader). Verify with `cargo build` + `cargo clippy
+  --all-features` + `cargo test --no-run`; real test execution is Linux/macOS only.
+- **`tauri-app` CI is frontend-only** (vitest + vite build) — no Rust gate on `src-tauri`. So per-workstream
+  **adversarial-review + compile** is the real safety net. Bar: **add zero new clippy warnings** (the crate has
+  ~15 pre-existing; `civilization.rs:522` `sort_by_key` is pre-existing).
+- The snapshot crosses IPC as a **serialized String**, so backend struct changes need **no `bindings.ts` regen**
+  until W9 (mind the drift trap then).
+- **Cadence per workstream:** implement → build/clippy/test-compile → adversarial-review workflow → fix → atomic
+  commit (Claude trailer). Don't push without authorization.
+
+### W1 deviations to respect (so later workstreams don't duplicate)
+- `build_observation` already includes a `rivals` summary + `season`/`temperature`/`forecast` (pulled forward
+  from W3/W4). `CivEnvironment`/`CivDisaster` structs already exist (calm defaults) — W4 adds the **behavior**.
+- `CivParticipant` and `lib.rs` `.typ` registration are **deferred to W9** (where `create_civ_session` uses them)
+  to avoid dead-code; W1/W2 are pure `civilization.rs`.
+
+### Missing / remaining
+- **W3** turn-loop refactor (next) · **W4** environment engine · **W5** genetics depth · **W6** combat + diplomacy
+  · **W7** assets (Python) · **W8** renderer · **W9** UI + commands + bindings.
+- **W10 — World refinement (Minecraft-style)** ← NEW (see section below). Extends W2; being started now.
+
+### Next steps
+1. **W10 first slice** (in progress) — make world-building more Minecraft-like (mineable blocks, procedural
+   noise terrain, ore strata by depth, caves, mining-as-terraforming). See the W10 section.
+2. Then resume the W3→W9 critical path. W10 feeds W4 (disasters reshape blocks), W6 (fortify places blocks),
+   and W8 (renderer must draw mineable blocks/caves).
 
 ## Context
 
@@ -339,6 +385,80 @@ Run `npm run tauri dev` once to **regenerate `bindings.ts`** (gotcha #1), then u
     diplomacy stances, owned regions.
   - **Environment HUD**: season, temperature, water level, active disasters + the forecast.
   - Observer tools: trigger the new disasters; grant/buff scoped to the selected civ.
+
+---
+
+## W10 — World refinement (Minecraft-style)
+
+**Added 2026-06-05.** Extends W2 to make world-building resemble Minecraft. **Vision:** the Xolotl world
+becomes a Minecraft-like aquatic *block* world — a thick, fully-**mineable** substrate threaded with
+**depth-banded ore veins** (common stone/clay shallow → ore/sulfur mid → rare glowshards/amber/crystal deep),
+where **`gather()` actually digs**: it depletes tiles, carves voids that flood, and makes resources finite.
+On that foundation come tool-tier gating, block placement/terraform, organic noise terrain, and caves. Play
+**physically and permanently reshapes the seabed**, creating the scarcity that drives the W3–W6 competition.
+
+**Cross-cutting:** extends W2 (world gen); feeds **W4** (disasters reshape blocks), **W6** (fortify/build place
+blocks — coordinate W10.4 with W6 to avoid duplication), and **W8** (renderer must redraw tiles whose terrain
+flips mid-run, and draw sub-floor voids). Backend-only in `civilization.rs` until W8/W9.
+
+Sub-features in dependency order (build incrementally; each its own commit + adversarial review):
+
+1. **W10.1 — Mining-as-terraform + depth-banded ore veins** `[high/M]` (no deps) — **FIRST SLICE, in progress.**
+   The foundational pair every other feature needs; veins and depletion **ship together** (veins without
+   depletion are decoration; depletion without veins starves colonies once surface belts run dry).
+   - `seed_underground_veins(tiles, &col_floor, &col_biome, &mut rng, width)` called in `generate_world`
+     **after the `found_colony` loop** so it consumes rng strictly *after* founders — preserving the rng
+     sequence the determinism tests lock in (PRIMARY risk if violated).
+   - Seed **short** (3–6 tile) veins into existing substrate (`is_substrate` gate only — **no tiles added**,
+     count stays `width*96`), keyed by depth `d = y - col_floor[x]`: shallow `2..8` → stone/clay (6–10);
+     mid `8..18` → ore/sulfur/coral (plausible-by-biome) (10–16); deep `>=18` → glowshards/amber/crystal
+     (16–28, **fewer + richer** so deeper = rarer). Sparse (rng-gated ~1 per 8–10 buried tiles) to bound the
+     IPC JSON.
+   - Rewrite `gather()`: `mined = min(workers*rate(+modifiers), tile.amount)`, add **mined** (not flat
+     `workers*3`) to the pool. For finite minerals, find the exact tile, decrement `amount`; when `<=0`, clear
+     `resource` and flip terrain to `deepwater` (`y>=DEEP_WATER_Y`) else `water` — a flooded dug-out void.
+     Keep a small **base-yield fallback** for renewables (food→moss, clean_water) so colonies never hard-stall
+     on pathing (collapse stays environment-driven).
+   - Add `nearest_resource_pos(snapshot, civ_id, resource) -> Option<(u32,u32)>` (the tile itself; mirror of
+     `nearest_resource_tile`, which returns the swim-target one row above and stays read-only for the anim).
+   - `is_finite_mineral(resource)` helper gates deplete-vs-fallback. Log the actual mined amount + a distinct
+     "a block was dug out" entry on flood. **Do NOT** touch `validate_action`/prompt/new action types — pure
+     economics + world-mutation on the existing `gather` verb.
+   - Tests: `mining_depletes_tile_and_flips_to_water`, `gather_yield_capped_by_tile_amount`,
+     `renewable_base_yield_when_no_tile`, `deep_veins_are_rarer_and_richer`, and **extend**
+     `world_generation_is_deterministic_by_seed` to assert founder entities are byte-identical (proves the vein
+     pass didn't perturb the founder rng). Keep `world_scales_and_spawns_are_disjoint_per_civ` green.
+
+2. **W10.2 — Block hardness + tool/tech gating** `[high/S]` (deps W10.1) — `block_hardness(terrain)` tiers +
+   `mining_tier(civ)` from techs; add a `metal_tools` tech; `gather()` refuses too-hard blocks with a "need
+   better tools" log + small morale ding, gating deep veins behind the tree. Touches `known_tech`/`tech_cost`/
+   `validate_action`/prompt **in lockstep**; verify the `stone_tools→ore→metal_tools→crystal` chain is acyclic.
+
+3. **W10.3 — Block placement / terraform action** `[medium/S]` (deps W10.1) — new `terraform` action: spend
+   stone/clay to flip a water tile (adjacent to owned/substrate only — anti-grief adjacency rule) into
+   substrate, or raise a wall column. The constructive inverse of mining. New `action_type` across
+   `validate_action`+dispatch+prompt (lockstep), reusing `CivDecisionAction`'s `resource/x/y`.
+
+4. **W10.4 — Multi-tile structure blueprints** `[medium/M]` (deps W10.3; **overlaps W6 fortify**) — promote
+   entity-only `build` into real block runs (wall = vertical stone run, bridge = horizontal sandstone, canal =
+   carved channel) via a `place_block` primitive; keep the building entity as the HP/targeting anchor for W6.
+   Coordinate with W6 so this is the physical implementation W6 fortify hooks into, not a duplicate.
+
+5. **W10.5 — Prospecting (`explore down`) + `strata_report`** `[medium/M]` (deps W10.1) — rework `explore`
+   "down" to prospect the seeded strata (report richest deep vein + depth) instead of dropping a fresh shallow
+   patch; add a bounded per-region `strata_report` (top-N by depth band) **folded into `build_observation`'s
+   existing tile pass** (no extra O(49k) loop per civ/turn).
+
+6. **W10.6 — Value-noise (fBm) organic terrain** `[medium/S]` (no deps, orthogonal) — swap `seabed_ripple`'s
+   pure sine for deterministic 1D fBm (3–4 octaves of hashed lattice + smoothstep) with per-biome amplitude/
+   roughness on `BiomeDef`, keeping the `floor_y_at` clamp. Re-baseline the determinism golden. Cross-platform
+   f32-determinism caveat (CI serializes tiles on Linux/Windows/macOS) — keep off the critical mining path.
+
+7. **W10.7 — Carved caves & water pockets** `[low/M]` (deps W10.1; **LAST, highest risk**) — carve
+   deterministic 2D-noise voids into the substrate **below a mandatory `CAVE_CAP` of solid rows under
+   `col_floor`**, biasing veins to cave walls. `seabed_row_at` is load-bearing (buildings/founding/resource
+   snapping/interventions), so the cap is mandatory and locked by `caves_never_breach_the_seabed_cap`. Land
+   after W8 can draw sub-floor voids.
 
 ---
 
