@@ -280,6 +280,47 @@ export type CivEntity = {
 	health: number | null,
 	mood: number | null,
 	role: string,
+	/**  Expressed colour morph (e.g. "leucistic"). Empty for non-axolotls. */
+	morph?: string,
+	/**  Life stage: "egg" | "hatchling" | "juvenile" | "adult" | "elder". */
+	stage?: string,
+	/**  "f" | "m" | "" (eggs/buildings). */
+	sex?: string,
+	/**  Turns alive since hatching. */
+	age?: number,
+	/**  Display scale multiplier derived from stage + genetics. */
+	size?: number | null,
+	/**  Equipped accessory ids. */
+	accessories?: string[],
+	/**  Heritable traits (axolotls + eggs). */
+	genes?: CivGenes | null,
+	/**  Remaining turns until an egg hatches. */
+	hatches_in?: number | null,
+	/**  Parent ids (eggs + offspring). */
+	parents?: string[],
+	/**
+	 *  What this entity is doing this turn — drives the renderer's action
+	 *  animation. Emitted values: "" (ambient swim) | "gather" | "build" |
+	 *  "explore" | "play" | "rest" | "egg". The renderer also handles "eat" if a
+	 *  future turn emits it.
+	 */
+	activity?: string,
+	/**  Optional tile the entity swims toward while performing its activity. */
+	target_x?: number | null,
+	target_y?: number | null,
+};
+
+/**
+ *  Heritable traits. `allele_a`/`allele_b` are the two carried colour alleles;
+ *  the expressed morph is the dominant of the two.
+ */
+export type CivGenes = {
+	allele_a: string,
+	allele_b: string,
+	size_gene: number | null,
+	fertility: number | null,
+	longevity: number | null,
+	vigor: number | null,
 };
 
 export type CivIntervention = {
@@ -290,6 +331,8 @@ export type CivIntervention = {
 	y?: number | null,
 	duration?: number | null,
 	intensity?: number | null,
+	entity_id?: string | null,
+	accessory?: string | null,
 };
 
 export type CivLogEntry = {
@@ -315,6 +358,18 @@ export type CivModifier = {
 	polarity: string,
 	remaining_turns: number,
 	intensity: number | null,
+};
+
+export type CivRegion = {
+	id: string,
+	name: string,
+	biome: string,
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+	/**  Reserved for future competing civilizations. None = unclaimed. */
+	owner?: string | null,
 };
 
 export type CivScore = {
@@ -360,6 +415,11 @@ export type CivTile = {
 	terrain: string,
 	resource?: string | null,
 	amount: number,
+	/**
+	 *  Biome region this tile belongs to (empty for air/surface). Lets the
+	 *  renderer colour-grade water and substrate per region.
+	 */
+	biome?: string,
 };
 
 export type CivWorld = {
@@ -367,6 +427,11 @@ export type CivWorld = {
 	height: number,
 	tiles: CivTile[],
 	entities: CivEntity[],
+	/**
+	 *  Named biome regions painted across the seabed. `owner` is reserved for a
+	 *  future multi-civilization mode; today every region is unclaimed (None).
+	 */
+	regions?: CivRegion[],
 };
 
 /**  A child entry inside a browsed directory. */

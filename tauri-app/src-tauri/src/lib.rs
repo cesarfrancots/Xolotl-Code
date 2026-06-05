@@ -20,9 +20,9 @@ use crate::commands::{
 };
 use crate::civilization::{
     advance_civ_turn, apply_civ_intervention, create_civ_session, delete_civ_session,
-    list_civ_sessions, load_civ_session, CivCivilization, CivDecisionAction, CivEntity,
-    CivIntervention, CivLogEntry, CivModelDecision, CivModifier, CivScore, CivSessionConfig,
-    CivSessionMeta, CivSessionSnapshot, CivTile, CivWorld,
+    list_civ_sessions, load_civ_session, CivCivilization, CivDecisionAction, CivEntity, CivGenes,
+    CivIntervention, CivLogEntry, CivModelDecision, CivModifier, CivRegion, CivScore,
+    CivSessionConfig, CivSessionMeta, CivSessionSnapshot, CivTile, CivWorld,
 };
 use crate::permission_prompter::{PendingPrompts, PermissionDecision};
 use crate::skills_mcp::{
@@ -155,8 +155,10 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<CivSessionMeta>()
         .typ::<CivSessionSnapshot>()
         .typ::<CivWorld>()
+        .typ::<CivRegion>()
         .typ::<CivTile>()
         .typ::<CivEntity>()
+        .typ::<CivGenes>()
         .typ::<CivCivilization>()
         .typ::<CivScore>()
         .typ::<CivModifier>()

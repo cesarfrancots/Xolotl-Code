@@ -6,9 +6,100 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
 
-const WORLD_WIDTH: u32 = 64;
-const WORLD_HEIGHT: u32 = 36;
+// A large procedural aquatic continent. Axolotls swim a deep water column above a
+// seabed that rises and falls across distinct biome regions. The world is much
+// wider/taller than the viewport — the renderer pans/zooms a camera over it.
+const WORLD_WIDTH: u32 = 128;
+const WORLD_HEIGHT: u32 = 72;
 const INITIAL_POPULATION: u32 = 8;
+
+// Thin sky/surface band at the very top; the rest is water down to the seabed.
+const WATER_SURFACE_Y: u32 = 6;
+// Base seabed row. Each biome region offsets the floor up/down around this, and a
+// gentle per-column ripple gives the seabed a natural silhouette.
+const WATER_FLOOR_Y: u32 = 50;
+// Rows below this in the water column read as "deep" (darker, deepwater tiles).
+const DEEP_WATER_Y: u32 = 34;
+
+const EGG_HATCH_TURNS: u32 = 3;
+const ELDER_BASE_AGE: f32 = 22.0;
+
+// Colour genetics. Order matches the sprite-sheet variant order on the frontend.
+const MORPHS: [&str; 12] = [
+    "leucistic", "wild", "melanoid", "gold", "axanthic", "blue", "copper", "gfp", "albino",
+    "piebald", "firefly", "mystic",
+];
+// Morphs that show up in the founding colony / as common recessive alleles.
+const COMMON_MORPHS: [&str; 6] = ["leucistic", "wild", "gold", "axanthic", "copper", "albino"];
+// Rare morphs only reachable through mutation.
+const RARE_MORPHS: [&str; 3] = ["gfp", "firefly", "mystic"];
+// Equippable accessory ids (match `public/civ/accessories/acc-<id>.png`).
+const ACCESSORIES: [&str; 12] = [
+    "flowercrown", "strawhat", "leafhat", "scarf", "glasses", "wizardhat", "crown", "snorkel",
+    "bow", "headphones", "chefhat", "piratehat",
+];
+
+/// Aquatic biome regions painted left-to-right across the seabed.
+/// `floor_offset` raises (negative) or lowers (positive) the seabed relative to
+/// `WATER_FLOOR_Y`; `deep` darkens the water column to deepwater; `top`/`mid`/
+/// `deep` terrains pick substrate tiles by depth below the seabed; `resources`
+/// are the gatherable patches seeded along this region's floor.
+struct BiomeDef {
+    id: &'static str,
+    name: &'static str,
+    floor_offset: i32,
+    deep: bool,
+    top_terrain: &'static str,
+    mid_terrain: &'static str,
+    deep_terrain: &'static str,
+    resources: &'static [&'static str],
+}
+
+const BIOMES: [BiomeDef; 8] = [
+    BiomeDef {
+        id: "shallows", name: "Sunlit Shallows", floor_offset: -10, deep: false,
+        top_terrain: "sand", mid_terrain: "sand", deep_terrain: "earth",
+        resources: &["moss", "fiber"],
+    },
+    BiomeDef {
+        id: "reedmarsh", name: "Reed Marsh", floor_offset: -4, deep: false,
+        top_terrain: "moss", mid_terrain: "mud", deep_terrain: "earth",
+        resources: &["moss", "wood", "fiber"],
+    },
+    BiomeDef {
+        id: "mudflats", name: "Mud Flats", floor_offset: 0, deep: false,
+        top_terrain: "mud", mid_terrain: "earth", deep_terrain: "stone",
+        resources: &["clay", "clay", "fiber"],
+    },
+    BiomeDef {
+        id: "kelpforest", name: "Kelp Forest", floor_offset: -6, deep: false,
+        top_terrain: "moss", mid_terrain: "moss", deep_terrain: "earth",
+        resources: &["wood", "fiber", "moss"],
+    },
+    BiomeDef {
+        id: "openwater", name: "Open Water", floor_offset: 4, deep: false,
+        top_terrain: "sand", mid_terrain: "earth", deep_terrain: "stone",
+        resources: &["stone"],
+    },
+    BiomeDef {
+        id: "deeptrench", name: "Deep Trench", floor_offset: 16, deep: true,
+        top_terrain: "stone", mid_terrain: "stone", deep_terrain: "stone",
+        resources: &["glowshards", "stone"],
+    },
+    BiomeDef {
+        id: "crystalcave", name: "Crystal Caverns", floor_offset: 8, deep: true,
+        top_terrain: "crystal", mid_terrain: "stone", deep_terrain: "crystal",
+        resources: &["glowshards", "glowshards", "stone"],
+    },
+    BiomeDef {
+        id: "thermalvent", name: "Thermal Vents", floor_offset: 10, deep: true,
+        top_terrain: "stone", mid_terrain: "earth", deep_terrain: "stone",
+        resources: &["stone", "glowshards", "clay"],
+    },
+];
+
+// Index of the home biome (Reed Marsh) the founding colony settles in.
+const HOME_BIOME: usize = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct CivSessionConfig {
@@ -50,6 +141,24 @@ pub struct CivWorld {
     pub height: u32,
     pub tiles: Vec<CivTile>,
     pub entities: Vec<CivEntity>,
+    /// Named biome regions painted across the seabed. `owner` is reserved for a
+    /// future multi-civilization mode; today every region is unclaimed (None).
+    #[serde(default)]
+    pub regions: Vec<CivRegion>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct CivRegion {
+    pub id: String,
+    pub name: String,
+    pub biome: String,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    /// Reserved for future competing civilizations. None = unclaimed.
+    #[serde(default)]
+    pub owner: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -60,9 +169,13 @@ pub struct CivTile {
     #[serde(default)]
     pub resource: Option<String>,
     pub amount: i32,
+    /// Biome region this tile belongs to (empty for air/surface). Lets the
+    /// renderer colour-grade water and substrate per region.
+    #[serde(default)]
+    pub biome: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 pub struct CivEntity {
     pub id: String,
     pub kind: String,
@@ -72,6 +185,60 @@ pub struct CivEntity {
     pub health: f32,
     pub mood: f32,
     pub role: String,
+    /// Expressed colour morph (e.g. "leucistic"). Empty for non-axolotls.
+    #[serde(default)]
+    pub morph: String,
+    /// Life stage: "egg" | "hatchling" | "juvenile" | "adult" | "elder".
+    #[serde(default)]
+    pub stage: String,
+    /// "f" | "m" | "" (eggs/buildings).
+    #[serde(default)]
+    pub sex: String,
+    /// Turns alive since hatching.
+    #[serde(default)]
+    pub age: u32,
+    /// Display scale multiplier derived from stage + genetics.
+    #[serde(default = "default_size")]
+    pub size: f32,
+    /// Equipped accessory ids.
+    #[serde(default)]
+    pub accessories: Vec<String>,
+    /// Heritable traits (axolotls + eggs).
+    #[serde(default)]
+    pub genes: Option<CivGenes>,
+    /// Remaining turns until an egg hatches.
+    #[serde(default)]
+    pub hatches_in: Option<u32>,
+    /// Parent ids (eggs + offspring).
+    #[serde(default)]
+    pub parents: Vec<String>,
+    /// What this entity is doing this turn — drives the renderer's action
+    /// animation. Emitted values: "" (ambient swim) | "gather" | "build" |
+    /// "explore" | "play" | "rest" | "egg". The renderer also handles "eat" if a
+    /// future turn emits it.
+    #[serde(default)]
+    pub activity: String,
+    /// Optional tile the entity swims toward while performing its activity.
+    #[serde(default)]
+    pub target_x: Option<u32>,
+    #[serde(default)]
+    pub target_y: Option<u32>,
+}
+
+fn default_size() -> f32 {
+    1.0
+}
+
+/// Heritable traits. `allele_a`/`allele_b` are the two carried colour alleles;
+/// the expressed morph is the dominant of the two.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct CivGenes {
+    pub allele_a: String,
+    pub allele_b: String,
+    pub size_gene: f32,
+    pub fertility: f32,
+    pub longevity: f32,
+    pub vigor: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -127,6 +294,10 @@ pub struct CivIntervention {
     pub duration: Option<u32>,
     #[serde(default)]
     pub intensity: Option<f32>,
+    #[serde(default)]
+    pub entity_id: Option<String>,
+    #[serde(default)]
+    pub accessory: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -299,6 +470,7 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
                             "The model did not return the required decision JSON after repair. First error: {first_error}. Second error: {second_error}."
                         ),
                     );
+                    reset_activities(&mut snapshot);
                     resolve_environment(&mut snapshot);
                     snapshot.updated_at = unix_timestamp_secs();
                     snapshot.civilization.score = score_civilization(&snapshot);
@@ -441,21 +613,91 @@ fn initial_snapshot(
     snapshot
 }
 
+/// Lay biome regions out left-to-right. Returns `(biome_index, start_x, width)`
+/// per region, with the home biome roughly centred and the rest seed-shuffled so
+/// each continent differs. Widths always tile `WORLD_WIDTH` exactly, each >= 8.
+fn biome_layout(seed: u32) -> Vec<(usize, u32, u32)> {
+    let mut rng = (seed ^ 0x5EAB_ED01).max(1);
+    let mut others: Vec<usize> = (0..BIOMES.len()).filter(|&i| i != HOME_BIOME).collect();
+    for i in (1..others.len()).rev() {
+        let j = (next_rng(&mut rng) as usize) % (i + 1);
+        others.swap(i, j);
+    }
+    let half = others.len() / 2;
+    let mut seq: Vec<usize> = Vec::with_capacity(BIOMES.len());
+    seq.extend_from_slice(&others[..half]);
+    seq.push(HOME_BIOME);
+    seq.extend_from_slice(&others[half..]);
+
+    let n = seq.len();
+    let mut bounds: Vec<u32> = (0..=n).map(|k| (WORLD_WIDTH as usize * k / n) as u32).collect();
+    for k in 1..n {
+        let lo = bounds[k - 1] + 8;
+        let hi = bounds[k + 1].saturating_sub(8);
+        if hi > lo {
+            let jitter = (next_rng(&mut rng) % 9) as i32 - 4;
+            bounds[k] = (bounds[k] as i32 + jitter).clamp(lo as i32, hi as i32) as u32;
+        }
+    }
+    seq.iter()
+        .enumerate()
+        .map(|(k, &bi)| (bi, bounds[k], bounds[k + 1] - bounds[k]))
+        .collect()
+}
+
+/// Organic seabed ripple for column `x` (small integer offset).
+fn seabed_ripple(x: u32, seed: u32) -> i32 {
+    let xf = x as f32;
+    let phase = (seed % 360) as f32 * 0.017_453;
+    let v = (xf * 0.16 + phase).sin() * 2.6 + (xf * 0.06).sin() * 1.6;
+    v.round() as i32
+}
+
+fn floor_y_at(x: u32, biome: usize, seed: u32) -> u32 {
+    let base = WATER_FLOOR_Y as i32 + BIOMES[biome].floor_offset + seabed_ripple(x, seed);
+    base.clamp((WATER_SURFACE_Y + 16) as i32, (WORLD_HEIGHT - 4) as i32) as u32
+}
+
 fn generate_world(seed: u32) -> CivWorld {
     let mut rng = seed.max(1);
+    let layout = biome_layout(seed);
+
+    let mut col_biome = vec![HOME_BIOME; WORLD_WIDTH as usize];
+    for &(bi, sx, w) in &layout {
+        for x in sx..(sx + w).min(WORLD_WIDTH) {
+            col_biome[x as usize] = bi;
+        }
+    }
+    let col_floor: Vec<u32> = (0..WORLD_WIDTH)
+        .map(|x| floor_y_at(x, col_biome[x as usize], seed))
+        .collect();
+
     let mut tiles = Vec::with_capacity((WORLD_WIDTH * WORLD_HEIGHT) as usize);
     for y in 0..WORLD_HEIGHT {
         for x in 0..WORLD_WIDTH {
-            let terrain = if y < 23 {
-                "air"
-            } else if (26..=33).contains(&x) && (23..=26).contains(&y) {
-                "water"
-            } else if y < 27 {
-                "mud"
-            } else if y < 32 {
-                "earth"
+            let bi = col_biome[x as usize];
+            let biome = &BIOMES[bi];
+            let floor = col_floor[x as usize];
+            let (terrain, tag) = if y < WATER_SURFACE_Y {
+                ("air", "")
+            } else if y < floor {
+                let deep_zone = biome.deep && y >= WATER_SURFACE_Y + (floor - WATER_SURFACE_Y) / 3;
+                let near_floor = y + 5 >= floor;
+                if y >= DEEP_WATER_Y && (deep_zone || near_floor) {
+                    ("deepwater", biome.id)
+                } else {
+                    ("water", biome.id)
+                }
             } else {
-                "stone"
+                let d = y - floor;
+                let t = if d < 2 {
+                    biome.top_terrain
+                } else if d < 6 {
+                    biome.mid_terrain
+                } else {
+                    biome.deep_terrain
+                };
+                (t, biome.id)
             };
             tiles.push(CivTile {
                 x,
@@ -463,55 +705,207 @@ fn generate_world(seed: u32) -> CivWorld {
                 terrain: terrain.to_string(),
                 resource: None,
                 amount: 0,
+                biome: tag.to_string(),
             });
         }
     }
 
-    place_resource_patch(&mut tiles, "moss", 12, 18, 23, 3, 2);
-    place_resource_patch(&mut tiles, "wood", 8, 40, 24, 3, 3);
-    place_resource_patch(&mut tiles, "clay", 10, 22, 28, 4, 2);
-    place_resource_patch(&mut tiles, "stone", 18, 45, 31, 5, 2);
-    for _ in 0..7 {
-        let x = 6 + (next_rng(&mut rng) % 52);
-        let y = 24 + (next_rng(&mut rng) % 8);
-        let resource = match next_rng(&mut rng) % 4 {
-            0 => "fiber",
-            1 => "moss",
-            2 => "stone",
-            _ => "clay",
-        };
-        place_resource_patch(&mut tiles, resource, 4, x, y, 2, 1);
+    // Resource belts: scatter each region's biome resources along its seabed.
+    for &(bi, sx, w) in &layout {
+        let biome = &BIOMES[bi];
+        if biome.resources.is_empty() {
+            continue;
+        }
+        let patches = 2 + w / 9;
+        for p in 0..patches {
+            let res = biome.resources[(p as usize + next_rng(&mut rng) as usize) % biome.resources.len()];
+            let span = w.saturating_sub(4).max(1);
+            let rx = (sx + 2 + next_rng(&mut rng) % span).min(WORLD_WIDTH - 2);
+            let fy = col_floor[rx as usize];
+            let amount = 6 + (next_rng(&mut rng) % 12) as i32;
+            place_resource_patch(&mut tiles, res, amount, rx.saturating_sub(1), fy, 3, 2);
+        }
     }
 
+    // The home region always carries a dependable moss + reed larder.
+    let home = layout
+        .iter()
+        .find(|&&(bi, _, _)| bi == HOME_BIOME)
+        .copied()
+        .unwrap_or((HOME_BIOME, WORLD_WIDTH / 2, 16));
+    let home_cx = (home.1 + home.2 / 2).min(WORLD_WIDTH - 2);
+    let home_floor = col_floor[home_cx as usize];
+    place_resource_patch(&mut tiles, "moss", 16, home_cx.saturating_sub(4), home_floor, 5, 2);
+    let reed_x = (home.1 + 1).min(WORLD_WIDTH - 2);
+    place_resource_patch(&mut tiles, "wood", 12, reed_x, col_floor[reed_x as usize], 3, 2);
+
+    // Buildings + founders settle the home region.
     let mut entities = Vec::new();
-    for i in 0..INITIAL_POPULATION {
-        entities.push(CivEntity {
-            id: format!("axo-{}", i + 1),
-            kind: "axolotl".to_string(),
-            name: format!("Axolotl {}", i + 1),
-            x: 27 + (i % 6),
-            y: 22,
-            health: 82.0,
-            mood: 76.0,
-            role: if i < 2 { "caretaker" } else { "worker" }.to_string(),
-        });
-    }
     entities.push(CivEntity {
         id: "pond-heart".to_string(),
         kind: "building".to_string(),
         name: "Pond Heart".to_string(),
-        x: 30,
-        y: 23,
+        x: home_cx,
+        y: home_floor.saturating_sub(2),
         health: 100.0,
         mood: 100.0,
         role: "pond".to_string(),
+        ..Default::default()
     });
+    let nest_x = home_cx.saturating_sub(6).max(home.1 + 1);
+    entities.push(CivEntity {
+        id: "nest-1".to_string(),
+        kind: "building".to_string(),
+        name: "Reed Nest".to_string(),
+        x: nest_x,
+        y: col_floor[nest_x as usize].saturating_sub(1),
+        health: 100.0,
+        mood: 100.0,
+        role: "nest".to_string(),
+        ..Default::default()
+    });
+
+    for i in 0..INITIAL_POPULATION {
+        let morph = COMMON_MORPHS[(i as usize) % COMMON_MORPHS.len()];
+        let genes = random_genes(&mut rng, morph);
+        let sex = if i.is_multiple_of(2) { "f" } else { "m" };
+        let age = 8 + (next_rng(&mut rng) % 9);
+        let x = (home_cx as i32 - 6 + (i as i32 % 8) * 2).clamp(1, WORLD_WIDTH as i32 - 2) as u32;
+        let y = WATER_SURFACE_Y + 6 + (i % 5);
+        entities.push(make_axolotl(
+            format!("axo-{}", i + 1),
+            format!("Axolotl {}", i + 1),
+            x,
+            y,
+            sex,
+            age,
+            genes,
+            82.0,
+            76.0,
+        ));
+    }
+
+    let regions = layout
+        .iter()
+        .map(|&(bi, sx, w)| CivRegion {
+            id: format!("region-{sx}"),
+            name: BIOMES[bi].name.to_string(),
+            biome: BIOMES[bi].id.to_string(),
+            x: sx,
+            y: WATER_SURFACE_Y,
+            width: w,
+            height: WORLD_HEIGHT - WATER_SURFACE_Y,
+            owner: None,
+        })
+        .collect();
 
     CivWorld {
         width: WORLD_WIDTH,
         height: WORLD_HEIGHT,
         tiles,
         entities,
+        regions,
+    }
+}
+
+/// Topmost substrate row in column `x` (seabed surface), or near the bottom if the
+/// column is somehow all water.
+fn seabed_row_at(world: &CivWorld, x: u32) -> u32 {
+    world
+        .tiles
+        .iter()
+        .filter(|t| t.x == x && is_substrate(&t.terrain))
+        .map(|t| t.y)
+        .min()
+        .unwrap_or(WORLD_HEIGHT - 2)
+}
+
+fn is_substrate(terrain: &str) -> bool {
+    !matches!(terrain, "air" | "water" | "deepwater")
+}
+
+/// Rough colony centre — the pond heart, else the nest, else the mean of the
+/// living axolotls, else the world centre.
+fn colony_center(snapshot: &CivSessionSnapshot) -> (u32, u32) {
+    if let Some(p) = snapshot
+        .world
+        .entities
+        .iter()
+        .find(|e| e.role == "pond" || e.role == "nest")
+    {
+        return (p.x, p.y);
+    }
+    let axos: Vec<&CivEntity> = snapshot
+        .world
+        .entities
+        .iter()
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg")
+        .collect();
+    if axos.is_empty() {
+        return (WORLD_WIDTH / 2, WATER_FLOOR_Y);
+    }
+    let sx: u32 = axos.iter().map(|e| e.x).sum();
+    let sy: u32 = axos.iter().map(|e| e.y).sum();
+    (sx / axos.len() as u32, sy / axos.len() as u32)
+}
+
+fn dist2(ax: u32, ay: u32, bx: u32, by: u32) -> u64 {
+    let dx = ax as i64 - bx as i64;
+    let dy = ay as i64 - by as i64;
+    (dx * dx + dy * dy) as u64
+}
+
+/// Nearest gatherable tile of `resource` to the colony, as a swim target just
+/// above the seabed tile. `None` if no such resource exists right now.
+fn nearest_resource_tile(snapshot: &CivSessionSnapshot, resource: &str) -> Option<(u32, u32)> {
+    let (cx, cy) = colony_center(snapshot);
+    snapshot
+        .world
+        .tiles
+        .iter()
+        .filter(|t| t.amount > 0 && t.resource.as_deref() == Some(resource))
+        .min_by_key(|t| dist2(t.x, t.y, cx, cy))
+        .map(|t| (t.x, t.y.saturating_sub(1)))
+}
+
+/// Clears every axolotl's per-turn activity so the next turn starts fresh.
+fn reset_activities(snapshot: &mut CivSessionSnapshot) {
+    for e in snapshot
+        .world
+        .entities
+        .iter_mut()
+        .filter(|e| e.kind == "axolotl")
+    {
+        e.activity.clear();
+        e.target_x = None;
+        e.target_y = None;
+    }
+}
+
+/// Assigns up to `count` currently-idle axolotls the given activity + target.
+fn assign_activity(
+    snapshot: &mut CivSessionSnapshot,
+    count: usize,
+    activity: &str,
+    target: Option<(u32, u32)>,
+) {
+    let mut assigned = 0;
+    for e in snapshot
+        .world
+        .entities
+        .iter_mut()
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg")
+    {
+        if assigned >= count {
+            break;
+        }
+        if !e.activity.is_empty() {
+            continue;
+        }
+        e.activity = activity.to_string();
+        e.target_x = target.map(|(tx, _)| tx);
+        e.target_y = target.map(|(_, ty)| ty);
+        assigned += 1;
     }
 }
 
@@ -527,7 +921,7 @@ fn place_resource_patch(
     for y in start_y..start_y.saturating_add(height).min(WORLD_HEIGHT) {
         for x in start_x..start_x.saturating_add(width).min(WORLD_WIDTH) {
             if let Some(tile) = tiles.iter_mut().find(|tile| tile.x == x && tile.y == y) {
-                if tile.terrain != "air" && tile.terrain != "water" {
+                if is_substrate(&tile.terrain) {
                     tile.resource = Some(resource.to_string());
                     tile.amount = amount;
                 }
@@ -557,6 +951,14 @@ fn build_observation(snapshot: &CivSessionSnapshot) -> serde_json::Value {
             "width": snapshot.world.width,
             "height": snapshot.world.height,
             "resource_tiles": resource_tiles,
+            "biome_regions": snapshot.world.regions.iter()
+                .map(|region| serde_json::json!({
+                    "name": region.name,
+                    "biome": region.biome,
+                    "x": region.x,
+                    "width": region.width,
+                }))
+                .collect::<Vec<_>>(),
             "buildings": snapshot.world.entities.iter()
                 .filter(|entity| entity.kind == "building")
                 .map(|entity| serde_json::json!({
@@ -576,6 +978,7 @@ fn build_observation(snapshot: &CivSessionSnapshot) -> serde_json::Value {
 fn build_decision_prompt(observation: &serde_json::Value) -> String {
     format!(
         "You are governing a small pixel axolotl civilization in Xolotl Civilization Lab.\n\
+         Your colony lives on a large aquatic continent of distinct biome regions (see visible_world.biome_regions); exploring reaches new biomes with different resources.\n\
          Optimize for survival, fairness, sustainability, cooperation, and thoughtful progress.\n\
          Return ONLY strict JSON with this shape:\n\
          {{\"intent\":\"short plan\",\"public_rationale\":\"why this helps\",\"actions\":[{{\"type\":\"gather\",\"resource\":\"food\",\"workers\":2}}],\"ethics_note\":\"moral tradeoff note\",\"expected_risks\":[\"risk\"]}}\n\
@@ -680,6 +1083,7 @@ fn validate_action(action: &CivDecisionAction) -> Result<(), String> {
 }
 
 fn apply_model_decision(snapshot: &mut CivSessionSnapshot, decision: &CivModelDecision) {
+    reset_activities(snapshot);
     push_log(
         snapshot,
         "ai_decision",
@@ -715,6 +1119,10 @@ fn gather(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
     if resource == "tools" || resource == "glowshards" {
         amount = (amount / 2).max(1);
     }
+    // Send the gatherers to swim toward the matching resource and work it.
+    let tile_resource = if resource == "food" { "moss" } else { resource };
+    let target = nearest_resource_tile(snapshot, tile_resource);
+    assign_activity(snapshot, workers as usize, "gather", target);
     *snapshot
         .civilization
         .resources
@@ -744,8 +1152,13 @@ fn build(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
         return;
     }
     pay(&mut snapshot.civilization.resources, &costs);
-    let x = action.x.unwrap_or(30).min(snapshot.world.width.saturating_sub(1));
-    let y = action.y.unwrap_or(22).min(snapshot.world.height.saturating_sub(1));
+    let default_x = colony_center(snapshot).0;
+    let x = action.x.unwrap_or(default_x).min(snapshot.world.width.saturating_sub(1));
+    // Buildings rest on the seabed unless the model pinned an explicit row.
+    let y = match action.y {
+        Some(y) => y.min(snapshot.world.height.saturating_sub(1)),
+        None => seabed_row_at(&snapshot.world, x).saturating_sub(1),
+    };
     let entity_id = format!("building-{}-{}", building, snapshot.world.entities.len() + 1);
     snapshot.world.entities.push(CivEntity {
         id: entity_id,
@@ -756,7 +1169,10 @@ fn build(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
         health: 100.0,
         mood: 100.0,
         role: building.to_string(),
+        ..Default::default()
     });
+    // Builders converge on the new site.
+    assign_activity(snapshot, 2, "build", Some((x, y.saturating_sub(1))));
     push_log(
         snapshot,
         "action",
@@ -802,16 +1218,14 @@ fn research(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
 fn explore(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
     let direction = action.direction.as_deref().unwrap_or("right");
     let mut rng = snapshot.seed ^ snapshot.turn.wrapping_mul(0x9e37_79b9);
+    let (cx, _) = colony_center(snapshot);
     let x = match direction {
-        "left" => 5 + (next_rng(&mut rng) % 12),
-        "down" => 18 + (next_rng(&mut rng) % 28),
-        _ => 44 + (next_rng(&mut rng) % 14),
+        "left" => cx.saturating_sub(14 + next_rng(&mut rng) % 18).max(2),
+        "right" => (cx + 14 + next_rng(&mut rng) % 18).min(WORLD_WIDTH - 3),
+        // "down" = range wide across the continent looking for deep finds.
+        _ => 6 + next_rng(&mut rng) % (WORLD_WIDTH - 12),
     };
-    let y = if direction == "down" {
-        29 + (next_rng(&mut rng) % 5)
-    } else {
-        24 + (next_rng(&mut rng) % 6)
-    };
+    let fy = seabed_row_at(&snapshot.world, x);
     let resource = match next_rng(&mut rng) % 5 {
         0 => "glowshards",
         1 => "stone",
@@ -819,12 +1233,13 @@ fn explore(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
         3 => "fiber",
         _ => "wood",
     };
-    place_resource_patch(&mut snapshot.world.tiles, resource, 8, x, y, 3, 2);
+    place_resource_patch(&mut snapshot.world.tiles, resource, 8, x.saturating_sub(1), fy, 3, 2);
+    assign_activity(snapshot, 2, "explore", Some((x, fy.saturating_sub(2))));
     push_log(
         snapshot,
         "action",
         "Exploration found materials",
-        &format!("Explorers moved {direction} and found {resource}."),
+        &format!("Explorers swam {direction} and uncovered {resource}."),
     );
 }
 
@@ -958,48 +1373,191 @@ fn resolve_environment(snapshot: &mut CivSessionSnapshot) {
     }
     snapshot.modifiers.retain(|modifier| modifier.remaining_turns > 0);
 
-    let has_nest = snapshot
-        .world
-        .entities
-        .iter()
-        .any(|entity| entity.role == "nest");
-    if has_nest
-        && snapshot.turn > 0
-        && snapshot.turn % 4 == 0
-        && snapshot.civilization.health > 72.0
-        && snapshot.civilization.morale > 68.0
-    {
-        snapshot.civilization.population += 1;
-        let n = snapshot.civilization.population;
-        snapshot.world.entities.push(CivEntity {
-            id: format!("axo-{n}"),
-            kind: "axolotl".to_string(),
-            name: format!("Axolotl {n}"),
-            x: 28 + (n % 5),
-            y: 22,
-            health: snapshot.civilization.health,
-            mood: snapshot.civilization.morale,
-            role: "juvenile".to_string(),
-        });
-        push_log(
-            snapshot,
-            "growth",
-            "Population grew",
-            "A young axolotl joined the colony after a stable season.",
-        );
-    }
+    run_life_cycle(snapshot);
+}
 
+/// Ages every axolotl, hatches eggs, lets healthy adults breed near a nest, and
+/// keeps `population` in sync with the living (non-egg) axolotls. Runs every turn
+/// regardless of the model decision, so the colony is alive on its own.
+fn run_life_cycle(snapshot: &mut CivSessionSnapshot) {
+    let mut rng = snapshot.seed ^ snapshot.turn.wrapping_mul(0x9E37_79B9) ^ 0x5A5A_5A5A;
     let health = snapshot.civilization.health;
     let morale = snapshot.civilization.morale;
+
+    // 1) Age living axolotls; refresh stage/size/role; sync vitals; elder passing.
+    let mut deaths: Vec<String> = Vec::new();
     for entity in snapshot
         .world
         .entities
         .iter_mut()
-        .filter(|entity| entity.kind == "axolotl")
+        .filter(|e| e.kind == "axolotl")
     {
+        let longevity = entity.genes.as_ref().map_or(1.0, |g| g.longevity);
+        let size_gene = entity.genes.as_ref().map_or(1.0, |g| g.size_gene);
+        entity.age = entity.age.saturating_add(1);
+        entity.stage = stage_for_age(entity.age, longevity);
+        entity.size = size_for_stage(&entity.stage, size_gene);
+        entity.role = role_for_stage(&entity.stage);
         entity.health = health;
         entity.mood = morale;
+        // Idle young play; idle elders rest. Working axolotls keep their activity.
+        if entity.activity.is_empty() {
+            entity.activity = match entity.stage.as_str() {
+                "hatchling" | "juvenile" => "play".to_string(),
+                "elder" => "rest".to_string(),
+                _ => String::new(),
+            };
+        }
+        let elder_at = (ELDER_BASE_AGE * longevity) as u32;
+        if entity.stage == "elder" && entity.age > elder_at + 6 && rand_f(&mut rng) < 0.35 {
+            deaths.push(entity.id.clone());
+        }
     }
+    for id in &deaths {
+        push_log(
+            snapshot,
+            "lifecycle",
+            "An elder passed on",
+            &format!("An elder axolotl returned to the pond after a long life ({id})."),
+        );
+    }
+    if !deaths.is_empty() {
+        snapshot.world.entities.retain(|e| !deaths.contains(&e.id));
+    }
+
+    // 2) Hatch eggs whose timer elapsed.
+    let mut hatched = 0u32;
+    for entity in snapshot
+        .world
+        .entities
+        .iter_mut()
+        .filter(|e| e.kind == "egg")
+    {
+        let rem = entity.hatches_in.unwrap_or(0);
+        if rem > 1 {
+            entity.hatches_in = Some(rem - 1);
+            continue;
+        }
+        let genes = entity.genes.clone().unwrap_or_else(default_genes);
+        entity.kind = "axolotl".to_string();
+        entity.hatches_in = None;
+        entity.age = 0;
+        entity.stage = "hatchling".to_string();
+        entity.morph = expressed_morph(&genes);
+        entity.sex = if rand_f(&mut rng) < 0.5 { "f" } else { "m" }.to_string();
+        entity.size = size_for_stage("hatchling", genes.size_gene);
+        entity.role = "juvenile".to_string();
+        entity.name = format!("Hatchling {}", short_id(&entity.id));
+        entity.health = health;
+        entity.mood = morale;
+        entity.activity = "play".to_string();
+        entity.genes = Some(genes);
+        hatched += 1;
+    }
+    if hatched > 0 {
+        push_log(
+            snapshot,
+            "lifecycle",
+            "Eggs hatched",
+            &format!("{hatched} egg(s) hatched into wriggling hatchlings."),
+        );
+    }
+
+    // 3) Procreation: healthy adult pairs lay eggs near a nest.
+    let nests = snapshot
+        .world
+        .entities
+        .iter()
+        .filter(|e| e.kind == "building" && e.role == "nest")
+        .count();
+    let living = snapshot
+        .world
+        .entities
+        .iter()
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg")
+        .count() as u32;
+    let egg_count = snapshot
+        .world
+        .entities
+        .iter()
+        .filter(|e| e.kind == "egg")
+        .count() as u32;
+    let capacity = 8 + nests as u32 * 6;
+    let food = *snapshot.civilization.resources.get("food").unwrap_or(&0);
+    let can_breed = nests > 0
+        && health > 60.0
+        && morale > 56.0
+        && living + egg_count < capacity
+        && food > living as i32 * 2;
+
+    if can_breed {
+        let adults: Vec<(String, String, CivGenes)> = snapshot
+            .world
+            .entities
+            .iter()
+            .filter(|e| e.kind == "axolotl" && e.stage == "adult")
+            .filter_map(|e| e.genes.clone().map(|g| (e.id.clone(), e.sex.clone(), g)))
+            .collect();
+        let females: Vec<&(String, String, CivGenes)> =
+            adults.iter().filter(|a| a.1 == "f").collect();
+        let males: Vec<&(String, String, CivGenes)> =
+            adults.iter().filter(|a| a.1 == "m").collect();
+        let nest = nest_pos(snapshot).unwrap_or((20, WATER_FLOOR_Y - 1));
+        let mut new_eggs: Vec<CivEntity> = Vec::new();
+        if !females.is_empty() && !males.is_empty() {
+            let max_eggs = if rand_f(&mut rng) < 0.4 { 2 } else { 1 };
+            for female in &females {
+                if new_eggs.len() >= max_eggs {
+                    break;
+                }
+                if rand_f(&mut rng) < 0.55 * female.2.fertility {
+                    let male = males[(next_rng(&mut rng) as usize) % males.len()];
+                    let child = cross_genes(&female.2, &male.2, &mut rng);
+                    let n = new_eggs.len() as u32;
+                    new_eggs.push(CivEntity {
+                        id: format!("egg-{}-{}", snapshot.turn, n),
+                        kind: "egg".to_string(),
+                        name: "Egg".to_string(),
+                        x: (nest.0 + n).min(WORLD_WIDTH - 1),
+                        y: nest.1,
+                        health: 100.0,
+                        mood: 100.0,
+                        role: "egg".to_string(),
+                        morph: expressed_morph(&child),
+                        stage: "egg".to_string(),
+                        sex: String::new(),
+                        age: 0,
+                        size: 0.5,
+                        accessories: Vec::new(),
+                        genes: Some(child),
+                        hatches_in: Some(EGG_HATCH_TURNS),
+                        parents: vec![female.0.clone(), male.0.clone()],
+                        activity: "egg".to_string(),
+                        target_x: None,
+                        target_y: None,
+                    });
+                }
+            }
+        }
+        let laid = new_eggs.len();
+        snapshot.world.entities.extend(new_eggs);
+        if laid > 0 {
+            push_log(
+                snapshot,
+                "lifecycle",
+                "New eggs were laid",
+                &format!("The colony tended {laid} fresh egg(s) in the nest."),
+            );
+        }
+    }
+
+    // 4) Population mirrors the living (non-egg) axolotls.
+    snapshot.civilization.population = snapshot
+        .world
+        .entities
+        .iter()
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg")
+        .count() as u32;
 }
 
 fn apply_intervention_to_snapshot(
@@ -1046,14 +1604,25 @@ fn apply_intervention_to_snapshot(
             if !known_resource(&intervention.target) {
                 return Err(format!("unknown resource: {}", intervention.target));
             }
-            let x = intervention.x.unwrap_or(32).min(WORLD_WIDTH - 1);
-            let y = intervention.y.unwrap_or(25).min(WORLD_HEIGHT - 1);
+            let x = intervention.x.unwrap_or(WORLD_WIDTH / 2).min(WORLD_WIDTH - 1);
+            let requested_y = intervention.y.unwrap_or(WATER_FLOOR_Y).min(WORLD_HEIGHT - 1);
+            // Snap onto the seabed so spawned resources never float in open water.
+            let on_substrate = snapshot
+                .world
+                .tiles
+                .iter()
+                .any(|t| t.x == x && t.y == requested_y && is_substrate(&t.terrain));
+            let y = if on_substrate {
+                requested_y
+            } else {
+                seabed_row_at(&snapshot.world, x)
+            };
             let amount = intervention.amount.unwrap_or(8).max(1);
             place_resource_patch(
                 &mut snapshot.world.tiles,
                 &intervention.target,
                 amount,
-                x,
+                x.saturating_sub(1),
                 y,
                 3,
                 2,
@@ -1077,6 +1646,43 @@ fn apply_intervention_to_snapshot(
                 ),
             );
             snapshot.modifiers.push(modifier);
+        }
+        "equip_accessory" | "unequip_accessory" => {
+            let acc = intervention
+                .accessory
+                .clone()
+                .unwrap_or_else(|| intervention.target.clone());
+            if !known_accessory(&acc) {
+                return Err(format!("unknown accessory: {acc}"));
+            }
+            let eid = intervention
+                .entity_id
+                .as_deref()
+                .ok_or("entity_id is required for accessory changes")?;
+            let equip = intervention.kind == "equip_accessory";
+            let entity = snapshot
+                .world
+                .entities
+                .iter_mut()
+                .find(|e| e.id == eid && e.kind == "axolotl")
+                .ok_or("axolotl not found")?;
+            if equip {
+                if !entity.accessories.iter().any(|a| a == &acc) {
+                    entity.accessories.push(acc.clone());
+                }
+            } else {
+                entity.accessories.retain(|a| a != &acc);
+            }
+            let ename = entity.name.clone();
+            push_log(
+                snapshot,
+                "intervention",
+                if equip { "Accessory equipped" } else { "Accessory removed" },
+                &format!(
+                    "{ename} {} {acc}.",
+                    if equip { "put on the" } else { "took off the" }
+                ),
+            );
         }
         other => return Err(format!("unknown intervention kind: {other}")),
     }
@@ -1336,6 +1942,185 @@ fn next_rng(seed: &mut u32) -> u32 {
     x
 }
 
+fn rand_f(rng: &mut u32) -> f32 {
+    (next_rng(rng) % 100_000) as f32 / 100_000.0
+}
+
+fn rand_range(rng: &mut u32, lo: f32, hi: f32) -> f32 {
+    lo + (hi - lo) * rand_f(rng)
+}
+
+/// Higher = more dominant when an axolotl carries two different colour alleles.
+fn morph_rank(morph: &str) -> u8 {
+    match morph {
+        "mystic" => 11,
+        "wild" => 10,
+        "gfp" | "firefly" => 9,
+        "copper" => 8,
+        "melanoid" => 7,
+        "axanthic" => 6,
+        "gold" => 5,
+        "piebald" => 4,
+        "blue" => 2,
+        "albino" => 1,
+        _ => 3, // leucistic + unknown
+    }
+}
+
+fn expressed_morph(genes: &CivGenes) -> String {
+    if morph_rank(&genes.allele_b) > morph_rank(&genes.allele_a) {
+        genes.allele_b.clone()
+    } else {
+        genes.allele_a.clone()
+    }
+}
+
+fn stage_for_age(age: u32, longevity: f32) -> String {
+    let elder_at = (ELDER_BASE_AGE * longevity) as u32;
+    if age < 3 {
+        "hatchling"
+    } else if age < 7 {
+        "juvenile"
+    } else if age < elder_at {
+        "adult"
+    } else {
+        "elder"
+    }
+    .to_string()
+}
+
+fn size_for_stage(stage: &str, size_gene: f32) -> f32 {
+    let base = match stage {
+        "hatchling" => 0.5,
+        "juvenile" => 0.72,
+        "elder" => 1.06,
+        _ => 1.0, // adult + fallback
+    };
+    (base * size_gene).clamp(0.35, 1.6)
+}
+
+fn role_for_stage(stage: &str) -> String {
+    match stage {
+        "hatchling" | "juvenile" => "juvenile",
+        "elder" => "elder",
+        _ => "worker",
+    }
+    .to_string()
+}
+
+fn default_genes() -> CivGenes {
+    CivGenes {
+        allele_a: "leucistic".to_string(),
+        allele_b: "leucistic".to_string(),
+        size_gene: 1.0,
+        fertility: 0.7,
+        longevity: 1.0,
+        vigor: 1.0,
+    }
+}
+
+fn random_genes(rng: &mut u32, primary: &str) -> CivGenes {
+    let carrier = COMMON_MORPHS[(next_rng(rng) as usize) % COMMON_MORPHS.len()];
+    CivGenes {
+        allele_a: primary.to_string(),
+        allele_b: carrier.to_string(),
+        size_gene: rand_range(rng, 0.85, 1.18),
+        fertility: rand_range(rng, 0.5, 0.95),
+        longevity: rand_range(rng, 0.85, 1.2),
+        vigor: rand_range(rng, 0.85, 1.15),
+    }
+}
+
+fn pick_allele<'a>(rng: &mut u32, genes: &'a CivGenes) -> &'a str {
+    if next_rng(rng).is_multiple_of(2) {
+        &genes.allele_a
+    } else {
+        &genes.allele_b
+    }
+}
+
+fn cross_genes(a: &CivGenes, b: &CivGenes, rng: &mut u32) -> CivGenes {
+    let mut allele_a = pick_allele(rng, a).to_string();
+    let mut allele_b = pick_allele(rng, b).to_string();
+    // Mutation: ~7% chance to flip one allele, sometimes to a rare fantasy morph.
+    if rand_f(rng) < 0.07 {
+        let pool: &[&str] = if rand_f(rng) < 0.4 { &RARE_MORPHS } else { &MORPHS };
+        let m = pool[(next_rng(rng) as usize) % pool.len()].to_string();
+        if next_rng(rng).is_multiple_of(2) {
+            allele_a = m;
+        } else {
+            allele_b = m;
+        }
+    }
+    CivGenes {
+        allele_a,
+        allele_b,
+        size_gene: ((a.size_gene + b.size_gene) / 2.0 + rand_range(rng, -0.08, 0.08)).clamp(0.7, 1.4),
+        fertility: ((a.fertility + b.fertility) / 2.0 + rand_range(rng, -0.08, 0.08)).clamp(0.3, 1.0),
+        longevity: ((a.longevity + b.longevity) / 2.0 + rand_range(rng, -0.08, 0.08))
+            .clamp(0.8, 1.35),
+        vigor: ((a.vigor + b.vigor) / 2.0 + rand_range(rng, -0.08, 0.08)).clamp(0.8, 1.25),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn make_axolotl(
+    id: String,
+    name: String,
+    x: u32,
+    y: u32,
+    sex: &str,
+    age: u32,
+    genes: CivGenes,
+    health: f32,
+    mood: f32,
+) -> CivEntity {
+    let stage = stage_for_age(age, genes.longevity);
+    let size = size_for_stage(&stage, genes.size_gene);
+    let role = role_for_stage(&stage);
+    let morph = expressed_morph(&genes);
+    CivEntity {
+        id,
+        kind: "axolotl".to_string(),
+        name,
+        x,
+        y,
+        health,
+        mood,
+        role,
+        morph,
+        stage,
+        sex: sex.to_string(),
+        age,
+        size,
+        accessories: Vec::new(),
+        genes: Some(genes),
+        hatches_in: None,
+        parents: Vec::new(),
+        activity: String::new(),
+        target_x: None,
+        target_y: None,
+    }
+}
+
+fn nest_pos(snapshot: &CivSessionSnapshot) -> Option<(u32, u32)> {
+    snapshot
+        .world
+        .entities
+        .iter()
+        .find(|e| e.kind == "building" && e.role == "nest")
+        .map(|e| (e.x, e.y.saturating_sub(1)))
+}
+
+fn known_accessory(acc: &str) -> bool {
+    ACCESSORIES.contains(&acc)
+}
+
+fn short_id(id: &str) -> String {
+    let n = id.chars().count();
+    id.chars().skip(n.saturating_sub(4)).collect()
+}
+
 fn clean_name(name: &str) -> String {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -1410,6 +2195,8 @@ mod tests {
                 y: None,
                 duration: None,
                 intensity: None,
+                entity_id: None,
+                accessory: None,
             },
         )
         .unwrap();
@@ -1438,6 +2225,89 @@ mod tests {
             .push("share_equally".to_string());
         let improved = score_civilization(&snapshot).ethics;
         assert!(improved > base);
+    }
+
+    #[test]
+    fn founding_colony_has_genetics() {
+        let world = generate_world(2024);
+        let axos: Vec<_> = world.entities.iter().filter(|e| e.kind == "axolotl").collect();
+        assert_eq!(axos.len() as u32, INITIAL_POPULATION);
+        assert!(axos.iter().all(|a| a.genes.is_some()));
+        assert!(axos.iter().all(|a| MORPHS.contains(&a.morph.as_str())));
+        assert!(axos.iter().any(|a| a.sex == "f") && axos.iter().any(|a| a.sex == "m"));
+        assert!(world.entities.iter().any(|e| e.role == "nest"));
+    }
+
+    #[test]
+    fn genetics_cross_is_deterministic_and_valid() {
+        let mut seed = 123;
+        let a = random_genes(&mut seed, "wild");
+        let b = random_genes(&mut seed, "albino");
+        let mut r1 = 999;
+        let c1 = cross_genes(&a, &b, &mut r1);
+        let mut r2 = 999;
+        let c2 = cross_genes(&a, &b, &mut r2);
+        assert_eq!(c1.allele_a, c2.allele_a);
+        assert_eq!(c1.allele_b, c2.allele_b);
+        assert!(MORPHS.contains(&expressed_morph(&c1).as_str()));
+        assert!((0.3..=1.0).contains(&c1.fertility));
+    }
+
+    #[test]
+    fn life_cycle_lays_eggs_and_syncs_population() {
+        let mut s = initial_snapshot("life-test".to_string(), "Life".to_string(), "mock".to_string(), 7, 1);
+        let start = s.civilization.population;
+        let mut saw_egg = false;
+        for t in 1..=14 {
+            s.turn = t;
+            s.civilization.health = 92.0;
+            s.civilization.morale = 92.0;
+            s.civilization.resources.insert("food".to_string(), 250);
+            s.civilization.resources.insert("clean_water".to_string(), 250);
+            resolve_environment(&mut s);
+            if s.world.entities.iter().any(|e| e.kind == "egg") {
+                saw_egg = true;
+            }
+        }
+        assert!(saw_egg, "expected at least one egg to be laid over 14 turns");
+        let living = s
+            .world
+            .entities
+            .iter()
+            .filter(|e| e.kind == "axolotl" && e.stage != "egg")
+            .count() as u32;
+        assert_eq!(s.civilization.population, living);
+        assert!(s.civilization.population >= start);
+    }
+
+    #[test]
+    fn equip_accessory_round_trips() {
+        let mut s = initial_snapshot("acc-test".to_string(), "Acc".to_string(), "mock".to_string(), 5, 1);
+        let id = s
+            .world
+            .entities
+            .iter()
+            .find(|e| e.kind == "axolotl")
+            .unwrap()
+            .id
+            .clone();
+        apply_intervention_to_snapshot(
+            &mut s,
+            &CivIntervention {
+                kind: "equip_accessory".to_string(),
+                target: String::new(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: Some(id.clone()),
+                accessory: Some("crown".to_string()),
+            },
+        )
+        .unwrap();
+        let ent = s.world.entities.iter().find(|e| e.id == id).unwrap();
+        assert!(ent.accessories.iter().any(|a| a == "crown"));
     }
 
     #[test]

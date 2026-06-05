@@ -11,6 +11,7 @@ import {
   Gift,
   Hammer,
   Leaf,
+  LocateFixed,
   Minus,
   Pause,
   Play,
@@ -22,16 +23,52 @@ import {
   Trash2,
   Waves,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { CivilizationGameCanvas } from "./CivilizationGameCanvas";
 import { useCivStore } from "../../stores/civStore";
-import type { CivIntervention, CivLogEntry, CivModifier, CivSessionSnapshot } from "../../bindings";
+import type { CivEntity, CivIntervention, CivLogEntry, CivModifier, CivRegion, CivSessionSnapshot } from "../../bindings";
+
+declare global {
+  interface Window {
+    civCamera?: {
+      zoomBy(factor: number): void;
+      recenter(): void;
+      toggleFollow(): void;
+      focusRegion(x: number, width: number): void;
+    };
+  }
+}
+
+// biome → accent oklch chip color, matching the cool palette used across the HUD
+const BIOME_ACCENT: Record<string, string> = {
+  shallows: "oklch(0.78 0.085 195)",
+  reedmarsh: "oklch(0.74 0.080 145)",
+  mudflats: "oklch(0.70 0.055 75)",
+  kelpforest: "oklch(0.72 0.080 160)",
+  openwater: "oklch(0.74 0.075 230)",
+  deeptrench: "oklch(0.62 0.075 265)",
+  crystalcave: "oklch(0.76 0.075 300)",
+  thermalvent: "oklch(0.76 0.090 35)",
+};
+
+function biomeAccent(biome: string) {
+  return BIOME_ACCENT[biome] ?? "oklch(0.70 0.030 220)";
+}
 
 const RESOURCES = ["food", "clean_water", "wood", "stone", "clay", "fiber", "tools", "glowshards"];
 const BUFFS = ["abundant_moss", "clear_water", "cooperation_aura", "curiosity_spark"];
 const DEBUFFS = ["drought", "cold_snap", "food_rot", "fatigue", "quarrel_pressure"];
+const ACCESSORIES = [
+  "flowercrown", "strawhat", "leafhat", "scarf", "glasses", "wizardhat",
+  "crown", "snorkel", "bow", "headphones", "chefhat", "piratehat",
+];
+const STAGE_LABEL: Record<string, string> = {
+  egg: "Egg", hatchling: "Hatchling", juvenile: "Juvenile", adult: "Adult", elder: "Elder",
+};
 
 type CivEventPayload = {
   type: string;
@@ -74,7 +111,8 @@ export function CivilizationView() {
 
   useEffect(() => {
     if (!selectedModel && models.length > 0) {
-      setSelectedModel(models.includes("kimi-coding") ? "kimi-coding" : models[0]);
+      const preferred = models.find((m) => m.toLowerCase().includes("kimi")) ?? models[0];
+      setSelectedModel(preferred);
     }
   }, [models, selectedModel]);
 
@@ -113,7 +151,7 @@ export function CivilizationView() {
   const recentLog = useMemo(() => [...(snapshot?.log ?? [])].reverse().slice(0, 12), [snapshot?.log]);
 
   async function handleCreate() {
-    const model = selectedModel || models[0] || "kimi-coding";
+    const model = selectedModel || models[0] || "";
     await createSession({ name, model, seed: null });
     setLeftOpen(false);
   }
@@ -122,7 +160,18 @@ export function CivilizationView() {
     void applyIntervention(intervention);
   }
 
+  function equipAccessory(entityId: string, accessory: string, equip: boolean) {
+    void applyIntervention({
+      kind: equip ? "equip_accessory" : "unequip_accessory",
+      target: "",
+      entity_id: entityId,
+      accessory,
+    });
+  }
+
   const isBuff = BUFFS.includes(modifier);
+  // world-center x for spawns; backend snaps the y to the seabed automatically
+  const spawnX = Math.floor((snapshot?.world.width ?? 128) / 2);
 
   return (
     <main className="civ-view">
@@ -148,9 +197,11 @@ export function CivilizationView() {
                   onChange={(e) => setSelectedModel(e.target.value)}
                   className="civ-select"
                 >
-                  {(models.length ? models : ["kimi-coding"]).map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
+                  {models.length ? (
+                    models.map((m) => <option key={m} value={m}>{m}</option>)
+                  ) : (
+                    <option value="" disabled>No models available</option>
+                  )}
                 </select>
                 <Button className="w-full" disabled={loading || !selectedModel} onClick={() => void handleCreate()}>
                   <Sprout className="h-3.5 w-3.5" />
@@ -241,9 +292,11 @@ export function CivilizationView() {
             <Section label="New colony" icon={<Plus className="h-3.5 w-3.5" />}>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Colony name" />
               <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} className="civ-select mt-2">
-                {(models.length ? models : ["kimi-coding"]).map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
+                {models.length ? (
+                  models.map((m) => <option key={m} value={m}>{m}</option>)
+                ) : (
+                  <option value="" disabled>No models available</option>
+                )}
               </select>
               <Button size="sm" className="mt-2 w-full" disabled={loading || !selectedModel} onClick={() => void handleCreate()}>
                 <Sprout className="h-3.5 w-3.5" />
@@ -299,6 +352,12 @@ export function CivilizationView() {
             <Section label="Score" icon={<FlaskConical className="h-3.5 w-3.5" />}>
               <ScorePanel snapshot={snapshot} />
             </Section>
+            <Section label="Colony" icon={<Sprout className="h-3.5 w-3.5" />}>
+              <ColonyPanel snapshot={snapshot} onEquip={equipAccessory} />
+            </Section>
+            <Section label="Regions" icon={<Waves className="h-3.5 w-3.5" />}>
+              <RegionsPanel snapshot={snapshot} />
+            </Section>
             <Section label="Resources" icon={<Hammer className="h-3.5 w-3.5" />}>
               <ResourcesPanel snapshot={snapshot} />
             </Section>
@@ -313,7 +372,7 @@ export function CivilizationView() {
                 <div className="grid grid-cols-3 gap-1.5">
                   <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "grant_resource", target: resource, amount })}>Grant</Button>
                   <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "remove_resource", target: resource, amount })}>Remove</Button>
-                  <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: 34, y: 25 })}>Spawn</Button>
+                  <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: spawnX })}>Spawn</Button>
                 </div>
                 <select value={modifier} onChange={(e) => setModifier(e.target.value)} className="civ-select">
                   <optgroup label="Buffs">{BUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
@@ -380,7 +439,7 @@ export function CivilizationView() {
           <button className="civ-slot" onClick={() => sendIntervention({ kind: "remove_resource", target: resource, amount })} title={`Remove ${amount} ${resourceLabel(resource)}`}>
             <Minus className="h-4 w-4" /><span>Remove</span>
           </button>
-          <button className="civ-slot" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: 34, y: 25 })} title={`Spawn ${resourceLabel(resource)} in the world`}>
+          <button className="civ-slot" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: spawnX })} title={`Spawn ${resourceLabel(resource)} in the world`}>
             <Sprout className="h-4 w-4" /><span>Spawn</span>
           </button>
           <span className="civ-toolbelt-div" />
@@ -395,6 +454,18 @@ export function CivilizationView() {
           >
             <Sparkles className="h-4 w-4" /><span>{isBuff ? "Buff" : "Debuff"}</span>
           </button>
+          <span className="civ-toolbelt-div" />
+          <div className="civ-cam">
+            <button type="button" className="civ-cam-btn" onClick={() => window.civCamera?.zoomBy(0.83)} title="Zoom out">
+              <ZoomOut className="h-4 w-4" />
+            </button>
+            <button type="button" className="civ-cam-btn" onClick={() => window.civCamera?.zoomBy(1.2)} title="Zoom in">
+              <ZoomIn className="h-4 w-4" />
+            </button>
+            <button type="button" className="civ-cam-btn" onClick={() => window.civCamera?.recenter()} title="Recenter on colony">
+              <LocateFixed className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
     </main>
@@ -441,6 +512,112 @@ function ScorePanel({ snapshot }: { snapshot: CivSessionSnapshot }) {
       <ScoreBar label="Ethics" value={score.ethics ?? 0} tone="oklch(0.74 0.055 190)" />
       <ScoreBar label="Intelligence" value={score.intelligence ?? 0} tone="oklch(0.76 0.060 285)" />
     </div>
+  );
+}
+
+function ColonyPanel({ snapshot, onEquip }: { snapshot: CivSessionSnapshot; onEquip: (entityId: string, accessory: string, equip: boolean) => void }) {
+  const axos = snapshot.world.entities.filter((e) => e.kind === "axolotl");
+  const eggCount = snapshot.world.entities.filter((e) => e.kind === "egg").length;
+  const stageCount = (s: string) => axos.filter((a) => (a.stage ?? "adult") === s).length;
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1">
+        <StageChip label="Eggs" n={eggCount} tone="oklch(0.74 0.06 80)" />
+        <StageChip label="Hatch" n={stageCount("hatchling")} tone="oklch(0.78 0.07 20)" />
+        <StageChip label="Juv" n={stageCount("juvenile")} tone="oklch(0.78 0.07 150)" />
+        <StageChip label="Adult" n={stageCount("adult")} tone="oklch(0.78 0.06 200)" />
+        <StageChip label="Elder" n={stageCount("elder")} tone="oklch(0.72 0.04 285)" />
+      </div>
+      <div className="civ-roster">
+        {axos.length === 0 ? (
+          <div className="text-xs text-[oklch(0.52_0.012_225)]">No axolotls yet.</div>
+        ) : (
+          axos.map((a) => <RosterRow key={a.id} a={a} onEquip={onEquip} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RegionsPanel({ snapshot }: { snapshot: CivSessionSnapshot }) {
+  const regions = snapshot.world.regions ?? [];
+  // the colony's home: the region whose x-range contains the pond-heart / nest
+  const heart = snapshot.world.entities.find((e) => e.role === "pond")
+    ?? snapshot.world.entities.find((e) => e.role === "nest");
+  const homeId = heart
+    ? regions.find((r) => heart.x >= r.x && heart.x < r.x + r.width)?.id
+    : undefined;
+
+  if (regions.length === 0) {
+    return <div className="text-xs text-[oklch(0.52_0.012_225)]">No regions mapped yet.</div>;
+  }
+  return (
+    <div className="civ-region-list">
+      {regions.map((region) => (
+        <RegionRow key={region.id} region={region} isHome={region.id === homeId} />
+      ))}
+    </div>
+  );
+}
+
+function RegionRow({ region, isHome }: { region: CivRegion; isHome: boolean }) {
+  const accent = biomeAccent(region.biome);
+  return (
+    <button
+      type="button"
+      className={["civ-region-row", isHome ? "is-home" : ""].join(" ")}
+      onClick={() => window.civCamera?.focusRegion(region.x, region.width)}
+      title={`Focus ${region.name}`}
+    >
+      <span className="civ-biome-chip" style={{ background: `color-mix(in oklch, ${accent} 22%, transparent)`, borderColor: `color-mix(in oklch, ${accent} 45%, transparent)`, color: accent }}>
+        {biomeLabel(region.biome)}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-[oklch(0.84_0.016_220)]">{region.name}</span>
+      {isHome && <span className="civ-region-home">Home</span>}
+    </button>
+  );
+}
+
+function RosterRow({ a, onEquip }: { a: CivEntity; onEquip: (entityId: string, accessory: string, equip: boolean) => void }) {
+  const [acc, setAcc] = useState(ACCESSORIES[0]);
+  const morph = a.morph || "leucistic";
+  const sex = a.sex === "f" ? "♀" : a.sex === "m" ? "♂" : "—";
+  const worn = a.accessories ?? [];
+  return (
+    <div className="civ-roster-row">
+      <img src={`/civ/axolotls/axo-${morph}.png`} alt={morph} className="civ-roster-img" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[11px] font-semibold text-[oklch(0.86_0.016_220)]">{a.name}</div>
+        <div className="truncate text-[10px] text-[oklch(0.56_0.012_225)]">
+          {morph} · {sex} · {STAGE_LABEL[a.stage ?? "adult"] ?? a.stage} · {a.age ?? 0}t
+        </div>
+        {worn.length > 0 && (
+          <div className="mt-0.5 flex flex-wrap gap-1">
+            {worn.map((w) => (
+              <button key={w} type="button" className="civ-acc-chip" title={`Remove ${w}`} onClick={() => onEquip(a.id, w, false)}>
+                {w} <X className="h-2.5 w-2.5" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-none items-center gap-1">
+        <select value={acc} onChange={(e) => setAcc(e.target.value)} className="civ-roster-select" title="Accessory">
+          {ACCESSORIES.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <button type="button" className="civ-roster-equip" title={`Equip ${acc}`} onClick={() => onEquip(a.id, acc, true)}>
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StageChip({ label, n, tone }: { label: string; n: number; tone: string }) {
+  return (
+    <span className="civ-stage-chip" style={{ borderColor: `color-mix(in oklch, ${tone} 40%, transparent)` }}>
+      {label} <b style={{ color: tone }}>{n}</b>
+    </span>
   );
 }
 
@@ -519,4 +696,20 @@ function resourceLabel(value: string) {
 
 function modifierLabel(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// "reedmarsh" → "Reed Marsh", "openwater" → "Open Water"
+const BIOME_LABEL: Record<string, string> = {
+  shallows: "Shallows",
+  reedmarsh: "Reed Marsh",
+  mudflats: "Mudflats",
+  kelpforest: "Kelp Forest",
+  openwater: "Open Water",
+  deeptrench: "Deep Trench",
+  crystalcave: "Crystal Caverns",
+  thermalvent: "Thermal Vents",
+};
+
+function biomeLabel(value: string) {
+  return BIOME_LABEL[value] ?? value.replace(/\b\w/g, (c) => c.toUpperCase());
 }

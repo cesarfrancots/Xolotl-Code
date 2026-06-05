@@ -267,12 +267,15 @@ button {
 
 /* glass surface shared by every floating overlay */
 .civ-glass {
-  background: linear-gradient(180deg, oklch(0.14 0.006 240 / 0.82), oklch(0.10 0.004 245 / 0.82));
+  background: linear-gradient(180deg, oklch(0.145 0.006 240 / 0.84), oklch(0.10 0.004 245 / 0.84));
   border: 1px solid oklch(0.30 0.012 220 / 0.55);
   border-radius: 12px;
-  box-shadow: 0 12px 34px oklch(0 0 0 / 0.42), inset 0 1px 0 oklch(1 0 0 / 0.05);
-  -webkit-backdrop-filter: blur(9px) saturate(1.15);
-  backdrop-filter: blur(9px) saturate(1.15);
+  box-shadow:
+    0 14px 40px oklch(0 0 0 / 0.46),
+    0 1px 0 oklch(1 0 0 / 0.04),
+    inset 0 1px 0 oklch(1 0 0 / 0.06);
+  -webkit-backdrop-filter: blur(11px) saturate(1.18);
+  backdrop-filter: blur(11px) saturate(1.18);
 }
 
 /* hide / reveal HUD */
@@ -468,13 +471,13 @@ button {
 .civ-toolbelt {
   position: absolute;
   left: 50%;
-  bottom: 12px;
+  bottom: 14px;
   z-index: 35;
   transform: translateX(-50%);
   display: flex;
   align-items: stretch;
   gap: 5px;
-  padding: 6px;
+  padding: 7px;
   max-width: calc(100% - 24px);
   overflow-x: auto;
   scrollbar-width: none;
@@ -545,6 +548,166 @@ button {
 .civ-drawer-body button:focus-visible,
 .civ-drawer-head button:focus-visible,
 .civ-error button:focus-visible {
+  outline: 2px solid oklch(0.76 0.10 195);
+  outline-offset: 2px;
+}
+
+/* colony roster (life stages + per-axolotl accessory equip) */
+.civ-stage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: oklch(0.6 0.012 225);
+  background: oklch(0.09 0.004 245 / 0.7);
+  border: 1px solid oklch(0.26 0.010 235 / 0.7);
+}
+.civ-stage-chip b { font-variant-numeric: tabular-nums; }
+
+.civ-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.civ-roster-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 9px;
+  background: oklch(0.10 0.004 245 / 0.7);
+  border: 1px solid oklch(0.24 0.008 240 / 0.7);
+}
+.civ-roster-img {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  object-fit: contain;
+  image-rendering: pixelated;
+  border-radius: 7px;
+  background: oklch(0.14 0.012 200 / 0.6);
+}
+.civ-roster-select {
+  height: 24px;
+  width: 78px;
+  border-radius: 7px;
+  border: 1px solid oklch(0.26 0.010 235 / 0.7);
+  background: oklch(0.09 0.004 245);
+  padding: 0 4px;
+  font-size: 10px;
+  color: oklch(0.80 0.018 220);
+  outline: none;
+}
+.civ-roster-select:focus { border-color: oklch(0.42 0.04 195); }
+.civ-roster-equip {
+  display: grid;
+  place-items: center;
+  height: 24px;
+  width: 24px;
+  flex: none;
+  border-radius: 7px;
+  color: oklch(0.92 0.04 175);
+  background: oklch(0.20 0.04 170 / 0.7);
+  border: 1px solid oklch(0.44 0.06 170 / 0.7);
+  transition: background 0.12s;
+}
+.civ-roster-equip:hover { background: oklch(0.26 0.05 170 / 0.85); }
+.civ-acc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  color: oklch(0.7 0.04 175);
+  background: oklch(0.16 0.02 180 / 0.6);
+  border: 1px solid oklch(0.34 0.03 180 / 0.6);
+  transition: color 0.12s, background 0.12s;
+}
+.civ-acc-chip:hover { color: oklch(0.86 0.07 30); background: oklch(0.2 0.03 30 / 0.5); }
+.civ-roster-select:focus-visible,
+.civ-roster-equip:focus-visible,
+.civ-acc-chip:focus-visible {
+  outline: 2px solid oklch(0.76 0.10 195);
+  outline-offset: 2px;
+}
+
+/* region / biome panel (right Observer drawer) */
+.civ-region-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.civ-region-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 7px;
+  border-radius: 8px;
+  background: oklch(0.10 0.004 245 / 0.7);
+  border: 1px solid oklch(0.24 0.008 240 / 0.7);
+  transition: background 0.12s, border-color 0.12s, transform 0.06s;
+}
+.civ-region-row:hover { background: oklch(0.15 0.008 235 / 0.9); border-color: oklch(0.38 0.02 200 / 0.7); }
+.civ-region-row:active { transform: translateY(1px); }
+.civ-region-row.is-home {
+  border-color: oklch(0.46 0.06 170 / 0.7);
+  background: oklch(0.14 0.022 170 / 0.6);
+}
+.civ-biome-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+.civ-region-home {
+  flex: none;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: oklch(0.84 0.06 170);
+}
+.civ-region-row:focus-visible {
+  outline: 2px solid oklch(0.76 0.10 195);
+  outline-offset: 2px;
+}
+
+/* toolbelt camera controls (condensed icon cluster) */
+.civ-cam { flex: none; display: inline-flex; align-items: stretch; gap: 3px; }
+.civ-cam-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  border-radius: 9px;
+  color: oklch(0.74 0.018 218);
+  background: oklch(0.10 0.004 245 / 0.78);
+  border: 1px solid oklch(0.26 0.010 235 / 0.7);
+  transition: color 0.12s, background 0.12s, border-color 0.12s, transform 0.06s;
+}
+.civ-cam-btn svg { color: oklch(0.66 0.03 200); }
+.civ-cam-btn:hover { color: oklch(0.92 0.02 205); background: oklch(0.16 0.008 235 / 0.9); border-color: oklch(0.40 0.02 200 / 0.8); }
+.civ-cam-btn:hover svg { color: oklch(0.84 0.05 195); }
+.civ-cam-btn:active { transform: translateY(1px); }
+.civ-cam-btn:focus-visible {
   outline: 2px solid oklch(0.76 0.10 195);
   outline-offset: 2px;
 }

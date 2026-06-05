@@ -191,6 +191,10 @@ const PREVIEW_EVALS = [
   },
 ];
 
+const PREVIEW_WORLD = buildPreviewCivWorld();
+const PREVIEW_HOME_X = PREVIEW_WORLD.homeCx;
+const PREVIEW_HOME_FLOOR = PREVIEW_WORLD.floor[PREVIEW_HOME_X];
+
 let previewCivSession = {
   id: "preview-civ-pond",
   name: "Preview Pond",
@@ -200,22 +204,39 @@ let previewCivSession = {
   updated_at: 1_780_020_000,
   turn: 3,
   world: {
-    width: 64,
-    height: 36,
-    tiles: buildPreviewCivTiles(),
+    width: PREVIEW_WORLD.width,
+    height: PREVIEW_WORLD.height,
+    tiles: PREVIEW_WORLD.tiles,
+    regions: PREVIEW_WORLD.regions,
     entities: [
-      ...Array.from({ length: 8 }, (_, index) => ({
+      ...["leucistic", "wild", "gold", "axanthic", "copper", "blue", "melanoid", "albino"].map((morph, index) => ({
         id: `axo-${index + 1}`,
         kind: "axolotl",
         name: `Axolotl ${index + 1}`,
-        x: 27 + (index % 6),
-        y: 22,
+        x: PREVIEW_HOME_X - 8 + (index % 8) * 2,
+        y: 12 + (index % 4),
         health: 82,
         mood: 78,
-        role: index < 2 ? "caretaker" : "worker",
+        role: index === 7 ? "elder" : "worker",
+        morph,
+        stage: index === 7 ? "elder" : "adult",
+        sex: index % 2 === 0 ? "f" : "m",
+        age: index === 7 ? 27 : 10 + index,
+        size: index === 7 ? 1.06 : 1,
+        accessories: index === 0 ? ["flowercrown"] : index === 2 ? ["strawhat"] : index === 4 ? ["snorkel"] : [],
+        genes: { allele_a: morph, allele_b: "wild", size_gene: 1, fertility: 0.8, longevity: 1, vigor: 1 },
+        hatches_in: null,
+        parents: [],
+        activity: index === 1 ? "gather" : index === 3 ? "play" : index === 7 ? "rest" : "",
       })),
-      { id: "pond-heart", kind: "building", name: "Pond Heart", x: 30, y: 23, health: 100, mood: 100, role: "pond" },
-      { id: "nest-1", kind: "building", name: "Nest", x: 26, y: 22, health: 100, mood: 100, role: "nest" },
+      {
+        id: "egg-preview-1", kind: "egg", name: "Egg", x: PREVIEW_HOME_X - 6, y: PREVIEW_HOME_FLOOR - 3, health: 100, mood: 100, role: "egg",
+        morph: "mystic", stage: "egg", sex: "", age: 0, size: 0.5, accessories: [],
+        genes: { allele_a: "mystic", allele_b: "wild", size_gene: 1, fertility: 0.8, longevity: 1, vigor: 1 },
+        hatches_in: 2, parents: ["axo-1", "axo-2"],
+      },
+      { id: "pond-heart", kind: "building", name: "Pond Heart", x: PREVIEW_HOME_X, y: PREVIEW_HOME_FLOOR - 2, health: 100, mood: 100, role: "pond" },
+      { id: "nest-1", kind: "building", name: "Reed Nest", x: PREVIEW_HOME_X - 6, y: PREVIEW_WORLD.floor[PREVIEW_HOME_X - 6] - 1, health: 100, mood: 100, role: "nest" },
     ],
   },
   civilization: {
@@ -247,19 +268,87 @@ let previewCivSession = {
   ],
 };
 
-function buildPreviewCivTiles() {
-  const tiles = [];
-  for (let y = 0; y < 36; y += 1) {
-    for (let x = 0; x < 64; x += 1) {
-      const terrain = y < 23 ? "air" : (x >= 26 && x <= 33 && y <= 26) ? "water" : y < 27 ? "mud" : y < 32 ? "earth" : "stone";
-      const resource =
-        terrain !== "air" && terrain !== "water" && x > 8 && x < 15 && y > 23 && y < 27 ? "moss" :
-        terrain !== "air" && terrain !== "water" && x > 40 && x < 47 && y > 27 ? "stone" :
-        null;
-      tiles.push({ x, y, terrain, resource, amount: resource ? 8 : 0 });
+type PreviewTile = { x: number; y: number; terrain: string; resource: string | null; amount: number; biome: string };
+
+// A compact JS mirror of the Rust procedural biome world, so the browser preview
+// matches the shipped 128x72 multi-biome continent (regions, biomes, seabed).
+function buildPreviewCivWorld() {
+  const W = 128;
+  const H = 72;
+  const SURF = 6;
+  const BASE = 50;
+  const DEEP = 34;
+  const biomes = [
+    { id: "shallows", name: "Sunlit Shallows", off: -10, deep: false, top: "sand", mid: "sand", low: "earth", res: ["moss", "fiber"] },
+    { id: "kelpforest", name: "Kelp Forest", off: -6, deep: false, top: "moss", mid: "moss", low: "earth", res: ["wood", "fiber", "moss"] },
+    { id: "mudflats", name: "Mud Flats", off: 0, deep: false, top: "mud", mid: "earth", low: "stone", res: ["clay", "clay", "fiber"] },
+    { id: "reedmarsh", name: "Reed Marsh", off: -4, deep: false, top: "moss", mid: "mud", low: "earth", res: ["moss", "wood", "fiber"] },
+    { id: "openwater", name: "Open Water", off: 4, deep: false, top: "sand", mid: "earth", low: "stone", res: ["stone"] },
+    { id: "crystalcave", name: "Crystal Caverns", off: 8, deep: true, top: "crystal", mid: "stone", low: "crystal", res: ["glowshards", "glowshards", "stone"] },
+    { id: "deeptrench", name: "Deep Trench", off: 16, deep: true, top: "stone", mid: "stone", low: "stone", res: ["glowshards", "stone"] },
+    { id: "thermalvent", name: "Thermal Vents", off: 10, deep: true, top: "stone", mid: "earth", low: "stone", res: ["stone", "glowshards", "clay"] },
+  ];
+  const HOME = 3; // reedmarsh band, roughly centred
+  const bandW = W / biomes.length;
+  const colBiome: number[] = [];
+  for (let x = 0; x < W; x += 1) colBiome[x] = Math.min(biomes.length - 1, Math.floor(x / bandW));
+  const floor: number[] = [];
+  for (let x = 0; x < W; x += 1) {
+    const b = biomes[colBiome[x]];
+    const ripple = Math.round(Math.sin(x * 0.16) * 2.6 + Math.sin(x * 0.06) * 1.6);
+    floor[x] = Math.max(SURF + 16, Math.min(H - 4, BASE + b.off + ripple));
+  }
+  const tiles: PreviewTile[] = [];
+  for (let y = 0; y < H; y += 1) {
+    for (let x = 0; x < W; x += 1) {
+      const b = biomes[colBiome[x]];
+      const fl = floor[x];
+      let terrain = "air";
+      let biome = "";
+      if (y < SURF) {
+        terrain = "air";
+      } else if (y < fl) {
+        const deepZone = b.deep && y >= SURF + (fl - SURF) / 3;
+        const nearFloor = y + 5 >= fl;
+        terrain = y >= DEEP && (deepZone || nearFloor) ? "deepwater" : "water";
+        biome = b.id;
+      } else {
+        const d = y - fl;
+        terrain = d < 2 ? b.top : d < 6 ? b.mid : b.low;
+        biome = b.id;
+      }
+      tiles.push({ x, y, terrain, resource: null, amount: 0, biome });
     }
   }
-  return tiles;
+  const place = (res: string, x: number, fy: number, amt: number) => {
+    for (let dy = 0; dy < 2; dy += 1) {
+      for (let dx = 0; dx < 3; dx += 1) {
+        const t = tiles[(fy + dy) * W + (x + dx)];
+        if (t && t.terrain !== "air" && t.terrain !== "water" && t.terrain !== "deepwater") {
+          t.resource = res;
+          t.amount = amt;
+        }
+      }
+    }
+  };
+  biomes.forEach((b, bi) => {
+    const sx = Math.floor(bi * bandW);
+    for (let p = 0; p < 2; p += 1) {
+      const rx = sx + 3 + p * 7;
+      if (rx > 1 && rx < W - 2) place(b.res[p % b.res.length], rx - 1, floor[rx], 8 + p * 3);
+    }
+  });
+  const regions = biomes.map((b, bi) => ({
+    id: `region-${Math.floor(bi * bandW)}`,
+    name: b.name,
+    biome: b.id,
+    x: Math.floor(bi * bandW),
+    y: SURF,
+    width: Math.round(bandW),
+    height: H - SURF,
+    owner: null as string | null,
+  }));
+  return { width: W, height: H, tiles, regions, floor, homeCx: Math.floor(HOME * bandW + bandW / 2) };
 }
 
 function previewCivMeta() {
