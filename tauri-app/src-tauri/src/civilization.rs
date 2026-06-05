@@ -1630,6 +1630,11 @@ fn gather(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionA
     if is_finite_mineral(resource) {
         let pos = nearest_resource_pos(snapshot, civ_id, tile_resource);
         if let Some((tx, ty)) = pos {
+            // Mining BELOW the seabed surface carves a flooded void; mining a surface
+            // block just strips the ore so the seabed stays solid + buildable (keeps
+            // seabed_row_at stable, so default building placement can't fall into a
+            // dug-out crater).
+            let surface = seabed_row_at(&snapshot.world, tx);
             if let Some(tile) = snapshot
                 .world
                 .tiles
@@ -1640,8 +1645,10 @@ fn gather(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionA
                 tile.amount = (tile.amount - mined).max(0);
                 if tile.amount == 0 {
                     tile.resource = None;
-                    tile.terrain = if tile.y >= DEEP_WATER_Y { "deepwater" } else { "water" }.to_string();
-                    dug_out = true;
+                    if ty > surface + 1 {
+                        tile.terrain = if ty >= DEEP_WATER_Y { "deepwater" } else { "water" }.to_string();
+                        dug_out = true;
+                    }
                 }
             } else {
                 mined = 0;
@@ -3289,14 +3296,15 @@ mod tests {
                 t.amount = 0;
             }
         }
-        let ty = seabed_row_at(&s.world, cx);
+        // A BURIED ore block (below the seabed surface) floods when mined out.
+        let ty = seabed_row_at(&s.world, cx) + 5;
         {
             let tile = s
                 .world
                 .tiles
                 .iter_mut()
                 .find(|t| t.x == cx && t.y == ty)
-                .expect("a seabed tile at the colony");
+                .expect("a buried substrate tile below the colony");
             tile.resource = Some("ore".to_string());
             tile.amount = 5;
         }
@@ -3330,5 +3338,42 @@ mod tests {
         gather(&mut s, &cid, &gather_action("food", 8));
         let after = *s.civs[0].resources.get("food").unwrap_or(&0);
         assert_eq!(after - before, 24, "renewables keep a flat yield even with no block");
+    }
+
+    #[test]
+    fn mining_a_surface_block_keeps_the_ground_solid() {
+        // Stripping ore from a seabed-SURFACE block must not flood it — the seabed
+        // stays solid/buildable so default building placement can't fall into a hole.
+        let mut s = initial_snapshot("surf".to_string(), "S".to_string(), "m".to_string(), 5, 1);
+        let cid = first_civ_id(&s);
+        let (cx, _) = colony_center(&s, &cid);
+        for t in s.world.tiles.iter_mut() {
+            if t.resource.as_deref() == Some("stone") {
+                t.resource = None;
+                t.amount = 0;
+            }
+        }
+        let surface = seabed_row_at(&s.world, cx);
+        {
+            let tile = s
+                .world
+                .tiles
+                .iter_mut()
+                .find(|t| t.x == cx && t.y == surface)
+                .expect("the seabed-surface tile");
+            tile.resource = Some("stone".to_string());
+            tile.amount = 3;
+        }
+        gather(&mut s, &cid, &gather_action("stone", 8));
+        let tile = s.world.tiles.iter().find(|t| t.x == cx && t.y == surface).unwrap();
+        assert_eq!(tile.amount, 0);
+        assert!(tile.resource.is_none());
+        assert!(
+            is_substrate(&tile.terrain),
+            "a mined SURFACE block stays solid ground, got {}",
+            tile.terrain
+        );
+        // The seabed top for the column is unchanged (no crater).
+        assert_eq!(seabed_row_at(&s.world, cx), surface);
     }
 }
