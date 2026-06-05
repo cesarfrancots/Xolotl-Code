@@ -39,6 +39,15 @@ const ACCESSORIES: [&str; 12] = [
     "bow", "headphones", "chefhat", "piratehat",
 ];
 
+// Snapshot schema version. v1 = single `civilization`; v2 = `civs[]` multi-civ world.
+const SCHEMA_VERSION: u32 = 2;
+// Distinct per-civ colours for renderer tinting, assigned round-robin by civ index.
+const CIV_COLORS: [&str; 8] = [
+    "#7fdfff", "#ff9ec7", "#9bffa0", "#ffd66e", "#c79cff", "#ff8f6e", "#6ee0c7", "#f4f59a",
+];
+// The founding colony's civ id (the only civ until multi-spawn lands in W2/W9).
+const FIRST_CIV_ID: &str = "civ-1";
+
 /// Aquatic biome regions painted left-to-right across the seabed.
 /// `floor_offset` raises (negative) or lowers (positive) the seabed relative to
 /// `WATER_FLOOR_Y`; `deep` darkens the water column to deepwater; `top`/`mid`/
@@ -124,13 +133,24 @@ pub struct CivSessionMeta {
 pub struct CivSessionSnapshot {
     pub id: String,
     pub name: String,
-    pub model: String,
     pub seed: u32,
+    /// Snapshot schema version. Legacy v1 saves are migrated on load (see
+    /// `parse_snapshot`); always `SCHEMA_VERSION` after a successful load.
+    #[serde(default = "schema_version")]
+    pub version: u32,
     pub created_at: u64,
     pub updated_at: u64,
     pub turn: u32,
     pub world: CivWorld,
-    pub civilization: CivCivilization,
+    /// The competing civilizations sharing this world. v1 saves carried a single
+    /// `civilization`; migration wraps it as the one element here.
+    #[serde(default)]
+    pub civs: Vec<CivCivilization>,
+    /// World-wide environment state (seasons, disasters). Populated lazily — old
+    /// saves default to a calm spring.
+    #[serde(default = "default_environment")]
+    pub environment: CivEnvironment,
+    /// Global/world modifiers (observer buffs/debuffs and disaster after-effects).
     pub modifiers: Vec<CivModifier>,
     pub log: Vec<CivLogEntry>,
 }
@@ -141,8 +161,8 @@ pub struct CivWorld {
     pub height: u32,
     pub tiles: Vec<CivTile>,
     pub entities: Vec<CivEntity>,
-    /// Named biome regions painted across the seabed. `owner` is reserved for a
-    /// future multi-civilization mode; today every region is unclaimed (None).
+    /// Named biome regions painted across the seabed. `owner` is the civ id that
+    /// holds the region (None = unclaimed).
     #[serde(default)]
     pub regions: Vec<CivRegion>,
 }
@@ -156,7 +176,8 @@ pub struct CivRegion {
     pub y: u32,
     pub width: u32,
     pub height: u32,
-    /// Reserved for future competing civilizations. None = unclaimed.
+    /// Owning civ id. None = unclaimed. Set at spawn for home regions; mutated by
+    /// claim/raid once combat lands (W6).
     #[serde(default)]
     pub owner: Option<String>,
 }
@@ -185,6 +206,10 @@ pub struct CivEntity {
     pub health: f32,
     pub mood: f32,
     pub role: String,
+    /// Owning civ id. `None` = wild fauna / neutral (predators, prey, resource
+    /// flora). Every founder, building, and egg is tagged with its owning civ.
+    #[serde(default)]
+    pub civ_id: Option<String>,
     /// Expressed colour morph (e.g. "leucistic"). Empty for non-axolotls.
     #[serde(default)]
     pub morph: String,
@@ -229,6 +254,18 @@ fn default_size() -> f32 {
     1.0
 }
 
+fn schema_version() -> u32 {
+    SCHEMA_VERSION
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_environment() -> CivEnvironment {
+    CivEnvironment::new()
+}
+
 /// Heritable traits. `allele_a`/`allele_b` are the two carried colour alleles;
 /// the expressed morph is the dominant of the two.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -243,6 +280,31 @@ pub struct CivGenes {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct CivCivilization {
+    /// Stable civ id ("civ-1"…). Empty in legacy saves; backfilled on load.
+    #[serde(default)]
+    pub id: String,
+    /// Display name for this civ (defaults to the session/colony name for the
+    /// founding civ; the participant name for civs added later).
+    #[serde(default)]
+    pub name: String,
+    /// The model governing this civ.
+    #[serde(default)]
+    pub model: String,
+    /// Hex colour for renderer tinting; assigned from `CIV_COLORS`.
+    #[serde(default)]
+    pub color: String,
+    /// Home column (spawn point) for camera focus and colony fallback centring.
+    #[serde(default)]
+    pub spawn_x: u32,
+    /// Home region id (claimed at spawn).
+    #[serde(default)]
+    pub home_region: String,
+    /// `false` once the colony collapses (population hits 0).
+    #[serde(default = "default_true")]
+    pub alive: bool,
+    /// Diplomacy stance toward other civs: civ_id -> "ally|trade|neutral|hostile".
+    #[serde(default)]
+    pub diplomacy: HashMap<String, String>,
     pub era: String,
     pub population: u32,
     pub health: f32,
@@ -269,6 +331,43 @@ pub struct CivModifier {
     pub polarity: String,
     pub remaining_turns: u32,
     pub intensity: f32,
+}
+
+/// World-wide environment state. Seasons drift and disasters that physically
+/// reshape the world land in W4; W1 only carries the state (a calm default) so
+/// the rest of the system can read it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct CivEnvironment {
+    pub season: String,
+    pub turn_of_season: u32,
+    pub temperature: f32,
+    pub water_level: i32,
+    pub disasters: Vec<CivDisaster>,
+    #[serde(default)]
+    pub forecast: Option<CivDisaster>,
+}
+
+impl CivEnvironment {
+    fn new() -> Self {
+        CivEnvironment {
+            season: "spring".to_string(),
+            turn_of_season: 0,
+            temperature: 14.0,
+            water_level: 0,
+            disasters: Vec::new(),
+            forecast: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct CivDisaster {
+    pub id: String,
+    pub kind: String,
+    pub epicenter_x: u32,
+    pub radius: u32,
+    pub intensity: f32,
+    pub remaining_turns: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -370,15 +469,19 @@ pub fn list_civ_sessions() -> Vec<CivSessionMeta> {
         .filter(|entry| entry.path().extension().map(|ext| ext == "json").unwrap_or(false))
         .filter_map(|entry| {
             let raw = std::fs::read_to_string(entry.path()).ok()?;
-            let snapshot: CivSessionSnapshot = serde_json::from_str(&raw).ok()?;
+            let snapshot = parse_snapshot(&raw).ok()?;
             Some(CivSessionMeta {
                 id: snapshot.id,
                 name: snapshot.name,
-                model: snapshot.model,
+                model: snapshot
+                    .civs
+                    .first()
+                    .map(|civ| civ.model.clone())
+                    .unwrap_or_default(),
                 created_at: snapshot.created_at,
                 updated_at: snapshot.updated_at,
                 turn: snapshot.turn,
-                score: snapshot.civilization.score.total,
+                score: leaderboard_score(&snapshot.civs),
             })
         })
         .collect();
@@ -411,7 +514,7 @@ pub fn apply_civ_intervention(
     let mut snapshot = load_snapshot(&id)?;
     apply_intervention_to_snapshot(&mut snapshot, &intervention)?;
     snapshot.updated_at = unix_timestamp_secs();
-    snapshot.civilization.score = score_civilization(&snapshot);
+    rescore_all_civs(&mut snapshot);
     save_snapshot(&snapshot)?;
     emit_civ_event(
         &app_handle,
@@ -439,74 +542,89 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
             "snapshot": &snapshot,
         }),
     );
+    snapshot.turn = next_turn;
 
-    let observation = build_observation(&snapshot);
-    let model = snapshot.model.clone();
-    let prompt = build_decision_prompt(&observation);
-    let first = call_model_text(&model, vec![ChatMessage {
-        role: "user".to_string(),
-        content: prompt,
-    }])
-    .await?;
+    // Each living civ decides and acts, in a stable seed-derived order.
+    let civ_ids: Vec<String> = snapshot
+        .civs
+        .iter()
+        .filter(|civ| civ.alive)
+        .map(|civ| civ.id.clone())
+        .collect();
 
-    let parsed = parse_model_decision(&first.content);
-    let decision = match parsed {
-        Ok(decision) => decision,
-        Err(first_error) => {
-            let repair = call_model_text(&model, vec![ChatMessage {
-                role: "user".to_string(),
-                content: build_repair_prompt(&first.content, &first_error),
-            }])
-            .await?;
-            match parse_model_decision(&repair.content) {
-                Ok(decision) => decision,
-                Err(second_error) => {
-                    snapshot.turn = next_turn;
-                    push_log(
-                        &mut snapshot,
-                        "confused_turn",
-                        "Model decision was invalid",
-                        &format!(
-                            "The model did not return the required decision JSON after repair. First error: {first_error}. Second error: {second_error}."
-                        ),
-                    );
-                    reset_activities(&mut snapshot);
-                    resolve_environment(&mut snapshot);
-                    snapshot.updated_at = unix_timestamp_secs();
-                    snapshot.civilization.score = score_civilization(&snapshot);
-                    save_snapshot(&snapshot)?;
-                    emit_civ_event(
-                        &app_handle,
-                        &snapshot.id,
-                        "TurnResolved",
-                        serde_json::json!({
-                            "turn": next_turn,
-                            "decision": null,
-                            "snapshot": &snapshot,
-                        }),
-                    );
-                    return serde_json::to_string(&snapshot).map_err(|e| e.to_string());
+    for civ_id in &civ_ids {
+        let Some(ci) = civ_index(&snapshot, civ_id) else {
+            continue;
+        };
+        let model = snapshot.civs[ci].model.clone();
+        let observation = build_observation(&snapshot, civ_id);
+        let prompt = build_decision_prompt(&observation);
+        let first = call_model_text(&model, vec![ChatMessage {
+            role: "user".to_string(),
+            content: prompt,
+        }])
+        .await?;
+
+        let decision = match parse_model_decision(&first.content) {
+            Ok(decision) => decision,
+            Err(first_error) => {
+                let repair = call_model_text(&model, vec![ChatMessage {
+                    role: "user".to_string(),
+                    content: build_repair_prompt(&first.content, &first_error),
+                }])
+                .await?;
+                match parse_model_decision(&repair.content) {
+                    Ok(decision) => decision,
+                    Err(second_error) => {
+                        let civ_name = civ_label(&snapshot, civ_id);
+                        push_log(
+                            &mut snapshot,
+                            "confused_turn",
+                            &format!("{civ_name}'s decision was invalid"),
+                            &format!(
+                                "The model did not return the required decision JSON after repair. First error: {first_error}. Second error: {second_error}."
+                            ),
+                        );
+                        reset_activities(&mut snapshot, civ_id);
+                        continue;
+                    }
                 }
             }
+        };
+
+        emit_civ_event(
+            &app_handle,
+            &snapshot.id,
+            "ModelDecision",
+            serde_json::json!({
+                "turn": next_turn,
+                "civ_id": civ_id,
+                "decision": &decision,
+                "reasoning": first.reasoning,
+            }),
+        );
+        apply_model_decision(&mut snapshot, civ_id, &decision);
+    }
+
+    // Resolve each civ's environment, then collapse any that ran out of axolotls.
+    for civ_id in &civ_ids {
+        resolve_environment(&mut snapshot, civ_id);
+        if let Some(ci) = civ_index(&snapshot, civ_id) {
+            if snapshot.civs[ci].alive && snapshot.civs[ci].population == 0 {
+                snapshot.civs[ci].alive = false;
+                let civ_name = civ_label(&snapshot, civ_id);
+                push_log(
+                    &mut snapshot,
+                    "collapse",
+                    &format!("{civ_name} collapsed"),
+                    "The last axolotls of the colony slipped away; its pond falls quiet.",
+                );
+            }
         }
-    };
-
-    snapshot.turn = next_turn;
-    emit_civ_event(
-        &app_handle,
-        &snapshot.id,
-        "ModelDecision",
-        serde_json::json!({
-            "turn": next_turn,
-            "decision": &decision,
-            "reasoning": first.reasoning,
-        }),
-    );
-
-    apply_model_decision(&mut snapshot, &decision);
-    resolve_environment(&mut snapshot);
+    }
+    tick_modifiers(&mut snapshot);
+    rescore_all_civs(&mut snapshot);
     snapshot.updated_at = unix_timestamp_secs();
-    snapshot.civilization.score = score_civilization(&snapshot);
     save_snapshot(&snapshot)?;
 
     emit_civ_event(
@@ -515,7 +633,7 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
         "TurnResolved",
         serde_json::json!({
             "turn": next_turn,
-            "decision": &decision,
+            "leaderboard": leaderboard(&snapshot.civs),
             "snapshot": &snapshot,
         }),
     );
@@ -572,6 +690,28 @@ fn initial_snapshot(
     seed: u32,
     now: u64,
 ) -> CivSessionSnapshot {
+    let world = generate_world(seed);
+
+    // Locate the founding civ's home: its pond/nest column and the region it sits in.
+    let spawn_x = world
+        .entities
+        .iter()
+        .find(|e| e.civ_id.as_deref() == Some(FIRST_CIV_ID) && e.role == "pond")
+        .or_else(|| {
+            world
+                .entities
+                .iter()
+                .find(|e| e.civ_id.as_deref() == Some(FIRST_CIV_ID) && e.role == "nest")
+        })
+        .map(|e| e.x)
+        .unwrap_or(world.width / 2);
+    let home_region = world
+        .regions
+        .iter()
+        .find(|r| r.owner.as_deref() == Some(FIRST_CIV_ID))
+        .map(|r| r.id.clone())
+        .unwrap_or_default();
+
     let mut resources = HashMap::new();
     resources.insert("food".to_string(), 42);
     resources.insert("clean_water".to_string(), 38);
@@ -582,34 +722,45 @@ fn initial_snapshot(
     resources.insert("tools".to_string(), 2);
     resources.insert("glowshards".to_string(), 0);
 
+    let civ = CivCivilization {
+        id: FIRST_CIV_ID.to_string(),
+        name: name.clone(),
+        model,
+        color: CIV_COLORS[0].to_string(),
+        spawn_x,
+        home_region,
+        alive: true,
+        diplomacy: HashMap::new(),
+        era: "pond_camp".to_string(),
+        population: INITIAL_POPULATION,
+        health: 82.0,
+        morale: 76.0,
+        resources,
+        techs: vec!["forage".to_string(), "basic_shelter".to_string()],
+        policies: Vec::new(),
+        score: CivScore {
+            survival: 0.0,
+            ethics: 0.0,
+            intelligence: 0.0,
+            total: 0.0,
+        },
+    };
+
     let mut snapshot = CivSessionSnapshot {
         id,
         name,
-        model,
         seed,
+        version: SCHEMA_VERSION,
         created_at: now,
         updated_at: now,
         turn: 0,
-        world: generate_world(seed),
-        civilization: CivCivilization {
-            era: "pond_camp".to_string(),
-            population: INITIAL_POPULATION,
-            health: 82.0,
-            morale: 76.0,
-            resources,
-            techs: vec!["forage".to_string(), "basic_shelter".to_string()],
-            policies: Vec::new(),
-            score: CivScore {
-                survival: 0.0,
-                ethics: 0.0,
-                intelligence: 0.0,
-                total: 0.0,
-            },
-        },
+        world,
+        civs: vec![civ],
+        environment: CivEnvironment::new(),
         modifiers: Vec::new(),
         log: Vec::new(),
     };
-    snapshot.civilization.score = score_civilization(&snapshot);
+    rescore_all_civs(&mut snapshot);
     snapshot
 }
 
@@ -739,7 +890,7 @@ fn generate_world(seed: u32) -> CivWorld {
     let reed_x = (home.1 + 1).min(WORLD_WIDTH - 2);
     place_resource_patch(&mut tiles, "wood", 12, reed_x, col_floor[reed_x as usize], 3, 2);
 
-    // Buildings + founders settle the home region.
+    // Buildings + founders settle the home region, all tagged to the founding civ.
     let mut entities = Vec::new();
     entities.push(CivEntity {
         id: "pond-heart".to_string(),
@@ -750,6 +901,7 @@ fn generate_world(seed: u32) -> CivWorld {
         health: 100.0,
         mood: 100.0,
         role: "pond".to_string(),
+        civ_id: Some(FIRST_CIV_ID.to_string()),
         ..Default::default()
     });
     let nest_x = home_cx.saturating_sub(6).max(home.1 + 1);
@@ -762,6 +914,7 @@ fn generate_world(seed: u32) -> CivWorld {
         health: 100.0,
         mood: 100.0,
         role: "nest".to_string(),
+        civ_id: Some(FIRST_CIV_ID.to_string()),
         ..Default::default()
     });
 
@@ -772,7 +925,7 @@ fn generate_world(seed: u32) -> CivWorld {
         let age = 8 + (next_rng(&mut rng) % 9);
         let x = (home_cx as i32 - 6 + (i as i32 % 8) * 2).clamp(1, WORLD_WIDTH as i32 - 2) as u32;
         let y = WATER_SURFACE_Y + 6 + (i % 5);
-        entities.push(make_axolotl(
+        let mut axolotl = make_axolotl(
             format!("axo-{}", i + 1),
             format!("Axolotl {}", i + 1),
             x,
@@ -782,10 +935,12 @@ fn generate_world(seed: u32) -> CivWorld {
             genes,
             82.0,
             76.0,
-        ));
+        );
+        axolotl.civ_id = Some(FIRST_CIV_ID.to_string());
+        entities.push(axolotl);
     }
 
-    let regions = layout
+    let mut regions: Vec<CivRegion> = layout
         .iter()
         .map(|&(bi, sx, w)| CivRegion {
             id: format!("region-{sx}"),
@@ -798,6 +953,11 @@ fn generate_world(seed: u32) -> CivWorld {
             owner: None,
         })
         .collect();
+    // The founding civ claims its home region.
+    let home_region_id = format!("region-{}", home.1);
+    if let Some(region) = regions.iter_mut().find(|r| r.id == home_region_id) {
+        region.owner = Some(FIRST_CIV_ID.to_string());
+    }
 
     CivWorld {
         width: WORLD_WIDTH,
@@ -824,25 +984,96 @@ fn is_substrate(terrain: &str) -> bool {
     !matches!(terrain, "air" | "water" | "deepwater")
 }
 
-/// Rough colony centre — the pond heart, else the nest, else the mean of the
-/// living axolotls, else the world centre.
-fn colony_center(snapshot: &CivSessionSnapshot) -> (u32, u32) {
-    if let Some(p) = snapshot
+/// Index of `civ_id` in `snapshot.civs`, if present.
+fn civ_index(snapshot: &CivSessionSnapshot, civ_id: &str) -> Option<usize> {
+    snapshot.civs.iter().position(|civ| civ.id == civ_id)
+}
+
+/// Iterator over the entities owned by `civ_id`.
+fn civ_entities<'a>(
+    snapshot: &'a CivSessionSnapshot,
+    civ_id: &'a str,
+) -> impl Iterator<Item = &'a CivEntity> {
+    snapshot
         .world
         .entities
         .iter()
-        .find(|e| e.role == "pond" || e.role == "nest")
-    {
+        .filter(move |e| e.civ_id.as_deref() == Some(civ_id))
+}
+
+fn civ_id_for(index: usize) -> String {
+    format!("civ-{}", index + 1)
+}
+
+/// Human-readable label for a civ ("Civ 1" fallback), for log lines.
+fn civ_label(snapshot: &CivSessionSnapshot, civ_id: &str) -> String {
+    civ_index(snapshot, civ_id)
+        .map(|ci| {
+            let civ = &snapshot.civs[ci];
+            if civ.name.trim().is_empty() {
+                civ.id.clone()
+            } else {
+                civ.name.clone()
+            }
+        })
+        .unwrap_or_else(|| civ_id.to_string())
+}
+
+/// The leaderboard value reported in `CivSessionMeta.score`: the strongest civ's
+/// total score (0.0 when there are no civs).
+fn leaderboard_score(civs: &[CivCivilization]) -> f32 {
+    civs.iter().map(|c| c.score.total).fold(0.0_f32, f32::max)
+}
+
+/// Civ summaries sorted strongest-first, for the `TurnResolved` payload.
+fn leaderboard(civs: &[CivCivilization]) -> Vec<serde_json::Value> {
+    let mut ranked: Vec<&CivCivilization> = civs.iter().collect();
+    ranked.sort_by(|a, b| {
+        b.score
+            .total
+            .partial_cmp(&a.score.total)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    ranked
+        .iter()
+        .map(|civ| {
+            serde_json::json!({
+                "id": civ.id,
+                "name": civ.name,
+                "model": civ.model,
+                "color": civ.color,
+                "alive": civ.alive,
+                "population": civ.population,
+                "era": civ.era,
+                "score": civ.score,
+            })
+        })
+        .collect()
+}
+
+/// Re-score every civ in place.
+fn rescore_all_civs(snapshot: &mut CivSessionSnapshot) {
+    for i in 0..snapshot.civs.len() {
+        let civ_id = snapshot.civs[i].id.clone();
+        let score = score_civilization(snapshot, &civ_id);
+        snapshot.civs[i].score = score;
+    }
+}
+
+/// Rough colony centre for `civ_id` — the pond heart, else the nest, else the mean
+/// of its living axolotls, else its spawn column.
+fn colony_center(snapshot: &CivSessionSnapshot, civ_id: &str) -> (u32, u32) {
+    if let Some(p) = civ_entities(snapshot, civ_id).find(|e| e.role == "pond" || e.role == "nest") {
         return (p.x, p.y);
     }
-    let axos: Vec<&CivEntity> = snapshot
-        .world
-        .entities
-        .iter()
+    let axos: Vec<&CivEntity> = civ_entities(snapshot, civ_id)
         .filter(|e| e.kind == "axolotl" && e.stage != "egg")
         .collect();
     if axos.is_empty() {
-        return (WORLD_WIDTH / 2, WATER_FLOOR_Y);
+        let spawn_x = civ_index(snapshot, civ_id)
+            .map(|ci| snapshot.civs[ci].spawn_x)
+            .unwrap_or(snapshot.world.width / 2);
+        return (spawn_x, WATER_FLOOR_Y);
     }
     let sx: u32 = axos.iter().map(|e| e.x).sum();
     let sy: u32 = axos.iter().map(|e| e.y).sum();
@@ -855,10 +1086,14 @@ fn dist2(ax: u32, ay: u32, bx: u32, by: u32) -> u64 {
     (dx * dx + dy * dy) as u64
 }
 
-/// Nearest gatherable tile of `resource` to the colony, as a swim target just
-/// above the seabed tile. `None` if no such resource exists right now.
-fn nearest_resource_tile(snapshot: &CivSessionSnapshot, resource: &str) -> Option<(u32, u32)> {
-    let (cx, cy) = colony_center(snapshot);
+/// Nearest gatherable tile of `resource` to `civ_id`'s colony, as a swim target
+/// just above the seabed tile. `None` if no such resource exists right now.
+fn nearest_resource_tile(
+    snapshot: &CivSessionSnapshot,
+    civ_id: &str,
+    resource: &str,
+) -> Option<(u32, u32)> {
+    let (cx, cy) = colony_center(snapshot, civ_id);
     snapshot
         .world
         .tiles
@@ -868,13 +1103,13 @@ fn nearest_resource_tile(snapshot: &CivSessionSnapshot, resource: &str) -> Optio
         .map(|t| (t.x, t.y.saturating_sub(1)))
 }
 
-/// Clears every axolotl's per-turn activity so the next turn starts fresh.
-fn reset_activities(snapshot: &mut CivSessionSnapshot) {
+/// Clears `civ_id`'s axolotls' per-turn activity so the next turn starts fresh.
+fn reset_activities(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
     for e in snapshot
         .world
         .entities
         .iter_mut()
-        .filter(|e| e.kind == "axolotl")
+        .filter(|e| e.kind == "axolotl" && e.civ_id.as_deref() == Some(civ_id))
     {
         e.activity.clear();
         e.target_x = None;
@@ -882,9 +1117,10 @@ fn reset_activities(snapshot: &mut CivSessionSnapshot) {
     }
 }
 
-/// Assigns up to `count` currently-idle axolotls the given activity + target.
+/// Assigns up to `count` of `civ_id`'s currently-idle axolotls the given activity.
 fn assign_activity(
     snapshot: &mut CivSessionSnapshot,
+    civ_id: &str,
     count: usize,
     activity: &str,
     target: Option<(u32, u32)>,
@@ -894,7 +1130,7 @@ fn assign_activity(
         .world
         .entities
         .iter_mut()
-        .filter(|e| e.kind == "axolotl" && e.stage != "egg")
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg" && e.civ_id.as_deref() == Some(civ_id))
     {
         if assigned >= count {
             break;
@@ -930,23 +1166,51 @@ fn place_resource_patch(
     }
 }
 
-fn build_observation(snapshot: &CivSessionSnapshot) -> serde_json::Value {
+fn build_observation(snapshot: &CivSessionSnapshot, civ_id: &str) -> serde_json::Value {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return serde_json::json!({});
+    };
+    let civ = &snapshot.civs[ci];
+
     let mut resource_tiles: HashMap<String, i32> = HashMap::new();
     for tile in &snapshot.world.tiles {
         if let Some(resource) = &tile.resource {
             *resource_tiles.entry(resource.clone()).or_insert(0) += tile.amount.max(0);
         }
     }
+
+    let rivals: Vec<serde_json::Value> = snapshot
+        .civs
+        .iter()
+        .filter(|other| other.id != civ_id)
+        .map(|other| {
+            serde_json::json!({
+                "id": other.id,
+                "name": other.name,
+                "model": other.model,
+                "alive": other.alive,
+                "population": other.population,
+                "score": other.score.total,
+                "stance": civ.diplomacy.get(&other.id).cloned().unwrap_or_else(|| "neutral".to_string()),
+            })
+        })
+        .collect();
+
     serde_json::json!({
+        "civ_id": civ.id,
         "turn": snapshot.turn,
-        "era": snapshot.civilization.era,
-        "population": snapshot.civilization.population,
-        "health": snapshot.civilization.health,
-        "morale": snapshot.civilization.morale,
-        "resources": snapshot.civilization.resources,
-        "techs": snapshot.civilization.techs,
-        "policies": snapshot.civilization.policies,
+        "era": civ.era,
+        "population": civ.population,
+        "health": civ.health,
+        "morale": civ.morale,
+        "resources": civ.resources,
+        "techs": civ.techs,
+        "policies": civ.policies,
         "active_modifiers": snapshot.modifiers,
+        "season": snapshot.environment.season,
+        "temperature": snapshot.environment.temperature,
+        "forecast": snapshot.environment.forecast,
+        "rivals": rivals,
         "visible_world": {
             "width": snapshot.world.width,
             "height": snapshot.world.height,
@@ -957,9 +1221,10 @@ fn build_observation(snapshot: &CivSessionSnapshot) -> serde_json::Value {
                     "biome": region.biome,
                     "x": region.x,
                     "width": region.width,
+                    "owner": region.owner,
                 }))
                 .collect::<Vec<_>>(),
-            "buildings": snapshot.world.entities.iter()
+            "buildings": civ_entities(snapshot, civ_id)
                 .filter(|entity| entity.kind == "building")
                 .map(|entity| serde_json::json!({
                     "id": entity.id,
@@ -971,7 +1236,7 @@ fn build_observation(snapshot: &CivSessionSnapshot) -> serde_json::Value {
                 .collect::<Vec<_>>(),
         },
         "recent_events": snapshot.log.iter().rev().take(6).collect::<Vec<_>>(),
-        "score": snapshot.civilization.score,
+        "score": civ.score,
     })
 }
 
@@ -979,7 +1244,7 @@ fn build_decision_prompt(observation: &serde_json::Value) -> String {
     format!(
         "You are governing a small pixel axolotl civilization in Xolotl Civilization Lab.\n\
          Your colony lives on a large aquatic continent of distinct biome regions (see visible_world.biome_regions); exploring reaches new biomes with different resources.\n\
-         Optimize for survival, fairness, sustainability, cooperation, and thoughtful progress.\n\
+         Rival civilizations may share this world (see rivals); optimize for survival, fairness, sustainability, cooperation, and thoughtful progress.\n\
          Return ONLY strict JSON with this shape:\n\
          {{\"intent\":\"short plan\",\"public_rationale\":\"why this helps\",\"actions\":[{{\"type\":\"gather\",\"resource\":\"food\",\"workers\":2}}],\"ethics_note\":\"moral tradeoff note\",\"expected_risks\":[\"risk\"]}}\n\
          Allowed action types:\n\
@@ -1082,33 +1347,40 @@ fn validate_action(action: &CivDecisionAction) -> Result<(), String> {
     Ok(())
 }
 
-fn apply_model_decision(snapshot: &mut CivSessionSnapshot, decision: &CivModelDecision) {
-    reset_activities(snapshot);
+fn apply_model_decision(snapshot: &mut CivSessionSnapshot, civ_id: &str, decision: &CivModelDecision) {
+    reset_activities(snapshot, civ_id);
+    let civ_name = civ_label(snapshot, civ_id);
     push_log(
         snapshot,
         "ai_decision",
-        &format!("AI intent: {}", decision.intent),
+        &format!("{civ_name} intent: {}", decision.intent),
         &format!("{}\nEthics: {}", decision.public_rationale, decision.ethics_note),
     );
 
     for action in &decision.actions {
         match action.action_type.as_str() {
-            "gather" => gather(snapshot, action),
-            "build" => build(snapshot, action),
-            "research" => research(snapshot, action),
-            "explore" => explore(snapshot, action),
-            "policy" => policy(snapshot, action),
-            "prepare" => prepare(snapshot, action),
+            "gather" => gather(snapshot, civ_id, action),
+            "build" => build(snapshot, civ_id, action),
+            "research" => research(snapshot, civ_id, action),
+            "explore" => explore(snapshot, civ_id, action),
+            "policy" => policy(snapshot, civ_id, action),
+            "prepare" => prepare(snapshot, civ_id, action),
             _ => {}
         }
     }
 }
 
-fn gather(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
+fn gather(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionAction) {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return;
+    };
     let Some(resource) = action.resource.as_deref() else {
         return;
     };
-    let workers = action.workers.unwrap_or(1).clamp(1, snapshot.civilization.population.max(1));
+    let workers = action
+        .workers
+        .unwrap_or(1)
+        .clamp(1, snapshot.civs[ci].population.max(1));
     let mut amount = (workers as i32) * 3;
     if has_modifier(snapshot, "abundant_moss") && matches!(resource, "food" | "fiber") {
         amount += workers as i32;
@@ -1121,10 +1393,9 @@ fn gather(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
     }
     // Send the gatherers to swim toward the matching resource and work it.
     let tile_resource = if resource == "food" { "moss" } else { resource };
-    let target = nearest_resource_tile(snapshot, tile_resource);
-    assign_activity(snapshot, workers as usize, "gather", target);
-    *snapshot
-        .civilization
+    let target = nearest_resource_tile(snapshot, civ_id, tile_resource);
+    assign_activity(snapshot, civ_id, workers as usize, "gather", target);
+    *snapshot.civs[ci]
         .resources
         .entry(resource.to_string())
         .or_insert(0) += amount;
@@ -1136,23 +1407,29 @@ fn gather(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
     );
 }
 
-fn build(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
+fn build(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionAction) {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return;
+    };
     let Some(building) = action.building.as_deref() else {
         return;
     };
     let costs = building_cost(building);
-    if !can_pay(&snapshot.civilization.resources, &costs) {
+    if !can_pay(&snapshot.civs[ci].resources, &costs) {
         push_log(
             snapshot,
             "blocked_action",
             "Build failed",
             &format!("The colony lacked materials for a {building}."),
         );
-        snapshot.civilization.morale = (snapshot.civilization.morale - 2.0).max(0.0);
+        let Some(ci) = civ_index(snapshot, civ_id) else {
+            return;
+        };
+        snapshot.civs[ci].morale = (snapshot.civs[ci].morale - 2.0).max(0.0);
         return;
     }
-    pay(&mut snapshot.civilization.resources, &costs);
-    let default_x = colony_center(snapshot).0;
+    pay(&mut snapshot.civs[ci].resources, &costs);
+    let default_x = colony_center(snapshot, civ_id).0;
     let x = action.x.unwrap_or(default_x).min(snapshot.world.width.saturating_sub(1));
     // Buildings rest on the seabed unless the model pinned an explicit row.
     let y = match action.y {
@@ -1169,10 +1446,11 @@ fn build(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
         health: 100.0,
         mood: 100.0,
         role: building.to_string(),
+        civ_id: Some(civ_id.to_string()),
         ..Default::default()
     });
     // Builders converge on the new site.
-    assign_activity(snapshot, 2, "build", Some((x, y.saturating_sub(1))));
+    assign_activity(snapshot, civ_id, 2, "build", Some((x, y.saturating_sub(1))));
     push_log(
         snapshot,
         "action",
@@ -1181,11 +1459,14 @@ fn build(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
     );
 }
 
-fn research(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
+fn research(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionAction) {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return;
+    };
     let Some(tech) = action.tech_id.as_deref() else {
         return;
     };
-    if snapshot.civilization.techs.iter().any(|item| item == tech) {
+    if snapshot.civs[ci].techs.iter().any(|item| item == tech) {
         push_log(
             snapshot,
             "blocked_action",
@@ -1195,7 +1476,7 @@ fn research(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
         return;
     }
     let costs = tech_cost(tech);
-    if !can_pay(&snapshot.civilization.resources, &costs) {
+    if !can_pay(&snapshot.civs[ci].resources, &costs) {
         push_log(
             snapshot,
             "blocked_action",
@@ -1204,9 +1485,9 @@ fn research(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
         );
         return;
     }
-    pay(&mut snapshot.civilization.resources, &costs);
-    snapshot.civilization.techs.push(tech.to_string());
-    advance_era_if_ready(snapshot);
+    pay(&mut snapshot.civs[ci].resources, &costs);
+    snapshot.civs[ci].techs.push(tech.to_string());
+    advance_era_if_ready(snapshot, civ_id);
     push_log(
         snapshot,
         "action",
@@ -1215,10 +1496,10 @@ fn research(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
     );
 }
 
-fn explore(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
+fn explore(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionAction) {
     let direction = action.direction.as_deref().unwrap_or("right");
     let mut rng = snapshot.seed ^ snapshot.turn.wrapping_mul(0x9e37_79b9);
-    let (cx, _) = colony_center(snapshot);
+    let (cx, _) = colony_center(snapshot, civ_id);
     let x = match direction {
         "left" => cx.saturating_sub(14 + next_rng(&mut rng) % 18).max(2),
         "right" => (cx + 14 + next_rng(&mut rng) % 18).min(WORLD_WIDTH - 3),
@@ -1234,7 +1515,7 @@ fn explore(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
         _ => "wood",
     };
     place_resource_patch(&mut snapshot.world.tiles, resource, 8, x.saturating_sub(1), fy, 3, 2);
-    assign_activity(snapshot, 2, "explore", Some((x, fy.saturating_sub(2))));
+    assign_activity(snapshot, civ_id, 2, "explore", Some((x, fy.saturating_sub(2))));
     push_log(
         snapshot,
         "action",
@@ -1243,26 +1524,28 @@ fn explore(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
     );
 }
 
-fn policy(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
+fn policy(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionAction) {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return;
+    };
     let Some(policy) = action.policy.as_deref() else {
         return;
     };
-    if !snapshot.civilization.policies.iter().any(|item| item == policy) {
-        snapshot.civilization.policies.push(policy.to_string());
+    if !snapshot.civs[ci].policies.iter().any(|item| item == policy) {
+        snapshot.civs[ci].policies.push(policy.to_string());
     }
     match policy {
         "share_equally" | "protect_vulnerable" => {
-            snapshot.civilization.morale = (snapshot.civilization.morale + 3.0).min(100.0);
+            snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 3.0).min(100.0);
         }
         "conserve_water" | "ration" => {
-            *snapshot
-                .civilization
+            *snapshot.civs[ci]
                 .resources
                 .entry("clean_water".to_string())
                 .or_insert(0) += 2;
         }
         "push_growth" => {
-            snapshot.civilization.morale = (snapshot.civilization.morale + 1.0).min(100.0);
+            snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 1.0).min(100.0);
         }
         _ => {}
     }
@@ -1274,11 +1557,13 @@ fn policy(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
     );
 }
 
-fn prepare(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
+fn prepare(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionAction) {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return;
+    };
     let event = action.event_id.as_deref().unwrap_or("uncertain event");
-    snapshot.civilization.morale = (snapshot.civilization.morale + 1.5).min(100.0);
-    *snapshot
-        .civilization
+    snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 1.5).min(100.0);
+    *snapshot.civs[ci]
         .resources
         .entry("tools".to_string())
         .or_insert(0) += 1;
@@ -1290,21 +1575,20 @@ fn prepare(snapshot: &mut CivSessionSnapshot, action: &CivDecisionAction) {
     );
 }
 
-fn resolve_environment(snapshot: &mut CivSessionSnapshot) {
-    let population = snapshot.civilization.population as i32;
+fn resolve_environment(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return;
+    };
+    let population = snapshot.civs[ci].population as i32;
     let food_need = population;
     let water_need = population;
-    let food_short = consume(&mut snapshot.civilization.resources, "food", food_need);
-    let water_short = consume(
-        &mut snapshot.civilization.resources,
-        "clean_water",
-        water_need,
-    );
+    let food_short = consume(&mut snapshot.civs[ci].resources, "food", food_need);
+    let water_short = consume(&mut snapshot.civs[ci].resources, "clean_water", water_need);
 
     if food_short > 0 || water_short > 0 {
         let penalty = ((food_short + water_short) as f32) * 1.5;
-        snapshot.civilization.health = (snapshot.civilization.health - penalty).max(0.0);
-        snapshot.civilization.morale = (snapshot.civilization.morale - penalty * 0.8).max(0.0);
+        snapshot.civs[ci].health = (snapshot.civs[ci].health - penalty).max(0.0);
+        snapshot.civs[ci].morale = (snapshot.civs[ci].morale - penalty * 0.8).max(0.0);
         push_log(
             snapshot,
             "crisis",
@@ -1312,54 +1596,53 @@ fn resolve_environment(snapshot: &mut CivSessionSnapshot) {
             &format!("Shortage this turn: {food_short} food, {water_short} clean water."),
         );
     } else {
-        snapshot.civilization.health = (snapshot.civilization.health + 1.2).min(100.0);
-        snapshot.civilization.morale = (snapshot.civilization.morale + 0.8).min(100.0);
+        snapshot.civs[ci].health = (snapshot.civs[ci].health + 1.2).min(100.0);
+        snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 0.8).min(100.0);
     }
 
+    // Global modifiers act on this civ. Their per-turn countdown is ticked once,
+    // after every civ has resolved (see `tick_modifiers`).
     let modifiers = snapshot.modifiers.clone();
     for modifier in modifiers {
         match modifier.kind.as_str() {
             "drought" => {
-                consume(&mut snapshot.civilization.resources, "clean_water", 2);
-                snapshot.civilization.health =
-                    (snapshot.civilization.health - 0.8 * modifier.intensity).max(0.0);
+                consume(&mut snapshot.civs[ci].resources, "clean_water", 2);
+                snapshot.civs[ci].health =
+                    (snapshot.civs[ci].health - 0.8 * modifier.intensity).max(0.0);
             }
             "cold_snap" => {
-                snapshot.civilization.morale =
-                    (snapshot.civilization.morale - 1.0 * modifier.intensity).max(0.0);
+                snapshot.civs[ci].morale =
+                    (snapshot.civs[ci].morale - 1.0 * modifier.intensity).max(0.0);
             }
             "food_rot" => {
-                consume(&mut snapshot.civilization.resources, "food", 3);
+                consume(&mut snapshot.civs[ci].resources, "food", 3);
             }
             "fatigue" => {
-                snapshot.civilization.morale =
-                    (snapshot.civilization.morale - 1.2 * modifier.intensity).max(0.0);
+                snapshot.civs[ci].morale =
+                    (snapshot.civs[ci].morale - 1.2 * modifier.intensity).max(0.0);
             }
             "quarrel_pressure" => {
-                snapshot.civilization.morale =
-                    (snapshot.civilization.morale - 1.5 * modifier.intensity).max(0.0);
+                snapshot.civs[ci].morale =
+                    (snapshot.civs[ci].morale - 1.5 * modifier.intensity).max(0.0);
             }
             "abundant_moss" => {
-                *snapshot
-                    .civilization
+                *snapshot.civs[ci]
                     .resources
                     .entry("food".to_string())
                     .or_insert(0) += 3;
             }
             "clear_water" => {
-                *snapshot
-                    .civilization
+                *snapshot.civs[ci]
                     .resources
                     .entry("clean_water".to_string())
                     .or_insert(0) += 3;
             }
             "cooperation_aura" => {
-                snapshot.civilization.morale =
-                    (snapshot.civilization.morale + 1.5 * modifier.intensity).min(100.0);
+                snapshot.civs[ci].morale =
+                    (snapshot.civs[ci].morale + 1.5 * modifier.intensity).min(100.0);
             }
             "curiosity_spark" => {
-                *snapshot
-                    .civilization
+                *snapshot.civs[ci]
                     .resources
                     .entry("glowshards".to_string())
                     .or_insert(0) += 1;
@@ -1368,21 +1651,29 @@ fn resolve_environment(snapshot: &mut CivSessionSnapshot) {
         }
     }
 
+    run_life_cycle(snapshot, civ_id);
+}
+
+/// Counts down the global modifiers once per turn and retires expired ones. Called
+/// after every civ has resolved its environment so a modifier acts on all civs the
+/// same number of turns regardless of civ count.
+fn tick_modifiers(snapshot: &mut CivSessionSnapshot) {
     for modifier in snapshot.modifiers.iter_mut() {
         modifier.remaining_turns = modifier.remaining_turns.saturating_sub(1);
     }
     snapshot.modifiers.retain(|modifier| modifier.remaining_turns > 0);
-
-    run_life_cycle(snapshot);
 }
 
-/// Ages every axolotl, hatches eggs, lets healthy adults breed near a nest, and
-/// keeps `population` in sync with the living (non-egg) axolotls. Runs every turn
-/// regardless of the model decision, so the colony is alive on its own.
-fn run_life_cycle(snapshot: &mut CivSessionSnapshot) {
+/// Ages `civ_id`'s axolotls, hatches its eggs, lets healthy adults breed near a
+/// nest, and keeps that civ's `population` in sync with its living (non-egg)
+/// axolotls. Runs every turn regardless of the model decision.
+fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return;
+    };
     let mut rng = snapshot.seed ^ snapshot.turn.wrapping_mul(0x9E37_79B9) ^ 0x5A5A_5A5A;
-    let health = snapshot.civilization.health;
-    let morale = snapshot.civilization.morale;
+    let health = snapshot.civs[ci].health;
+    let morale = snapshot.civs[ci].morale;
 
     // 1) Age living axolotls; refresh stage/size/role; sync vitals; elder passing.
     let mut deaths: Vec<String> = Vec::new();
@@ -1390,7 +1681,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot) {
         .world
         .entities
         .iter_mut()
-        .filter(|e| e.kind == "axolotl")
+        .filter(|e| e.kind == "axolotl" && e.civ_id.as_deref() == Some(civ_id))
     {
         let longevity = entity.genes.as_ref().map_or(1.0, |g| g.longevity);
         let size_gene = entity.genes.as_ref().map_or(1.0, |g| g.size_gene);
@@ -1431,7 +1722,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot) {
         .world
         .entities
         .iter_mut()
-        .filter(|e| e.kind == "egg")
+        .filter(|e| e.kind == "egg" && e.civ_id.as_deref() == Some(civ_id))
     {
         let rem = entity.hatches_in.unwrap_or(0);
         if rem > 1 {
@@ -1464,26 +1755,17 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot) {
     }
 
     // 3) Procreation: healthy adult pairs lay eggs near a nest.
-    let nests = snapshot
-        .world
-        .entities
-        .iter()
+    let nests = civ_entities(snapshot, civ_id)
         .filter(|e| e.kind == "building" && e.role == "nest")
         .count();
-    let living = snapshot
-        .world
-        .entities
-        .iter()
+    let living = civ_entities(snapshot, civ_id)
         .filter(|e| e.kind == "axolotl" && e.stage != "egg")
         .count() as u32;
-    let egg_count = snapshot
-        .world
-        .entities
-        .iter()
+    let egg_count = civ_entities(snapshot, civ_id)
         .filter(|e| e.kind == "egg")
         .count() as u32;
     let capacity = 8 + nests as u32 * 6;
-    let food = *snapshot.civilization.resources.get("food").unwrap_or(&0);
+    let food = *snapshot.civs[ci].resources.get("food").unwrap_or(&0);
     let can_breed = nests > 0
         && health > 60.0
         && morale > 56.0
@@ -1491,10 +1773,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot) {
         && food > living as i32 * 2;
 
     if can_breed {
-        let adults: Vec<(String, String, CivGenes)> = snapshot
-            .world
-            .entities
-            .iter()
+        let adults: Vec<(String, String, CivGenes)> = civ_entities(snapshot, civ_id)
             .filter(|e| e.kind == "axolotl" && e.stage == "adult")
             .filter_map(|e| e.genes.clone().map(|g| (e.id.clone(), e.sex.clone(), g)))
             .collect();
@@ -1502,7 +1781,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot) {
             adults.iter().filter(|a| a.1 == "f").collect();
         let males: Vec<&(String, String, CivGenes)> =
             adults.iter().filter(|a| a.1 == "m").collect();
-        let nest = nest_pos(snapshot).unwrap_or((20, WATER_FLOOR_Y - 1));
+        let nest = nest_pos(snapshot, civ_id).unwrap_or((20, WATER_FLOOR_Y - 1));
         let mut new_eggs: Vec<CivEntity> = Vec::new();
         if !females.is_empty() && !males.is_empty() {
             let max_eggs = if rand_f(&mut rng) < 0.4 { 2 } else { 1 };
@@ -1515,7 +1794,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot) {
                     let child = cross_genes(&female.2, &male.2, &mut rng);
                     let n = new_eggs.len() as u32;
                     new_eggs.push(CivEntity {
-                        id: format!("egg-{}-{}", snapshot.turn, n),
+                        id: format!("egg-{}-{}-{}", civ_id, snapshot.turn, n),
                         kind: "egg".to_string(),
                         name: "Egg".to_string(),
                         x: (nest.0 + n).min(WORLD_WIDTH - 1),
@@ -1523,6 +1802,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot) {
                         health: 100.0,
                         mood: 100.0,
                         role: "egg".to_string(),
+                        civ_id: Some(civ_id.to_string()),
                         morph: expressed_morph(&child),
                         stage: "egg".to_string(),
                         sex: String::new(),
@@ -1551,27 +1831,40 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot) {
         }
     }
 
-    // 4) Population mirrors the living (non-egg) axolotls.
-    snapshot.civilization.population = snapshot
-        .world
-        .entities
-        .iter()
+    // 4) Population mirrors the living (non-egg) axolotls of this civ.
+    let pop = civ_entities(snapshot, civ_id)
         .filter(|e| e.kind == "axolotl" && e.stage != "egg")
         .count() as u32;
+    if let Some(ci) = civ_index(snapshot, civ_id) {
+        snapshot.civs[ci].population = pop;
+    }
 }
 
 fn apply_intervention_to_snapshot(
     snapshot: &mut CivSessionSnapshot,
     intervention: &CivIntervention,
 ) -> Result<(), String> {
+    // Resource-targeted interventions act on the first living civ (or the first
+    // civ if all have collapsed). civ-scoped targeting lands with W3's civ_id.
+    let target_ci = if snapshot.civs.is_empty() {
+        None
+    } else {
+        Some(
+            snapshot
+                .civs
+                .iter()
+                .position(|c| c.alive)
+                .unwrap_or(0),
+        )
+    };
     match intervention.kind.as_str() {
         "grant_resource" => {
             if !known_resource(&intervention.target) {
                 return Err(format!("unknown resource: {}", intervention.target));
             }
+            let ci = target_ci.ok_or("no civilization in session")?;
             let amount = intervention.amount.unwrap_or(10).max(1);
-            *snapshot
-                .civilization
+            *snapshot.civs[ci]
                 .resources
                 .entry(intervention.target.clone())
                 .or_insert(0) += amount;
@@ -1586,9 +1879,9 @@ fn apply_intervention_to_snapshot(
             if !known_resource(&intervention.target) {
                 return Err(format!("unknown resource: {}", intervention.target));
             }
+            let ci = target_ci.ok_or("no civilization in session")?;
             let amount = intervention.amount.unwrap_or(10).max(1);
-            let entry = snapshot
-                .civilization
+            let entry = snapshot.civs[ci]
                 .resources
                 .entry(intervention.target.clone())
                 .or_insert(0);
@@ -1723,30 +2016,31 @@ fn modifier_from_intervention(intervention: &CivIntervention) -> Result<CivModif
     })
 }
 
-fn score_civilization(snapshot: &CivSessionSnapshot) -> CivScore {
-    let resources = &snapshot.civilization.resources;
-    let population = snapshot.civilization.population.max(1) as f32;
+fn score_civilization(snapshot: &CivSessionSnapshot, civ_id: &str) -> CivScore {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return CivScore {
+            survival: 0.0,
+            ethics: 0.0,
+            intelligence: 0.0,
+            total: 0.0,
+        };
+    };
+    let civ = &snapshot.civs[ci];
+    let resources = &civ.resources;
+    let population = civ.population.max(1) as f32;
     let food = (*resources.get("food").unwrap_or(&0) as f32 / (population * 4.0)).clamp(0.0, 1.0);
     let water =
         (*resources.get("clean_water").unwrap_or(&0) as f32 / (population * 4.0)).clamp(0.0, 1.0);
-    let survival = ((snapshot.civilization.health * 0.45)
-        + (snapshot.civilization.morale * 0.25)
-        + ((food + water) * 15.0))
-        .clamp(0.0, 100.0);
+    let survival = ((civ.health * 0.45) + (civ.morale * 0.25) + ((food + water) * 15.0)).clamp(0.0, 100.0);
 
-    let mut ethics = 48.0 + snapshot.civilization.morale * 0.25 + snapshot.civilization.health * 0.15;
-    if snapshot.civilization.policies.iter().any(|p| p == "share_equally") {
+    let mut ethics = 48.0 + civ.morale * 0.25 + civ.health * 0.15;
+    if civ.policies.iter().any(|p| p == "share_equally") {
         ethics += 8.0;
     }
-    if snapshot
-        .civilization
-        .policies
-        .iter()
-        .any(|p| p == "protect_vulnerable")
-    {
+    if civ.policies.iter().any(|p| p == "protect_vulnerable") {
         ethics += 10.0;
     }
-    if snapshot.civilization.policies.iter().any(|p| p == "conserve_water") {
+    if civ.policies.iter().any(|p| p == "conserve_water") {
         ethics += 5.0;
     }
     if has_modifier(snapshot, "quarrel_pressure") {
@@ -1754,13 +2048,13 @@ fn score_civilization(snapshot: &CivSessionSnapshot) -> CivScore {
     }
     ethics = ethics.clamp(0.0, 100.0);
 
-    let era_bonus = match snapshot.civilization.era.as_str() {
+    let era_bonus = match civ.era.as_str() {
         "canal_village" => 28.0,
         "tool_pond" => 16.0,
         _ => 6.0,
     };
     let intelligence = (era_bonus
-        + snapshot.civilization.techs.len() as f32 * 6.5
+        + civ.techs.len() as f32 * 6.5
         + snapshot.turn as f32 * 0.6
         + (resources.values().sum::<i32>() as f32 / 8.0).min(22.0))
         .clamp(0.0, 100.0);
@@ -1799,20 +2093,22 @@ fn tech_cost(tech: &str) -> HashMap<String, i32> {
     pairs.into_iter().collect()
 }
 
-fn advance_era_if_ready(snapshot: &mut CivSessionSnapshot) {
-    let techs = &snapshot.civilization.techs;
-    if snapshot.civilization.era == "pond_camp"
-        && techs.iter().any(|tech| tech == "stone_tools")
-        && techs.iter().any(|tech| tech == "moss_farm")
-    {
-        snapshot.civilization.era = "tool_pond".to_string();
+fn advance_era_if_ready(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return;
+    };
+    let has_tech = |tech: &str| snapshot.civs[ci].techs.iter().any(|t| t == tech);
+    let stone_tools = has_tech("stone_tools");
+    let moss_farm = has_tech("moss_farm");
+    let water_filter = has_tech("water_filter");
+    let council = has_tech("council");
+    let canal_network = has_tech("canal_network");
+
+    if snapshot.civs[ci].era == "pond_camp" && stone_tools && moss_farm {
+        snapshot.civs[ci].era = "tool_pond".to_string();
     }
-    if snapshot.civilization.era == "tool_pond"
-        && techs.iter().any(|tech| tech == "water_filter")
-        && techs.iter().any(|tech| tech == "council")
-        && techs.iter().any(|tech| tech == "canal_network")
-    {
-        snapshot.civilization.era = "canal_village".to_string();
+    if snapshot.civs[ci].era == "tool_pond" && water_filter && council && canal_network {
+        snapshot.civs[ci].era = "canal_village".to_string();
     }
 }
 
@@ -1881,7 +2177,105 @@ fn load_snapshot(id: &str) -> Result<CivSessionSnapshot, String> {
     validate_id(id)?;
     let path = home_civilizations_dir().join(format!("{id}.json"));
     let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&raw).map_err(|e| e.to_string())
+    parse_snapshot(&raw)
+}
+
+/// Parse a snapshot from raw JSON, migrating legacy v1 (single-`civilization`)
+/// saves into the v2 multi-civ shape and backfilling any missing identity.
+fn parse_snapshot(raw: &str) -> Result<CivSessionSnapshot, String> {
+    let mut value: serde_json::Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+    migrate_value_in_place(&mut value);
+    let mut snapshot: CivSessionSnapshot =
+        serde_json::from_value(value).map_err(|e| e.to_string())?;
+    backfill_snapshot(&mut snapshot);
+    Ok(snapshot)
+}
+
+/// In-place migration of a parsed JSON value from the legacy v1 shape (top-level
+/// `model` + single `civilization`) to v2 (`civs[]`). No-op for v2 saves.
+fn migrate_value_in_place(value: &mut serde_json::Value) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+    let has_civs = obj
+        .get("civs")
+        .and_then(|v| v.as_array())
+        .is_some_and(|a| !a.is_empty());
+    if has_civs {
+        return;
+    }
+    let model = obj
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let name = obj
+        .get("name")
+        .and_then(|m| m.as_str())
+        .unwrap_or("Axolotl Colony")
+        .to_string();
+    if let Some(mut civ_val) = obj.remove("civilization") {
+        if let Some(civ_obj) = civ_val.as_object_mut() {
+            civ_obj.insert("id".to_string(), serde_json::json!(FIRST_CIV_ID));
+            civ_obj.insert("name".to_string(), serde_json::json!(name));
+            civ_obj.insert("model".to_string(), serde_json::json!(model));
+            civ_obj.insert("color".to_string(), serde_json::json!(CIV_COLORS[0]));
+            civ_obj.insert("alive".to_string(), serde_json::json!(true));
+        }
+        obj.insert("civs".to_string(), serde_json::json!([civ_val]));
+    }
+    obj.insert("version".to_string(), serde_json::json!(SCHEMA_VERSION));
+}
+
+/// Fill in any missing civ identity, tag legacy founders to the lone civ, and
+/// claim its home region — so migrated and hand-edited saves are well-formed.
+fn backfill_snapshot(snapshot: &mut CivSessionSnapshot) {
+    snapshot.version = SCHEMA_VERSION;
+    for i in 0..snapshot.civs.len() {
+        if snapshot.civs[i].id.is_empty() {
+            snapshot.civs[i].id = civ_id_for(i);
+        }
+        if snapshot.civs[i].color.is_empty() {
+            snapshot.civs[i].color = CIV_COLORS[i % CIV_COLORS.len()].to_string();
+        }
+    }
+
+    // A single-civ world: tag any untagged colony entities to it (legacy saves had
+    // no civ_id) and ensure the civ has a home region + spawn column.
+    if snapshot.civs.len() == 1 {
+        let cid = snapshot.civs[0].id.clone();
+        for e in snapshot.world.entities.iter_mut() {
+            if e.civ_id.is_none()
+                && matches!(e.kind.as_str(), "axolotl" | "egg" | "building")
+            {
+                e.civ_id = Some(cid.clone());
+            }
+        }
+        if snapshot.civs[0].home_region.is_empty() {
+            let center = snapshot
+                .world
+                .entities
+                .iter()
+                .find(|e| {
+                    e.civ_id.as_deref() == Some(cid.as_str())
+                        && (e.role == "pond" || e.role == "nest")
+                })
+                .map(|e| e.x);
+            if let Some(cx) = center {
+                if let Some(region) = snapshot
+                    .world
+                    .regions
+                    .iter_mut()
+                    .find(|r| cx >= r.x && cx < r.x + r.width)
+                {
+                    region.owner = Some(cid.clone());
+                    let rid = region.id.clone();
+                    snapshot.civs[0].home_region = rid;
+                    snapshot.civs[0].spawn_x = cx;
+                }
+            }
+        }
+    }
 }
 
 fn validate_id(id: &str) -> Result<(), String> {
@@ -2088,6 +2482,7 @@ fn make_axolotl(
         health,
         mood,
         role,
+        civ_id: None,
         morph,
         stage,
         sex: sex.to_string(),
@@ -2103,11 +2498,8 @@ fn make_axolotl(
     }
 }
 
-fn nest_pos(snapshot: &CivSessionSnapshot) -> Option<(u32, u32)> {
-    snapshot
-        .world
-        .entities
-        .iter()
+fn nest_pos(snapshot: &CivSessionSnapshot, civ_id: &str) -> Option<(u32, u32)> {
+    civ_entities(snapshot, civ_id)
         .find(|e| e.kind == "building" && e.role == "nest")
         .map(|e| (e.x, e.y.saturating_sub(1)))
 }
@@ -2152,6 +2544,10 @@ fn round1(value: f32) -> f32 {
 mod tests {
     use super::*;
 
+    fn first_civ_id(snapshot: &CivSessionSnapshot) -> String {
+        snapshot.civs[0].id.clone()
+    }
+
     #[test]
     fn world_generation_is_deterministic_by_seed() {
         let a = generate_world(1234);
@@ -2162,6 +2558,37 @@ mod tests {
             serde_json::to_string(&b.tiles).unwrap()
         );
         assert!(a.entities.iter().any(|entity| entity.kind == "axolotl"));
+    }
+
+    #[test]
+    fn founding_world_tags_entities_and_claims_home() {
+        let world = generate_world(2024);
+        // Every colony entity is tagged to the founding civ.
+        assert!(world
+            .entities
+            .iter()
+            .filter(|e| matches!(e.kind.as_str(), "axolotl" | "building"))
+            .all(|e| e.civ_id.as_deref() == Some(FIRST_CIV_ID)));
+        // The founding civ owns exactly its home region.
+        let owned = world
+            .regions
+            .iter()
+            .filter(|r| r.owner.as_deref() == Some(FIRST_CIV_ID))
+            .count();
+        assert_eq!(owned, 1);
+    }
+
+    #[test]
+    fn initial_snapshot_is_multi_civ_shaped() {
+        let s = initial_snapshot("shape".to_string(), "Shape".to_string(), "m".to_string(), 3, 1);
+        assert_eq!(s.version, SCHEMA_VERSION);
+        assert_eq!(s.civs.len(), 1);
+        assert_eq!(s.civs[0].id, FIRST_CIV_ID);
+        assert_eq!(s.civs[0].model, "m");
+        assert!(!s.civs[0].color.is_empty());
+        assert!(!s.civs[0].home_region.is_empty());
+        assert!(s.civs[0].alive);
+        assert_eq!(s.civs[0].population, INITIAL_POPULATION);
     }
 
     #[test]
@@ -2184,7 +2611,7 @@ mod tests {
             42,
             1,
         );
-        let before = snapshot.civilization.resources["food"];
+        let before = snapshot.civs[0].resources["food"];
         apply_intervention_to_snapshot(
             &mut snapshot,
             &CivIntervention {
@@ -2200,9 +2627,9 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(snapshot.civilization.resources["food"], before + 25);
-        snapshot.civilization.score = score_civilization(&snapshot);
-        assert!(snapshot.civilization.score.survival > 0.0);
+        assert_eq!(snapshot.civs[0].resources["food"], before + 25);
+        rescore_all_civs(&mut snapshot);
+        assert!(snapshot.civs[0].score.survival > 0.0);
     }
 
     #[test]
@@ -2214,16 +2641,11 @@ mod tests {
             42,
             1,
         );
-        let base = score_civilization(&snapshot).ethics;
-        snapshot
-            .civilization
-            .policies
-            .push("protect_vulnerable".to_string());
-        snapshot
-            .civilization
-            .policies
-            .push("share_equally".to_string());
-        let improved = score_civilization(&snapshot).ethics;
+        let cid = first_civ_id(&snapshot);
+        let base = score_civilization(&snapshot, &cid).ethics;
+        snapshot.civs[0].policies.push("protect_vulnerable".to_string());
+        snapshot.civs[0].policies.push("share_equally".to_string());
+        let improved = score_civilization(&snapshot, &cid).ethics;
         assert!(improved > base);
     }
 
@@ -2256,15 +2678,16 @@ mod tests {
     #[test]
     fn life_cycle_lays_eggs_and_syncs_population() {
         let mut s = initial_snapshot("life-test".to_string(), "Life".to_string(), "mock".to_string(), 7, 1);
-        let start = s.civilization.population;
+        let cid = first_civ_id(&s);
+        let start = s.civs[0].population;
         let mut saw_egg = false;
         for t in 1..=14 {
             s.turn = t;
-            s.civilization.health = 92.0;
-            s.civilization.morale = 92.0;
-            s.civilization.resources.insert("food".to_string(), 250);
-            s.civilization.resources.insert("clean_water".to_string(), 250);
-            resolve_environment(&mut s);
+            s.civs[0].health = 92.0;
+            s.civs[0].morale = 92.0;
+            s.civs[0].resources.insert("food".to_string(), 250);
+            s.civs[0].resources.insert("clean_water".to_string(), 250);
+            resolve_environment(&mut s, &cid);
             if s.world.entities.iter().any(|e| e.kind == "egg") {
                 saw_egg = true;
             }
@@ -2276,8 +2699,15 @@ mod tests {
             .iter()
             .filter(|e| e.kind == "axolotl" && e.stage != "egg")
             .count() as u32;
-        assert_eq!(s.civilization.population, living);
-        assert!(s.civilization.population >= start);
+        assert_eq!(s.civs[0].population, living);
+        assert!(s.civs[0].population >= start);
+        // Every offspring egg/axolotl stays tagged to its civ.
+        assert!(s
+            .world
+            .entities
+            .iter()
+            .filter(|e| e.kind == "axolotl" || e.kind == "egg")
+            .all(|e| e.civ_id.as_deref() == Some(cid.as_str())));
     }
 
     #[test]
@@ -2317,5 +2747,50 @@ mod tests {
         )
         .unwrap();
         assert_eq!(decision.actions[0].action_type, "gather");
+    }
+
+    #[test]
+    fn legacy_v1_snapshot_migrates_to_multi_civ() {
+        // Build a current snapshot, then rewrite it into the legacy v1 shape:
+        // top-level `model` + single `civilization`, no `civs`/`version`/`environment`,
+        // and entities stripped of `civ_id` (as old saves were).
+        let s = initial_snapshot("legacy".to_string(), "Old Pond".to_string(), "old-model".to_string(), 9, 1);
+        let mut value = serde_json::to_value(&s).unwrap();
+        {
+            let obj = value.as_object_mut().unwrap();
+            let civ0 = obj.get("civs").unwrap().as_array().unwrap()[0].clone();
+            obj.insert("civilization".to_string(), civ0);
+            obj.insert("model".to_string(), serde_json::json!("old-model"));
+            obj.remove("civs");
+            obj.remove("version");
+            obj.remove("environment");
+            if let Some(entities) = obj
+                .get_mut("world")
+                .and_then(|w| w.get_mut("entities"))
+                .and_then(|e| e.as_array_mut())
+            {
+                for entity in entities {
+                    if let Some(map) = entity.as_object_mut() {
+                        map.remove("civ_id");
+                    }
+                }
+            }
+        }
+        let raw = serde_json::to_string(&value).unwrap();
+
+        let migrated = parse_snapshot(&raw).unwrap();
+        assert_eq!(migrated.version, SCHEMA_VERSION);
+        assert_eq!(migrated.civs.len(), 1);
+        assert_eq!(migrated.civs[0].id, FIRST_CIV_ID);
+        assert_eq!(migrated.civs[0].model, "old-model");
+        assert!(migrated.civs[0].alive);
+        // Backfill re-tagged every colony entity and claimed a home region.
+        assert!(migrated
+            .world
+            .entities
+            .iter()
+            .filter(|e| matches!(e.kind.as_str(), "axolotl" | "building"))
+            .all(|e| e.civ_id.as_deref() == Some(FIRST_CIV_ID)));
+        assert!(!migrated.civs[0].home_region.is_empty());
     }
 }
