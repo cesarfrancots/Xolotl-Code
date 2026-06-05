@@ -808,7 +808,7 @@ function ReliabilityPanel({
                 <span
                   className="ml-auto rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em]"
                   style={{ color: tone.color, background: tone.bg, borderColor: tone.border }}
-                  title={`Token-count error: ${(m.token_count_error * 100).toFixed(1)}%`}
+                  title={`Token-count error: ${((m.token_count_error ?? 0) * 100).toFixed(1)}%`}
                 >
                   {verdict.label}
                 </span>

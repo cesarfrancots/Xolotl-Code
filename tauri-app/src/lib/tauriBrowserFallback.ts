@@ -191,6 +191,165 @@ const PREVIEW_EVALS = [
   },
 ];
 
+let previewCivSession = {
+  id: "preview-civ-pond",
+  name: "Preview Pond",
+  model: "kimi-coding",
+  seed: 4242,
+  created_at: 1_780_020_000,
+  updated_at: 1_780_020_000,
+  turn: 3,
+  world: {
+    width: 64,
+    height: 36,
+    tiles: buildPreviewCivTiles(),
+    entities: [
+      ...Array.from({ length: 8 }, (_, index) => ({
+        id: `axo-${index + 1}`,
+        kind: "axolotl",
+        name: `Axolotl ${index + 1}`,
+        x: 27 + (index % 6),
+        y: 22,
+        health: 82,
+        mood: 78,
+        role: index < 2 ? "caretaker" : "worker",
+      })),
+      { id: "pond-heart", kind: "building", name: "Pond Heart", x: 30, y: 23, health: 100, mood: 100, role: "pond" },
+      { id: "nest-1", kind: "building", name: "Nest", x: 26, y: 22, health: 100, mood: 100, role: "nest" },
+    ],
+  },
+  civilization: {
+    era: "pond_camp",
+    population: 8,
+    health: 82,
+    morale: 78,
+    resources: {
+      food: 45,
+      clean_water: 40,
+      wood: 18,
+      stone: 11,
+      clay: 8,
+      fiber: 12,
+      tools: 2,
+      glowshards: 1,
+    },
+    techs: ["forage", "basic_shelter"],
+    policies: ["share_equally"],
+    score: { survival: 74, ethics: 78, intelligence: 31, total: 64.1 },
+  },
+  modifiers: [
+    { id: "clear-water-preview", kind: "clear_water", label: "Clear Water", polarity: "buff", remaining_turns: 2, intensity: 1 },
+  ],
+  log: [
+    { turn: 1, kind: "ai_decision", title: "AI intent: stabilize food and water", body: "The colony gathered moss and cleaned the pond edge.", created_at: 1_780_020_010 },
+    { turn: 2, kind: "action", title: "Policy adopted", body: "The colony adopted share_equally.", created_at: 1_780_020_020 },
+    { turn: 3, kind: "intervention", title: "Modifier applied", body: "Observer applied Clear Water for 2 turns.", created_at: 1_780_020_030 },
+  ],
+};
+
+function buildPreviewCivTiles() {
+  const tiles = [];
+  for (let y = 0; y < 36; y += 1) {
+    for (let x = 0; x < 64; x += 1) {
+      const terrain = y < 23 ? "air" : (x >= 26 && x <= 33 && y <= 26) ? "water" : y < 27 ? "mud" : y < 32 ? "earth" : "stone";
+      const resource =
+        terrain !== "air" && terrain !== "water" && x > 8 && x < 15 && y > 23 && y < 27 ? "moss" :
+        terrain !== "air" && terrain !== "water" && x > 40 && x < 47 && y > 27 ? "stone" :
+        null;
+      tiles.push({ x, y, terrain, resource, amount: resource ? 8 : 0 });
+    }
+  }
+  return tiles;
+}
+
+function previewCivMeta() {
+  return [{
+    id: previewCivSession.id,
+    name: previewCivSession.name,
+    model: previewCivSession.model,
+    created_at: previewCivSession.created_at,
+    updated_at: previewCivSession.updated_at,
+    turn: previewCivSession.turn,
+    score: previewCivSession.civilization.score.total,
+  }];
+}
+
+function advancePreviewCiv() {
+  previewCivSession = {
+    ...previewCivSession,
+    turn: previewCivSession.turn + 1,
+    updated_at: previewCivSession.updated_at + 10,
+    civilization: {
+      ...previewCivSession.civilization,
+      resources: {
+        ...previewCivSession.civilization.resources,
+        food: Math.max(0, previewCivSession.civilization.resources.food + 5 - previewCivSession.civilization.population),
+        clean_water: Math.max(0, previewCivSession.civilization.resources.clean_water + 4 - previewCivSession.civilization.population),
+        wood: previewCivSession.civilization.resources.wood + 3,
+      },
+      score: {
+        survival: 76,
+        ethics: 80,
+        intelligence: 34 + previewCivSession.turn,
+        total: 66 + previewCivSession.turn * 0.4,
+      },
+    },
+    modifiers: previewCivSession.modifiers
+      .map((modifier) => ({ ...modifier, remaining_turns: Math.max(0, modifier.remaining_turns - 1) }))
+      .filter((modifier) => modifier.remaining_turns > 0),
+    log: [
+      ...previewCivSession.log,
+      {
+        turn: previewCivSession.turn + 1,
+        kind: "ai_decision",
+        title: "AI intent: reinforce basics",
+        body: "The preview model gathered food and kept water reserves stable.",
+        created_at: previewCivSession.updated_at + 10,
+      },
+    ].slice(-80),
+  };
+}
+
+function applyPreviewCivIntervention(args?: unknown) {
+  const intervention = isRecord(args) && isRecord(args.intervention) ? args.intervention : {};
+  const target = typeof intervention.target === "string" ? intervention.target : "food";
+  const amount = typeof intervention.amount === "number" ? intervention.amount : 10;
+  const kind = typeof intervention.kind === "string" ? intervention.kind : "grant_resource";
+  const resources = { ...previewCivSession.civilization.resources };
+  const resourceKey = target as keyof typeof resources;
+  if (kind === "grant_resource") resources[resourceKey] = (resources[resourceKey] ?? 0) + amount;
+  if (kind === "remove_resource") resources[resourceKey] = Math.max(0, (resources[resourceKey] ?? 0) - amount);
+  const modifierKinds = ["apply_buff", "apply_debuff", "trigger_event"];
+  previewCivSession = {
+    ...previewCivSession,
+    updated_at: previewCivSession.updated_at + 5,
+    civilization: { ...previewCivSession.civilization, resources },
+    modifiers: modifierKinds.includes(kind)
+      ? [
+          ...previewCivSession.modifiers,
+          {
+            id: `${target}-preview-${previewCivSession.updated_at}`,
+            kind: target,
+            label: target.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+            polarity: target.includes("drought") || target.includes("rot") || target.includes("fatigue") ? "debuff" : "buff",
+            remaining_turns: 4,
+            intensity: 1,
+          },
+        ]
+      : previewCivSession.modifiers,
+    log: [
+      ...previewCivSession.log,
+      {
+        turn: previewCivSession.turn,
+        kind: "intervention",
+        title: "Observer intervention",
+        body: `${kind} ${target}`,
+        created_at: previewCivSession.updated_at + 5,
+      },
+    ].slice(-80),
+  };
+}
+
 function installTauriBrowserFallback() {
   if (!import.meta.env.DEV) return;
   if (typeof window === "undefined") return;
@@ -224,13 +383,45 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
     case "list_skills":
     case "list_mcp_servers":
     case "list_prompt_commands":
+    case "list_projects":
+    case "add_project":
+    case "remove_project":
       return [];
+    case "list_civ_sessions":
+      return previewCivMeta();
+    case "browse_directory":
+      return { path: "", parent: null, children: [] };
+    case "pick_directory":
+      return null;
     case "load_eval": {
       const id = isRecord(args) && typeof args.id === "string" ? args.id : undefined;
       const evalResult = PREVIEW_EVALS.find((item) => item.id === id);
       if (!evalResult) throw "Preview eval not found";
       return JSON.stringify(evalResult);
     }
+    case "load_civ_session":
+      return JSON.stringify(previewCivSession);
+    case "create_civ_session": {
+      const config = isRecord(args) && isRecord(args.config) ? args.config : {};
+      previewCivSession = {
+        ...previewCivSession,
+        id: `preview-civ-${Date.now()}`,
+        name: typeof config.name === "string" && config.name.trim() ? config.name.trim() : "Axolotl Colony",
+        model: typeof config.model === "string" ? config.model : "kimi-coding",
+        turn: 0,
+        updated_at: Math.floor(Date.now() / 1000),
+        created_at: Math.floor(Date.now() / 1000),
+      };
+      return previewCivSession.id;
+    }
+    case "advance_civ_turn":
+      advancePreviewCiv();
+      return JSON.stringify(previewCivSession);
+    case "apply_civ_intervention":
+      applyPreviewCivIntervention(args);
+      return JSON.stringify(previewCivSession);
+    case "delete_civ_session":
+      return null;
     case "get_api_key_status":
       return Object.fromEntries(PREVIEW_PROVIDERS.map((provider) => [provider, false]));
     case "load_session":
@@ -238,6 +429,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
     case "delete_session":
     case "delete_eval":
     case "save_manual_reviews":
+    case "touch_project":
       return null;
     case "cleanup_eval_processes":
       return 0;

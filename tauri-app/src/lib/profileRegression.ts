@@ -77,8 +77,8 @@ export function detectRegressions(
     if (!base) continue;
 
     for (const spec of SPECS) {
-      const before = base[spec.metric];
-      const after = cur[spec.metric];
+      const before = base[spec.metric] ?? 0;
+      const after = cur[spec.metric] ?? 0;
       if (!spec.notable(before, after)) continue;
 
       const wentUp = after > before;

@@ -1,0 +1,20 @@
+[package]
+name = "pdfmd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Deterministic PDF -> Markdown / JSON conversion. No AI, no network, no OCR:
+# pure-Rust text extraction (pdf-extract) plus layout heuristics so agents read
+# cheap structured text instead of raw PDF bytes.
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+thiserror = { workspace = true }
+regex = { workspace = true }
+pdf-extract = "0.7"
+
+[lints]
+workspace = true

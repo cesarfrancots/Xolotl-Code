@@ -27,6 +27,10 @@ vi.mock("./components/eval/EvalView", () => ({
   EvalView: () => <main>Eval workspace</main>,
 }));
 
+vi.mock("./components/civilization/CivilizationView", () => ({
+  CivilizationView: () => <main>Civilization workspace</main>,
+}));
+
 vi.mock("./stores/agentStore", () => ({
   useAgentStore: (selector: (state: { expandedAgentId: null; mergeCheckpointGroupId: null }) => unknown) =>
     selector({ expandedAgentId: null, mergeCheckpointGroupId: null }),
@@ -55,6 +59,14 @@ describe("App tab navigation", () => {
     expect(await screen.findByText("Eval workspace")).toBeTruthy();
   });
 
+  it("opens the civilization workspace from the tab query", async () => {
+    window.history.replaceState(null, "", "/?tab=civ");
+
+    render(<App />);
+
+    expect(await screen.findByText("Civilization workspace")).toBeTruthy();
+  });
+
   it("keeps the tab query in sync with workspace selection", async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/?tab=eval");
@@ -69,5 +81,10 @@ describe("App tab navigation", () => {
 
     expect(await screen.findByText("Eval workspace")).toBeTruthy();
     expect(window.location.search).toBe("?tab=eval");
+
+    await user.click(screen.getByRole("button", { name: /civ/i }));
+
+    expect(await screen.findByText("Civilization workspace")).toBeTruthy();
+    expect(window.location.search).toBe("?tab=civ");
   });
 });

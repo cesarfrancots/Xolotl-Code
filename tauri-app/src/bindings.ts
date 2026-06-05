@@ -38,7 +38,7 @@ export const commands = {
 	getWorktreeDiff: (agentId: string) => typedError<FileDiff[], string>(__TAURI_INVOKE("get_worktree_diff", { agentId })),
 	mergeWorktrees: (groupId: string, agentIds: string[]) => typedError<null, string>(__TAURI_INVOKE("merge_worktrees", { groupId, agentIds })),
 	/**
-	 *  start_eval: runs selected models on the same prompt in parallel.
+	 *  start_eval: starts selected models on the same prompt in parallel.
 	 *  Emits "eval-event:{eval_id}" events as each model streams.
 	 *  Saves result to ~/.xolotl-code/evals/{eval_id}.json when all complete.
 	 */
@@ -77,15 +77,8 @@ export const commands = {
 	 *  Post-hoc goal grader. For each model in a stored eval, score the 5 reasoning
 	 *  axes (1–5 each) with an evidence quote, extract retrospective flags, and
 	 *  write a one-line summary. Results saved into `goal_grades` on disk.
- */
+	 */
 	runGoalGrade: (id: string, judgeModel: string) => typedError<string, string>(__TAURI_INVOKE("run_goal_grade", { id, judgeModel })),
-	startEvalArtifact: (request: EvalArtifactRequest) => typedError<EvalArtifactLaunchResult, string>(__TAURI_INVOKE("start_eval_artifact", { request })),
-	buildReliabilityProfiles: () => typedError<ProfileBuildResult, string>(__TAURI_INVOKE("build_reliability_profiles")),
-	buildHintProposals: () => typedError<ProposalBuildResult, string>(__TAURI_INVOKE("build_hint_proposals")),
-	listReliabilityProfiles: () => __TAURI_INVOKE<ReliabilityProfile[]>("list_reliability_profiles"),
-	listHintProposals: () => __TAURI_INVOKE<HintProposal[]>("list_hint_proposals"),
-	cleanupEvalProcesses: () => __TAURI_INVOKE<number>("cleanup_eval_processes"),
-	cancelChatTurn: (turnId: string) => __TAURI_INVOKE<boolean>("cancel_chat_turn", { turnId }),
 	listSkills: () => __TAURI_INVOKE<SkillManifest[]>("list_skills"),
 	readSkill: (name: string) => typedError<string, string>(__TAURI_INVOKE("read_skill", { name })),
 	listMcpServers: () => __TAURI_INVOKE<McpServerConfig[]>("list_mcp_servers"),
@@ -107,6 +100,28 @@ export const commands = {
 	 *  Returns "Connected to <provider>" on success.
 	 */
 	testApiConnection: (provider: string) => typedError<string, string>(__TAURI_INVOKE("test_api_connection", { provider })),
+	startEvalArtifact: (request: EvalArtifactRequest) => typedError<EvalArtifactLaunchResult, string>(__TAURI_INVOKE("start_eval_artifact", { request })),
+	/**
+	 *  Aggregate every persisted eval's reliability metrics (P6.1) into per-model
+	 *  reliability profiles under `~/.xolotl-code/profiles/<model>.json` (P6.2).
+	 * 
+	 *  Pure aggregation lives in the `runtime` crate (offline-tested); this command
+	 *  just resolves the home directories and reports what was produced.
+	 */
+	buildReliabilityProfiles: () => typedError<ProfileBuildResult, string>(__TAURI_INVOKE("build_reliability_profiles")),
+	/**
+	 *  Derive propose-only `ModelHints` overrides from each reliability profile and
+	 *  write them to `~/.xolotl-code/profiles/proposals/<model>.json` (P6.3).
+	 * 
+	 *  Reviewable only — never merges into the shipped hint defaults.
+	 */
+	buildHintProposals: () => typedError<ProposalBuildResult, string>(__TAURI_INVOKE("build_hint_proposals")),
+	/**  List the per-model reliability profiles written by `build_reliability_profiles` (P6.4). */
+	listReliabilityProfiles: () => __TAURI_INVOKE<ReliabilityProfile[]>("list_reliability_profiles"),
+	/**  List the per-model propose-only hint proposals written by `build_hint_proposals` (P6.4). */
+	listHintProposals: () => __TAURI_INVOKE<HintProposal[]>("list_hint_proposals"),
+	cleanupEvalProcesses: () => __TAURI_INVOKE<number>("cleanup_eval_processes"),
+	cancelChatTurn: (turnId: string) => __TAURI_INVOKE<boolean>("cancel_chat_turn", { turnId }),
 	/**
 	 *  chat_turn: streaming chat that bypasses the agent/worktree system entirely.
 	 * 
@@ -119,8 +134,34 @@ export const commands = {
 	 *  invoking this command (to avoid losing the first events), then awaits a
 	 *  TurnCompleted or Error event to know the turn finished.
 	 */
-	chatTurn: (turnId: string, messages: ChatMessage[], model: string, enabledSkills: string[] | null, reasoningEffort: string | null) => typedError<null, string>(__TAURI_INVOKE("chat_turn", { turnId, messages, model, enabledSkills, reasoningEffort })),
-	/**  Spawn a new PTY-backed terminal. Returns its metadata (including the generated id). */
+	chatTurn: (turnId: string, messages: ChatMessage[], model: string, enabledSkills: string[] | null, reasoningEffort: string | null, cwd: string | null) => typedError<null, string>(__TAURI_INVOKE("chat_turn", { turnId, messages, model, enabledSkills, reasoningEffort, cwd })),
+	/**  List saved quick-access projects, most-recently-opened first. */
+	listProjects: () => __TAURI_INVOKE<Project[]>("list_projects"),
+	/**
+	 *  Add (or refresh) a project by directory path. Validates the directory
+	 *  exists, canonicalizes it, dedupes, and returns the updated list.
+	 */
+	addProject: (path: string) => typedError<Project[], string>(__TAURI_INVOKE("add_project", { path })),
+	/**  Remove a project from quick access (does not touch the directory on disk). */
+	removeProject: (path: string) => typedError<Project[], string>(__TAURI_INVOKE("remove_project", { path })),
+	/**  Mark a project as just-opened (bumps it to the top of the list). */
+	touchProject: (path: string) => typedError<null, string>(__TAURI_INVOKE("touch_project", { path })),
+	/**
+	 *  Open a native folder picker and return the chosen directory (or `None` if
+	 *  the user cancelled).
+	 */
+	pickDirectory: () => typedError<string | null, string>(__TAURI_INVOKE("pick_directory")),
+	/**
+	 *  List the immediate children of a directory (directories first, then files),
+	 *  for the sidebar file browser.
+	 */
+	browseDirectory: (path: string) => typedError<DirListing, string>(__TAURI_INVOKE("browse_directory", { path })),
+	/**
+	 *  Convert a PDF file to Markdown (`format = "md"`) or JSON (`format = "json"`)
+	 *  using deterministic extraction — no AI, no OCR, no network.
+	 */
+	convertPdf: (path: string, format: string) => typedError<string, string>(__TAURI_INVOKE("convert_pdf", { path, format })),
+	/**  Spawn a new terminal. Returns its metadata (including the generated id). */
 	terminalSpawn: (cwd: string | null, shell: string | null, cols: number, rows: number) => typedError<TerminalInfo, string>(__TAURI_INVOKE("terminal_spawn", { cwd, shell, cols, rows })),
 	/**  Write input (keystrokes) to a terminal. */
 	terminalWrite: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("terminal_write", { id, data })),
@@ -130,6 +171,12 @@ export const commands = {
 	terminalKill: (id: string) => typedError<null, string>(__TAURI_INVOKE("terminal_kill", { id })),
 	/**  List all live terminals. */
 	terminalList: () => __TAURI_INVOKE<TerminalInfo[]>("terminal_list"),
+	createCivSession: (config: CivSessionConfig) => typedError<string, string>(__TAURI_INVOKE("create_civ_session", { config })),
+	listCivSessions: () => __TAURI_INVOKE<CivSessionMeta[]>("list_civ_sessions"),
+	loadCivSession: (id: string) => typedError<string, string>(__TAURI_INVOKE("load_civ_session", { id })),
+	deleteCivSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_civ_session", { id })),
+	applyCivIntervention: (id: string, intervention: CivIntervention) => typedError<string, string>(__TAURI_INVOKE("apply_civ_intervention", { id, intervention })),
+	advanceCivTurn: (id: string) => typedError<string, string>(__TAURI_INVOKE("advance_civ_turn", { id })),
 };
 
 /* Types */
@@ -200,12 +247,160 @@ export type ChatMessage = {
 	content: string,
 };
 
-export type PromptCommand = {
-	command: string,
-	description: string,
-	scope: string,
-	source_path: string,
+export type CivCivilization = {
+	era: string,
+	population: number,
+	health: number | null,
+	morale: number | null,
+	resources: { [key in string]: number },
+	techs: string[],
+	policies: string[],
+	score: CivScore,
+};
+
+export type CivDecisionAction = {
+	type: string,
+	resource?: string | null,
+	workers?: number | null,
+	building?: string | null,
+	x?: number | null,
+	y?: number | null,
+	tech_id?: string | null,
+	direction?: string | null,
+	policy?: string | null,
+	event_id?: string | null,
+};
+
+export type CivEntity = {
+	id: string,
+	kind: string,
+	name: string,
+	x: number,
+	y: number,
+	health: number | null,
+	mood: number | null,
+	role: string,
+};
+
+export type CivIntervention = {
+	kind: string,
+	target: string,
+	amount?: number | null,
+	x?: number | null,
+	y?: number | null,
+	duration?: number | null,
+	intensity?: number | null,
+};
+
+export type CivLogEntry = {
+	turn: number,
+	kind: string,
+	title: string,
+	body: string,
+	created_at: number,
+};
+
+export type CivModelDecision = {
+	intent: string,
+	public_rationale: string,
+	actions: CivDecisionAction[],
+	ethics_note: string,
+	expected_risks: string[],
+};
+
+export type CivModifier = {
+	id: string,
+	kind: string,
+	label: string,
+	polarity: string,
+	remaining_turns: number,
+	intensity: number | null,
+};
+
+export type CivScore = {
+	survival: number | null,
+	ethics: number | null,
+	intelligence: number | null,
+	total: number | null,
+};
+
+export type CivSessionConfig = {
+	name: string,
+	model: string,
+	seed?: number | null,
+};
+
+export type CivSessionMeta = {
+	id: string,
+	name: string,
+	model: string,
+	created_at: number,
+	updated_at: number,
+	turn: number,
+	score: number | null,
+};
+
+export type CivSessionSnapshot = {
+	id: string,
+	name: string,
+	model: string,
+	seed: number,
+	created_at: number,
+	updated_at: number,
+	turn: number,
+	world: CivWorld,
+	civilization: CivCivilization,
+	modifiers: CivModifier[],
+	log: CivLogEntry[],
+};
+
+export type CivTile = {
+	x: number,
+	y: number,
+	terrain: string,
+	resource?: string | null,
+	amount: number,
+};
+
+export type CivWorld = {
+	width: number,
+	height: number,
+	tiles: CivTile[],
+	entities: CivEntity[],
+};
+
+/**  A child entry inside a browsed directory. */
+export type DirChild = {
+	name: string,
+	path: string,
+	is_dir: boolean,
+	/**  `true` for `.pdf` files — the UI offers one-click conversion. */
+	is_pdf: boolean,
+};
+
+/**  A single level of a directory, for the in-app file browser. */
+export type DirListing = {
+	path: string,
+	parent: string | null,
+	children: DirChild[],
+};
+
+export type EvalArtifactFileInput = {
+	relative_path: string,
 	content: string,
+};
+
+export type EvalArtifactLaunchResult = {
+	artifact_dir: string,
+	entry_path: string,
+	message: string,
+};
+
+export type EvalArtifactRequest = {
+	label: string,
+	kind: string,
+	entry_path: string,
+	files: EvalArtifactFileInput[],
 };
 
 export type EvalMeta = {
@@ -213,12 +408,14 @@ export type EvalMeta = {
 	prompt: string,
 	models: string[],
 	created_at: number,
-	manual_review_count: number,
+	manual_review_count?: number,
 	suite_id?: string | null,
 	suite_run_id?: string | null,
 };
 
-export type EvalResult = {
+export type EvalResult = EvalResult_Serialize | EvalResult_Deserialize;
+
+export type EvalResult_Deserialize = {
 	id: string,
 	prompt: string,
 	models: string[],
@@ -253,102 +450,59 @@ export type EvalResult = {
 	suite_prompt_id?: string | null,
 	/**
 	 *  Per-model reliability/calibration signals (tokens, cost, tok/s,
-	 *  token-count error). Captured at run time and persisted. Older eval files lack this.
+	 *  token-count error). Captured at run time and persisted so the P6
+	 *  profile aggregator can read past runs. `None` (absent) for eval files
+	 *  that predate metric capture or runs that produced no model results —
+	 *  kept distinct from `Some({})` so a read-mutate-write of an old eval
+	 *  (judge / goal-grade) never fabricates an empty-but-present block.
 	 */
-	reliability_metrics?: { [key in string]: ReliabilityMetrics },
+	reliability_metrics?: { [key in string]: ReliabilityMetrics } | null,
 	created_at: number,
 };
 
-export type EvalArtifactFileInput = {
-	relative_path: string,
-	content: string,
-};
-
-export type EvalArtifactLaunchResult = {
-	artifact_dir: string,
-	entry_path: string,
-	message: string,
-};
-
-/**
- *  Summary returned after (re)building the per-model reliability profiles.
- */
-export type ProfileBuildResult = {
-	/**  Distinct models that got a profile written. */
-	models: number,
-	/**  Total per-model records aggregated across all eval files. */
-	records: number,
-	/**  Eval files that contributed at least one reliability record. */
-	evals_scanned: number,
-	/**  Absolute path of the profiles directory written to. */
-	profiles_dir: string,
-};
-
-/**
- *  Summary returned after (re)building the propose-only hint overrides.
- */
-export type ProposalBuildResult = {
-	/**  Models a proposal file was written for. */
-	models: number,
-	/**  Total field overrides proposed across all models. */
-	overrides: number,
-	/**  Absolute path of the proposals directory written to. */
-	proposals_dir: string,
-};
-
-/**
- *  Aggregate reliability profile for one model, computed from many eval runs.
- */
-export type ReliabilityProfile = {
-	model: string,
-	/**  Total runs aggregated (successful + errored). */
-	runs: number,
-	/**  Runs that did not return a provider error. */
-	successful_runs: number,
-	/**  Fraction of runs that returned a provider error (0.0–1.0). */
-	error_rate: number,
-	/**  Mean output throughput over successful runs (tok/s). */
-	mean_tokens_per_sec: number,
-	/**  Mean relative token-count error over successful runs (0.0+). */
-	mean_token_count_error: number,
-	/**  Fraction of successful runs whose token-count error ≤ 5%. */
-	token_calibration_rate: number,
-	/**  True only if every aggregated run had verified pricing. */
-	cost_known: boolean,
-	/**  Total computed dollar cost across all aggregated runs. */
-	total_cost_usd: number,
-	/**  Mean reported output tokens over successful runs. */
-	mean_output_tokens: number,
-	/**  Mean reasoning-trace length (chars) over successful runs. */
-	mean_reasoning_chars: number,
-};
-
-/**
- *  A single proposed override of one ModelHints field (propose-only).
- */
-export type ProposedOverride = {
-	field: string,
-	current: string,
-	proposed: string,
-	rationale: string,
-};
-
-/**
- *  Proposed hint overrides for one model. Empty `proposals` = no change advised.
- */
-export type HintProposal = {
-	model: string,
-	runs: number,
-	confidence: number,
-	proposals: ProposedOverride[],
-	note: string,
-};
-
-export type EvalArtifactRequest = {
-	label: string,
-	kind: string,
-	entry_path: string,
-	files: EvalArtifactFileInput[],
+export type EvalResult_Serialize = {
+	id: string,
+	prompt: string,
+	models: string[],
+	results: ModelEvalResult[],
+	human_scores: { [key in string]: HumanScores },
+	/**  Personal review notes and manual score. Separate from blind eval scoring. */
+	manual_reviews: { [key in string]: ManualReview },
+	auto_scores: { [key in string]: AutoScores },
+	judge: JudgeScores | null,
+	/**
+	 *  Per-model captured reasoning_content stream (chain-of-thought). Empty
+	 *  string for models that don't expose reasoning.
+	 */
+	reasoning_traces: { [key in string]: string },
+	/**  Per-model goal grade (5 axes + flags). Populated by run_goal_grade. */
+	goal_grades: { [key in string]: GoalGrade },
+	/**
+	 *  True if this eval was started via start_goal_eval (so the UI/grader
+	 *  knows to apply the goal rubric).
+	 */
+	is_goal_eval: boolean,
+	/**
+	 *  The original goal text (== prompt when is_goal_eval). Kept distinct for
+	 *  future variants that wrap the goal in extra framing.
+	 */
+	goal: string | null,
+	/**  If part of a suite run, the suite id (e.g. "reasoning"). None for ad-hoc evals. */
+	suite_id: string | null,
+	/**  If part of a suite run, groups prompts together by the same run id. */
+	suite_run_id: string | null,
+	/**  If part of a suite run, the SuitePrompt.id for this row. */
+	suite_prompt_id: string | null,
+	/**
+	 *  Per-model reliability/calibration signals (tokens, cost, tok/s,
+	 *  token-count error). Captured at run time and persisted so the P6
+	 *  profile aggregator can read past runs. `None` (absent) for eval files
+	 *  that predate metric capture or runs that produced no model results —
+	 *  kept distinct from `Some({})` so a read-mutate-write of an old eval
+	 *  (judge / goal-grade) never fabricates an empty-but-present block.
+	 */
+	reliability_metrics?: { [key in string]: ReliabilityMetrics } | null,
+	created_at: number,
 };
 
 export type EvalSuite = {
@@ -388,6 +542,18 @@ export type GroupLaunchResult = {
 	branches: string[],
 };
 
+/**  Proposed hint overrides for one model. Empty `proposals` = no change advised. */
+export type HintProposal = {
+	model: string,
+	/**  Total runs the profile aggregated. */
+	runs: number,
+	/**  0.0–1.0 confidence from the sample size (saturates at 20 runs). */
+	confidence: number | null,
+	proposals: ProposedOverride[],
+	/**  Human-facing summary (stability warnings, "no changes", etc.). */
+	note: string,
+};
+
 export type HumanScores = {
 	accuracy: number | null,
 	helpfulness: number | null,
@@ -413,9 +579,9 @@ export type JudgeScores = {
 
 /**  User-authored post-eval review, intentionally separate from blind rubric scores. */
 export type ManualReview = {
-	score: number | null,
-	notes: string,
-	updated_at: number,
+	score?: number | null,
+	notes?: string,
+	updated_at?: number,
 };
 
 /**
@@ -444,13 +610,6 @@ export type McpTestResult = {
 	latency_ms: number | null,
 };
 
-/**  Metadata for one integrated terminal. */
-export type TerminalInfo = {
-	id: string,
-	shell: string,
-	cwd: string,
-};
-
 export type ModelEvalResult = {
 	model: string,
 	content: string,
@@ -461,34 +620,62 @@ export type ModelEvalResult = {
 };
 
 /**
- *  Per-model reliability and calibration signals produced by a single eval run.
- */
-export type ReliabilityMetrics = {
-	model: string,
-	input_tokens: number,
-	output_tokens: number,
-	duration_ms: number,
-	/**  Output tokens per wall-clock second; 0 when duration or output is 0. */
-	tokens_per_sec: number,
-	/**  Dollar cost from the runtime pricing table. 0 when pricing is unknown. */
-	cost_usd: number,
-	/**  False when the model has no verified pricing entry (cost_usd is "unknown"). */
-	cost_known: boolean,
-	/**  runtime tokenizer estimate of the response, for the model's family. */
-	estimated_output_tokens: number,
-	/**  |estimate − reported| / reported. 0 when reported output is 0. */
-	token_count_error: number,
-	/**  Characters of streamed chain-of-thought (0 for non-reasoning models). */
-	reasoning_chars: number,
-	/**  True when the provider returned an error for this model. */
-	had_error: boolean,
-};
-
-/**
  *  Frontend-facing decision type with three options (D-12).
  *  Distinct from PermissionPromptDecision in runtime — that type drives the Rust outcome.
  */
 export type PermissionDecision = "Allow" | "Deny" | "AlwaysAllow";
+
+/**  Summary returned after (re)building the per-model reliability profiles. */
+export type ProfileBuildResult = {
+	/**  Distinct models that got a profile written. */
+	models: number,
+	/**  Total per-model records aggregated across all eval files. */
+	records: number,
+	/**  Eval files that contributed at least one reliability record. */
+	evals_scanned: number,
+	/**  Absolute path of the profiles directory written to. */
+	profiles_dir: string,
+};
+
+/**  A quick-access working directory the user has opened in the app. */
+export type Project = {
+	/**  Absolute, canonicalized directory path. */
+	path: string,
+	/**  Display name (last path component). */
+	name: string,
+	added_at: number,
+	last_opened_at: number,
+};
+
+export type PromptCommand = {
+	command: string,
+	description: string,
+	scope: string,
+	source_path: string,
+	content: string,
+};
+
+/**  Summary returned after (re)building the propose-only hint overrides. */
+export type ProposalBuildResult = {
+	/**  Models a proposal file was written for. */
+	models: number,
+	/**  Total field overrides proposed across all models. */
+	overrides: number,
+	/**  Absolute path of the proposals directory written to. */
+	proposals_dir: string,
+};
+
+/**  A single proposed override of one `ModelHints` field. */
+export type ProposedOverride = {
+	/**  `ModelHints` field name, e.g. `"max_completion_tokens"`. */
+	field: string,
+	/**  Current shipped value, rendered as a string. */
+	current: string,
+	/**  Proposed value, rendered as a string. */
+	proposed: string,
+	/**  Why the change is proposed, citing the observed signal. */
+	rationale: string,
+};
 
 /**
  *  A flag raised against a chunk of reasoning. Emitted live by the supervisor
@@ -505,6 +692,77 @@ export type ReasoningFlag = {
 	comment: string,
 	/**  Char offset into the reasoning trace where `quote` begins (best-effort). */
 	offset_chars: number,
+};
+
+/**
+ *  Per-model reliability and calibration signals produced by a single eval run.
+ * 
+ *  These are the §5 metrics the single-turn eval-lab can actually produce
+ *  (tokens/cost/token-count-error/duration/throughput) — the agentic
+ *  edit-apply / tool-call metrics come from the separate bench harness. Cost
+ *  and the token estimate are computed with the authoritative `runtime`
+ *  pricing + tokenizer so they match the CLI engine, not a UI approximation.
+ */
+export type ReliabilityMetrics = {
+	model: string,
+	/**  Provider-reported input/output tokens for the turn (authoritative for cost). */
+	input_tokens: number,
+	output_tokens: number,
+	duration_ms: number,
+	/**  Output tokens per wall-clock second; 0 when duration or output is 0. */
+	tokens_per_sec: number | null,
+	/**
+	 *  Dollar cost from the `runtime` pricing table. 0 when the model has no
+	 *  verified pricing (see `cost_known`) — never an Opus-rate guess.
+	 */
+	cost_usd: number | null,
+	/**
+	 *  False when the model has no verified pricing entry, so `cost_usd` is a
+	 *  genuine "unknown" rather than a real $0.
+	 */
+	cost_known: boolean,
+	/**  `runtime` tokenizer estimate of the response, for the model's family. */
+	estimated_output_tokens: number,
+	/**
+	 *  |estimate − reported| / reported. 0 when reported output is 0. The §5
+	 *  "token-count error" signal (target ≤ 5%).
+	 */
+	token_count_error: number | null,
+	/**  Characters of streamed chain-of-thought (0 for non-reasoning models). */
+	reasoning_chars: number,
+	/**  True when the provider returned an error for this model. */
+	had_error: boolean,
+};
+
+/**
+ *  Aggregate reliability profile for one model, computed from many runs.
+ * 
+ *  Means are taken over *successful* runs only (a provider error yields zero
+ *  tokens/duration and would otherwise skew throughput and calibration). Cost
+ *  is summed across all runs.
+ */
+export type ReliabilityProfile = {
+	model: string,
+	/**  Total runs aggregated (successful + errored). */
+	runs: number,
+	/**  Runs that did not return a provider error. */
+	successful_runs: number,
+	/**  Fraction of runs that returned a provider error (0.0–1.0). */
+	error_rate: number | null,
+	/**  Mean output throughput over successful runs (tok/s). */
+	mean_tokens_per_sec: number | null,
+	/**  Mean relative token-count error over successful runs (0.0+). */
+	mean_token_count_error: number | null,
+	/**  Fraction of successful runs whose token-count error ≤ 5% (the §5 target). */
+	token_calibration_rate: number | null,
+	/**  True only if every aggregated run had verified pricing. */
+	cost_known: boolean,
+	/**  Total computed dollar cost across all aggregated runs. */
+	total_cost_usd: number | null,
+	/**  Mean reported output tokens over successful runs. */
+	mean_output_tokens: number | null,
+	/**  Mean reasoning-trace length (chars) over successful runs. */
+	mean_reasoning_chars: number | null,
 };
 
 export type RoleConfig = {
@@ -537,8 +795,15 @@ export type SkillManifest = {
 export type SuitePrompt = {
 	id: string,
 	prompt: string,
-	/**  "ai_slop" | "brevity" | "json_mode" | "code" | "refusal" | "free" */
+	/**  "ai_slop" | "brevity" | "json_mode" | "code" | "refusal" | "visual" | "free" */
 	grader: string,
+};
+
+/**  Metadata for one terminal, returned to the frontend. */
+export type TerminalInfo = {
+	id: string,
+	shell: string,
+	cwd: string,
 };
 
 export type TokenUsage = {
@@ -557,3 +822,4 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
+

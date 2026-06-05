@@ -402,6 +402,6 @@ export function hasHumanScoreSignal(scores: Record<string, Partial<HumanScores>>
 
 export function manualReviewCount(manualReviews: Record<string, ManualReview> | undefined): number {
   return Object.values(manualReviews ?? {}).filter((review) =>
-    cleanScore(review.score) !== null || review.notes.trim().length > 0
+    cleanScore(review.score) !== null || (review.notes ?? "").trim().length > 0
   ).length;
 }

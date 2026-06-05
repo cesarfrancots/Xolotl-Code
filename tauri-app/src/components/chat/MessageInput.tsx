@@ -23,6 +23,7 @@ import { commands } from "../../bindings";
 import type { AgentEvent, PromptCommand, TokenUsage } from "../../bindings";
 import { useSessionStore, serializeSession } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
+import { useProjectStore } from "../../stores/projectStore";
 import { calcTurnCost, formatCostBar } from "../../lib/cost";
 import {
   buildSlashHelpText,
@@ -107,6 +108,7 @@ async function streamChatTurn(
   model: string,
   enabledSkills: string[],
   reasoningEffort: ReasoningEffort,
+  cwd: string | null,
 ): Promise<void> {
   const channel = `chat-event:${turnId}`;
 
@@ -202,6 +204,7 @@ async function streamChatTurn(
           model,
           enabledSkills,
           reasoningEffort,
+          cwd,
         );
         if (result.status === "error") {
           cleanup();
@@ -372,6 +375,26 @@ export function MessageInput() {
     return () => window.removeEventListener("xolotl:seed-prompt", onSeed);
   }, [seedWorkflowPrompt]);
 
+  // The file browser inserts converted PDF text into the composer via this
+  // event (keeps the browser decoupled from input internals).
+  useEffect(() => {
+    const onInsert = (e: Event) => {
+      const text = (e as CustomEvent<{ text?: string }>).detail?.text;
+      if (!text) return;
+      setValue((prev) => (prev.trim() ? `${prev.replace(/\s+$/, "")}\n\n${text}` : text));
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.style.height = "auto";
+        el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+        el.scrollTop = el.scrollHeight;
+      });
+    };
+    window.addEventListener("xolotl:insert-text", onInsert);
+    return () => window.removeEventListener("xolotl:insert-text", onInsert);
+  }, []);
+
   function executeSlashCommand(cmd: string) {
     const command = findSlashCommand(cmd);
     const customCommand = findCustomPromptCommand(cmd, customCommands);
@@ -541,12 +564,14 @@ export function MessageInput() {
 
     try {
       const enabledSkills = useUiStore.getState().enabledSkills;
+      const cwd = useProjectStore.getState().activeProjectPath;
       await streamChatTurn(
         turnId,
         historyMessages,
         currentModel,
         enabledSkills,
         currentReasoningEffort,
+        cwd,
       );
     } catch (err) {
       showInlineError("chat_turn error", err);

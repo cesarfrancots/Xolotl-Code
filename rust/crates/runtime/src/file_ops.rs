@@ -140,12 +140,27 @@ pub fn read_file(
 ) -> io::Result<ReadFileOutput> {
     let absolute_path = normalize_path(path)?;
 
+    // PDFs: convert to Markdown so agents read cheap, structured text instead of
+    // unreadable binary bytes. Deterministic extraction — no AI, no OCR, no
+    // network. On failure we fall through to the normal binary summary.
+    if pdfmd::is_pdf_path(&absolute_path) {
+        if let Ok(markdown) = convert_pdf_to_markdown(&absolute_path) {
+            return Ok(text_output(&absolute_path, markdown, offset, limit));
+        }
+    }
+
     // Try reading as UTF-8 text first; on failure, detect binary
     let content = match fs::read_to_string(&absolute_path) {
         Ok(text) => text,
         Err(e) if e.kind() == io::ErrorKind::InvalidData => {
             // Read raw bytes for binary detection / summary
             let bytes = fs::read(&absolute_path)?;
+            // Extension-less PDFs: detect by signature and convert too.
+            if pdfmd::looks_like_pdf(&bytes) {
+                if let Ok(markdown) = convert_pdf_bytes(&bytes, &absolute_path) {
+                    return Ok(text_output(&absolute_path, markdown, offset, limit));
+                }
+            }
             let size_kb = bytes.len() / 1024;
             let mime_hint = guess_binary_type(&bytes);
             let msg = format!(
@@ -165,6 +180,17 @@ pub fn read_file(
         Err(e) => return Err(e),
     };
 
+    Ok(text_output(&absolute_path, content, offset, limit))
+}
+
+/// Build a `text` [`ReadFileOutput`] from full content, applying the shared
+/// offset/limit line-window logic.
+fn text_output(
+    absolute_path: &Path,
+    content: String,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> ReadFileOutput {
     let lines: Vec<&str> = content.lines().collect();
     let start_index = offset.unwrap_or(0).min(lines.len());
     let end_index = limit.map_or_else(
@@ -173,7 +199,7 @@ pub fn read_file(
     );
     let selected = lines[start_index..end_index].join("\n");
 
-    Ok(ReadFileOutput {
+    ReadFileOutput {
         kind: String::from("text"),
         file: TextFilePayload {
             file_path: absolute_path.to_string_lossy().into_owned(),
@@ -182,7 +208,35 @@ pub fn read_file(
             start_line: start_index.saturating_add(1),
             total_lines: lines.len(),
         },
-    })
+    }
+}
+
+/// Read a PDF from disk and render it to Markdown with a provenance header.
+fn convert_pdf_to_markdown(path: &Path) -> Result<String, pdfmd::PdfError> {
+    let bytes = fs::read(path)?;
+    convert_pdf_bytes(&bytes, path)
+}
+
+/// Render already-loaded PDF bytes to Markdown with a provenance header.
+fn convert_pdf_bytes(bytes: &[u8], path: &Path) -> Result<String, pdfmd::PdfError> {
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(ToString::to_string);
+    let doc = pdfmd::pdf_to_document(bytes, name.clone())?;
+    let label = name.as_deref().unwrap_or("document.pdf");
+    let header = format!(
+        "<!-- Converted from PDF \"{label}\" — {} page(s), deterministic text extraction (no OCR). -->\n\n",
+        doc.page_count
+    );
+    if doc.is_empty() {
+        Ok(format!(
+            "{header}_No selectable text found in this PDF. It may be a scanned or image-only \
+document; deterministic extraction cannot read it without OCR._\n"
+        ))
+    } else {
+        Ok(format!("{header}{}", pdfmd::render_markdown(&doc)))
+    }
 }
 
 /// Best-effort binary file type detection from magic bytes.

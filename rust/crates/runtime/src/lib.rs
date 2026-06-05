@@ -89,6 +89,10 @@ pub use permissions::{
     PermissionMode, PermissionOutcome, PermissionPolicy, PermissionPromptDecision,
     PermissionPrompter, PermissionRequest, SandboxPolicy,
 };
+// Deterministic PDF -> Markdown/JSON conversion (no AI/OCR). Re-exported so the
+// CLI and Tauri backend can reach it as `runtime::pdfmd::*` without a second
+// path dependency.
+pub use pdfmd;
 pub use plan::{
     build_plan_prompt, build_ultra_plan_prompt, extract_json_from_response, format_plan_summary,
     ParallelizationAnalysis, PlanArtifact, PlanMilestone, PlanPhase, PlanTask, RiskAssessment,

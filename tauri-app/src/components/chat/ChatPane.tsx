@@ -4,14 +4,16 @@ import { useChatStore } from "../../stores/chatStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useAgentEvents } from "../../hooks/useAgentEvents";
 import { formatCostBar, calcTurnCost } from "../../lib/cost";
-import { BadgeCheck, MoreHorizontal, Square } from "lucide-react";
+import { BadgeCheck, Folder, MoreHorizontal, Square } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
+import { useProjectStore, projectDisplayName } from "../../stores/projectStore";
 
 export function ChatPane() {
   const { model, isStreaming, sessionUsage, items } = useChatStore();
   const agentId = useChatStore((s) => s.agentId);
   const enabledSkills = useUiStore((s) => s.enabledSkills);
+  const activeProjectPath = useProjectStore((s) => s.activeProjectPath);
   useAgentEvents(agentId);
 
   const totalTokens =
@@ -33,6 +35,15 @@ export function ChatPane() {
           <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-[oklch(0.92_0.010_220)]">
             {title}
           </h1>
+          {activeProjectPath && (
+            <span
+              className="flex flex-none items-center gap-1 rounded-full border border-[oklch(0.28_0.018_195)] bg-[oklch(0.135_0.008_200)] px-2 py-0.5 text-[11px] text-[oklch(0.72_0.035_190)]"
+              title={`Working in ${activeProjectPath}`}
+            >
+              <Folder className="h-3 w-3" />
+              <span className="max-w-[160px] truncate">{projectDisplayName(activeProjectPath)}</span>
+            </span>
+          )}
           <Button variant="ghost" size="icon-sm" aria-label="More options" title="More options" className="h-7 w-7 flex-none text-[oklch(0.52_0.012_230)]">
             <MoreHorizontal className="h-4 w-4" />
           </Button>

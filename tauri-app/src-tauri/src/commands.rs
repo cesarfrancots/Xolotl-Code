@@ -694,6 +694,7 @@ pub async fn chat_turn(
     model: String,
     enabled_skills: Option<Vec<String>>,
     reasoning_effort: Option<String>,
+    cwd: Option<String>,
 ) -> Result<(), String> {
     let channel = format!("chat-event:{turn_id}");
     eprintln!(
@@ -707,8 +708,15 @@ pub async fn chat_turn(
 
     // Prepend project instructions and enabled-skill awareness to the first
     // user message, OpenAI/Kimi style (no system role in our wire format).
-    // Empty fragments are a no-op.
-    let project_instructions = build_project_instructions_fragment();
+    // Empty fragments are a no-op. When the chat is scoped to a project
+    // directory (Codex-style directory browser), resolve AGENTS.md / CLAUDE.md
+    // from there instead of the app's launch cwd.
+    let project_instructions = match cwd.as_deref() {
+        Some(dir) if !dir.trim().is_empty() => {
+            build_project_instructions_fragment_from(Path::new(dir))
+        }
+        _ => build_project_instructions_fragment(),
+    };
     let skills_fragment = match &enabled_skills {
         Some(names) if !names.is_empty() => crate::skills_mcp::build_skills_system_fragment(names),
         _ => String::new(),
@@ -1031,6 +1039,220 @@ pub struct SessionMeta {
     pub id: String,
     pub title: String,
     pub created_at: u64,
+}
+
+// ── Projects / working directories (Codex-style quick access) ──────────────────
+
+/// A quick-access working directory the user has opened in the app.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct Project {
+    /// Absolute, canonicalized directory path.
+    pub path: String,
+    /// Display name (last path component).
+    pub name: String,
+    pub added_at: u64,
+    pub last_opened_at: u64,
+}
+
+fn home_projects_path() -> PathBuf {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join(".xolotl-code")
+        .join("projects.json")
+}
+
+fn read_projects() -> Vec<Project> {
+    let path = home_projects_path();
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    serde_json::from_str(&text).unwrap_or_default()
+}
+
+fn write_projects(projects: &[Project]) -> Result<(), String> {
+    let path = home_projects_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(projects).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn sort_projects(projects: &mut [Project]) {
+    projects.sort_by(|a, b| b.last_opened_at.cmp(&a.last_opened_at));
+}
+
+/// List saved quick-access projects, most-recently-opened first.
+#[tauri::command]
+#[specta::specta]
+pub fn list_projects() -> Vec<Project> {
+    let mut projects = read_projects();
+    sort_projects(&mut projects);
+    projects
+}
+
+/// Add (or refresh) a project by directory path. Validates the directory
+/// exists, canonicalizes it, dedupes, and returns the updated list.
+#[tauri::command]
+#[specta::specta]
+pub fn add_project(path: String) -> Result<Vec<Project>, String> {
+    let raw = PathBuf::from(&path);
+    if !raw.is_dir() {
+        return Err(format!("Not a directory: {path}"));
+    }
+    let canonical = std::fs::canonicalize(&raw).unwrap_or(raw);
+    let canon_str = canonical.to_string_lossy().into_owned();
+    let name = canonical
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map_or_else(|| canon_str.clone(), ToString::to_string);
+
+    let mut projects = read_projects();
+    let now = now_secs();
+    if let Some(existing) = projects.iter_mut().find(|pr| pr.path == canon_str) {
+        existing.last_opened_at = now;
+    } else {
+        projects.push(Project {
+            path: canon_str,
+            name,
+            added_at: now,
+            last_opened_at: now,
+        });
+    }
+    write_projects(&projects)?;
+    sort_projects(&mut projects);
+    Ok(projects)
+}
+
+/// Remove a project from quick access (does not touch the directory on disk).
+#[tauri::command]
+#[specta::specta]
+pub fn remove_project(path: String) -> Result<Vec<Project>, String> {
+    let mut projects = read_projects();
+    projects.retain(|p| p.path != path);
+    write_projects(&projects)?;
+    sort_projects(&mut projects);
+    Ok(projects)
+}
+
+/// Mark a project as just-opened (bumps it to the top of the list).
+#[tauri::command]
+#[specta::specta]
+pub fn touch_project(path: String) -> Result<(), String> {
+    let mut projects = read_projects();
+    let now = now_secs();
+    let mut found = false;
+    for p in &mut projects {
+        if p.path == path {
+            p.last_opened_at = now;
+            found = true;
+        }
+    }
+    if found {
+        write_projects(&projects)?;
+    }
+    Ok(())
+}
+
+/// Open a native folder picker and return the chosen directory (or `None` if
+/// the user cancelled).
+#[tauri::command]
+#[specta::specta]
+pub async fn pick_directory(app_handle: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app_handle.dialog().file().pick_folder(move |folder| {
+        let _ = tx.send(folder);
+    });
+    let folder = rx.await.map_err(|e| e.to_string())?;
+    Ok(folder
+        .and_then(|f| f.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned()))
+}
+
+/// A child entry inside a browsed directory.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct DirChild {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    /// `true` for `.pdf` files — the UI offers one-click conversion.
+    pub is_pdf: bool,
+}
+
+/// A single level of a directory, for the in-app file browser.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct DirListing {
+    pub path: String,
+    pub parent: Option<String>,
+    pub children: Vec<DirChild>,
+}
+
+/// Noisy directories we skip in the browser so it stays readable.
+fn is_noise_dir(name: &str) -> bool {
+    matches!(
+        name,
+        ".git" | "node_modules" | "target" | "$RECYCLE.BIN" | "System Volume Information"
+    )
+}
+
+/// List the immediate children of a directory (directories first, then files),
+/// for the sidebar file browser.
+#[tauri::command]
+#[specta::specta]
+pub fn browse_directory(path: String) -> Result<DirListing, String> {
+    let root = PathBuf::from(&path);
+    if !root.is_dir() {
+        return Err(format!("Not a directory: {path}"));
+    }
+    let mut children = Vec::new();
+    for entry in std::fs::read_dir(&root).map_err(|e| e.to_string())? {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_dir && is_noise_dir(&name) {
+            continue;
+        }
+        let child_path = entry.path();
+        let is_pdf = !is_dir && runtime::pdfmd::is_pdf_path(&child_path);
+        children.push(DirChild {
+            name,
+            path: child_path.to_string_lossy().into_owned(),
+            is_dir,
+            is_pdf,
+        });
+    }
+    children.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    let parent = root.parent().map(|p| p.to_string_lossy().into_owned());
+    Ok(DirListing {
+        path: root.to_string_lossy().into_owned(),
+        parent,
+        children,
+    })
+}
+
+/// Convert a PDF file to Markdown (`format = "md"`) or JSON (`format = "json"`)
+/// using deterministic extraction — no AI, no OCR, no network.
+#[tauri::command]
+#[specta::specta]
+pub fn convert_pdf(path: String, format: String) -> Result<String, String> {
+    let fmt = runtime::pdfmd::OutputFormat::parse(&format);
+    runtime::pdfmd::convert_file(Path::new(&path), fmt).map_err(|e| e.to_string())
 }
 
 // ── Eval commands ─────────────────────────────────────────────────────────────
@@ -3436,7 +3658,7 @@ fn open_artifact_file(entry_path: &PathBuf) -> Result<String, String> {
 
 /// Route a model name to the appropriate provider and stream the response.
 /// Sends AgentEvent::TextDelta for each text chunk via the mpsc sender.
-async fn call_model_streaming(
+pub(crate) async fn call_model_streaming(
     model: &str,
     messages: &[ChatMessage],
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,

@@ -3,18 +3,26 @@ use std::sync::Arc;
 use tauri_specta::{collect_commands, Builder};
 
 use crate::commands::{
-    build_hint_proposals, build_reliability_profiles, cancel_chat_turn, chat_turn,
-    cleanup_eval_processes, delete_eval, delete_session, get_api_key_status, get_worktree_diff,
-    launch_swarm, launch_team, list_agents, list_hint_proposals, list_reliability_profiles,
-    list_eval_suites, list_evals, list_models, list_prompt_commands, list_sessions, load_eval,
-    load_session, merge_worktrees, respond_to_permission, run_agent_turn, run_eval_suite,
+    add_project, browse_directory, build_hint_proposals, build_reliability_profiles,
+    cancel_chat_turn, chat_turn, cleanup_eval_processes, convert_pdf, delete_eval, delete_session,
+    get_api_key_status, get_worktree_diff, launch_swarm, launch_team, list_agents,
+    list_hint_proposals, list_projects, list_reliability_profiles, list_eval_suites, list_evals,
+    list_models, list_prompt_commands, list_sessions, load_eval, load_session, merge_worktrees,
+    pick_directory, remove_project, respond_to_permission, run_agent_turn, run_eval_suite,
     run_goal_grade, run_llm_judge, save_human_scores, save_manual_reviews, save_session,
     set_api_key, smoke_test, spawn_agent, start_eval, start_eval_artifact, start_goal_eval,
-    stop_agent, test_api_connection, test_permission_prompt, AutoScores, ChatMessage,
-    EvalArtifactFileInput, EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta, EvalResult,
-    EvalSuite, FileDiff, GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores, JudgeScores,
-    ManualReview, ModelEvalResult, ProfileBuildResult, ProposalBuildResult, PromptCommand,
-    ReasoningFlag, ReliabilityMetrics, RoleConfig, SessionMeta, SuitePrompt,
+    stop_agent, test_api_connection, test_permission_prompt, touch_project, AutoScores,
+    ChatMessage, DirChild, DirListing, EvalArtifactFileInput, EvalArtifactLaunchResult,
+    EvalArtifactRequest, EvalMeta, EvalResult, EvalSuite, FileDiff, GoalAxisScore, GoalGrade,
+    GroupLaunchResult, HumanScores, JudgeScores, ManualReview, ModelEvalResult, ProfileBuildResult,
+    Project, ProposalBuildResult, PromptCommand, ReasoningFlag, ReliabilityMetrics, RoleConfig,
+    SessionMeta, SuitePrompt,
+};
+use crate::civilization::{
+    advance_civ_turn, apply_civ_intervention, create_civ_session, delete_civ_session,
+    list_civ_sessions, load_civ_session, CivCivilization, CivDecisionAction, CivEntity,
+    CivIntervention, CivLogEntry, CivModelDecision, CivModifier, CivScore, CivSessionConfig,
+    CivSessionMeta, CivSessionSnapshot, CivTile, CivWorld,
 };
 use crate::permission_prompter::{PendingPrompts, PermissionDecision};
 use crate::skills_mcp::{
@@ -31,6 +39,7 @@ use runtime::{
 };
 
 mod commands;
+mod civilization;
 mod permission_prompter;
 pub mod skills_mcp;
 mod terminal;
@@ -85,17 +94,33 @@ fn make_builder() -> Builder<tauri::Wry> {
             cleanup_eval_processes,
             cancel_chat_turn,
             chat_turn,
+            list_projects,
+            add_project,
+            remove_project,
+            touch_project,
+            pick_directory,
+            browse_directory,
+            convert_pdf,
             terminal_spawn,
             terminal_write,
             terminal_resize,
             terminal_kill,
             terminal_list,
+            create_civ_session,
+            list_civ_sessions,
+            load_civ_session,
+            delete_civ_session,
+            apply_civ_intervention,
+            advance_civ_turn,
         ])
         .typ::<AgentId>()
         .typ::<AgentState>()
         .typ::<AgentEvent>()
         .typ::<PermissionDecision>()
         .typ::<SessionMeta>()
+        .typ::<Project>()
+        .typ::<DirChild>()
+        .typ::<DirListing>()
         .typ::<RoleConfig>()
         .typ::<GroupLaunchResult>()
         .typ::<FileDiff>()
@@ -126,6 +151,19 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<McpServerConfig>()
         .typ::<McpTestResult>()
         .typ::<TerminalInfo>()
+        .typ::<CivSessionConfig>()
+        .typ::<CivSessionMeta>()
+        .typ::<CivSessionSnapshot>()
+        .typ::<CivWorld>()
+        .typ::<CivTile>()
+        .typ::<CivEntity>()
+        .typ::<CivCivilization>()
+        .typ::<CivScore>()
+        .typ::<CivModifier>()
+        .typ::<CivLogEntry>()
+        .typ::<CivIntervention>()
+        .typ::<CivModelDecision>()
+        .typ::<CivDecisionAction>()
 }
 
 pub fn export_bindings(path: &str) {
@@ -155,6 +193,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
         .manage(Arc::new(AgentSupervisor::new(repo_root)))

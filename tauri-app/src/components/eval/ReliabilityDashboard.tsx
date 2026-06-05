@@ -31,10 +31,10 @@ function saveBaseline(profiles: ReliabilityProfile[]): boolean {
   }
 }
 
-const pct = (v: number) => `${Math.round((v ?? 0) * 100)}%`;
+const pct = (v: number | null | undefined) => `${Math.round((v ?? 0) * 100)}%`;
 const fmtCost = (p: ReliabilityProfile) =>
   p.cost_known && typeof p.total_cost_usd === "number" ? `$${p.total_cost_usd.toFixed(4)}` : "—";
-const fmtTps = (v: number) => (v > 0 ? `${Math.round(v).toLocaleString("en-US")} tok/s` : "—");
+const fmtTps = (v: number | null | undefined) => (v && v > 0 ? `${Math.round(v).toLocaleString("en-US")} tok/s` : "—");
 
 function metricValue(change: MetricChange, value: number): string {
   return change.metric === "mean_tokens_per_sec" ? `${Math.round(value)}` : pct(value);
@@ -235,7 +235,7 @@ export function ReliabilityDashboard() {
                   <Stat label="Error rate" value={pct(p.error_rate)} regressed={modelRegressions.some((c) => c.metric === "error_rate")} />
                   <Stat label="Throughput" value={fmtTps(p.mean_tokens_per_sec)} regressed={modelRegressions.some((c) => c.metric === "mean_tokens_per_sec")} />
                   <Stat label="Total cost" value={fmtCost(p)} />
-                  <Stat label="Mean out tok" value={Math.round(p.mean_output_tokens).toLocaleString("en-US")} />
+                  <Stat label="Mean out tok" value={Math.round(p.mean_output_tokens ?? 0).toLocaleString("en-US")} />
                   <Stat label="Token error" value={pct(p.mean_token_count_error)} />
                 </dl>
 

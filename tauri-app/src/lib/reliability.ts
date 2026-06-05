@@ -30,7 +30,7 @@ export const TOKEN_ERROR_WARN = 0.15;
  */
 export function tokenAccuracyPct(m: ReliabilityMetrics): number {
   if (m.output_tokens <= 0 || m.had_error) return 0;
-  return Math.max(0, Math.min(100, (1 - m.token_count_error) * 100));
+  return Math.max(0, Math.min(100, (1 - (m.token_count_error ?? 0)) * 100));
 }
 
 /**
@@ -39,7 +39,7 @@ export function tokenAccuracyPct(m: ReliabilityMetrics): number {
  */
 export function calibrationVerdict(m: ReliabilityMetrics): CalibrationVerdict {
   if (m.output_tokens <= 0 || m.had_error) return { label: "No data", tone: "none" };
-  const err = m.token_count_error;
+  const err = m.token_count_error ?? 0;
   if (err <= TOKEN_ERROR_GOOD) return { label: "Well calibrated", tone: "good" };
   if (err <= TOKEN_ERROR_WARN) return { label: "Drifting", tone: "warn" };
   return { label: "Miscalibrated", tone: "bad" };
@@ -51,13 +51,14 @@ export function calibrationVerdict(m: ReliabilityMetrics): CalibrationVerdict {
  */
 export function formatReliabilityCost(m: ReliabilityMetrics): string {
   if (!m.cost_known) return "—";
-  return `$${m.cost_usd.toFixed(4)}`;
+  return `$${(m.cost_usd ?? 0).toFixed(4)}`;
 }
 
 /** Output throughput, or an em-dash when it could not be measured. */
 export function formatTps(m: ReliabilityMetrics): string {
-  if (m.tokens_per_sec <= 0) return "—";
-  return `${Math.round(m.tokens_per_sec).toLocaleString("en-US")} tok/s`;
+  const tokensPerSec = m.tokens_per_sec ?? 0;
+  if (tokensPerSec <= 0) return "—";
+  return `${Math.round(tokensPerSec).toLocaleString("en-US")} tok/s`;
 }
 
 export interface ReliabilityRow {
