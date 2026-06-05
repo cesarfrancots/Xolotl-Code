@@ -9,8 +9,9 @@ use tauri::{AppHandle, Emitter};
 // A large procedural aquatic continent. Axolotls swim a deep water column above a
 // seabed that rises and falls across distinct biome regions. The world is much
 // wider/taller than the viewport — the renderer pans/zooms a camera over it.
+// Single-civ default width; multi-civ worlds scale wider via `world_width`.
 const WORLD_WIDTH: u32 = 128;
-const WORLD_HEIGHT: u32 = 72;
+const WORLD_HEIGHT: u32 = 96;
 const INITIAL_POPULATION: u32 = 8;
 
 // Thin sky/surface band at the very top; the rest is water down to the seabed.
@@ -62,48 +63,81 @@ struct BiomeDef {
     mid_terrain: &'static str,
     deep_terrain: &'static str,
     resources: &'static [&'static str],
+    /// Whether a colony may be founded here. Harsh biomes (deep trenches,
+    /// volcanic, glacier, abyss) are skipped when placing civ spawn points.
+    spawnable: bool,
 }
 
-const BIOMES: [BiomeDef; 8] = [
+const BIOMES: [BiomeDef; 14] = [
     BiomeDef {
         id: "shallows", name: "Sunlit Shallows", floor_offset: -10, deep: false,
         top_terrain: "sand", mid_terrain: "sand", deep_terrain: "earth",
-        resources: &["moss", "fiber"],
+        resources: &["moss", "fiber"], spawnable: true,
     },
     BiomeDef {
         id: "reedmarsh", name: "Reed Marsh", floor_offset: -4, deep: false,
         top_terrain: "moss", mid_terrain: "mud", deep_terrain: "earth",
-        resources: &["moss", "wood", "fiber"],
+        resources: &["moss", "wood", "fiber"], spawnable: true,
     },
     BiomeDef {
         id: "mudflats", name: "Mud Flats", floor_offset: 0, deep: false,
         top_terrain: "mud", mid_terrain: "earth", deep_terrain: "stone",
-        resources: &["clay", "clay", "fiber"],
+        resources: &["clay", "clay", "fiber"], spawnable: true,
     },
     BiomeDef {
         id: "kelpforest", name: "Kelp Forest", floor_offset: -6, deep: false,
         top_terrain: "moss", mid_terrain: "moss", deep_terrain: "earth",
-        resources: &["wood", "fiber", "moss"],
+        resources: &["wood", "fiber", "kelp"], spawnable: true,
     },
     BiomeDef {
         id: "openwater", name: "Open Water", floor_offset: 4, deep: false,
         top_terrain: "sand", mid_terrain: "earth", deep_terrain: "stone",
-        resources: &["stone"],
+        resources: &["stone", "kelp"], spawnable: true,
     },
     BiomeDef {
         id: "deeptrench", name: "Deep Trench", floor_offset: 16, deep: true,
         top_terrain: "stone", mid_terrain: "stone", deep_terrain: "stone",
-        resources: &["glowshards", "stone"],
+        resources: &["glowshards", "ore"], spawnable: false,
     },
     BiomeDef {
         id: "crystalcave", name: "Crystal Caverns", floor_offset: 8, deep: true,
         top_terrain: "crystal", mid_terrain: "stone", deep_terrain: "crystal",
-        resources: &["glowshards", "glowshards", "stone"],
+        resources: &["glowshards", "glowshards", "stone"], spawnable: false,
     },
     BiomeDef {
         id: "thermalvent", name: "Thermal Vents", floor_offset: 10, deep: true,
         top_terrain: "stone", mid_terrain: "earth", deep_terrain: "stone",
-        resources: &["stone", "glowshards", "clay"],
+        resources: &["stone", "sulfur", "clay"], spawnable: false,
+    },
+    BiomeDef {
+        id: "coralreef", name: "Coral Reef", floor_offset: -8, deep: false,
+        top_terrain: "coral", mid_terrain: "coral", deep_terrain: "sand",
+        resources: &["coral", "kelp", "fiber"], spawnable: true,
+    },
+    BiomeDef {
+        id: "glacier", name: "Glacier Shelf", floor_offset: -2, deep: false,
+        top_terrain: "ice", mid_terrain: "ice", deep_terrain: "stone",
+        resources: &["ice", "stone"], spawnable: false,
+    },
+    BiomeDef {
+        id: "volcanic", name: "Volcanic Rift", floor_offset: 12, deep: true,
+        top_terrain: "basalt", mid_terrain: "basalt", deep_terrain: "stone",
+        resources: &["sulfur", "ore", "stone"], spawnable: false,
+    },
+    BiomeDef {
+        id: "bog", name: "Sunken Bog", floor_offset: -3, deep: false,
+        top_terrain: "peat", mid_terrain: "mud", deep_terrain: "earth",
+        resources: &["herbs", "fiber", "moss"], spawnable: true,
+    },
+    BiomeDef {
+        id: "saltflats", name: "Salt Flats", floor_offset: 2, deep: false,
+        top_terrain: "salt", mid_terrain: "sandstone", deep_terrain: "stone",
+        resources: &["amber", "clay"], spawnable: true,
+    },
+    BiomeDef {
+        id: "abyss", name: "The Abyss", floor_offset: 20, deep: true,
+        top_terrain: "stone", mid_terrain: "stone", deep_terrain: "stone",
+        resources: &["glowshards", "ore"], spawnable: false,
     },
 ];
 
@@ -690,7 +724,7 @@ fn initial_snapshot(
     seed: u32,
     now: u64,
 ) -> CivSessionSnapshot {
-    let world = generate_world(seed);
+    let world = generate_world(seed, 1);
 
     // Locate the founding civ's home: its pond/nest column and the region it sits in.
     let spawn_x = world
@@ -721,6 +755,13 @@ fn initial_snapshot(
     resources.insert("fiber".to_string(), 12);
     resources.insert("tools".to_string(), 2);
     resources.insert("glowshards".to_string(), 0);
+    resources.insert("kelp".to_string(), 0);
+    resources.insert("ore".to_string(), 0);
+    resources.insert("ice".to_string(), 0);
+    resources.insert("coral".to_string(), 0);
+    resources.insert("sulfur".to_string(), 0);
+    resources.insert("amber".to_string(), 0);
+    resources.insert("herbs".to_string(), 0);
 
     let civ = CivCivilization {
         id: FIRST_CIV_ID.to_string(),
@@ -767,7 +808,7 @@ fn initial_snapshot(
 /// Lay biome regions out left-to-right. Returns `(biome_index, start_x, width)`
 /// per region, with the home biome roughly centred and the rest seed-shuffled so
 /// each continent differs. Widths always tile `WORLD_WIDTH` exactly, each >= 8.
-fn biome_layout(seed: u32) -> Vec<(usize, u32, u32)> {
+fn biome_layout(seed: u32, width: u32) -> Vec<(usize, u32, u32)> {
     let mut rng = (seed ^ 0x5EAB_ED01).max(1);
     let mut others: Vec<usize> = (0..BIOMES.len()).filter(|&i| i != HOME_BIOME).collect();
     for i in (1..others.len()).rev() {
@@ -781,7 +822,7 @@ fn biome_layout(seed: u32) -> Vec<(usize, u32, u32)> {
     seq.extend_from_slice(&others[half..]);
 
     let n = seq.len();
-    let mut bounds: Vec<u32> = (0..=n).map(|k| (WORLD_WIDTH as usize * k / n) as u32).collect();
+    let mut bounds: Vec<u32> = (0..=n).map(|k| (width as usize * k / n) as u32).collect();
     for k in 1..n {
         let lo = bounds[k - 1] + 8;
         let hi = bounds[k + 1].saturating_sub(8);
@@ -809,23 +850,35 @@ fn floor_y_at(x: u32, biome: usize, seed: u32) -> u32 {
     base.clamp((WATER_SURFACE_Y + 16) as i32, (WORLD_HEIGHT - 4) as i32) as u32
 }
 
-fn generate_world(seed: u32) -> CivWorld {
-    let mut rng = seed.max(1);
-    let layout = biome_layout(seed);
+/// World width scales with the number of civs so each colony gets room. A lone
+/// civ keeps the original `WORLD_WIDTH`; more civs widen the continent (capped).
+fn world_width(civ_count: u32) -> u32 {
+    if civ_count <= 1 {
+        WORLD_WIDTH
+    } else {
+        (96 + civ_count * 64).min(512)
+    }
+}
 
-    let mut col_biome = vec![HOME_BIOME; WORLD_WIDTH as usize];
+fn generate_world(seed: u32, civ_count: u32) -> CivWorld {
+    let civ_count = civ_count.max(1);
+    let width = world_width(civ_count);
+    let mut rng = seed.max(1);
+    let layout = biome_layout(seed, width);
+
+    let mut col_biome = vec![HOME_BIOME; width as usize];
     for &(bi, sx, w) in &layout {
-        for x in sx..(sx + w).min(WORLD_WIDTH) {
+        for x in sx..(sx + w).min(width) {
             col_biome[x as usize] = bi;
         }
     }
-    let col_floor: Vec<u32> = (0..WORLD_WIDTH)
+    let col_floor: Vec<u32> = (0..width)
         .map(|x| floor_y_at(x, col_biome[x as usize], seed))
         .collect();
 
-    let mut tiles = Vec::with_capacity((WORLD_WIDTH * WORLD_HEIGHT) as usize);
+    let mut tiles = Vec::with_capacity((width * WORLD_HEIGHT) as usize);
     for y in 0..WORLD_HEIGHT {
-        for x in 0..WORLD_WIDTH {
+        for x in 0..width {
             let bi = col_biome[x as usize];
             let biome = &BIOMES[bi];
             let floor = col_floor[x as usize];
@@ -871,76 +924,14 @@ fn generate_world(seed: u32) -> CivWorld {
         for p in 0..patches {
             let res = biome.resources[(p as usize + next_rng(&mut rng) as usize) % biome.resources.len()];
             let span = w.saturating_sub(4).max(1);
-            let rx = (sx + 2 + next_rng(&mut rng) % span).min(WORLD_WIDTH - 2);
+            let rx = (sx + 2 + next_rng(&mut rng) % span).min(width.saturating_sub(2));
             let fy = col_floor[rx as usize];
             let amount = 6 + (next_rng(&mut rng) % 12) as i32;
             place_resource_patch(&mut tiles, res, amount, rx.saturating_sub(1), fy, 3, 2);
         }
     }
 
-    // The home region always carries a dependable moss + reed larder.
-    let home = layout
-        .iter()
-        .find(|&&(bi, _, _)| bi == HOME_BIOME)
-        .copied()
-        .unwrap_or((HOME_BIOME, WORLD_WIDTH / 2, 16));
-    let home_cx = (home.1 + home.2 / 2).min(WORLD_WIDTH - 2);
-    let home_floor = col_floor[home_cx as usize];
-    place_resource_patch(&mut tiles, "moss", 16, home_cx.saturating_sub(4), home_floor, 5, 2);
-    let reed_x = (home.1 + 1).min(WORLD_WIDTH - 2);
-    place_resource_patch(&mut tiles, "wood", 12, reed_x, col_floor[reed_x as usize], 3, 2);
-
-    // Buildings + founders settle the home region, all tagged to the founding civ.
-    let mut entities = Vec::new();
-    entities.push(CivEntity {
-        id: "pond-heart".to_string(),
-        kind: "building".to_string(),
-        name: "Pond Heart".to_string(),
-        x: home_cx,
-        y: home_floor.saturating_sub(2),
-        health: 100.0,
-        mood: 100.0,
-        role: "pond".to_string(),
-        civ_id: Some(FIRST_CIV_ID.to_string()),
-        ..Default::default()
-    });
-    let nest_x = home_cx.saturating_sub(6).max(home.1 + 1);
-    entities.push(CivEntity {
-        id: "nest-1".to_string(),
-        kind: "building".to_string(),
-        name: "Reed Nest".to_string(),
-        x: nest_x,
-        y: col_floor[nest_x as usize].saturating_sub(1),
-        health: 100.0,
-        mood: 100.0,
-        role: "nest".to_string(),
-        civ_id: Some(FIRST_CIV_ID.to_string()),
-        ..Default::default()
-    });
-
-    for i in 0..INITIAL_POPULATION {
-        let morph = COMMON_MORPHS[(i as usize) % COMMON_MORPHS.len()];
-        let genes = random_genes(&mut rng, morph);
-        let sex = if i.is_multiple_of(2) { "f" } else { "m" };
-        let age = 8 + (next_rng(&mut rng) % 9);
-        let x = (home_cx as i32 - 6 + (i as i32 % 8) * 2).clamp(1, WORLD_WIDTH as i32 - 2) as u32;
-        let y = WATER_SURFACE_Y + 6 + (i % 5);
-        let mut axolotl = make_axolotl(
-            format!("axo-{}", i + 1),
-            format!("Axolotl {}", i + 1),
-            x,
-            y,
-            sex,
-            age,
-            genes,
-            82.0,
-            76.0,
-        );
-        axolotl.civ_id = Some(FIRST_CIV_ID.to_string());
-        entities.push(axolotl);
-    }
-
-    let mut regions: Vec<CivRegion> = layout
+    let regions: Vec<CivRegion> = layout
         .iter()
         .map(|&(bi, sx, w)| CivRegion {
             id: format!("region-{sx}"),
@@ -953,18 +944,110 @@ fn generate_world(seed: u32) -> CivWorld {
             owner: None,
         })
         .collect();
-    // The founding civ claims its home region.
-    let home_region_id = format!("region-{}", home.1);
-    if let Some(region) = regions.iter_mut().find(|r| r.id == home_region_id) {
-        region.owner = Some(FIRST_CIV_ID.to_string());
-    }
 
-    CivWorld {
-        width: WORLD_WIDTH,
+    let mut world = CivWorld {
+        width,
         height: WORLD_HEIGHT,
         tiles,
-        entities,
+        entities: Vec::new(),
         regions,
+    };
+
+    // Give each civ its own livable region, spread across the continent, founding
+    // a colony at that region's centre. ~8 of the 14 biomes are livable, so up to
+    // 8 civs get distinct home regions; beyond that they round-robin.
+    let spawnable: Vec<u32> = layout
+        .iter()
+        .filter(|&&(bi, _, _)| BIOMES[bi].spawnable)
+        .map(|&(_, sx, w)| sx + w / 2)
+        .collect();
+    for i in 0..civ_count {
+        let spawn_x = if spawnable.is_empty() {
+            ((u64::from(width) * (2 * u64::from(i) + 1)) / (2 * u64::from(civ_count))) as u32
+        } else {
+            let pick = (i as usize * spawnable.len() / civ_count as usize).min(spawnable.len() - 1);
+            spawnable[pick]
+        };
+        found_colony(&mut world, &mut rng, i as usize, spawn_x);
+    }
+
+    world
+}
+
+/// Plants one civ's founding colony near `spawn_x`: a starter larder, a pond
+/// heart, a reed nest, and `INITIAL_POPULATION` axolotls — every entity tagged
+/// with the civ id (ids are civ-scoped so colonies never collide) — and claims
+/// the region containing the spawn. Shared by initial world gen and (W9)
+/// add_civ_to_session.
+fn found_colony(world: &mut CivWorld, rng: &mut u32, civ_index: usize, spawn_x: u32) {
+    let civ_id = civ_id_for(civ_index);
+    let width = world.width;
+    let spawn_x = spawn_x.clamp(1, width.saturating_sub(2));
+    let floor = seabed_row_at(world, spawn_x);
+
+    // A dependable larder so every colony can eat from turn one.
+    place_resource_patch(&mut world.tiles, "moss", 16, spawn_x.saturating_sub(4), floor, 5, 2);
+    let reed_x = (spawn_x + 1).min(width.saturating_sub(2));
+    let reed_floor = seabed_row_at(world, reed_x);
+    place_resource_patch(&mut world.tiles, "wood", 12, reed_x, reed_floor, 3, 2);
+
+    world.entities.push(CivEntity {
+        id: format!("pond-heart-{civ_id}"),
+        kind: "building".to_string(),
+        name: "Pond Heart".to_string(),
+        x: spawn_x,
+        y: floor.saturating_sub(2),
+        health: 100.0,
+        mood: 100.0,
+        role: "pond".to_string(),
+        civ_id: Some(civ_id.clone()),
+        ..Default::default()
+    });
+    let nest_x = spawn_x.saturating_sub(6).max(1);
+    let nest_floor = seabed_row_at(world, nest_x);
+    world.entities.push(CivEntity {
+        id: format!("nest-{civ_id}"),
+        kind: "building".to_string(),
+        name: "Reed Nest".to_string(),
+        x: nest_x,
+        y: nest_floor.saturating_sub(1),
+        health: 100.0,
+        mood: 100.0,
+        role: "nest".to_string(),
+        civ_id: Some(civ_id.clone()),
+        ..Default::default()
+    });
+
+    for i in 0..INITIAL_POPULATION {
+        // Each civ starts at a different point in the common palette so colonies
+        // look distinct on the map.
+        let morph = COMMON_MORPHS[(civ_index + i as usize) % COMMON_MORPHS.len()];
+        let genes = random_genes(rng, morph);
+        let sex = if i.is_multiple_of(2) { "f" } else { "m" };
+        let age = 8 + (next_rng(rng) % 9);
+        let x = (spawn_x as i32 - 6 + (i as i32 % 8) * 2).clamp(1, width as i32 - 2) as u32;
+        let y = WATER_SURFACE_Y + 6 + (i % 5);
+        let mut axolotl = make_axolotl(
+            format!("axo-{civ_id}-{}", i + 1),
+            format!("Axolotl {}", i + 1),
+            x,
+            y,
+            sex,
+            age,
+            genes,
+            82.0,
+            76.0,
+        );
+        axolotl.civ_id = Some(civ_id.clone());
+        world.entities.push(axolotl);
+    }
+
+    if let Some(region) = world
+        .regions
+        .iter_mut()
+        .find(|r| spawn_x >= r.x && spawn_x < r.x + r.width)
+    {
+        region.owner = Some(civ_id);
     }
 }
 
@@ -1167,7 +1250,9 @@ fn place_resource_patch(
     height: u32,
 ) {
     for y in start_y..start_y.saturating_add(height).min(WORLD_HEIGHT) {
-        for x in start_x..start_x.saturating_add(width).min(WORLD_WIDTH) {
+        // The x range is bounded by the small patch width and guarded by the
+        // tile lookup below, so it works for any world width.
+        for x in start_x..start_x.saturating_add(width) {
             if let Some(tile) = tiles.iter_mut().find(|tile| tile.x == x && tile.y == y) {
                 if is_substrate(&tile.terrain) {
                     tile.resource = Some(resource.to_string());
@@ -1260,7 +1345,7 @@ fn build_decision_prompt(observation: &serde_json::Value) -> String {
          Return ONLY strict JSON with this shape:\n\
          {{\"intent\":\"short plan\",\"public_rationale\":\"why this helps\",\"actions\":[{{\"type\":\"gather\",\"resource\":\"food\",\"workers\":2}}],\"ethics_note\":\"moral tradeoff note\",\"expected_risks\":[\"risk\"]}}\n\
          Allowed action types:\n\
-         - gather: resource one of food, clean_water, wood, stone, clay, fiber, tools, glowshards; workers 1-8\n\
+         - gather: resource one of food, clean_water, wood, stone, clay, fiber, tools, glowshards, kelp, ore, ice, coral, sulfur, amber, herbs; workers 1-8\n\
          - build: building one of nest, storage, farm, workshop, canal; x/y inside world\n\
          - research: tech_id one of moss_farm, stone_tools, water_filter, council, workshop_craft, canal_network\n\
          - explore: direction left, right, or down\n\
@@ -1512,11 +1597,12 @@ fn explore(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecision
     let direction = action.direction.as_deref().unwrap_or("right");
     let mut rng = snapshot.seed ^ snapshot.turn.wrapping_mul(0x9e37_79b9);
     let (cx, _) = colony_center(snapshot, civ_id);
+    let width = snapshot.world.width;
     let x = match direction {
         "left" => cx.saturating_sub(14 + next_rng(&mut rng) % 18).max(2),
-        "right" => (cx + 14 + next_rng(&mut rng) % 18).min(WORLD_WIDTH - 3),
+        "right" => (cx + 14 + next_rng(&mut rng) % 18).min(width.saturating_sub(3)),
         // "down" = range wide across the continent looking for deep finds.
-        _ => 6 + next_rng(&mut rng) % (WORLD_WIDTH - 12),
+        _ => 6 + next_rng(&mut rng) % width.saturating_sub(12),
     };
     let fy = seabed_row_at(&snapshot.world, x);
     let resource = match next_rng(&mut rng) % 5 {
@@ -1809,7 +1895,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
                         id: format!("egg-{}-{}-{}", civ_id, snapshot.turn, n),
                         kind: "egg".to_string(),
                         name: "Egg".to_string(),
-                        x: (nest.0 + n).min(WORLD_WIDTH - 1),
+                        x: (nest.0 + n).min(snapshot.world.width.saturating_sub(1)),
                         y: nest.1,
                         health: 100.0,
                         mood: 100.0,
@@ -1909,7 +1995,8 @@ fn apply_intervention_to_snapshot(
             if !known_resource(&intervention.target) {
                 return Err(format!("unknown resource: {}", intervention.target));
             }
-            let x = intervention.x.unwrap_or(WORLD_WIDTH / 2).min(WORLD_WIDTH - 1);
+            let width = snapshot.world.width;
+            let x = intervention.x.unwrap_or(width / 2).min(width.saturating_sub(1));
             let requested_y = intervention.y.unwrap_or(WATER_FLOOR_Y).min(WORLD_HEIGHT - 1);
             // Snap onto the seabed so spawned resources never float in open water.
             let on_substrate = snapshot
@@ -2151,7 +2238,21 @@ fn has_modifier(snapshot: &CivSessionSnapshot, kind: &str) -> bool {
 fn known_resource(resource: &str) -> bool {
     matches!(
         resource,
-        "food" | "clean_water" | "wood" | "stone" | "clay" | "fiber" | "tools" | "glowshards"
+        "food"
+            | "clean_water"
+            | "wood"
+            | "stone"
+            | "clay"
+            | "fiber"
+            | "tools"
+            | "glowshards"
+            | "kelp"
+            | "ore"
+            | "ice"
+            | "coral"
+            | "sulfur"
+            | "amber"
+            | "herbs"
     )
 }
 
@@ -2583,9 +2684,10 @@ mod tests {
 
     #[test]
     fn world_generation_is_deterministic_by_seed() {
-        let a = generate_world(1234);
-        let b = generate_world(1234);
-        assert_eq!(a.tiles.len(), (WORLD_WIDTH * WORLD_HEIGHT) as usize);
+        let a = generate_world(1234, 1);
+        let b = generate_world(1234, 1);
+        assert_eq!(a.width, WORLD_WIDTH);
+        assert_eq!(a.tiles.len(), (a.width * WORLD_HEIGHT) as usize);
         assert_eq!(
             serde_json::to_string(&a.tiles).unwrap(),
             serde_json::to_string(&b.tiles).unwrap()
@@ -2594,8 +2696,53 @@ mod tests {
     }
 
     #[test]
+    fn world_scales_and_spawns_are_disjoint_per_civ() {
+        let n = 3u32;
+        let a = generate_world(4242, n);
+        let b = generate_world(4242, n);
+        // Deterministic by seed at any civ count.
+        assert_eq!(
+            serde_json::to_string(&a.tiles).unwrap(),
+            serde_json::to_string(&b.tiles).unwrap()
+        );
+        // The world widens to make room for more civs.
+        assert!(a.width > WORLD_WIDTH);
+        assert_eq!(a.tiles.len(), (a.width * WORLD_HEIGHT) as usize);
+        // Each civ founds a full colony tagged to its own id.
+        for i in 1..=n {
+            let cid = format!("civ-{i}");
+            let axos = a
+                .entities
+                .iter()
+                .filter(|e| e.kind == "axolotl" && e.civ_id.as_deref() == Some(cid.as_str()))
+                .count() as u32;
+            assert_eq!(axos, INITIAL_POPULATION, "{cid} should have a full founding colony");
+            assert!(
+                a.entities
+                    .iter()
+                    .any(|e| e.role == "pond" && e.civ_id.as_deref() == Some(cid.as_str())),
+                "{cid} should have a pond heart"
+            );
+        }
+        // Exactly n distinct regions are claimed — one per civ, no overlap.
+        let mut owners: Vec<&str> = a.regions.iter().filter_map(|r| r.owner.as_deref()).collect();
+        assert_eq!(owners.len(), n as usize, "expected one owned region per civ");
+        owners.sort_unstable();
+        owners.dedup();
+        assert_eq!(owners.len(), n as usize, "each civ should own a distinct region");
+        // Civs only ever spawn in livable biomes.
+        for region in a.regions.iter().filter(|r| r.owner.is_some()) {
+            let spawnable = BIOMES
+                .iter()
+                .find(|b| b.id == region.biome)
+                .is_some_and(|b| b.spawnable);
+            assert!(spawnable, "civ spawned in non-livable biome {}", region.biome);
+        }
+    }
+
+    #[test]
     fn founding_world_tags_entities_and_claims_home() {
-        let world = generate_world(2024);
+        let world = generate_world(2024, 1);
         // Every colony entity is tagged to the founding civ.
         assert!(world
             .entities
@@ -2684,7 +2831,7 @@ mod tests {
 
     #[test]
     fn founding_colony_has_genetics() {
-        let world = generate_world(2024);
+        let world = generate_world(2024, 1);
         let axos: Vec<_> = world.entities.iter().filter(|e| e.kind == "axolotl").collect();
         assert_eq!(axos.len() as u32, INITIAL_POPULATION);
         assert!(axos.iter().all(|a| a.genes.is_some()));
