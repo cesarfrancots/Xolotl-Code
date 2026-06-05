@@ -610,7 +610,7 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
     for civ_id in &civ_ids {
         resolve_environment(&mut snapshot, civ_id);
         if let Some(ci) = civ_index(&snapshot, civ_id) {
-            if snapshot.civs[ci].alive && snapshot.civs[ci].population == 0 {
+            if snapshot.civs[ci].alive && should_collapse(&snapshot, civ_id) {
                 snapshot.civs[ci].alive = false;
                 let civ_name = civ_label(&snapshot, civ_id);
                 push_log(
@@ -1058,6 +1058,18 @@ fn rescore_all_civs(snapshot: &mut CivSessionSnapshot) {
         let score = score_civilization(snapshot, &civ_id);
         snapshot.civs[i].score = score;
     }
+}
+
+/// A civ collapses only when it has no living axolotls AND no pending eggs — eggs
+/// can still hatch next turn and revive a zero-population colony (the original
+/// engine had no `alive` gate and always ran the life cycle, so a colony with eggs
+/// in the nest would recover).
+fn should_collapse(snapshot: &CivSessionSnapshot, civ_id: &str) -> bool {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return false;
+    };
+    snapshot.civs[ci].population == 0
+        && !civ_entities(snapshot, civ_id).any(|e| e.kind == "egg")
 }
 
 /// Rough colony centre for `civ_id` — the pond heart, else the nest, else the mean
@@ -2252,6 +2264,9 @@ fn backfill_snapshot(snapshot: &mut CivSessionSnapshot) {
             }
         }
         if snapshot.civs[0].home_region.is_empty() {
+            // Prefer the pond/nest column; otherwise fall back to the mean column
+            // of the civ's living axolotls so a building-less migrated colony still
+            // anchors where its axolotls actually are (not the world's left edge).
             let center = snapshot
                 .world
                 .entities
@@ -2260,7 +2275,25 @@ fn backfill_snapshot(snapshot: &mut CivSessionSnapshot) {
                     e.civ_id.as_deref() == Some(cid.as_str())
                         && (e.role == "pond" || e.role == "nest")
                 })
-                .map(|e| e.x);
+                .map(|e| e.x)
+                .or_else(|| {
+                    let xs: Vec<u32> = snapshot
+                        .world
+                        .entities
+                        .iter()
+                        .filter(|e| {
+                            e.civ_id.as_deref() == Some(cid.as_str())
+                                && e.kind == "axolotl"
+                                && e.stage != "egg"
+                        })
+                        .map(|e| e.x)
+                        .collect();
+                    if xs.is_empty() {
+                        None
+                    } else {
+                        Some(xs.iter().sum::<u32>() / xs.len() as u32)
+                    }
+                });
             if let Some(cx) = center {
                 if let Some(region) = snapshot
                     .world
@@ -2792,5 +2825,34 @@ mod tests {
             .filter(|e| matches!(e.kind.as_str(), "axolotl" | "building"))
             .all(|e| e.civ_id.as_deref() == Some(FIRST_CIV_ID)));
         assert!(!migrated.civs[0].home_region.is_empty());
+    }
+
+    #[test]
+    fn civ_does_not_collapse_while_eggs_remain() {
+        let mut s = initial_snapshot("collapse".to_string(), "C".to_string(), "m".to_string(), 11, 1);
+        let cid = first_civ_id(&s);
+        // Wipe the colony's axolotls but leave its buildings and a single egg.
+        s.world.entities.retain(|e| e.kind == "building");
+        s.world.entities.push(CivEntity {
+            id: "egg-test".to_string(),
+            kind: "egg".to_string(),
+            name: "Egg".to_string(),
+            x: 10,
+            y: 40,
+            health: 100.0,
+            mood: 100.0,
+            role: "egg".to_string(),
+            civ_id: Some(cid.clone()),
+            stage: "egg".to_string(),
+            genes: Some(default_genes()),
+            hatches_in: Some(2),
+            ..Default::default()
+        });
+        s.civs[0].population = 0;
+        // An egg can still hatch and revive the colony, so it must not collapse yet.
+        assert!(!should_collapse(&s, &cid));
+        // With no eggs left, a population-0 colony truly collapses.
+        s.world.entities.retain(|e| e.kind != "egg");
+        assert!(should_collapse(&s, &cid));
     }
 }
