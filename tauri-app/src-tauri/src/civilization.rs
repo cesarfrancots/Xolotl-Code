@@ -953,20 +953,33 @@ fn generate_world(seed: u32, civ_count: u32) -> CivWorld {
         regions,
     };
 
-    // Give each civ its own livable region, spread across the continent, founding
-    // a colony at that region's centre. ~8 of the 14 biomes are livable, so up to
-    // 8 civs get distinct home regions; beyond that they round-robin.
-    let spawnable: Vec<u32> = layout
+    // Choose a spawn column per civ from the livable regions' centres (~8 of the
+    // 14 biomes are livable). A lone civ settles in the region nearest the world
+    // centre (matching the original centered colony). Multiple civs spread across
+    // distinct livable regions; with more civs than regions they round-robin with
+    // a per-lap offset so colonies never sit on the exact same column.
+    let centers: Vec<u32> = layout
         .iter()
         .filter(|&&(bi, _, _)| BIOMES[bi].spawnable)
         .map(|&(_, sx, w)| sx + w / 2)
         .collect();
+    let last_col = width.saturating_sub(2);
     for i in 0..civ_count {
-        let spawn_x = if spawnable.is_empty() {
+        let spawn_x = if centers.is_empty() {
             ((u64::from(width) * (2 * u64::from(i) + 1)) / (2 * u64::from(civ_count))) as u32
+        } else if civ_count == 1 {
+            let mid = i64::from(width / 2);
+            *centers
+                .iter()
+                .min_by_key(|&&c| (i64::from(c) - mid).abs())
+                .unwrap_or(&centers[0])
+        } else if (civ_count as usize) <= centers.len() {
+            let idx = ((u64::from(i) * centers.len() as u64) / u64::from(civ_count)) as usize;
+            centers[idx.min(centers.len() - 1)]
         } else {
-            let pick = (i as usize * spawnable.len() / civ_count as usize).min(spawnable.len() - 1);
-            spawnable[pick]
+            let idx = (i as usize) % centers.len();
+            let lap = (i as usize) / centers.len();
+            (centers[idx] + (lap as u32) * 6).min(last_col)
         };
         found_colony(&mut world, &mut rng, i as usize, spawn_x);
     }
@@ -2737,6 +2750,44 @@ mod tests {
                 .find(|b| b.id == region.biome)
                 .is_some_and(|b| b.spawnable);
             assert!(spawnable, "civ spawned in non-livable biome {}", region.biome);
+        }
+    }
+
+    #[test]
+    fn single_civ_spawns_near_world_center() {
+        // The lone colony must settle near the centre, not against the left wall.
+        for seed in [1234u32, 2024, 4242, 7, 99, 5000] {
+            let w = generate_world(seed, 1);
+            let pond = w
+                .entities
+                .iter()
+                .find(|e| e.role == "pond")
+                .expect("a pond heart");
+            let mid = w.width / 2;
+            let dist = (i64::from(pond.x) - i64::from(mid)).unsigned_abs() as u32;
+            assert!(
+                dist <= w.width / 4,
+                "seed {seed}: colony at x={} is too far from center {mid} (width {})",
+                pond.x,
+                w.width
+            );
+        }
+    }
+
+    #[test]
+    fn more_civs_than_livable_regions_still_found_every_colony() {
+        // 11 civs but only ~8 livable regions: must not panic, and every civ still
+        // founds a full colony (regions may be shared once civs exceed regions).
+        let n = 11u32;
+        let w = generate_world(321, n);
+        for i in 1..=n {
+            let cid = format!("civ-{i}");
+            let axos = w
+                .entities
+                .iter()
+                .filter(|e| e.kind == "axolotl" && e.civ_id.as_deref() == Some(cid.as_str()))
+                .count() as u32;
+            assert_eq!(axos, INITIAL_POPULATION, "{cid} should still found a full colony");
         }
     }
 
