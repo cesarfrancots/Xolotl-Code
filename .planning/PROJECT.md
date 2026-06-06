@@ -8,6 +8,20 @@ xolotl is a personal AI development ecosystem — a Tauri desktop app plus a CLI
 
 A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
 
+## Current Milestone: v2.0 Civ Simulation
+
+**Goal:** Turn the Axolotl Civilization game into a living, watchable, multi-AI-civilization simulation — and a harness eval/arena where agentic harnesses (Claude Code, Codex) compete on a shared scoreboard.
+
+**Target features (sim-first):**
+- Create a world with 2–3 different AI models (each a color) and watch a leaderboard rank the living civs across turns (W9-lite).
+- Renderer multi-civ identity: per-civ color tints, multi-colony camera, focus-a-civ (W8).
+- Environment engine: seasons drift, disasters physically reshape terrain, renewable-only regrowth (W4).
+- Combat + diplomacy: claim/raid/fortify/trade, territory ownership, wild predators (W6).
+- Genetics depth + environmental selection pressure (W5).
+- **Harness arena (cross-cutting):** agentic harnesses interact with the game and compete; the leaderboard doubles as a harness scoreboard. Interface = `window.render_game_to_text()` + `window.civPilotControls` + `tauri-app/scripts/codex-play-civ.mjs` (keep/extend, don't break).
+
+**Spec-of-record:** `civ-multi-civ-world-plan.md` (workstreams W1–W10). Already done: W1 (multi-civ data model), W2 (world gen at scale), W10.1 (mining-as-terraform), W10.2 (tool gating). The backend turn loop already calls each civ's own LLM (`advance_civ_turn` → `call_model_text`); the gap is making the competition visible and the world alive. The single-player possession layer ("Game B") is **parked** for this milestone.
+
 ## Requirements
 
 ### Validated
