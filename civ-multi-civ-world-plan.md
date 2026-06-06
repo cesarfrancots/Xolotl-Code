@@ -21,6 +21,16 @@ Branch `feat/civ-multi-civ-world` (off `main` `f9a19ca`). Not pushed yet — thi
   scales the continent; 14 biomes (6 new) with 6 new terrains + 7 new resources; multi-spawn founds one colony
   per civ in a distinct livable region via the shared `found_colony` (reused by W9 add-civ). Adversarial review:
   6 findings, 2 fixed (centered single-civ spawn; >8-civ spread).
+- **W10.1 — mining-as-terraform + depth-banded ore veins** ✅ (commits `1c809dc`, `08c7018`).
+  `seed_underground_veins` threads depth-banded veins (shallow stone/clay → mid ore/sulfur/coral → deep
+  glowshards/amber; deeper = rarer + richer) **after** founders so determinism holds; `gather()` now mines —
+  finite minerals deplete the nearest block, yield capped by amount, and an emptied block **below the seabed**
+  floods to water (surface blocks stay solid + buildable). Resources are now finite → real scarcity. Adversarial
+  review: 7 findings, 1 fixed (surface-crater regression).
+- **W10.2 — tool-tier mining gating** ✅ (commit `af124e7`). `mining_tier` / `required_mining_tier`: ore/sulfur/
+  coral need `stone_tools`, deep glowshards/amber need a new `metal_tools` tech; `gather()` refuses too-hard
+  minerals with a need-better-tools log + morale ding. Chain is **acyclic** (stone is tier-1 → first tools always
+  affordable); renewables never gated. Adversarial review: 2 findings, 0 confirmed.
 
 ### Constraints learned (carry forward)
 - **Backend tests don't run on Windows** (WebView2 loader). Verify with `cargo build` + `cargo clippy
@@ -40,15 +50,23 @@ Branch `feat/civ-multi-civ-world` (off `main` `f9a19ca`). Not pushed yet — thi
   to avoid dead-code; W1/W2 are pure `civilization.rs`.
 
 ### Missing / remaining
-- **W3** turn-loop refactor (next) · **W4** environment engine · **W5** genetics depth · **W6** combat + diplomacy
+- **W3** turn-loop refactor · **W4** environment engine · **W5** genetics depth · **W6** combat + diplomacy
   · **W7** assets (Python) · **W8** renderer · **W9** UI + commands + bindings.
-- **W10 — World refinement (Minecraft-style)** ← NEW (see section below). Extends W2; being started now.
+- **W10.3–W10.7** — terraform/place · structure blueprints · prospecting · fBm terrain · caves (see the W10
+  section). **W10.1 + W10.2 done.**
 
-### Next steps
-1. **W10 first slice** (in progress) — make world-building more Minecraft-like (mineable blocks, procedural
-   noise terrain, ore strata by depth, caves, mining-as-terraforming). See the W10 section.
-2. Then resume the W3→W9 critical path. W10 feeds W4 (disasters reshape blocks), W6 (fortify places blocks),
-   and W8 (renderer must draw mineable blocks/caves).
+### Build / test state
+- Root `xolotl.exe` rebuilt from this branch (W1+W2+W10.1+W10.2) for local testing. **Caveat:** the Civilization
+  Lab UI errors at runtime (backend snapshot shape is ahead of the frontend until W8/W9); the rest of the app
+  works. The multi-civ / mining world is validated by unit tests, not yet visually explorable.
+
+### Next steps (pick up here)
+1. **Continue the Minecraft track — W10.3 (terraform/place blocks, `[medium/S]`)**: the constructive inverse of
+   mining — spend stone/clay to fill flooded voids or raise wall columns, with an anti-grief adjacency rule.
+2. **Or resume the critical path — W3 (turn-loop refactor)** → W4/W5/W6 → then **W8/W9**, which finally make the
+   world visible/testable in the UI (recommended if you want to *see* it working soonest).
+   Cross-links: W10 feeds W4 (disasters reshape blocks), W6 (fortify places blocks), W8 (renderer draws mineable
+   blocks/caves).
 
 ## Context
 
