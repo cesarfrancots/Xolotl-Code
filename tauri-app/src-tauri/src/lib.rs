@@ -2,27 +2,27 @@ use specta_typescript::Typescript;
 use std::sync::Arc;
 use tauri_specta::{collect_commands, Builder};
 
-use crate::commands::{
-    add_project, browse_directory, build_hint_proposals, build_reliability_profiles,
-    cancel_chat_turn, chat_turn, cleanup_eval_processes, convert_pdf, delete_eval, delete_session,
-    get_api_key_status, get_worktree_diff, launch_swarm, launch_team, list_agents,
-    list_hint_proposals, list_projects, list_reliability_profiles, list_eval_suites, list_evals,
-    list_models, list_prompt_commands, list_sessions, load_eval, load_session, merge_worktrees,
-    pick_directory, remove_project, respond_to_permission, run_agent_turn, run_eval_suite,
-    run_goal_grade, run_llm_judge, save_human_scores, save_manual_reviews, save_session,
-    set_api_key, smoke_test, spawn_agent, start_eval, start_eval_artifact, start_goal_eval,
-    stop_agent, test_api_connection, test_permission_prompt, touch_project, AutoScores,
-    ChatMessage, DirChild, DirListing, EvalArtifactFileInput, EvalArtifactLaunchResult,
-    EvalArtifactRequest, EvalMeta, EvalResult, EvalSuite, FileDiff, GoalAxisScore, GoalGrade,
-    GroupLaunchResult, HumanScores, JudgeScores, ManualReview, ModelEvalResult, ProfileBuildResult,
-    Project, ProposalBuildResult, PromptCommand, ReasoningFlag, ReliabilityMetrics, RoleConfig,
-    SessionMeta, SuitePrompt,
-};
 use crate::civilization::{
     advance_civ_turn, apply_civ_intervention, create_civ_session, delete_civ_session,
     list_civ_sessions, load_civ_session, CivCivilization, CivDecisionAction, CivEntity, CivGenes,
     CivIntervention, CivLogEntry, CivModelDecision, CivModifier, CivRegion, CivScore,
     CivSessionConfig, CivSessionMeta, CivSessionSnapshot, CivTile, CivWorld,
+};
+use crate::commands::{
+    add_project, browse_directory, build_hint_proposals, build_reliability_profiles,
+    cancel_chat_turn, chat_turn, cleanup_eval_processes, convert_pdf, delete_eval, delete_session,
+    get_api_key_status, get_worktree_diff, launch_swarm, launch_team, list_agents,
+    list_eval_suites, list_evals, list_hint_proposals, list_models, list_projects,
+    list_prompt_commands, list_reliability_profiles, list_sessions, load_eval, load_session,
+    merge_worktrees, pick_directory, remove_project, respond_to_permission, run_agent_turn,
+    run_eval_suite, run_goal_grade, run_llm_judge, save_human_scores, save_manual_reviews,
+    save_session, set_api_key, smoke_test, spawn_agent, start_eval, start_eval_artifact,
+    start_goal_eval, stop_agent, test_api_connection, test_permission_prompt, touch_project,
+    AutoScores, ChatMessage, DirChild, DirListing, EvalArtifactFileInput, EvalArtifactLaunchResult,
+    EvalArtifactRequest, EvalMeta, EvalResult, EvalSuite, FileDiff, GoalAxisScore, GoalGrade,
+    GroupLaunchResult, HumanScores, JudgeScores, ManualReview, ModelEvalResult, ProfileBuildResult,
+    Project, PromptCommand, ProposalBuildResult, ReasoningFlag, ReliabilityMetrics, RoleConfig,
+    SessionMeta, SuitePrompt,
 };
 use crate::permission_prompter::{PendingPrompts, PermissionDecision};
 use crate::skills_mcp::{
@@ -38,8 +38,8 @@ use runtime::{
     ReliabilityProfile,
 };
 
-mod commands;
 mod civilization;
+mod commands;
 mod permission_prompter;
 pub mod skills_mcp;
 mod terminal;

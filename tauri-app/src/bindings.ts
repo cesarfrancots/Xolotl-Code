@@ -248,6 +248,25 @@ export type ChatMessage = {
 };
 
 export type CivCivilization = {
+	/**  Stable civ id ("civ-1"…). Empty in legacy saves; backfilled on load. */
+	id?: string,
+	/**
+	 *  Display name for this civ (defaults to the session/colony name for the
+	 *  founding civ; the participant name for civs added later).
+	 */
+	name?: string,
+	/**  The model governing this civ. */
+	model?: string,
+	/**  Hex colour for renderer tinting; assigned from `CIV_COLORS`. */
+	color?: string,
+	/**  Home column (spawn point) for camera focus and colony fallback centring. */
+	spawn_x?: number,
+	/**  Home region id (claimed at spawn). */
+	home_region?: string,
+	/**  `false` once the colony collapses (population hits 0). */
+	alive?: boolean,
+	/**  Diplomacy stance toward other civs: civ_id -> "ally|trade|neutral|hostile". */
+	diplomacy?: { [key in string]: string },
 	era: string,
 	population: number,
 	health: number | null,
@@ -271,6 +290,15 @@ export type CivDecisionAction = {
 	event_id?: string | null,
 };
 
+export type CivDisaster = {
+	id: string,
+	kind: string,
+	epicenter_x: number,
+	radius: number,
+	intensity: number | null,
+	remaining_turns: number,
+};
+
 export type CivEntity = {
 	id: string,
 	kind: string,
@@ -280,6 +308,11 @@ export type CivEntity = {
 	health: number | null,
 	mood: number | null,
 	role: string,
+	/**
+	 *  Owning civ id. `None` = wild fauna / neutral (predators, prey, resource
+	 *  flora). Every founder, building, and egg is tagged with its owning civ.
+	 */
+	civ_id?: string | null,
 	/**  Expressed colour morph (e.g. "leucistic"). Empty for non-axolotls. */
 	morph?: string,
 	/**  Life stage: "egg" | "hatchling" | "juvenile" | "adult" | "elder". */
@@ -311,6 +344,20 @@ export type CivEntity = {
 };
 
 /**
+ *  World-wide environment state. Seasons drift and disasters that physically
+ *  reshape the world land in W4; W1 only carries the state (a calm default) so
+ *  the rest of the system can read it.
+ */
+export type CivEnvironment = {
+	season: string,
+	turn_of_season: number,
+	temperature: number | null,
+	water_level: number,
+	disasters: CivDisaster[],
+	forecast?: CivDisaster | null,
+};
+
+/**
  *  Heritable traits. `allele_a`/`allele_b` are the two carried colour alleles;
  *  the expressed morph is the dominant of the two.
  */
@@ -333,6 +380,11 @@ export type CivIntervention = {
 	intensity?: number | null,
 	entity_id?: string | null,
 	accessory?: string | null,
+	/**
+	 *  Civ a resource grant/removal targets. `None` = the first living civ
+	 *  (back-compat). Modifier interventions stay world-global regardless.
+	 */
+	civ_id?: string | null,
 };
 
 export type CivLogEntry = {
@@ -368,7 +420,10 @@ export type CivRegion = {
 	y: number,
 	width: number,
 	height: number,
-	/**  Reserved for future competing civilizations. None = unclaimed. */
+	/**
+	 *  Owning civ id. None = unclaimed. Set at spawn for home regions; mutated by
+	 *  claim/raid once combat lands (W6).
+	 */
 	owner?: string | null,
 };
 
@@ -398,13 +453,27 @@ export type CivSessionMeta = {
 export type CivSessionSnapshot = {
 	id: string,
 	name: string,
-	model: string,
 	seed: number,
+	/**
+	 *  Snapshot schema version. Legacy v1 saves are migrated on load (see
+	 *  `parse_snapshot`); always `SCHEMA_VERSION` after a successful load.
+	 */
+	version?: number,
 	created_at: number,
 	updated_at: number,
 	turn: number,
 	world: CivWorld,
-	civilization: CivCivilization,
+	/**
+	 *  The competing civilizations sharing this world. v1 saves carried a single
+	 *  `civilization`; migration wraps it as the one element here.
+	 */
+	civs?: CivCivilization[],
+	/**
+	 *  World-wide environment state (seasons, disasters). Populated lazily — old
+	 *  saves default to a calm spring.
+	 */
+	environment?: CivEnvironment,
+	/**  Global/world modifiers (observer buffs/debuffs and disaster after-effects). */
 	modifiers: CivModifier[],
 	log: CivLogEntry[],
 };
@@ -428,8 +497,8 @@ export type CivWorld = {
 	tiles: CivTile[],
 	entities: CivEntity[],
 	/**
-	 *  Named biome regions painted across the seabed. `owner` is reserved for a
-	 *  future multi-civilization mode; today every region is unclaimed (None).
+	 *  Named biome regions painted across the seabed. `owner` is the civ id that
+	 *  holds the region (None = unclaimed).
 	 */
 	regions?: CivRegion[],
 };

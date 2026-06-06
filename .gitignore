@@ -15,6 +15,11 @@ rust/Cargo.lock
 graphify-out/
 *.session
 
+# Generated playtest/image artifacts
+/output/
+/tauri-app/output/
+C*Tempciv_orig.rs
+
 # External tool caches
 .codex/
 .playwright-mcp/

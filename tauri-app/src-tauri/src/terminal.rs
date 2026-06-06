@@ -73,7 +73,9 @@ impl TerminalManager {
         cols: u16,
         rows: u16,
     ) -> Result<TerminalInfo, String> {
-        let shell = shell.filter(|s| !s.trim().is_empty()).unwrap_or_else(default_shell);
+        let shell = shell
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(default_shell);
         let pty = native_pty_system();
         let pair = pty
             .openpty(PtySize {
@@ -87,7 +89,11 @@ impl TerminalManager {
         let mut cmd = CommandBuilder::new(&shell);
         let cwd_str = cwd
             .filter(|d| !d.trim().is_empty())
-            .or_else(|| std::env::current_dir().ok().map(|p| p.to_string_lossy().into_owned()))
+            .or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .map(|p| p.to_string_lossy().into_owned())
+            })
             .unwrap_or_default();
         if !cwd_str.is_empty() {
             cmd.cwd(&cwd_str);
@@ -256,10 +262,7 @@ pub fn terminal_resize(
 /// Kill a terminal and remove it from the registry.
 #[tauri::command]
 #[specta::specta]
-pub fn terminal_kill(
-    manager: tauri::State<'_, TerminalManager>,
-    id: String,
-) -> Result<(), String> {
+pub fn terminal_kill(manager: tauri::State<'_, TerminalManager>, id: String) -> Result<(), String> {
     manager.kill(&id)
 }
 

@@ -2772,7 +2772,13 @@ mod auto_grader_tests {
         );
     }
 
-    fn model_result(model: &str, input: u32, output: u32, dur: u64, content: &str) -> ModelEvalResult {
+    fn model_result(
+        model: &str,
+        input: u32,
+        output: u32,
+        dur: u64,
+        content: &str,
+    ) -> ModelEvalResult {
         ModelEvalResult {
             model: model.to_string(),
             content: content.to_string(),
@@ -2790,9 +2796,17 @@ mod auto_grader_tests {
         let m = compute_reliability_metrics("claude-sonnet-4-6", &res, "");
         assert!(m.cost_known, "sonnet must be a known/priced model");
         // 1000 in @ $3/M + 500 out @ $15/M = 0.003 + 0.0075 = 0.0105
-        assert!((m.cost_usd - 0.0105).abs() < 1e-9, "cost was {}", m.cost_usd);
+        assert!(
+            (m.cost_usd - 0.0105).abs() < 1e-9,
+            "cost was {}",
+            m.cost_usd
+        );
         // 500 output tokens over 2.0s = 250 tok/s.
-        assert!((m.tokens_per_sec - 250.0).abs() < 0.01, "tps was {}", m.tokens_per_sec);
+        assert!(
+            (m.tokens_per_sec - 250.0).abs() < 0.01,
+            "tps was {}",
+            m.tokens_per_sec
+        );
         assert!(!m.had_error);
         let fam = ModelHints::for_model("claude-sonnet-4-6").family;
         assert_eq!(
@@ -2814,7 +2828,13 @@ mod auto_grader_tests {
     #[test]
     fn reliability_token_count_error_is_relative() {
         // reported 100, estimate ~differs → error is |est-100|/100, finite & >= 0.
-        let res = model_result("claude-haiku-4-5", 10, 100, 500, "the quick brown fox jumps");
+        let res = model_result(
+            "claude-haiku-4-5",
+            10,
+            100,
+            500,
+            "the quick brown fox jumps",
+        );
         let m = compute_reliability_metrics("claude-haiku-4-5", &res, "thinking....");
         assert!(m.token_count_error >= 0.0 && m.token_count_error.is_finite());
         assert_eq!(m.reasoning_chars, 12);
@@ -2835,7 +2855,11 @@ mod auto_grader_tests {
         let reported = u32::try_from(estimate_tokens_for_family(text, fam)).unwrap();
         let res = model_result("claude-sonnet-4-6", 50, reported, 1000, text);
         let m = compute_reliability_metrics("claude-sonnet-4-6", &res, "");
-        assert!(m.token_count_error <= 0.05, "error was {}", m.token_count_error);
+        assert!(
+            m.token_count_error <= 0.05,
+            "error was {}",
+            m.token_count_error
+        );
     }
 
     #[test]
@@ -2845,8 +2869,11 @@ mod auto_grader_tests {
         let answer = "Final answer: 42.";
         let reasoning = "Let me think step by step about this problem in great detail. ".repeat(20);
         let fam = ModelHints::for_model("deepseek-v4-pro").family;
-        let reported =
-            u32::try_from(estimate_tokens_for_family(&format!("{answer}{reasoning}"), fam)).unwrap();
+        let reported = u32::try_from(estimate_tokens_for_family(
+            &format!("{answer}{reasoning}"),
+            fam,
+        ))
+        .unwrap();
         let res = model_result("deepseek-v4-pro", 30, reported, 2000, answer);
         let with_reasoning = compute_reliability_metrics("deepseek-v4-pro", &res, &reasoning);
         let answer_only = compute_reliability_metrics("deepseek-v4-pro", &res, "");

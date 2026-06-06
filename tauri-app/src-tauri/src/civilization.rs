@@ -27,8 +27,18 @@ const ELDER_BASE_AGE: f32 = 22.0;
 
 // Colour genetics. Order matches the sprite-sheet variant order on the frontend.
 const MORPHS: [&str; 12] = [
-    "leucistic", "wild", "melanoid", "gold", "axanthic", "blue", "copper", "gfp", "albino",
-    "piebald", "firefly", "mystic",
+    "leucistic",
+    "wild",
+    "melanoid",
+    "gold",
+    "axanthic",
+    "blue",
+    "copper",
+    "gfp",
+    "albino",
+    "piebald",
+    "firefly",
+    "mystic",
 ];
 // Morphs that show up in the founding colony / as common recessive alleles.
 const COMMON_MORPHS: [&str; 6] = ["leucistic", "wild", "gold", "axanthic", "copper", "albino"];
@@ -36,8 +46,18 @@ const COMMON_MORPHS: [&str; 6] = ["leucistic", "wild", "gold", "axanthic", "copp
 const RARE_MORPHS: [&str; 3] = ["gfp", "firefly", "mystic"];
 // Equippable accessory ids (match `public/civ/accessories/acc-<id>.png`).
 const ACCESSORIES: [&str; 12] = [
-    "flowercrown", "strawhat", "leafhat", "scarf", "glasses", "wizardhat", "crown", "snorkel",
-    "bow", "headphones", "chefhat", "piratehat",
+    "flowercrown",
+    "strawhat",
+    "leafhat",
+    "scarf",
+    "glasses",
+    "wizardhat",
+    "crown",
+    "snorkel",
+    "bow",
+    "headphones",
+    "chefhat",
+    "piratehat",
 ];
 
 // Snapshot schema version. v1 = single `civilization`; v2 = `civs[]` multi-civ world.
@@ -70,74 +90,158 @@ struct BiomeDef {
 
 const BIOMES: [BiomeDef; 14] = [
     BiomeDef {
-        id: "shallows", name: "Sunlit Shallows", floor_offset: -10, deep: false,
-        top_terrain: "sand", mid_terrain: "sand", deep_terrain: "earth",
-        resources: &["moss", "fiber"], spawnable: true,
+        id: "shallows",
+        name: "Sunlit Shallows",
+        floor_offset: -10,
+        deep: false,
+        top_terrain: "sand",
+        mid_terrain: "sand",
+        deep_terrain: "earth",
+        resources: &["moss", "fiber"],
+        spawnable: true,
     },
     BiomeDef {
-        id: "reedmarsh", name: "Reed Marsh", floor_offset: -4, deep: false,
-        top_terrain: "moss", mid_terrain: "mud", deep_terrain: "earth",
-        resources: &["moss", "wood", "fiber"], spawnable: true,
+        id: "reedmarsh",
+        name: "Reed Marsh",
+        floor_offset: -4,
+        deep: false,
+        top_terrain: "moss",
+        mid_terrain: "mud",
+        deep_terrain: "earth",
+        resources: &["moss", "wood", "fiber"],
+        spawnable: true,
     },
     BiomeDef {
-        id: "mudflats", name: "Mud Flats", floor_offset: 0, deep: false,
-        top_terrain: "mud", mid_terrain: "earth", deep_terrain: "stone",
-        resources: &["clay", "clay", "fiber"], spawnable: true,
+        id: "mudflats",
+        name: "Mud Flats",
+        floor_offset: 0,
+        deep: false,
+        top_terrain: "mud",
+        mid_terrain: "earth",
+        deep_terrain: "stone",
+        resources: &["clay", "clay", "fiber"],
+        spawnable: true,
     },
     BiomeDef {
-        id: "kelpforest", name: "Kelp Forest", floor_offset: -6, deep: false,
-        top_terrain: "moss", mid_terrain: "moss", deep_terrain: "earth",
-        resources: &["wood", "fiber", "kelp"], spawnable: true,
+        id: "kelpforest",
+        name: "Kelp Forest",
+        floor_offset: -6,
+        deep: false,
+        top_terrain: "moss",
+        mid_terrain: "moss",
+        deep_terrain: "earth",
+        resources: &["wood", "fiber", "kelp"],
+        spawnable: true,
     },
     BiomeDef {
-        id: "openwater", name: "Open Water", floor_offset: 4, deep: false,
-        top_terrain: "sand", mid_terrain: "earth", deep_terrain: "stone",
-        resources: &["stone", "kelp"], spawnable: true,
+        id: "openwater",
+        name: "Open Water",
+        floor_offset: 4,
+        deep: false,
+        top_terrain: "sand",
+        mid_terrain: "earth",
+        deep_terrain: "stone",
+        resources: &["stone", "kelp"],
+        spawnable: true,
     },
     BiomeDef {
-        id: "deeptrench", name: "Deep Trench", floor_offset: 16, deep: true,
-        top_terrain: "stone", mid_terrain: "stone", deep_terrain: "stone",
-        resources: &["glowshards", "ore"], spawnable: false,
+        id: "deeptrench",
+        name: "Deep Trench",
+        floor_offset: 16,
+        deep: true,
+        top_terrain: "stone",
+        mid_terrain: "stone",
+        deep_terrain: "stone",
+        resources: &["glowshards", "ore"],
+        spawnable: false,
     },
     BiomeDef {
-        id: "crystalcave", name: "Crystal Caverns", floor_offset: 8, deep: true,
-        top_terrain: "crystal", mid_terrain: "stone", deep_terrain: "crystal",
-        resources: &["glowshards", "glowshards", "stone"], spawnable: false,
+        id: "crystalcave",
+        name: "Crystal Caverns",
+        floor_offset: 8,
+        deep: true,
+        top_terrain: "crystal",
+        mid_terrain: "stone",
+        deep_terrain: "crystal",
+        resources: &["glowshards", "glowshards", "stone"],
+        spawnable: false,
     },
     BiomeDef {
-        id: "thermalvent", name: "Thermal Vents", floor_offset: 10, deep: true,
-        top_terrain: "stone", mid_terrain: "earth", deep_terrain: "stone",
-        resources: &["stone", "sulfur", "clay"], spawnable: false,
+        id: "thermalvent",
+        name: "Thermal Vents",
+        floor_offset: 10,
+        deep: true,
+        top_terrain: "stone",
+        mid_terrain: "earth",
+        deep_terrain: "stone",
+        resources: &["stone", "sulfur", "clay"],
+        spawnable: false,
     },
     BiomeDef {
-        id: "coralreef", name: "Coral Reef", floor_offset: -8, deep: false,
-        top_terrain: "coral", mid_terrain: "coral", deep_terrain: "sand",
-        resources: &["coral", "kelp", "fiber"], spawnable: true,
+        id: "coralreef",
+        name: "Coral Reef",
+        floor_offset: -8,
+        deep: false,
+        top_terrain: "coral",
+        mid_terrain: "coral",
+        deep_terrain: "sand",
+        resources: &["coral", "kelp", "fiber"],
+        spawnable: true,
     },
     BiomeDef {
-        id: "glacier", name: "Glacier Shelf", floor_offset: -2, deep: false,
-        top_terrain: "ice", mid_terrain: "ice", deep_terrain: "stone",
-        resources: &["ice", "stone"], spawnable: false,
+        id: "glacier",
+        name: "Glacier Shelf",
+        floor_offset: -2,
+        deep: false,
+        top_terrain: "ice",
+        mid_terrain: "ice",
+        deep_terrain: "stone",
+        resources: &["ice", "stone"],
+        spawnable: false,
     },
     BiomeDef {
-        id: "volcanic", name: "Volcanic Rift", floor_offset: 12, deep: true,
-        top_terrain: "basalt", mid_terrain: "basalt", deep_terrain: "stone",
-        resources: &["sulfur", "ore", "stone"], spawnable: false,
+        id: "volcanic",
+        name: "Volcanic Rift",
+        floor_offset: 12,
+        deep: true,
+        top_terrain: "basalt",
+        mid_terrain: "basalt",
+        deep_terrain: "stone",
+        resources: &["sulfur", "ore", "stone"],
+        spawnable: false,
     },
     BiomeDef {
-        id: "bog", name: "Sunken Bog", floor_offset: -3, deep: false,
-        top_terrain: "peat", mid_terrain: "mud", deep_terrain: "earth",
-        resources: &["herbs", "fiber", "moss"], spawnable: true,
+        id: "bog",
+        name: "Sunken Bog",
+        floor_offset: -3,
+        deep: false,
+        top_terrain: "peat",
+        mid_terrain: "mud",
+        deep_terrain: "earth",
+        resources: &["herbs", "fiber", "moss"],
+        spawnable: true,
     },
     BiomeDef {
-        id: "saltflats", name: "Salt Flats", floor_offset: 2, deep: false,
-        top_terrain: "salt", mid_terrain: "sandstone", deep_terrain: "stone",
-        resources: &["amber", "clay"], spawnable: true,
+        id: "saltflats",
+        name: "Salt Flats",
+        floor_offset: 2,
+        deep: false,
+        top_terrain: "salt",
+        mid_terrain: "sandstone",
+        deep_terrain: "stone",
+        resources: &["amber", "clay"],
+        spawnable: true,
     },
     BiomeDef {
-        id: "abyss", name: "The Abyss", floor_offset: 20, deep: true,
-        top_terrain: "stone", mid_terrain: "stone", deep_terrain: "stone",
-        resources: &["glowshards", "ore"], spawnable: false,
+        id: "abyss",
+        name: "The Abyss",
+        floor_offset: 20,
+        deep: true,
+        top_terrain: "stone",
+        mid_terrain: "stone",
+        deep_terrain: "stone",
+        resources: &["glowshards", "ore"],
+        spawnable: false,
     },
 ];
 
@@ -431,6 +535,10 @@ pub struct CivIntervention {
     pub entity_id: Option<String>,
     #[serde(default)]
     pub accessory: Option<String>,
+    /// Civ a resource grant/removal targets. `None` = the first living civ
+    /// (back-compat). Modifier interventions stay world-global regardless.
+    #[serde(default)]
+    pub civ_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -500,7 +608,13 @@ pub fn list_civ_sessions() -> Vec<CivSessionMeta> {
     };
     let mut metas: Vec<CivSessionMeta> = entries
         .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().extension().map(|ext| ext == "json").unwrap_or(false))
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .map(|ext| ext == "json")
+                .unwrap_or(false)
+        })
         .filter_map(|entry| {
             let raw = std::fs::read_to_string(entry.path()).ok()?;
             let snapshot = parse_snapshot(&raw).ok()?;
@@ -578,34 +692,36 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
     );
     snapshot.turn = next_turn;
 
-    // Each living civ decides and acts, in a stable seed-derived order.
-    let civ_ids: Vec<String> = snapshot
-        .civs
-        .iter()
-        .filter(|civ| civ.alive)
-        .map(|civ| civ.id.clone())
-        .collect();
+    // Each living civ decides and acts, in a deterministic per-turn shuffled order
+    // so first-mover advantage on shared resources rotates fairly across civs.
+    let turn_order = civ_turn_order(&snapshot);
 
-    for civ_id in &civ_ids {
+    for civ_id in &turn_order {
         let Some(ci) = civ_index(&snapshot, civ_id) else {
             continue;
         };
         let model = snapshot.civs[ci].model.clone();
         let observation = build_observation(&snapshot, civ_id);
         let prompt = build_decision_prompt(&observation);
-        let first = call_model_text(&model, vec![ChatMessage {
-            role: "user".to_string(),
-            content: prompt,
-        }])
+        let first = call_model_text(
+            &model,
+            vec![ChatMessage {
+                role: "user".to_string(),
+                content: prompt,
+            }],
+        )
         .await?;
 
         let decision = match parse_model_decision(&first.content) {
             Ok(decision) => decision,
             Err(first_error) => {
-                let repair = call_model_text(&model, vec![ChatMessage {
-                    role: "user".to_string(),
-                    content: build_repair_prompt(&first.content, &first_error),
-                }])
+                let repair = call_model_text(
+                    &model,
+                    vec![ChatMessage {
+                        role: "user".to_string(),
+                        content: build_repair_prompt(&first.content, &first_error),
+                    }],
+                )
                 .await?;
                 match parse_model_decision(&repair.content) {
                     Ok(decision) => decision,
@@ -641,7 +757,7 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
     }
 
     // Resolve each civ's environment, then collapse any that ran out of axolotls.
-    for civ_id in &civ_ids {
+    for civ_id in &turn_order {
         resolve_environment(&mut snapshot, civ_id);
         if let Some(ci) = civ_index(&snapshot, civ_id) {
             if snapshot.civs[ci].alive && should_collapse(&snapshot, civ_id) {
@@ -922,7 +1038,8 @@ fn generate_world(seed: u32, civ_count: u32) -> CivWorld {
         }
         let patches = 2 + w / 9;
         for p in 0..patches {
-            let res = biome.resources[(p as usize + next_rng(&mut rng) as usize) % biome.resources.len()];
+            let res =
+                biome.resources[(p as usize + next_rng(&mut rng) as usize) % biome.resources.len()];
             let span = w.saturating_sub(4).max(1);
             let rx = (sx + 2 + next_rng(&mut rng) % span).min(width.saturating_sub(2));
             let fy = col_floor[rx as usize];
@@ -1037,7 +1154,11 @@ fn seed_underground_veins(
 /// Deeper bands yield rarer, more valuable minerals in richer deposits.
 fn vein_for_depth(d: u32, biome: &BiomeDef, rng: &mut u32) -> (&'static str, i32) {
     if d < 8 {
-        let res = if next_rng(rng).is_multiple_of(2) { "stone" } else { "clay" };
+        let res = if next_rng(rng).is_multiple_of(2) {
+            "stone"
+        } else {
+            "clay"
+        };
         (res, 6 + (next_rng(rng) % 5) as i32)
     } else if d < 18 {
         let pool: &[&str] = if biome.id == "coralreef" {
@@ -1048,7 +1169,11 @@ fn vein_for_depth(d: u32, biome: &BiomeDef, rng: &mut u32) -> (&'static str, i32
         let res = pool[(next_rng(rng) as usize) % pool.len()];
         (res, 10 + (next_rng(rng) % 7) as i32)
     } else {
-        let res = if next_rng(rng).is_multiple_of(2) { "glowshards" } else { "amber" };
+        let res = if next_rng(rng).is_multiple_of(2) {
+            "glowshards"
+        } else {
+            "amber"
+        };
         (res, 16 + (next_rng(rng) % 13) as i32)
     }
 }
@@ -1098,7 +1223,15 @@ fn found_colony(world: &mut CivWorld, rng: &mut u32, civ_index: usize, spawn_x: 
     let floor = seabed_row_at(world, spawn_x);
 
     // A dependable larder so every colony can eat from turn one.
-    place_resource_patch(&mut world.tiles, "moss", 16, spawn_x.saturating_sub(4), floor, 5, 2);
+    place_resource_patch(
+        &mut world.tiles,
+        "moss",
+        16,
+        spawn_x.saturating_sub(4),
+        floor,
+        5,
+        2,
+    );
     let reed_x = (spawn_x + 1).min(width.saturating_sub(2));
     let reed_floor = seabed_row_at(world, reed_x);
     place_resource_patch(&mut world.tiles, "wood", 12, reed_x, reed_floor, 3, 2);
@@ -1129,6 +1262,116 @@ fn found_colony(world: &mut CivWorld, rng: &mut u32, civ_index: usize, spawn_x: 
         civ_id: Some(civ_id.clone()),
         ..Default::default()
     });
+    let breach_x = (nest_x + 3).min(width.saturating_sub(2));
+    let breach_floor = seabed_row_at(world, breach_x);
+    place_resource_patch(
+        &mut world.tiles,
+        "fiber",
+        8,
+        breach_x.saturating_sub(1),
+        breach_floor,
+        3,
+        2,
+    );
+    world.entities.push(CivEntity {
+        id: format!("breach-{civ_id}"),
+        kind: "object".to_string(),
+        name: "Nest Breach".to_string(),
+        x: breach_x,
+        y: breach_floor.saturating_sub(1),
+        health: 35.0,
+        mood: 0.0,
+        role: "breach".to_string(),
+        civ_id: Some(civ_id.clone()),
+        activity: "needs_repair".to_string(),
+        ..Default::default()
+    });
+    world.entities.push(CivEntity {
+        id: format!("leak-{civ_id}"),
+        kind: "object".to_string(),
+        name: "Nest Leak".to_string(),
+        x: (breach_x + 1).min(width.saturating_sub(2)),
+        y: breach_floor.saturating_sub(1),
+        health: 62.0,
+        mood: 0.0,
+        role: "leak".to_string(),
+        civ_id: Some(civ_id.clone()),
+        activity: "active".to_string(),
+        ..Default::default()
+    });
+
+    let rescue_x = (spawn_x + 8).min(width.saturating_sub(2));
+    let rescue_floor = seabed_row_at(world, rescue_x);
+    let rescue_y = rescue_floor.saturating_sub(2).max(WATER_SURFACE_Y + 2);
+    place_rescue_rubble(&mut world.tiles, rescue_x, rescue_y);
+    world.entities.push(CivEntity {
+        id: format!("trapped-{civ_id}"),
+        kind: "object".to_string(),
+        name: "Trapped Juvenile".to_string(),
+        x: rescue_x,
+        y: rescue_y,
+        health: 45.0,
+        mood: 12.0,
+        role: "trapped".to_string(),
+        civ_id: Some(civ_id.clone()),
+        activity: "blocked".to_string(),
+        ..Default::default()
+    });
+    world.entities.push(CivEntity {
+        id: format!("oxygen-{civ_id}"),
+        kind: "object".to_string(),
+        name: "Low Oxygen Pocket".to_string(),
+        x: rescue_x.saturating_sub(1),
+        y: rescue_y,
+        health: 70.0,
+        mood: 0.0,
+        role: "oxygen".to_string(),
+        civ_id: Some(civ_id.clone()),
+        activity: "active".to_string(),
+        ..Default::default()
+    });
+
+    let bridge_x = (spawn_x + 14).min(width.saturating_sub(3)).max(2);
+    let bridge_floor = seabed_row_at(world, bridge_x);
+    let bridge_y = bridge_floor.saturating_sub(1).max(WATER_SURFACE_Y + 2);
+    place_bridge_gap(&mut world.tiles, bridge_x, bridge_y);
+    let pocket_x = (bridge_x + 4).min(width.saturating_sub(2));
+    let pocket_floor = seabed_row_at(world, pocket_x);
+    place_resource_patch(
+        &mut world.tiles,
+        "glowshards",
+        5,
+        pocket_x.saturating_sub(1),
+        pocket_floor,
+        2,
+        1,
+    );
+    world.entities.push(CivEntity {
+        id: format!("bridge-{civ_id}"),
+        kind: "object".to_string(),
+        name: "Bridge Gap".to_string(),
+        x: bridge_x,
+        y: bridge_y,
+        health: 35.0,
+        mood: 0.0,
+        role: "bridge".to_string(),
+        civ_id: Some(civ_id.clone()),
+        activity: "open".to_string(),
+        ..Default::default()
+    });
+    world.entities.push(CivEntity {
+        id: format!("seep-{civ_id}"),
+        kind: "object".to_string(),
+        name: "Silt Vent".to_string(),
+        x: (bridge_x + 2).min(width.saturating_sub(2)),
+        y: bridge_y,
+        health: 70.0,
+        mood: 0.0,
+        role: "seep".to_string(),
+        civ_id: Some(civ_id.clone()),
+        activity: "active".to_string(),
+        ..Default::default()
+    });
 
     for i in 0..INITIAL_POPULATION {
         // Each civ starts at a different point in the common palette so colonies
@@ -1151,6 +1394,11 @@ fn found_colony(world: &mut CivWorld, rng: &mut u32, civ_index: usize, spawn_x: 
             76.0,
         );
         axolotl.civ_id = Some(civ_id.clone());
+        if i == 1 {
+            axolotl.role = "builder".to_string();
+        } else if i == 6 {
+            axolotl.role = "scout".to_string();
+        }
         world.entities.push(axolotl);
     }
 
@@ -1214,6 +1462,26 @@ fn civ_label(snapshot: &CivSessionSnapshot, civ_id: &str) -> String {
         .unwrap_or_else(|| civ_id.to_string())
 }
 
+/// The order living civs decide and act in this turn. Re-derived each turn from
+/// `(seed, turn)` and Fisher–Yates shuffled, so the advantage of acting first —
+/// which matters once civs race for the same finite mineral blocks (W10.1) — keeps
+/// rotating instead of `civ-1` permanently winning. Deterministic for replay; skips
+/// collapsed civs.
+fn civ_turn_order(snapshot: &CivSessionSnapshot) -> Vec<String> {
+    let mut order: Vec<String> = snapshot
+        .civs
+        .iter()
+        .filter(|civ| civ.alive)
+        .map(|civ| civ.id.clone())
+        .collect();
+    let mut rng = (snapshot.seed ^ snapshot.turn.wrapping_mul(0x9E37_79B9) ^ 0x51ED_2701).max(1);
+    for i in (1..order.len()).rev() {
+        let j = (next_rng(&mut rng) as usize) % (i + 1);
+        order.swap(i, j);
+    }
+    order
+}
+
 /// The leaderboard value reported in `CivSessionMeta.score`: the strongest civ's
 /// total score (0.0 when there are no civs).
 fn leaderboard_score(civs: &[CivCivilization]) -> f32 {
@@ -1263,8 +1531,7 @@ fn should_collapse(snapshot: &CivSessionSnapshot, civ_id: &str) -> bool {
     let Some(ci) = civ_index(snapshot, civ_id) else {
         return false;
     };
-    snapshot.civs[ci].population == 0
-        && !civ_entities(snapshot, civ_id).any(|e| e.kind == "egg")
+    snapshot.civs[ci].population == 0 && !civ_entities(snapshot, civ_id).any(|e| e.kind == "egg")
 }
 
 /// Rough colony centre for `civ_id` — the pond heart, else the nest, else the mean
@@ -1350,11 +1617,10 @@ fn assign_activity(
     target: Option<(u32, u32)>,
 ) {
     let mut assigned = 0;
-    for e in snapshot
-        .world
-        .entities
-        .iter_mut()
-        .filter(|e| e.kind == "axolotl" && e.stage != "egg" && e.civ_id.as_deref() == Some(civ_id))
+    for e in
+        snapshot.world.entities.iter_mut().filter(|e| {
+            e.kind == "axolotl" && e.stage != "egg" && e.civ_id.as_deref() == Some(civ_id)
+        })
     {
         if assigned >= count {
             break;
@@ -1388,6 +1654,187 @@ fn place_resource_patch(
                     tile.amount = amount;
                 }
             }
+        }
+    }
+}
+
+fn rescue_rubble_tiles(x: u32, y: u32) -> Vec<(u32, u32)> {
+    let shaft_x = x.saturating_sub(1);
+    let shaft_top = y.saturating_sub(3).max(WATER_SURFACE_Y + 1);
+    let mut tiles = Vec::new();
+    for tile_y in shaft_top..=y {
+        tiles.push((shaft_x, tile_y));
+    }
+    tiles.push((x, y + 1));
+    tiles
+}
+
+fn place_rescue_rubble(tiles: &mut [CivTile], object_x: u32, object_y: u32) {
+    for (x, y) in rescue_rubble_tiles(object_x, object_y) {
+        if let Some(tile) = tiles.iter_mut().find(|tile| tile.x == x && tile.y == y) {
+            if !is_substrate(&tile.terrain) {
+                tile.terrain = "stone".to_string();
+                tile.resource = None;
+                tile.amount = 0;
+            }
+        }
+    }
+}
+
+fn rescue_rubble_remaining(snapshot: &CivSessionSnapshot, object_id: &str) -> i32 {
+    let Some(object) = snapshot
+        .world
+        .entities
+        .iter()
+        .find(|entity| entity.id == object_id)
+    else {
+        return 1;
+    };
+    if object.activity == "rescued" {
+        return 0;
+    }
+    rescue_rubble_tiles(object.x, object.y)
+        .into_iter()
+        .filter(|(x, y)| {
+            snapshot
+                .world
+                .tiles
+                .iter()
+                .any(|tile| tile.x == *x && tile.y == *y && is_substrate(&tile.terrain))
+        })
+        .count() as i32
+}
+
+fn bridge_tiles(x: u32, y: u32) -> [(u32, u32); 3] {
+    [
+        (x.saturating_sub(1), y.saturating_add(1)),
+        (x, y.saturating_add(1)),
+        (x.saturating_add(1), y.saturating_add(1)),
+    ]
+}
+
+fn place_bridge_gap(tiles: &mut [CivTile], marker_x: u32, marker_y: u32) {
+    for (x, y) in bridge_tiles(marker_x, marker_y) {
+        if let Some(tile) = tiles.iter_mut().find(|tile| tile.x == x && tile.y == y) {
+            tile.terrain = if y >= DEEP_WATER_Y {
+                "deepwater"
+            } else {
+                "water"
+            }
+            .to_string();
+            tile.resource = None;
+            tile.amount = 0;
+        }
+    }
+}
+
+fn bridge_tiles_remaining(snapshot: &CivSessionSnapshot, object_id: &str) -> i32 {
+    let Some(object) = snapshot
+        .world
+        .entities
+        .iter()
+        .find(|entity| entity.id == object_id)
+    else {
+        return 1;
+    };
+    if object.activity == "built" {
+        return 0;
+    }
+    bridge_tiles(object.x, object.y)
+        .iter()
+        .filter(|(x, y)| {
+            snapshot
+                .world
+                .tiles
+                .iter()
+                .any(|tile| tile.x == *x && tile.y == *y && !is_substrate(&tile.terrain))
+        })
+        .count() as i32
+}
+
+fn celebrate_npc_at(
+    snapshot: &mut CivSessionSnapshot,
+    npc_id: &str,
+    target: Option<(u32, u32)>,
+    mood_boost: f32,
+) -> Option<String> {
+    snapshot
+        .world
+        .entities
+        .iter_mut()
+        .find(|entity| entity.id == npc_id && entity.kind == "axolotl")
+        .map(|npc| {
+            npc.mood = (npc.mood + mood_boost).min(100.0);
+            npc.activity = "celebrate".to_string();
+            npc.target_x = target.map(|(x, _)| x);
+            npc.target_y = target.map(|(_, y)| y);
+            npc.name.clone()
+        })
+}
+
+fn spawn_rescued_juvenile(
+    snapshot: &mut CivSessionSnapshot,
+    civ_id: Option<String>,
+    object_id: &str,
+    object_x: u32,
+    object_y: u32,
+) -> bool {
+    let rescued_id = format!("rescued-{object_id}");
+    if snapshot
+        .world
+        .entities
+        .iter()
+        .any(|entity| entity.id == rescued_id)
+    {
+        return false;
+    }
+    let spawn_x = object_x
+        .saturating_add(1)
+        .min(snapshot.world.width.saturating_sub(1));
+    let spawn_y = object_y.min(snapshot.world.height.saturating_sub(1));
+    let mut juvenile = make_axolotl(
+        rescued_id,
+        "Rescued Juvenile".to_string(),
+        spawn_x,
+        spawn_y,
+        "f",
+        4,
+        default_genes(),
+        100.0,
+        96.0,
+    );
+    juvenile.civ_id = civ_id;
+    juvenile.activity = "rescued".to_string();
+    juvenile.target_x = Some(object_x);
+    juvenile.target_y = Some(object_y);
+    snapshot.world.entities.push(juvenile);
+    true
+}
+
+fn seal_nearby_seeps(snapshot: &mut CivSessionSnapshot, x: u32, y: u32) {
+    for entity in &mut snapshot.world.entities {
+        if entity.kind == "object"
+            && entity.role == "seep"
+            && entity.activity != "sealed"
+            && entity.x.abs_diff(x) <= 4
+            && entity.y.abs_diff(y) <= 3
+        {
+            entity.activity = "sealed".to_string();
+            entity.health = 100.0;
+        }
+    }
+}
+
+fn seal_nearby_leaks(snapshot: &mut CivSessionSnapshot, x: u32, y: u32) {
+    for entity in &mut snapshot.world.entities {
+        if entity.kind == "object"
+            && entity.role == "leak"
+            && entity.activity != "sealed"
+            && entity.x.abs_diff(x) <= 3
+            && entity.y.abs_diff(y) <= 3
+        {
+            entity.activity = "sealed".to_string();
+            entity.health = 100.0;
         }
     }
 }
@@ -1527,7 +1974,10 @@ fn extract_json_object(raw: &str) -> Option<&str> {
 fn validate_action(action: &CivDecisionAction) -> Result<(), String> {
     match action.action_type.as_str() {
         "gather" => {
-            let resource = action.resource.as_deref().ok_or("gather.resource is required")?;
+            let resource = action
+                .resource
+                .as_deref()
+                .ok_or("gather.resource is required")?;
             if !known_resource(resource) {
                 return Err(format!("unknown resource: {resource}"));
             }
@@ -1537,34 +1987,56 @@ fn validate_action(action: &CivDecisionAction) -> Result<(), String> {
             }
         }
         "build" => {
-            let building = action.building.as_deref().ok_or("build.building is required")?;
+            let building = action
+                .building
+                .as_deref()
+                .ok_or("build.building is required")?;
             if !matches!(building, "nest" | "storage" | "farm" | "workshop" | "canal") {
                 return Err(format!("unknown building: {building}"));
             }
         }
         "research" => {
-            let tech = action.tech_id.as_deref().ok_or("research.tech_id is required")?;
+            let tech = action
+                .tech_id
+                .as_deref()
+                .ok_or("research.tech_id is required")?;
             if !known_tech(tech) {
                 return Err(format!("unknown tech: {tech}"));
             }
         }
         "explore" => {
-            let direction = action.direction.as_deref().ok_or("explore.direction is required")?;
+            let direction = action
+                .direction
+                .as_deref()
+                .ok_or("explore.direction is required")?;
             if !matches!(direction, "left" | "right" | "down") {
                 return Err(format!("unknown direction: {direction}"));
             }
         }
         "policy" => {
-            let policy = action.policy.as_deref().ok_or("policy.policy is required")?;
+            let policy = action
+                .policy
+                .as_deref()
+                .ok_or("policy.policy is required")?;
             if !matches!(
                 policy,
-                "ration" | "share_equally" | "protect_vulnerable" | "conserve_water" | "push_growth"
+                "ration"
+                    | "share_equally"
+                    | "protect_vulnerable"
+                    | "conserve_water"
+                    | "push_growth"
             ) {
                 return Err(format!("unknown policy: {policy}"));
             }
         }
         "prepare" => {
-            if action.event_id.as_deref().unwrap_or_default().trim().is_empty() {
+            if action
+                .event_id
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
                 return Err("prepare.event_id is required".to_string());
             }
         }
@@ -1573,14 +2045,21 @@ fn validate_action(action: &CivDecisionAction) -> Result<(), String> {
     Ok(())
 }
 
-fn apply_model_decision(snapshot: &mut CivSessionSnapshot, civ_id: &str, decision: &CivModelDecision) {
+fn apply_model_decision(
+    snapshot: &mut CivSessionSnapshot,
+    civ_id: &str,
+    decision: &CivModelDecision,
+) {
     reset_activities(snapshot, civ_id);
     let civ_name = civ_label(snapshot, civ_id);
     push_log(
         snapshot,
         "ai_decision",
         &format!("{civ_name} intent: {}", decision.intent),
-        &format!("{}\nEthics: {}", decision.public_rationale, decision.ethics_note),
+        &format!(
+            "{}\nEthics: {}",
+            decision.public_rationale, decision.ethics_note
+        ),
     );
 
     for action in &decision.actions {
@@ -1653,7 +2132,12 @@ fn gather(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionA
             if tile.amount == 0 {
                 tile.resource = None;
                 if ty > surface + 1 {
-                    tile.terrain = if ty >= DEEP_WATER_Y { "deepwater" } else { "water" }.to_string();
+                    tile.terrain = if ty >= DEEP_WATER_Y {
+                        "deepwater"
+                    } else {
+                        "water"
+                    }
+                    .to_string();
                     dug_out = true;
                 }
             }
@@ -1670,7 +2154,9 @@ fn gather(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionA
             snapshot,
             "blocked_action",
             "Need better tools",
-            &format!("Mining {resource} needs better tools — research stone_tools, then metal_tools."),
+            &format!(
+                "Mining {resource} needs better tools — research stone_tools, then metal_tools."
+            ),
         );
         return;
     }
@@ -1720,13 +2206,20 @@ fn build(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionAc
     }
     pay(&mut snapshot.civs[ci].resources, &costs);
     let default_x = colony_center(snapshot, civ_id).0;
-    let x = action.x.unwrap_or(default_x).min(snapshot.world.width.saturating_sub(1));
+    let x = action
+        .x
+        .unwrap_or(default_x)
+        .min(snapshot.world.width.saturating_sub(1));
     // Buildings rest on the seabed unless the model pinned an explicit row.
     let y = match action.y {
         Some(y) => y.min(snapshot.world.height.saturating_sub(1)),
         None => seabed_row_at(&snapshot.world, x).saturating_sub(1),
     };
-    let entity_id = format!("building-{}-{}", building, snapshot.world.entities.len() + 1);
+    let entity_id = format!(
+        "building-{}-{}",
+        building,
+        snapshot.world.entities.len() + 1
+    );
     snapshot.world.entities.push(CivEntity {
         id: entity_id,
         kind: "building".to_string(),
@@ -1805,8 +2298,22 @@ fn explore(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecision
         3 => "fiber",
         _ => "wood",
     };
-    place_resource_patch(&mut snapshot.world.tiles, resource, 8, x.saturating_sub(1), fy, 3, 2);
-    assign_activity(snapshot, civ_id, 2, "explore", Some((x, fy.saturating_sub(2))));
+    place_resource_patch(
+        &mut snapshot.world.tiles,
+        resource,
+        8,
+        x.saturating_sub(1),
+        fy,
+        3,
+        2,
+    );
+    assign_activity(
+        snapshot,
+        civ_id,
+        2,
+        "explore",
+        Some((x, fy.saturating_sub(2))),
+    );
     push_log(
         snapshot,
         "action",
@@ -1952,7 +2459,9 @@ fn tick_modifiers(snapshot: &mut CivSessionSnapshot) {
     for modifier in snapshot.modifiers.iter_mut() {
         modifier.remaining_turns = modifier.remaining_turns.saturating_sub(1);
     }
-    snapshot.modifiers.retain(|modifier| modifier.remaining_turns > 0);
+    snapshot
+        .modifiers
+        .retain(|modifier| modifier.remaining_turns > 0);
 }
 
 /// Ages `civ_id`'s axolotls, hatches its eggs, lets healthy adults breed near a
@@ -2131,23 +2640,31 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
     }
 }
 
+/// Which civ a resource grant/removal targets. An explicit `civ_id` must name an
+/// existing civ (else an error); absent, fall back to the first living civ (or the
+/// first civ if all have collapsed). `None` only when the session has no civs.
+fn intervention_target_civ(
+    snapshot: &CivSessionSnapshot,
+    civ_id: Option<&str>,
+) -> Result<Option<usize>, String> {
+    match civ_id {
+        Some(cid) => civ_index(snapshot, cid)
+            .map(Some)
+            .ok_or_else(|| format!("unknown civ: {cid}")),
+        None if snapshot.civs.is_empty() => Ok(None),
+        None => Ok(Some(
+            snapshot.civs.iter().position(|c| c.alive).unwrap_or(0),
+        )),
+    }
+}
+
 fn apply_intervention_to_snapshot(
     snapshot: &mut CivSessionSnapshot,
     intervention: &CivIntervention,
 ) -> Result<(), String> {
-    // Resource-targeted interventions act on the first living civ (or the first
-    // civ if all have collapsed). civ-scoped targeting lands with W3's civ_id.
-    let target_ci = if snapshot.civs.is_empty() {
-        None
-    } else {
-        Some(
-            snapshot
-                .civs
-                .iter()
-                .position(|c| c.alive)
-                .unwrap_or(0),
-        )
-    };
+    // Resource-targeted interventions act on `civ_id` (W3), defaulting to the first
+    // living civ. Modifier/accessory/positional interventions ignore the target.
+    let target_ci = intervention_target_civ(snapshot, intervention.civ_id.as_deref())?;
     match intervention.kind.as_str() {
         "grant_resource" => {
             if !known_resource(&intervention.target) {
@@ -2159,11 +2676,15 @@ fn apply_intervention_to_snapshot(
                 .resources
                 .entry(intervention.target.clone())
                 .or_insert(0) += amount;
+            let who = civ_label(snapshot, &snapshot.civs[ci].id.clone());
             push_log(
                 snapshot,
                 "intervention",
                 "Resource granted",
-                &format!("Observer granted {amount} {}.", intervention.target),
+                &format!(
+                    "Observer granted {amount} {} to {who}.",
+                    intervention.target
+                ),
             );
         }
         "remove_resource" => {
@@ -2177,11 +2698,15 @@ fn apply_intervention_to_snapshot(
                 .entry(intervention.target.clone())
                 .or_insert(0);
             *entry = (*entry - amount).max(0);
+            let who = civ_label(snapshot, &snapshot.civs[ci].id.clone());
             push_log(
                 snapshot,
                 "intervention",
                 "Resource removed",
-                &format!("Observer removed {amount} {}.", intervention.target),
+                &format!(
+                    "Observer removed {amount} {} from {who}.",
+                    intervention.target
+                ),
             );
         }
         "spawn_resource" => {
@@ -2189,8 +2714,14 @@ fn apply_intervention_to_snapshot(
                 return Err(format!("unknown resource: {}", intervention.target));
             }
             let width = snapshot.world.width;
-            let x = intervention.x.unwrap_or(width / 2).min(width.saturating_sub(1));
-            let requested_y = intervention.y.unwrap_or(WATER_FLOOR_Y).min(WORLD_HEIGHT - 1);
+            let x = intervention
+                .x
+                .unwrap_or(width / 2)
+                .min(width.saturating_sub(1));
+            let requested_y = intervention
+                .y
+                .unwrap_or(WATER_FLOOR_Y)
+                .min(WORLD_HEIGHT - 1);
             // Snap onto the seabed so spawned resources never float in open water.
             let on_substrate = snapshot
                 .world
@@ -2217,6 +2748,942 @@ fn apply_intervention_to_snapshot(
                 "intervention",
                 "Resource patch spawned",
                 &format!("Observer spawned {} near {x},{y}.", intervention.target),
+            );
+        }
+        "harvest_resource" => {
+            let ci = target_ci.ok_or("no civilization in session")?;
+            let x = intervention.x.ok_or("x is required for harvest_resource")?;
+            let y = intervention.y.ok_or("y is required for harvest_resource")?;
+            let tile_idx = snapshot
+                .world
+                .tiles
+                .iter()
+                .position(|tile| tile.x == x && tile.y == y)
+                .ok_or("harvest tile not found")?;
+            let tile_resource = snapshot.world.tiles[tile_idx]
+                .resource
+                .clone()
+                .ok_or("harvest tile has no resource")?;
+            let gained_resource = harvest_yield_resource(&tile_resource)
+                .ok_or_else(|| format!("unknown harvest resource: {tile_resource}"))?
+                .to_string();
+            if !intervention.target.is_empty()
+                && intervention.target != tile_resource
+                && intervention.target != gained_resource
+            {
+                return Err(format!(
+                    "harvest target {} does not match tile resource {tile_resource}",
+                    intervention.target
+                ));
+            }
+            let requested = intervention.amount.unwrap_or(1).max(1);
+            let harvested = {
+                let tile = &mut snapshot.world.tiles[tile_idx];
+                let harvested = requested.min(tile.amount.max(0));
+                if harvested <= 0 {
+                    return Err("harvest tile is depleted".to_string());
+                }
+                tile.amount = (tile.amount - harvested).max(0);
+                if tile.amount == 0 {
+                    tile.resource = None;
+                }
+                harvested
+            };
+            *snapshot.civs[ci]
+                .resources
+                .entry(gained_resource.clone())
+                .or_insert(0) += harvested;
+            if let Some(eid) = intervention.entity_id.as_deref() {
+                if let Some(entity) = snapshot
+                    .world
+                    .entities
+                    .iter_mut()
+                    .find(|entity| entity.id == eid && entity.kind == "axolotl")
+                {
+                    entity.activity = "player_gather".to_string();
+                    entity.target_x = Some(x);
+                    entity.target_y = Some(y.saturating_sub(1));
+                }
+            }
+            let who = civ_label(snapshot, &snapshot.civs[ci].id.clone());
+            push_log(
+                snapshot,
+                "intervention",
+                "Resource harvested",
+                &format!(
+                    "Player harvested {harvested} {gained_resource} from {tile_resource} near {x},{y} for {who}."
+                ),
+            );
+        }
+        "mine_tile" => {
+            let ci = target_ci.ok_or("no civilization in session")?;
+            let x = intervention.x.ok_or("x is required for mine_tile")?;
+            let y = intervention.y.ok_or("y is required for mine_tile")?;
+            let tile_idx = snapshot
+                .world
+                .tiles
+                .iter()
+                .position(|tile| tile.x == x && tile.y == y)
+                .ok_or("mine tile not found")?;
+            if !is_substrate(&snapshot.world.tiles[tile_idx].terrain) {
+                return Err("only substrate tiles can be mined".to_string());
+            }
+            let terrain = snapshot.world.tiles[tile_idx].terrain.clone();
+            let gained_resource = snapshot.world.tiles[tile_idx]
+                .resource
+                .as_deref()
+                .and_then(harvest_yield_resource)
+                .map(str::to_string)
+                .unwrap_or_else(|| terrain_yield_resource(&terrain).to_string());
+            let terrain_after = if y >= DEEP_WATER_Y {
+                "deepwater"
+            } else {
+                "water"
+            }
+            .to_string();
+            {
+                let tile = &mut snapshot.world.tiles[tile_idx];
+                tile.terrain = terrain_after;
+                tile.resource = None;
+                tile.amount = 0;
+            }
+            *snapshot.civs[ci]
+                .resources
+                .entry(gained_resource.clone())
+                .or_insert(0) += 1;
+            if let Some(eid) = intervention.entity_id.as_deref() {
+                if let Some(entity) = snapshot
+                    .world
+                    .entities
+                    .iter_mut()
+                    .find(|entity| entity.id == eid && entity.kind == "axolotl")
+                {
+                    entity.activity = "player_mine".to_string();
+                    entity.target_x = Some(x);
+                    entity.target_y = Some(y);
+                }
+            }
+            let who = civ_label(snapshot, &snapshot.civs[ci].id.clone());
+            push_log(
+                snapshot,
+                "player",
+                "Tile mined",
+                &format!("Player mined {terrain} at {x},{y} for 1 {gained_resource} for {who}."),
+            );
+        }
+        "place_tile" => {
+            let ci = target_ci.ok_or("no civilization in session")?;
+            if !placeable_build_resource(&intervention.target) {
+                return Err(format!(
+                    "{} cannot be placed as terrain",
+                    intervention.target
+                ));
+            }
+            let x = intervention.x.ok_or("x is required for place_tile")?;
+            let y = intervention.y.ok_or("y is required for place_tile")?;
+            let tile_idx = snapshot
+                .world
+                .tiles
+                .iter()
+                .position(|tile| tile.x == x && tile.y == y)
+                .ok_or("place tile not found")?;
+            if is_substrate(&snapshot.world.tiles[tile_idx].terrain) {
+                return Err("cannot place terrain over substrate".to_string());
+            }
+            if snapshot
+                .world
+                .entities
+                .iter()
+                .any(|entity| entity.x == x && entity.y == y && entity.kind == "building")
+            {
+                return Err("cannot place terrain on a building".to_string());
+            }
+            let available = snapshot.civs[ci]
+                .resources
+                .get(&intervention.target)
+                .copied()
+                .unwrap_or(0);
+            if available <= 0 {
+                return Err(format!("not enough {} to place", intervention.target));
+            }
+            if let Some(entry) = snapshot.civs[ci].resources.get_mut(&intervention.target) {
+                *entry = (*entry - 1).max(0);
+            }
+            let terrain = place_terrain_for_resource(&intervention.target).to_string();
+            {
+                let tile = &mut snapshot.world.tiles[tile_idx];
+                tile.terrain = terrain.clone();
+                tile.resource = None;
+                tile.amount = 0;
+            }
+            if let Some(eid) = intervention.entity_id.as_deref() {
+                if let Some(entity) = snapshot
+                    .world
+                    .entities
+                    .iter_mut()
+                    .find(|entity| entity.id == eid && entity.kind == "axolotl")
+                {
+                    entity.activity = "player_build".to_string();
+                    entity.target_x = Some(x);
+                    entity.target_y = Some(y);
+                }
+            }
+            let who = civ_label(snapshot, &snapshot.civs[ci].id.clone());
+            push_log(
+                snapshot,
+                "player",
+                "Tile placed",
+                &format!(
+                    "Player placed {terrain} at {x},{y} using 1 {} for {who}.",
+                    intervention.target
+                ),
+            );
+            if let Some(task) = active_player_task(snapshot) {
+                if task.kind == "build_bridge" {
+                    let remaining = bridge_tiles_remaining(snapshot, &task.object_id);
+                    if remaining <= 0 {
+                        snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 3.0).min(100.0);
+                        snapshot.civs[ci].health = (snapshot.civs[ci].health + 0.8).min(100.0);
+                        *snapshot.civs[ci]
+                            .resources
+                            .entry("glowshards".to_string())
+                            .or_insert(0) += 1;
+                        let object_update = snapshot
+                            .world
+                            .entities
+                            .iter_mut()
+                            .find(|entity| entity.id == task.object_id && entity.kind == "object")
+                            .map(|object| {
+                                object.health = 100.0;
+                                object.activity = "built".to_string();
+                                (object.name.clone(), object.x, object.y)
+                            });
+                        let target = object_update.as_ref().map(|(_, x, y)| (*x, *y));
+                        if let Some((x, y)) = target {
+                            seal_nearby_seeps(snapshot, x, y);
+                        }
+                        let object_name = object_update
+                            .map(|(name, _, _)| name)
+                            .unwrap_or_else(|| "the bridge".to_string());
+                        let npc_name = celebrate_npc_at(snapshot, &task.npc_id, target, 6.0)
+                            .unwrap_or_else(|| "the builder".to_string());
+                        push_log(
+                            snapshot,
+                            "player",
+                            "Task complete",
+                            &format!(
+                                "target={}; Built {object_name} for {npc_name}. The resource pocket is reachable and the silt vent is sealed; task=build_bridge; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                                task.object_id,
+                                task.npc_id,
+                                task.object_id,
+                                task.resource,
+                                task.source,
+                                task.amount,
+                                task.baseline,
+                                task.reward,
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        "repair_object" => {
+            let ci = target_ci.ok_or("no civilization in session")?;
+            let eid = intervention
+                .entity_id
+                .as_deref()
+                .ok_or("entity_id is required for repair_object")?;
+            let object_idx = snapshot
+                .world
+                .entities
+                .iter()
+                .position(|entity| entity.id == eid && entity.kind == "object")
+                .ok_or("object not found")?;
+            if let Some(cid) = intervention.civ_id.as_deref() {
+                if snapshot.world.entities[object_idx]
+                    .civ_id
+                    .as_deref()
+                    .is_some_and(|owner| owner != cid)
+                {
+                    return Err(format!("{eid} does not belong to {cid}"));
+                }
+            }
+            let task = active_player_task(snapshot).ok_or("no active repair task")?;
+            if task.kind != "repair_object" || task.object_id != eid {
+                return Err("object is not the active repair target".to_string());
+            }
+            let have = snapshot.civs[ci]
+                .resources
+                .get(&task.resource)
+                .copied()
+                .unwrap_or(0);
+            let required = task.baseline + task.amount;
+            if have < required {
+                return Err(format!(
+                    "need {} more {} before repair",
+                    required - have,
+                    task.resource
+                ));
+            }
+            if let Some(entry) = snapshot.civs[ci].resources.get_mut(&task.resource) {
+                *entry = (*entry - task.amount).max(0);
+            }
+            snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 3.0).min(100.0);
+            snapshot.civs[ci].health = (snapshot.civs[ci].health + 1.2).min(100.0);
+            *snapshot.civs[ci]
+                .resources
+                .entry("clean_water".to_string())
+                .or_insert(0) += 1;
+            let (object_name, object_x, object_y) = {
+                let object = &mut snapshot.world.entities[object_idx];
+                object.health = 100.0;
+                object.activity = "repaired".to_string();
+                (object.name.clone(), object.x, object.y)
+            };
+            seal_nearby_leaks(snapshot, object_x, object_y);
+            let npc_name =
+                celebrate_npc_at(snapshot, &task.npc_id, Some((object_x, object_y)), 6.0)
+                    .unwrap_or_else(|| "the requester".to_string());
+            push_log(
+                snapshot,
+                "player",
+                "Task complete",
+                &format!(
+                    "target={}; Repaired {object_name} for {npc_name}. The nest leak is sealed and the nest is safe again; task=repair_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                    task.object_id,
+                    task.npc_id,
+                    task.object_id,
+                    task.resource,
+                    task.source,
+                    task.amount,
+                    task.baseline,
+                    task.reward,
+                ),
+            );
+        }
+        "rescue_object" => {
+            let ci = target_ci.ok_or("no civilization in session")?;
+            let eid = intervention
+                .entity_id
+                .as_deref()
+                .ok_or("entity_id is required for rescue_object")?;
+            let object_idx = snapshot
+                .world
+                .entities
+                .iter()
+                .position(|entity| entity.id == eid && entity.kind == "object")
+                .ok_or("object not found")?;
+            if let Some(cid) = intervention.civ_id.as_deref() {
+                if snapshot.world.entities[object_idx]
+                    .civ_id
+                    .as_deref()
+                    .is_some_and(|owner| owner != cid)
+                {
+                    return Err(format!("{eid} does not belong to {cid}"));
+                }
+            }
+            let task = active_player_task(snapshot).ok_or("no active rescue task")?;
+            if task.kind != "rescue_object" || task.object_id != eid {
+                return Err("object is not the active rescue target".to_string());
+            }
+            let remaining = rescue_rubble_remaining(snapshot, eid);
+            if remaining > 0 {
+                return Err(format!("clear {remaining} more rubble before rescue"));
+            }
+            snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 4.0).min(100.0);
+            snapshot.civs[ci].health = (snapshot.civs[ci].health + 1.0).min(100.0);
+            let object_civ_id = snapshot.world.entities[object_idx]
+                .civ_id
+                .clone()
+                .or_else(|| snapshot.civs.get(ci).map(|civ| civ.id.clone()));
+            let (object_name, object_x, object_y) = {
+                let object = &mut snapshot.world.entities[object_idx];
+                object.health = 100.0;
+                object.mood = 100.0;
+                object.activity = "rescued".to_string();
+                (object.name.clone(), object.x, object.y)
+            };
+            if spawn_rescued_juvenile(snapshot, object_civ_id, &task.object_id, object_x, object_y)
+            {
+                snapshot.civs[ci].population = snapshot.civs[ci].population.saturating_add(1);
+            }
+            let npc_name =
+                celebrate_npc_at(snapshot, &task.npc_id, Some((object_x, object_y)), 7.0)
+                    .unwrap_or_else(|| "the scout".to_string());
+            push_log(
+                snapshot,
+                "player",
+                    "Task complete",
+                    &format!(
+                    "target={}; Rescued {object_name} for {npc_name}. The blocked path is clear and the low-oxygen pocket is behind you; task=rescue_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                    task.object_id,
+                    task.npc_id,
+                    task.object_id,
+                    task.resource,
+                    task.source,
+                    task.amount,
+                    task.baseline,
+                    task.reward,
+                ),
+            );
+        }
+        "move_entity" => {
+            let eid = intervention
+                .entity_id
+                .as_deref()
+                .ok_or("entity_id is required for move_entity")?;
+            let x = intervention
+                .x
+                .ok_or("x is required for move_entity")?
+                .min(snapshot.world.width.saturating_sub(1));
+            let y = intervention
+                .y
+                .ok_or("y is required for move_entity")?
+                .min(snapshot.world.height.saturating_sub(1));
+            let entity = snapshot
+                .world
+                .entities
+                .iter_mut()
+                .find(|entity| entity.id == eid && entity.kind == "axolotl")
+                .ok_or("axolotl not found")?;
+            if let Some(cid) = intervention.civ_id.as_deref() {
+                if entity.civ_id.as_deref().is_some_and(|owner| owner != cid) {
+                    return Err(format!("{eid} does not belong to {cid}"));
+                }
+            }
+            entity.x = x;
+            entity.y = y;
+            entity.activity = "player".to_string();
+            entity.target_x = None;
+            entity.target_y = None;
+        }
+        "talk_entity" => {
+            let ci = target_ci.ok_or("no civilization in session")?;
+            let eid = intervention
+                .entity_id
+                .as_deref()
+                .ok_or("entity_id is required for talk_entity")?;
+            let entity_idx = snapshot
+                .world
+                .entities
+                .iter()
+                .position(|entity| entity.id == eid && entity.kind == "axolotl")
+                .ok_or("axolotl not found")?;
+            if let Some(cid) = intervention.civ_id.as_deref() {
+                if snapshot.world.entities[entity_idx]
+                    .civ_id
+                    .as_deref()
+                    .is_some_and(|owner| owner != cid)
+                {
+                    return Err(format!("{eid} does not belong to {cid}"));
+                }
+            }
+            if let Some(task) = active_player_task(snapshot) {
+                if task.npc_id == eid {
+                    if task.kind == "repair_object" {
+                        if !player_target_used_this_turn(snapshot, "Task pending", eid) {
+                            let have = snapshot.civs[ci]
+                                .resources
+                                .get(&task.resource)
+                                .copied()
+                                .unwrap_or(0);
+                            let required = task.baseline + task.amount;
+                            let object_name = snapshot
+                                .world
+                                .entities
+                                .iter()
+                                .find(|entity| entity.id == task.object_id)
+                                .map(|entity| entity.name.clone())
+                                .unwrap_or_else(|| "the damaged site".to_string());
+                            let ename = snapshot.world.entities[entity_idx].name.clone();
+                            snapshot.world.entities[entity_idx].activity = "waiting".to_string();
+                            let body = if have >= required {
+                                format!(
+                                    "target={}; {ename} says {object_name} is ready to repair. Patch it to seal the nest leak; task=repair_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                                    task.npc_id,
+                                    task.npc_id,
+                                    task.object_id,
+                                    task.resource,
+                                    task.source,
+                                    task.amount,
+                                    task.baseline,
+                                    task.reward,
+                                )
+                            } else {
+                                format!(
+                                    "target={}; {ename} still needs {} more {} before repairing {object_name}. The nest leak clouds the work site; gather {} and return; task=repair_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                                    task.npc_id,
+                                    required - have,
+                                    task.resource,
+                                    task.source,
+                                    task.npc_id,
+                                    task.object_id,
+                                    task.resource,
+                                    task.source,
+                                    task.amount,
+                                    task.baseline,
+                                    task.reward,
+                                )
+                            };
+                            push_log(snapshot, "player", "Task pending", &body);
+                        }
+                        return Ok(());
+                    }
+                    if task.kind == "rescue_object" {
+                        if !player_target_used_this_turn(snapshot, "Task pending", eid) {
+                            let remaining = rescue_rubble_remaining(snapshot, &task.object_id);
+                            let object_name = snapshot
+                                .world
+                                .entities
+                                .iter()
+                                .find(|entity| entity.id == task.object_id)
+                                .map(|entity| entity.name.clone())
+                                .unwrap_or_else(|| "the trapped axolotl".to_string());
+                            let ename = snapshot.world.entities[entity_idx].name.clone();
+                            snapshot.world.entities[entity_idx].activity = "waiting".to_string();
+                            let body = if remaining <= 0 {
+                                format!(
+                                    "target={}; {ename} says {object_name} is reachable. Watch your oxygen in the pocket; task=rescue_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                                    task.npc_id,
+                                    task.npc_id,
+                                    task.object_id,
+                                    task.resource,
+                                    task.source,
+                                    task.amount,
+                                    task.baseline,
+                                    task.reward,
+                                )
+                            } else {
+                                format!(
+                                    "target={}; {ename} needs {remaining} more rubble cleared near {object_name}. The pocket drains oxygen, so retreat if it gets low; task=rescue_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                                    task.npc_id,
+                                    task.npc_id,
+                                    task.object_id,
+                                    task.resource,
+                                    task.source,
+                                    task.amount,
+                                    task.baseline,
+                                    task.reward,
+                                )
+                            };
+                            push_log(snapshot, "player", "Task pending", &body);
+                        }
+                        return Ok(());
+                    }
+                    if task.kind == "build_bridge" {
+                        if !player_target_used_this_turn(snapshot, "Task pending", eid) {
+                            let remaining = bridge_tiles_remaining(snapshot, &task.object_id);
+                            let object_name = snapshot
+                                .world
+                                .entities
+                                .iter()
+                                .find(|entity| entity.id == task.object_id)
+                                .map(|entity| entity.name.clone())
+                                .unwrap_or_else(|| "the bridge gap".to_string());
+                            let ename = snapshot.world.entities[entity_idx].name.clone();
+                            snapshot.world.entities[entity_idx].activity = "waiting".to_string();
+                            let body = if remaining <= 0 {
+                                format!(
+                                    "target={}; {ename} says {object_name} is bridged and the silt vent is sealed; task=build_bridge; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                                    task.npc_id,
+                                    task.npc_id,
+                                    task.object_id,
+                                    task.resource,
+                                    task.source,
+                                    task.amount,
+                                    task.baseline,
+                                    task.reward,
+                                )
+                            } else {
+                                format!(
+                                    "target={}; {ename} needs {remaining} more bridge tile{} placed at {object_name}. Work through the silt plume before it is sealed; task=build_bridge; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                                    task.npc_id,
+                                    if remaining == 1 { "" } else { "s" },
+                                    task.npc_id,
+                                    task.object_id,
+                                    task.resource,
+                                    task.source,
+                                    task.amount,
+                                    task.baseline,
+                                    task.reward,
+                                )
+                            };
+                            push_log(snapshot, "player", "Task pending", &body);
+                        }
+                        return Ok(());
+                    }
+                    if task.kind == "visit_building" {
+                        if !player_target_used_this_turn(snapshot, "Task pending", eid) {
+                            let building_name = snapshot
+                                .world
+                                .entities
+                                .iter()
+                                .find(|entity| entity.id == task.building_id)
+                                .map(|entity| entity.name.clone())
+                                .unwrap_or_else(|| "the target building".to_string());
+                            let ename = snapshot.world.entities[entity_idx].name.clone();
+                            snapshot.world.entities[entity_idx].activity = "waiting".to_string();
+                            push_log(
+                                snapshot,
+                                "player",
+                                "Task pending",
+                                &format!(
+                                    "target={}; {ename} wants you to check {building_name}; task=visit_building; npc={}; building={}; reward={};",
+                                    task.npc_id,
+                                    task.npc_id,
+                                    task.building_id,
+                                    task.reward,
+                                ),
+                            );
+                        }
+                        return Ok(());
+                    }
+                    let have = snapshot.civs[ci]
+                        .resources
+                        .get(&task.resource)
+                        .copied()
+                        .unwrap_or(0);
+                    let required = task.baseline + task.amount;
+                    let ename = snapshot.world.entities[entity_idx].name.clone();
+                    if have >= required {
+                        if let Some(entry) = snapshot.civs[ci].resources.get_mut(&task.resource) {
+                            *entry = (*entry - task.amount).max(0);
+                        }
+                        if task.kind == "trade_resource" && !task.reward_resource.is_empty() {
+                            *snapshot.civs[ci]
+                                .resources
+                                .entry(task.reward_resource.clone())
+                                .or_insert(0) += task.reward_amount.max(1);
+                            snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 1.0).min(100.0);
+                        } else {
+                            snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 2.0).min(100.0);
+                        }
+                        let entity = &mut snapshot.world.entities[entity_idx];
+                        entity.mood = (entity.mood
+                            + if task.kind == "trade_resource" {
+                                4.0
+                            } else {
+                                6.0
+                            })
+                        .min(100.0);
+                        entity.activity = "celebrate".to_string();
+                        let body = if task.kind == "trade_resource" {
+                            format!(
+                                "target={}; Traded {} {} with {ename} for {} {}; task=trade_resource; npc={}; resource={}; source={}; amount={}; baseline={}; reward={}; reward_resource={}; reward_amount={};",
+                                task.npc_id,
+                                task.amount,
+                                task.resource,
+                                task.reward_amount.max(1),
+                                task.reward_resource,
+                                task.npc_id,
+                                task.resource,
+                                task.source,
+                                task.amount,
+                                task.baseline,
+                                task.reward,
+                                task.reward_resource,
+                                task.reward_amount.max(1),
+                            )
+                        } else {
+                            format!(
+                                "target={}; Delivered {} {} to {ename}. The pond feels more coordinated; task=fetch_resource; npc={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                                task.npc_id,
+                                task.amount,
+                                task.resource,
+                                task.npc_id,
+                                task.resource,
+                                task.source,
+                                task.amount,
+                                task.baseline,
+                                task.reward,
+                            )
+                        };
+                        push_log(snapshot, "player", "Task complete", &body);
+                    } else if !player_target_used_this_turn(snapshot, "Task pending", eid) {
+                        let remaining = required - have;
+                        snapshot.world.entities[entity_idx].activity = "waiting".to_string();
+                        let verb = if task.kind == "trade_resource" {
+                            "bring"
+                        } else {
+                            "gather"
+                        };
+                        push_log(
+                            snapshot,
+                            "player",
+                            "Task pending",
+                            &format!(
+                                "target={}; {ename} still needs {remaining} more {}. {verb} {} and return; task={}; npc={}; resource={}; source={}; amount={}; baseline={}; reward={}; reward_resource={}; reward_amount={};",
+                                task.npc_id,
+                                task.resource,
+                                task.source,
+                                task.kind,
+                                task.npc_id,
+                                task.resource,
+                                task.source,
+                                task.amount,
+                                task.baseline,
+                                task.reward,
+                                task.reward_resource,
+                                task.reward_amount,
+                            ),
+                        );
+                    }
+                    return Ok(());
+                }
+
+                if player_target_used_this_turn(snapshot, "Conversation", eid) {
+                    return Ok(());
+                }
+                let ename = snapshot.world.entities[entity_idx].name.clone();
+                let requester = snapshot
+                    .world
+                    .entities
+                    .iter()
+                    .find(|entity| entity.id == task.npc_id)
+                    .map(|entity| entity.name.clone())
+                    .unwrap_or_else(|| "the requester".to_string());
+                let entity = &mut snapshot.world.entities[entity_idx];
+                entity.mood = (entity.mood + 1.0).min(100.0);
+                entity.activity = "socialize".to_string();
+                push_log(
+                    snapshot,
+                    "player",
+                    "Conversation",
+                    &format!("target={eid}; {ename} points you back to {requester}'s request.",),
+                );
+                return Ok(());
+            }
+
+            if player_target_used_this_turn(snapshot, "NPC request", eid) {
+                return Ok(());
+            }
+            let task = task_for_npc(
+                snapshot,
+                &snapshot.world.entities[entity_idx],
+                &snapshot.civs[ci],
+            );
+            let entity = &mut snapshot.world.entities[entity_idx];
+            entity.mood = (entity.mood + 4.0).min(100.0);
+            entity.activity = "socialize".to_string();
+            let ename = entity.name.clone();
+            snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 1.0).min(100.0);
+            let body = match task.kind.as_str() {
+                "trade_resource" => format!(
+                    "target={}; {ename} offers {} {} for {} {}; task=trade_resource; npc={}; resource={}; source={}; amount={}; baseline={}; reward={}; reward_resource={}; reward_amount={};",
+                    task.npc_id,
+                    task.reward_amount.max(1),
+                    task.reward_resource,
+                    task.amount,
+                    task.resource,
+                    task.npc_id,
+                    task.resource,
+                    task.source,
+                    task.amount,
+                    task.baseline,
+                    task.reward,
+                    task.reward_resource,
+                    task.reward_amount.max(1),
+                ),
+                "visit_building" => {
+                    let building_name = snapshot
+                        .world
+                        .entities
+                        .iter()
+                        .find(|building| building.id == task.building_id)
+                        .map(|building| building.name.clone())
+                        .unwrap_or_else(|| "the building".to_string());
+                    format!(
+                        "target={}; {ename} asks you to check {building_name}; task=visit_building; npc={}; building={}; reward={};",
+                        task.npc_id,
+                        task.npc_id,
+                        task.building_id,
+                        task.reward,
+                    )
+                }
+                "repair_object" => {
+                    let object_name = snapshot
+                        .world
+                        .entities
+                        .iter()
+                        .find(|object| object.id == task.object_id)
+                        .map(|object| object.name.clone())
+                        .unwrap_or_else(|| "the damaged site".to_string());
+                    format!(
+                        "target={}; {ename} asks you to repair {object_name}. Gather {} {} and fix it; a nest leak slows the repair site until sealed; task=repair_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                        task.npc_id,
+                        task.amount,
+                        task.resource,
+                        task.npc_id,
+                        task.object_id,
+                        task.resource,
+                        task.source,
+                        task.amount,
+                        task.baseline,
+                        task.reward,
+                    )
+                }
+                "rescue_object" => {
+                    let object_name = snapshot
+                        .world
+                        .entities
+                        .iter()
+                        .find(|object| object.id == task.object_id)
+                        .map(|object| object.name.clone())
+                        .unwrap_or_else(|| "the trapped axolotl".to_string());
+                    format!(
+                        "target={}; {ename} asks you to rescue {object_name}. Mine {} rubble tiles around the marker; the pocket drains oxygen, so retreat when low; task=rescue_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                        task.npc_id,
+                        task.amount,
+                        task.npc_id,
+                        task.object_id,
+                        task.resource,
+                        task.source,
+                        task.amount,
+                        task.baseline,
+                        task.reward,
+                    )
+                }
+                "build_bridge" => {
+                    let object_name = snapshot
+                        .world
+                        .entities
+                        .iter()
+                        .find(|object| object.id == task.object_id)
+                        .map(|object| object.name.clone())
+                        .unwrap_or_else(|| "the bridge gap".to_string());
+                    format!(
+                        "target={}; {ename} asks you to build {object_name}. Place {} bridge tile{} using {}; a silt vent slows the crossing until the bridge is sealed; task=build_bridge; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                        task.npc_id,
+                        task.amount,
+                        if task.amount == 1 { "" } else { "s" },
+                        task.resource,
+                        task.npc_id,
+                        task.object_id,
+                        task.resource,
+                        task.source,
+                        task.amount,
+                        task.baseline,
+                        task.reward,
+                    )
+                }
+                _ => format!(
+                    "target={}; {ename} asks for {} {}. Gather {} and return; task=fetch_resource; npc={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                    task.npc_id,
+                    task.amount,
+                    task.resource,
+                    task.source,
+                    task.npc_id,
+                    task.resource,
+                    task.source,
+                    task.amount,
+                    task.baseline,
+                    task.reward,
+                ),
+            };
+            push_log(snapshot, "player", "NPC request", &body);
+        }
+        "use_building" => {
+            let ci = target_ci.ok_or("no civilization in session")?;
+            let eid = intervention
+                .entity_id
+                .as_deref()
+                .ok_or("entity_id is required for use_building")?;
+            let building_idx = snapshot
+                .world
+                .entities
+                .iter()
+                .position(|entity| entity.id == eid && entity.kind == "building")
+                .ok_or("building not found")?;
+            if let Some(cid) = intervention.civ_id.as_deref() {
+                if snapshot.world.entities[building_idx]
+                    .civ_id
+                    .as_deref()
+                    .is_some_and(|owner| owner != cid)
+                {
+                    return Err(format!("{eid} does not belong to {cid}"));
+                }
+            }
+            if let Some(task) = active_player_task(snapshot) {
+                if task.kind == "visit_building" && task.building_id == eid {
+                    let building = &snapshot.world.entities[building_idx];
+                    let name = building.name.clone();
+                    let role = building.role.clone();
+                    snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 2.0).min(100.0);
+                    snapshot.civs[ci].health = (snapshot.civs[ci].health + 0.8).min(100.0);
+                    if role == "pond" {
+                        *snapshot.civs[ci]
+                            .resources
+                            .entry("clean_water".to_string())
+                            .or_insert(0) += 1;
+                    }
+                    if let Some(npc) = snapshot
+                        .world
+                        .entities
+                        .iter_mut()
+                        .find(|entity| entity.id == task.npc_id && entity.kind == "axolotl")
+                    {
+                        npc.mood = (npc.mood + 5.0).min(100.0);
+                        npc.activity = "celebrate".to_string();
+                    }
+                    push_log(
+                        snapshot,
+                        "player",
+                        "Task complete",
+                        &format!(
+                            "target={}; Checked {name} for the requester. The {role} feels tended; task=visit_building; npc={}; building={}; reward={};",
+                            task.building_id,
+                            task.npc_id,
+                            task.building_id,
+                            task.reward,
+                        ),
+                    );
+                    return Ok(());
+                }
+            }
+            if player_target_used_this_turn(snapshot, "Building used", eid) {
+                return Ok(());
+            }
+            let building = &snapshot.world.entities[building_idx];
+            let role = building.role.clone();
+            let name = building.name.clone();
+            match role.as_str() {
+                "pond" => {
+                    *snapshot.civs[ci]
+                        .resources
+                        .entry("clean_water".to_string())
+                        .or_insert(0) += 1;
+                    snapshot.civs[ci].health = (snapshot.civs[ci].health + 0.6).min(100.0);
+                }
+                "nest" => {
+                    snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 1.0).min(100.0);
+                }
+                "farm" => {
+                    *snapshot.civs[ci]
+                        .resources
+                        .entry("food".to_string())
+                        .or_insert(0) += 1;
+                }
+                "workshop" => {
+                    *snapshot.civs[ci]
+                        .resources
+                        .entry("tools".to_string())
+                        .or_insert(0) += 1;
+                }
+                "storage" => {
+                    *snapshot.civs[ci]
+                        .resources
+                        .entry("fiber".to_string())
+                        .or_insert(0) += 1;
+                }
+                _ => {
+                    snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 0.4).min(100.0);
+                }
+            }
+            push_log(
+                snapshot,
+                "player",
+                "Building used",
+                &format!("target={eid}; The player used {name}; the {role} helped the colony."),
             );
         }
         "trigger_event" | "apply_buff" | "apply_debuff" => {
@@ -2262,7 +3729,11 @@ fn apply_intervention_to_snapshot(
             push_log(
                 snapshot,
                 "intervention",
-                if equip { "Accessory equipped" } else { "Accessory removed" },
+                if equip {
+                    "Accessory equipped"
+                } else {
+                    "Accessory removed"
+                },
                 &format!(
                     "{ename} {} {acc}.",
                     if equip { "put on the" } else { "took off the" }
@@ -2323,7 +3794,8 @@ fn score_civilization(snapshot: &CivSessionSnapshot, civ_id: &str) -> CivScore {
     let food = (*resources.get("food").unwrap_or(&0) as f32 / (population * 4.0)).clamp(0.0, 1.0);
     let water =
         (*resources.get("clean_water").unwrap_or(&0) as f32 / (population * 4.0)).clamp(0.0, 1.0);
-    let survival = ((civ.health * 0.45) + (civ.morale * 0.25) + ((food + water) * 15.0)).clamp(0.0, 100.0);
+    let survival =
+        ((civ.health * 0.45) + (civ.morale * 0.25) + ((food + water) * 15.0)).clamp(0.0, 100.0);
 
     let mut ethics = 48.0 + civ.morale * 0.25 + civ.health * 0.15;
     if civ.policies.iter().any(|p| p == "share_equally") {
@@ -2349,7 +3821,7 @@ fn score_civilization(snapshot: &CivSessionSnapshot, civ_id: &str) -> CivScore {
         + civ.techs.len() as f32 * 6.5
         + snapshot.turn as f32 * 0.6
         + (resources.values().sum::<i32>() as f32 / 8.0).min(22.0))
-        .clamp(0.0, 100.0);
+    .clamp(0.0, 100.0);
 
     let total = survival * 0.35 + ethics * 0.35 + intelligence * 0.30;
     CivScore {
@@ -2364,9 +3836,21 @@ fn building_cost(building: &str) -> HashMap<String, i32> {
     let pairs = match building {
         "nest" => vec![("wood".to_string(), 8), ("fiber".to_string(), 5)],
         "storage" => vec![("wood".to_string(), 7), ("clay".to_string(), 4)],
-        "farm" => vec![("wood".to_string(), 6), ("clay".to_string(), 6), ("fiber".to_string(), 4)],
-        "workshop" => vec![("wood".to_string(), 10), ("stone".to_string(), 8), ("tools".to_string(), 1)],
-        "canal" => vec![("stone".to_string(), 8), ("clay".to_string(), 8), ("tools".to_string(), 1)],
+        "farm" => vec![
+            ("wood".to_string(), 6),
+            ("clay".to_string(), 6),
+            ("fiber".to_string(), 4),
+        ],
+        "workshop" => vec![
+            ("wood".to_string(), 10),
+            ("stone".to_string(), 8),
+            ("tools".to_string(), 1),
+        ],
+        "canal" => vec![
+            ("stone".to_string(), 8),
+            ("clay".to_string(), 8),
+            ("tools".to_string(), 1),
+        ],
         _ => Vec::new(),
     };
     pairs.into_iter().collect()
@@ -2378,10 +3862,22 @@ fn tech_cost(tech: &str) -> HashMap<String, i32> {
         "stone_tools" => vec![("stone".to_string(), 8), ("wood".to_string(), 4)],
         "water_filter" => vec![("clay".to_string(), 8), ("fiber".to_string(), 5)],
         "council" => vec![("food".to_string(), 8), ("wood".to_string(), 8)],
-        "workshop_craft" => vec![("stone".to_string(), 10), ("wood".to_string(), 10), ("tools".to_string(), 2)],
-        "canal_network" => vec![("stone".to_string(), 12), ("clay".to_string(), 14), ("tools".to_string(), 3)],
+        "workshop_craft" => vec![
+            ("stone".to_string(), 10),
+            ("wood".to_string(), 10),
+            ("tools".to_string(), 2),
+        ],
+        "canal_network" => vec![
+            ("stone".to_string(), 12),
+            ("clay".to_string(), 14),
+            ("tools".to_string(), 3),
+        ],
         // Needs ore (tier-2, mined only with stone_tools) -> keeps the chain acyclic.
-        "metal_tools" => vec![("ore".to_string(), 10), ("stone".to_string(), 8), ("tools".to_string(), 2)],
+        "metal_tools" => vec![
+            ("ore".to_string(), 10),
+            ("stone".to_string(), 8),
+            ("tools".to_string(), 2),
+        ],
         _ => Vec::new(),
     };
     pairs.into_iter().collect()
@@ -2427,7 +3923,10 @@ fn consume(resources: &mut HashMap<String, i32>, resource: &str, amount: i32) ->
 }
 
 fn has_modifier(snapshot: &CivSessionSnapshot, kind: &str) -> bool {
-    snapshot.modifiers.iter().any(|modifier| modifier.kind == kind)
+    snapshot
+        .modifiers
+        .iter()
+        .any(|modifier| modifier.kind == kind)
 }
 
 /// Minerals mined from finite blocks: the block depletes and floods to water when
@@ -2484,6 +3983,329 @@ fn known_resource(resource: &str) -> bool {
     )
 }
 
+fn harvest_yield_resource(resource: &str) -> Option<&str> {
+    match resource {
+        "moss" => Some("food"),
+        other if known_resource(other) => Some(other),
+        _ => None,
+    }
+}
+
+fn terrain_yield_resource(terrain: &str) -> &'static str {
+    match terrain {
+        "moss" | "peat" => "fiber",
+        "mud" | "earth" | "sand" | "salt" => "clay",
+        "coral" => "coral",
+        "ice" => "ice",
+        "crystal" => "glowshards",
+        "stone" | "basalt" | "sandstone" => "stone",
+        _ => "stone",
+    }
+}
+
+fn placeable_build_resource(resource: &str) -> bool {
+    matches!(
+        resource,
+        "stone" | "clay" | "wood" | "fiber" | "coral" | "ice"
+    )
+}
+
+fn place_terrain_for_resource(resource: &str) -> &'static str {
+    match resource {
+        "clay" => "mud",
+        "wood" | "fiber" => "moss",
+        "coral" => "coral",
+        "ice" => "ice",
+        "stone" => "stone",
+        _ => "stone",
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PlayerTask {
+    kind: String,
+    npc_id: String,
+    resource: String,
+    source: String,
+    amount: i32,
+    baseline: i32,
+    reward: String,
+    reward_resource: String,
+    reward_amount: i32,
+    building_id: String,
+    object_id: String,
+}
+
+fn task_source_resource(resource: &str) -> &str {
+    match resource {
+        "food" => "moss",
+        other => other,
+    }
+}
+
+fn task_building_id(snapshot: &CivSessionSnapshot, preferred_role: &str) -> String {
+    snapshot
+        .world
+        .entities
+        .iter()
+        .find(|entity| entity.kind == "building" && entity.role == preferred_role)
+        .or_else(|| {
+            snapshot
+                .world
+                .entities
+                .iter()
+                .find(|entity| entity.kind == "building")
+        })
+        .map(|entity| entity.id.clone())
+        .unwrap_or_default()
+}
+
+fn task_repair_object_id(snapshot: &CivSessionSnapshot) -> String {
+    snapshot
+        .world
+        .entities
+        .iter()
+        .find(|entity| {
+            entity.kind == "object" && entity.role == "breach" && entity.activity != "repaired"
+        })
+        .or_else(|| {
+            snapshot
+                .world
+                .entities
+                .iter()
+                .find(|entity| entity.kind == "object" && entity.role == "breach")
+        })
+        .map(|entity| entity.id.clone())
+        .unwrap_or_default()
+}
+
+fn task_rescue_object_id(snapshot: &CivSessionSnapshot) -> String {
+    snapshot
+        .world
+        .entities
+        .iter()
+        .find(|entity| {
+            entity.kind == "object"
+                && entity.role == "trapped"
+                && entity.activity != "rescued"
+                && rescue_rubble_remaining(snapshot, &entity.id) > 0
+        })
+        .or_else(|| {
+            snapshot.world.entities.iter().find(|entity| {
+                entity.kind == "object" && entity.role == "trapped" && entity.activity != "rescued"
+            })
+        })
+        .map(|entity| entity.id.clone())
+        .unwrap_or_default()
+}
+
+fn task_bridge_object_id(snapshot: &CivSessionSnapshot) -> String {
+    snapshot
+        .world
+        .entities
+        .iter()
+        .find(|entity| {
+            entity.kind == "object"
+                && entity.role == "bridge"
+                && entity.activity != "built"
+                && bridge_tiles_remaining(snapshot, &entity.id) > 0
+        })
+        .or_else(|| {
+            snapshot.world.entities.iter().find(|entity| {
+                entity.kind == "object" && entity.role == "bridge" && entity.activity != "built"
+            })
+        })
+        .map(|entity| entity.id.clone())
+        .unwrap_or_default()
+}
+
+fn task_for_npc(
+    snapshot: &CivSessionSnapshot,
+    entity: &CivEntity,
+    civ: &CivCivilization,
+) -> PlayerTask {
+    let morph = entity.morph.as_str();
+    if entity.role == "builder" {
+        let object_id = task_bridge_object_id(snapshot);
+        if !object_id.is_empty() {
+            return PlayerTask {
+                kind: "build_bridge".to_string(),
+                npc_id: entity.id.clone(),
+                resource: "stone".to_string(),
+                source: "stone".to_string(),
+                amount: bridge_tiles_remaining(snapshot, &object_id).max(1),
+                baseline: 0,
+                reward: "glow_pocket".to_string(),
+                reward_resource: String::new(),
+                reward_amount: 0,
+                building_id: String::new(),
+                object_id,
+            };
+        }
+    }
+
+    if matches!(morph, "gold" | "copper" | "firefly" | "blue" | "gfp") {
+        let (resource, reward_resource) = match morph {
+            "blue" | "gfp" => ("fiber", "clean_water"),
+            _ => ("wood", "tools"),
+        };
+        return PlayerTask {
+            kind: "trade_resource".to_string(),
+            npc_id: entity.id.clone(),
+            resource: resource.to_string(),
+            source: task_source_resource(resource).to_string(),
+            amount: 2,
+            baseline: civ.resources.get(resource).copied().unwrap_or(0),
+            reward: "resource".to_string(),
+            reward_resource: reward_resource.to_string(),
+            reward_amount: 1,
+            building_id: String::new(),
+            object_id: String::new(),
+        };
+    }
+
+    if entity.role == "elder" {
+        let object_id = task_repair_object_id(snapshot);
+        if !object_id.is_empty() {
+            let resource = "fiber";
+            return PlayerTask {
+                kind: "repair_object".to_string(),
+                npc_id: entity.id.clone(),
+                resource: resource.to_string(),
+                source: task_source_resource(resource).to_string(),
+                amount: 2,
+                baseline: civ.resources.get(resource).copied().unwrap_or(0),
+                reward: "nest_safety".to_string(),
+                reward_resource: String::new(),
+                reward_amount: 0,
+                building_id: String::new(),
+                object_id,
+            };
+        }
+    }
+
+    if entity.role == "scout" {
+        let object_id = task_rescue_object_id(snapshot);
+        if !object_id.is_empty() {
+            return PlayerTask {
+                kind: "rescue_object".to_string(),
+                npc_id: entity.id.clone(),
+                resource: "rubble".to_string(),
+                source: "rubble".to_string(),
+                amount: rescue_rubble_remaining(snapshot, &object_id).max(1),
+                baseline: 0,
+                reward: "morale".to_string(),
+                reward_resource: String::new(),
+                reward_amount: 0,
+                building_id: String::new(),
+                object_id,
+            };
+        }
+    }
+
+    if matches!(morph, "melanoid" | "axanthic" | "mystic") || entity.role == "elder" {
+        let building_id = task_building_id(
+            snapshot,
+            if entity.role == "elder" {
+                "nest"
+            } else {
+                "pond"
+            },
+        );
+        return PlayerTask {
+            kind: "visit_building".to_string(),
+            npc_id: entity.id.clone(),
+            resource: String::new(),
+            source: String::new(),
+            amount: 0,
+            baseline: 0,
+            reward: "morale".to_string(),
+            reward_resource: String::new(),
+            reward_amount: 0,
+            building_id,
+            object_id: String::new(),
+        };
+    }
+
+    let resource = match morph {
+        "wild" | "leucistic" | "albino" | "piebald" => "food",
+        _ => "food",
+    };
+    PlayerTask {
+        kind: "fetch_resource".to_string(),
+        npc_id: entity.id.clone(),
+        resource: resource.to_string(),
+        source: task_source_resource(resource).to_string(),
+        amount: 2,
+        baseline: civ.resources.get(resource).copied().unwrap_or(0),
+        reward: "morale".to_string(),
+        reward_resource: String::new(),
+        reward_amount: 0,
+        building_id: String::new(),
+        object_id: String::new(),
+    }
+}
+
+fn marker_value(body: &str, key: &str) -> Option<String> {
+    body.split(';').find_map(|part| {
+        let trimmed = part.trim();
+        let (k, v) = trimmed.split_once('=')?;
+        (k == key).then(|| v.trim().to_string())
+    })
+}
+
+fn marker_i32(body: &str, key: &str, fallback: i32) -> i32 {
+    marker_value(body, key)
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(fallback)
+}
+
+fn parse_player_task(entry: &CivLogEntry) -> Option<PlayerTask> {
+    let kind = marker_value(&entry.body, "task")?;
+    if !matches!(
+        kind.as_str(),
+        "fetch_resource"
+            | "trade_resource"
+            | "visit_building"
+            | "repair_object"
+            | "rescue_object"
+            | "build_bridge"
+    ) {
+        return None;
+    }
+    let npc_id = marker_value(&entry.body, "npc")?;
+    let resource = marker_value(&entry.body, "resource").unwrap_or_default();
+    let source = marker_value(&entry.body, "source")
+        .unwrap_or_else(|| task_source_resource(&resource).to_string());
+    Some(PlayerTask {
+        kind,
+        npc_id,
+        resource,
+        source,
+        amount: marker_i32(&entry.body, "amount", 1).max(1),
+        baseline: marker_i32(&entry.body, "baseline", 0),
+        reward: marker_value(&entry.body, "reward").unwrap_or_else(|| "morale".to_string()),
+        reward_resource: marker_value(&entry.body, "reward_resource").unwrap_or_default(),
+        reward_amount: marker_i32(&entry.body, "reward_amount", 0).max(0),
+        building_id: marker_value(&entry.body, "building").unwrap_or_default(),
+        object_id: marker_value(&entry.body, "object").unwrap_or_default(),
+    })
+}
+
+fn active_player_task(snapshot: &CivSessionSnapshot) -> Option<PlayerTask> {
+    for entry in snapshot.log.iter().rev() {
+        if entry.kind != "player" {
+            continue;
+        }
+        match entry.title.as_str() {
+            "Task complete" => return None,
+            "NPC request" | "Task pending" => return parse_player_task(entry),
+            _ => {}
+        }
+    }
+    None
+}
+
 fn known_tech(tech: &str) -> bool {
     matches!(
         tech,
@@ -2509,6 +4331,20 @@ fn push_log(snapshot: &mut CivSessionSnapshot, kind: &str, title: &str, body: &s
         let overflow = snapshot.log.len() - 240;
         snapshot.log.drain(0..overflow);
     }
+}
+
+fn player_target_used_this_turn(
+    snapshot: &CivSessionSnapshot,
+    title: &str,
+    target_id: &str,
+) -> bool {
+    let marker = format!("target={target_id}");
+    snapshot.log.iter().rev().any(|entry| {
+        entry.turn == snapshot.turn
+            && entry.kind == "player"
+            && entry.title == title
+            && entry.body.contains(&marker)
+    })
 }
 
 fn save_snapshot(snapshot: &CivSessionSnapshot) -> Result<(), String> {
@@ -2592,9 +4428,7 @@ fn backfill_snapshot(snapshot: &mut CivSessionSnapshot) {
     if snapshot.civs.len() == 1 {
         let cid = snapshot.civs[0].id.clone();
         for e in snapshot.world.entities.iter_mut() {
-            if e.civ_id.is_none()
-                && matches!(e.kind.as_str(), "axolotl" | "egg" | "building")
-            {
+            if e.civ_id.is_none() && matches!(e.kind.as_str(), "axolotl" | "egg" | "building") {
                 e.civ_id = Some(cid.clone());
             }
         }
@@ -2667,10 +4501,18 @@ fn home_civilizations_dir() -> PathBuf {
         .join("civilizations")
 }
 
-fn emit_civ_event(app_handle: &AppHandle, session_id: &str, event_type: &str, payload: serde_json::Value) {
+fn emit_civ_event(
+    app_handle: &AppHandle,
+    session_id: &str,
+    event_type: &str,
+    payload: serde_json::Value,
+) {
     let channel = format!("civ-event:{session_id}");
     let mut body = serde_json::Map::new();
-    body.insert("type".to_string(), serde_json::Value::String(event_type.to_string()));
+    body.insert(
+        "type".to_string(),
+        serde_json::Value::String(event_type.to_string()),
+    );
     if let serde_json::Value::Object(payload) = payload {
         for (key, value) in payload {
             body.insert(key, value);
@@ -2806,7 +4648,11 @@ fn cross_genes(a: &CivGenes, b: &CivGenes, rng: &mut u32) -> CivGenes {
     let mut allele_b = pick_allele(rng, b).to_string();
     // Mutation: ~7% chance to flip one allele, sometimes to a rare fantasy morph.
     if rand_f(rng) < 0.07 {
-        let pool: &[&str] = if rand_f(rng) < 0.4 { &RARE_MORPHS } else { &MORPHS };
+        let pool: &[&str] = if rand_f(rng) < 0.4 {
+            &RARE_MORPHS
+        } else {
+            &MORPHS
+        };
         let m = pool[(next_rng(rng) as usize) % pool.len()].to_string();
         if next_rng(rng).is_multiple_of(2) {
             allele_a = m;
@@ -2817,8 +4663,10 @@ fn cross_genes(a: &CivGenes, b: &CivGenes, rng: &mut u32) -> CivGenes {
     CivGenes {
         allele_a,
         allele_b,
-        size_gene: ((a.size_gene + b.size_gene) / 2.0 + rand_range(rng, -0.08, 0.08)).clamp(0.7, 1.4),
-        fertility: ((a.fertility + b.fertility) / 2.0 + rand_range(rng, -0.08, 0.08)).clamp(0.3, 1.0),
+        size_gene: ((a.size_gene + b.size_gene) / 2.0 + rand_range(rng, -0.08, 0.08))
+            .clamp(0.7, 1.4),
+        fertility: ((a.fertility + b.fertility) / 2.0 + rand_range(rng, -0.08, 0.08))
+            .clamp(0.3, 1.0),
         longevity: ((a.longevity + b.longevity) / 2.0 + rand_range(rng, -0.08, 0.08))
             .clamp(0.8, 1.35),
         vigor: ((a.vigor + b.vigor) / 2.0 + rand_range(rng, -0.08, 0.08)).clamp(0.8, 1.25),
@@ -2955,7 +4803,10 @@ mod tests {
                 .iter()
                 .filter(|e| e.kind == "axolotl" && e.civ_id.as_deref() == Some(cid.as_str()))
                 .count() as u32;
-            assert_eq!(axos, INITIAL_POPULATION, "{cid} should have a full founding colony");
+            assert_eq!(
+                axos, INITIAL_POPULATION,
+                "{cid} should have a full founding colony"
+            );
             assert!(
                 a.entities
                     .iter()
@@ -2964,18 +4815,34 @@ mod tests {
             );
         }
         // Exactly n distinct regions are claimed — one per civ, no overlap.
-        let mut owners: Vec<&str> = a.regions.iter().filter_map(|r| r.owner.as_deref()).collect();
-        assert_eq!(owners.len(), n as usize, "expected one owned region per civ");
+        let mut owners: Vec<&str> = a
+            .regions
+            .iter()
+            .filter_map(|r| r.owner.as_deref())
+            .collect();
+        assert_eq!(
+            owners.len(),
+            n as usize,
+            "expected one owned region per civ"
+        );
         owners.sort_unstable();
         owners.dedup();
-        assert_eq!(owners.len(), n as usize, "each civ should own a distinct region");
+        assert_eq!(
+            owners.len(),
+            n as usize,
+            "each civ should own a distinct region"
+        );
         // Civs only ever spawn in livable biomes.
         for region in a.regions.iter().filter(|r| r.owner.is_some()) {
             let spawnable = BIOMES
                 .iter()
                 .find(|b| b.id == region.biome)
                 .is_some_and(|b| b.spawnable);
-            assert!(spawnable, "civ spawned in non-livable biome {}", region.biome);
+            assert!(
+                spawnable,
+                "civ spawned in non-livable biome {}",
+                region.biome
+            );
         }
     }
 
@@ -3013,7 +4880,10 @@ mod tests {
                 .iter()
                 .filter(|e| e.kind == "axolotl" && e.civ_id.as_deref() == Some(cid.as_str()))
                 .count() as u32;
-            assert_eq!(axos, INITIAL_POPULATION, "{cid} should still found a full colony");
+            assert_eq!(
+                axos, INITIAL_POPULATION,
+                "{cid} should still found a full colony"
+            );
         }
     }
 
@@ -3037,7 +4907,13 @@ mod tests {
 
     #[test]
     fn initial_snapshot_is_multi_civ_shaped() {
-        let s = initial_snapshot("shape".to_string(), "Shape".to_string(), "m".to_string(), 3, 1);
+        let s = initial_snapshot(
+            "shape".to_string(),
+            "Shape".to_string(),
+            "m".to_string(),
+            3,
+            1,
+        );
         assert_eq!(s.version, SCHEMA_VERSION);
         assert_eq!(s.civs.len(), 1);
         assert_eq!(s.civs[0].id, FIRST_CIV_ID);
@@ -3081,12 +4957,332 @@ mod tests {
                 intensity: None,
                 entity_id: None,
                 accessory: None,
+                civ_id: None,
             },
         )
         .unwrap();
         assert_eq!(snapshot.civs[0].resources["food"], before + 25);
         rescore_all_civs(&mut snapshot);
         assert!(snapshot.civs[0].score.survival > 0.0);
+    }
+
+    #[test]
+    fn player_harvest_depletes_tile_and_grants_yield() {
+        let mut snapshot = initial_snapshot(
+            "harvest-session".to_string(),
+            "Harvest".to_string(),
+            "mock-model".to_string(),
+            42,
+            1,
+        );
+        let tile = snapshot
+            .world
+            .tiles
+            .iter()
+            .find(|tile| tile.resource.as_deref() == Some("moss") && tile.amount > 1)
+            .cloned()
+            .expect("expected a moss tile");
+        let before_food = snapshot.civs[0].resources["food"];
+        let before_amount = tile.amount;
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "harvest_resource".to_string(),
+                target: "moss".to_string(),
+                amount: Some(2),
+                x: Some(tile.x),
+                y: Some(tile.y),
+                duration: None,
+                intensity: None,
+                entity_id: None,
+                accessory: None,
+                civ_id: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(snapshot.civs[0].resources["food"], before_food + 2);
+        let after_tile = snapshot
+            .world
+            .tiles
+            .iter()
+            .find(|item| item.x == tile.x && item.y == tile.y)
+            .unwrap();
+        assert_eq!(after_tile.amount, before_amount - 2);
+        assert_eq!(after_tile.resource.as_deref(), Some("moss"));
+    }
+
+    #[test]
+    fn player_mine_and_place_tile_edits_world() {
+        let mut snapshot = initial_snapshot(
+            "terrain-session".to_string(),
+            "Terrain".to_string(),
+            "mock-model".to_string(),
+            42,
+            1,
+        );
+        let cid = first_civ_id(&snapshot);
+        let axo_id = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.kind == "axolotl")
+            .unwrap()
+            .id
+            .clone();
+        let tile = snapshot
+            .world
+            .tiles
+            .iter()
+            .find(|tile| is_substrate(&tile.terrain) && tile.resource.is_none())
+            .cloned()
+            .expect("expected a mineable substrate tile");
+        let expected_gain = terrain_yield_resource(&tile.terrain).to_string();
+        let before_gain = snapshot.civs[0]
+            .resources
+            .get(&expected_gain)
+            .copied()
+            .unwrap_or(0);
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "mine_tile".to_string(),
+                target: tile.terrain.clone(),
+                amount: Some(1),
+                x: Some(tile.x),
+                y: Some(tile.y),
+                duration: None,
+                intensity: None,
+                entity_id: Some(axo_id.clone()),
+                accessory: None,
+                civ_id: Some(cid.clone()),
+            },
+        )
+        .unwrap();
+        let mined = snapshot
+            .world
+            .tiles
+            .iter()
+            .find(|item| item.x == tile.x && item.y == tile.y)
+            .unwrap();
+        assert!(!is_substrate(&mined.terrain));
+        assert!(mined.resource.is_none());
+        assert_eq!(
+            snapshot.civs[0]
+                .resources
+                .get(&expected_gain)
+                .copied()
+                .unwrap_or(0),
+            before_gain + 1
+        );
+
+        let before_stone = snapshot.civs[0].resources["stone"];
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "place_tile".to_string(),
+                target: "stone".to_string(),
+                amount: Some(1),
+                x: Some(tile.x),
+                y: Some(tile.y),
+                duration: None,
+                intensity: None,
+                entity_id: Some(axo_id),
+                accessory: None,
+                civ_id: Some(cid),
+            },
+        )
+        .unwrap();
+        let placed = snapshot
+            .world
+            .tiles
+            .iter()
+            .find(|item| item.x == tile.x && item.y == tile.y)
+            .unwrap();
+        assert_eq!(placed.terrain, "stone");
+        assert_eq!(snapshot.civs[0].resources["stone"], before_stone - 1);
+    }
+
+    #[test]
+    fn player_move_talk_and_building_use_have_sim_effects() {
+        let mut snapshot = initial_snapshot(
+            "player-session".to_string(),
+            "Player".to_string(),
+            "mock-model".to_string(),
+            42,
+            1,
+        );
+        let cid = first_civ_id(&snapshot);
+        let axo_id = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.kind == "axolotl")
+            .unwrap()
+            .id
+            .clone();
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "move_entity".to_string(),
+                target: String::new(),
+                amount: None,
+                x: Some(12),
+                y: Some(18),
+                duration: None,
+                intensity: None,
+                entity_id: Some(axo_id.clone()),
+                accessory: None,
+                civ_id: Some(cid.clone()),
+            },
+        )
+        .unwrap();
+        let moved = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.id == axo_id)
+            .unwrap();
+        assert_eq!((moved.x, moved.y), (12, 18));
+        assert_eq!(moved.activity, "player");
+
+        let morale_before = snapshot.civs[0].morale;
+        let mood_before = moved.mood;
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "talk_entity".to_string(),
+                target: String::new(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: Some(axo_id.clone()),
+                accessory: None,
+                civ_id: Some(cid.clone()),
+            },
+        )
+        .unwrap();
+        let talked = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.id == axo_id)
+            .unwrap();
+        assert!(talked.mood > mood_before);
+        assert!(snapshot.civs[0].morale > morale_before);
+        let mood_after_talk = talked.mood;
+        let morale_after_talk = snapshot.civs[0].morale;
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "talk_entity".to_string(),
+                target: String::new(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: Some(axo_id.clone()),
+                accessory: None,
+                civ_id: Some(cid.clone()),
+            },
+        )
+        .unwrap();
+        let talked_again = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.id == axo_id)
+            .unwrap();
+        assert_eq!(talked_again.mood, mood_after_talk);
+        assert_eq!(snapshot.civs[0].morale, morale_after_talk);
+        let task = active_player_task(&snapshot).expect("expected an active NPC request");
+        *snapshot.civs[0]
+            .resources
+            .entry(task.resource.clone())
+            .or_insert(0) = task.baseline + task.amount;
+        let morale_before_complete = snapshot.civs[0].morale;
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "talk_entity".to_string(),
+                target: String::new(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: Some(axo_id.clone()),
+                accessory: None,
+                civ_id: Some(cid.clone()),
+            },
+        )
+        .unwrap();
+        assert!(active_player_task(&snapshot).is_none());
+        assert_eq!(
+            snapshot.civs[0]
+                .resources
+                .get(&task.resource)
+                .copied()
+                .unwrap_or(0),
+            task.baseline,
+        );
+        assert!(snapshot.civs[0].morale > morale_before_complete);
+
+        let pond_id = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.kind == "building" && entity.role == "pond")
+            .unwrap()
+            .id
+            .clone();
+        let water_before = snapshot.civs[0].resources["clean_water"];
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "use_building".to_string(),
+                target: String::new(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: Some(pond_id),
+                accessory: None,
+                civ_id: Some(cid),
+            },
+        )
+        .unwrap();
+        assert_eq!(snapshot.civs[0].resources["clean_water"], water_before + 1);
+        let water_after_use = snapshot.civs[0].resources["clean_water"];
+        let pond_id = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.kind == "building" && entity.role == "pond")
+            .unwrap()
+            .id
+            .clone();
+        let cid_again = first_civ_id(&snapshot);
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "use_building".to_string(),
+                target: String::new(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: Some(pond_id),
+                accessory: None,
+                civ_id: Some(cid_again),
+            },
+        )
+        .unwrap();
+        assert_eq!(snapshot.civs[0].resources["clean_water"], water_after_use);
     }
 
     #[test]
@@ -3100,7 +5296,9 @@ mod tests {
         );
         let cid = first_civ_id(&snapshot);
         let base = score_civilization(&snapshot, &cid).ethics;
-        snapshot.civs[0].policies.push("protect_vulnerable".to_string());
+        snapshot.civs[0]
+            .policies
+            .push("protect_vulnerable".to_string());
         snapshot.civs[0].policies.push("share_equally".to_string());
         let improved = score_civilization(&snapshot, &cid).ethics;
         assert!(improved > base);
@@ -3109,7 +5307,11 @@ mod tests {
     #[test]
     fn founding_colony_has_genetics() {
         let world = generate_world(2024, 1);
-        let axos: Vec<_> = world.entities.iter().filter(|e| e.kind == "axolotl").collect();
+        let axos: Vec<_> = world
+            .entities
+            .iter()
+            .filter(|e| e.kind == "axolotl")
+            .collect();
         assert_eq!(axos.len() as u32, INITIAL_POPULATION);
         assert!(axos.iter().all(|a| a.genes.is_some()));
         assert!(axos.iter().all(|a| MORPHS.contains(&a.morph.as_str())));
@@ -3134,7 +5336,13 @@ mod tests {
 
     #[test]
     fn life_cycle_lays_eggs_and_syncs_population() {
-        let mut s = initial_snapshot("life-test".to_string(), "Life".to_string(), "mock".to_string(), 7, 1);
+        let mut s = initial_snapshot(
+            "life-test".to_string(),
+            "Life".to_string(),
+            "mock".to_string(),
+            7,
+            1,
+        );
         let cid = first_civ_id(&s);
         let start = s.civs[0].population;
         let mut saw_egg = false;
@@ -3149,7 +5357,10 @@ mod tests {
                 saw_egg = true;
             }
         }
-        assert!(saw_egg, "expected at least one egg to be laid over 14 turns");
+        assert!(
+            saw_egg,
+            "expected at least one egg to be laid over 14 turns"
+        );
         let living = s
             .world
             .entities
@@ -3169,7 +5380,13 @@ mod tests {
 
     #[test]
     fn equip_accessory_round_trips() {
-        let mut s = initial_snapshot("acc-test".to_string(), "Acc".to_string(), "mock".to_string(), 5, 1);
+        let mut s = initial_snapshot(
+            "acc-test".to_string(),
+            "Acc".to_string(),
+            "mock".to_string(),
+            5,
+            1,
+        );
         let id = s
             .world
             .entities
@@ -3190,6 +5407,7 @@ mod tests {
                 intensity: None,
                 entity_id: Some(id.clone()),
                 accessory: Some("crown".to_string()),
+                civ_id: None,
             },
         )
         .unwrap();
@@ -3211,7 +5429,13 @@ mod tests {
         // Build a current snapshot, then rewrite it into the legacy v1 shape:
         // top-level `model` + single `civilization`, no `civs`/`version`/`environment`,
         // and entities stripped of `civ_id` (as old saves were).
-        let s = initial_snapshot("legacy".to_string(), "Old Pond".to_string(), "old-model".to_string(), 9, 1);
+        let s = initial_snapshot(
+            "legacy".to_string(),
+            "Old Pond".to_string(),
+            "old-model".to_string(),
+            9,
+            1,
+        );
         let mut value = serde_json::to_value(&s).unwrap();
         {
             let obj = value.as_object_mut().unwrap();
@@ -3253,7 +5477,13 @@ mod tests {
 
     #[test]
     fn civ_does_not_collapse_while_eggs_remain() {
-        let mut s = initial_snapshot("collapse".to_string(), "C".to_string(), "m".to_string(), 11, 1);
+        let mut s = initial_snapshot(
+            "collapse".to_string(),
+            "C".to_string(),
+            "m".to_string(),
+            11,
+            1,
+        );
         let cid = first_civ_id(&s);
         // Wipe the colony's axolotls but leave its buildings and a single egg.
         s.world.entities.retain(|e| e.kind == "building");
@@ -3321,7 +5551,10 @@ mod tests {
         }
         assert!(shallow.0 > 0, "expected shallow veins");
         assert!(deep.0 > 0, "expected deep veins");
-        assert!(deep.0 < shallow.0, "deep veins should be rarer than shallow");
+        assert!(
+            deep.0 < shallow.0,
+            "deep veins should be rarer than shallow"
+        );
         let shallow_mean = shallow.1 as f64 / f64::from(shallow.0);
         let deep_mean = deep.1 as f64 / f64::from(deep.0);
         assert!(
@@ -3360,9 +5593,17 @@ mod tests {
         gather(&mut s, &cid, &gather_action("ore", 8));
         let after = *s.civs[0].resources.get("ore").unwrap_or(&0);
         assert_eq!(after - before, 5, "yield is capped by the block's amount");
-        let tile = s.world.tiles.iter().find(|t| t.x == cx && t.y == ty).unwrap();
+        let tile = s
+            .world
+            .tiles
+            .iter()
+            .find(|t| t.x == cx && t.y == ty)
+            .unwrap();
         assert_eq!(tile.amount, 0);
-        assert!(tile.resource.is_none(), "an emptied block clears its resource");
+        assert!(
+            tile.resource.is_none(),
+            "an emptied block clears its resource"
+        );
         assert!(
             tile.terrain == "water" || tile.terrain == "deepwater",
             "an emptied block floods to water, got {}",
@@ -3384,7 +5625,11 @@ mod tests {
         let before = *s.civs[0].resources.get("food").unwrap_or(&0);
         gather(&mut s, &cid, &gather_action("food", 8));
         let after = *s.civs[0].resources.get("food").unwrap_or(&0);
-        assert_eq!(after - before, 24, "renewables keep a flat yield even with no block");
+        assert_eq!(
+            after - before,
+            24,
+            "renewables keep a flat yield even with no block"
+        );
     }
 
     #[test]
@@ -3412,7 +5657,12 @@ mod tests {
             tile.amount = 3;
         }
         gather(&mut s, &cid, &gather_action("stone", 8));
-        let tile = s.world.tiles.iter().find(|t| t.x == cx && t.y == surface).unwrap();
+        let tile = s
+            .world
+            .tiles
+            .iter()
+            .find(|t| t.x == cx && t.y == surface)
+            .unwrap();
         assert_eq!(tile.amount, 0);
         assert!(tile.resource.is_none());
         assert!(
@@ -3447,7 +5697,9 @@ mod tests {
             tile.amount = 8;
         }
         // A fresh colony has no stone tools, so ore is unminable (tier 2 > tier 1).
-        s.civs[0].techs.retain(|t| t != "stone_tools" && t != "metal_tools");
+        s.civs[0]
+            .techs
+            .retain(|t| t != "stone_tools" && t != "metal_tools");
         assert_eq!(mining_tier(&s.civs[0]), 1);
         let before = *s.civs[0].resources.get("ore").unwrap_or(&0);
         gather(&mut s, &cid, &gather_action("ore", 8));
@@ -3483,5 +5735,149 @@ mod tests {
                 "metal_tools costs {res}, which needs tier-3 tools -> deadlock"
             );
         }
+    }
+
+    /// Builds an N-civ snapshot by cloning the founding civ into civ-1..civ-N.
+    /// (World entities stay tagged to civ-1 — these tests only exercise the civ
+    /// list, turn order, and intervention targeting, none of which read entities.)
+    fn multi_civ_snapshot(seed: u32, n: usize) -> CivSessionSnapshot {
+        let mut s = initial_snapshot(
+            "multi".to_string(),
+            "Multi".to_string(),
+            "m".to_string(),
+            seed,
+            1,
+        );
+        let base = s.civs[0].clone();
+        for i in 1..n {
+            let mut c = base.clone();
+            c.id = civ_id_for(i);
+            c.name = format!("Civ {}", i + 1);
+            s.civs.push(c);
+        }
+        s
+    }
+
+    #[test]
+    fn civ_turn_order_covers_living_civs_deterministically() {
+        let mut s = multi_civ_snapshot(2024, 5);
+        s.civs[2].alive = false; // collapse civ-3
+        s.turn = 7;
+        let a = civ_turn_order(&s);
+        let b = civ_turn_order(&s);
+        assert_eq!(a, b, "order must be deterministic for a fixed (seed, turn)");
+        assert_eq!(a.len(), 4, "only the four living civs decide");
+        assert!(!a.contains(&civ_id_for(2)), "the collapsed civ is skipped");
+        let mut seen = a.clone();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen.len(), 4, "every living civ appears exactly once");
+    }
+
+    #[test]
+    fn civ_turn_order_rotates_first_mover_across_turns() {
+        // The civ that acts first must change across turns, or civ-1 keeps a
+        // permanent first-mover advantage racing rivals to shared finite blocks.
+        let s = multi_civ_snapshot(2024, 4);
+        let mut firsts = std::collections::HashSet::new();
+        for turn in 1..=24 {
+            let mut st = s.clone();
+            st.turn = turn;
+            if let Some(first) = civ_turn_order(&st).into_iter().next() {
+                firsts.insert(first);
+            }
+        }
+        assert!(
+            firsts.len() > 1,
+            "first-mover should rotate across turns, saw {firsts:?}"
+        );
+    }
+
+    #[test]
+    fn intervention_targets_named_civ() {
+        let mut s = multi_civ_snapshot(42, 3);
+        let before0 = s.civs[0].resources["food"];
+        let before1 = s.civs[1].resources["food"];
+        apply_intervention_to_snapshot(
+            &mut s,
+            &CivIntervention {
+                kind: "grant_resource".to_string(),
+                target: "food".to_string(),
+                amount: Some(20),
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: None,
+                accessory: None,
+                civ_id: Some(civ_id_for(1)), // civ-2
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            s.civs[1].resources["food"],
+            before1 + 20,
+            "the named civ is granted"
+        );
+        assert_eq!(
+            s.civs[0].resources["food"], before0,
+            "other civs are untouched"
+        );
+    }
+
+    #[test]
+    fn intervention_unknown_civ_is_rejected() {
+        let mut s = multi_civ_snapshot(42, 2);
+        let err = apply_intervention_to_snapshot(
+            &mut s,
+            &CivIntervention {
+                kind: "grant_resource".to_string(),
+                target: "food".to_string(),
+                amount: Some(20),
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: None,
+                accessory: None,
+                civ_id: Some("civ-99".to_string()),
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("unknown civ"), "got: {err}");
+    }
+
+    #[test]
+    fn intervention_without_civ_id_targets_first_living_civ() {
+        // Back-compat: a collapsed first civ is skipped for the next living one.
+        let mut s = multi_civ_snapshot(42, 2);
+        s.civs[0].alive = false;
+        let before0 = s.civs[0].resources["food"];
+        let before1 = s.civs[1].resources["food"];
+        apply_intervention_to_snapshot(
+            &mut s,
+            &CivIntervention {
+                kind: "grant_resource".to_string(),
+                target: "food".to_string(),
+                amount: Some(15),
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: None,
+                accessory: None,
+                civ_id: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            s.civs[1].resources["food"],
+            before1 + 15,
+            "the first living civ receives it"
+        );
+        assert_eq!(
+            s.civs[0].resources["food"], before0,
+            "the collapsed civ is skipped"
+        );
     }
 }
