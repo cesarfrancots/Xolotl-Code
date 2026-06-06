@@ -1,228 +1,165 @@
 # Roadmap: xolotl
 
-**Created:** 2026-05-07
 **Granularity:** standard
 **Mode:** yolo
 **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
 
 ---
 
+## Milestones
+
+- ✅ **v1.0 Orchestration MVP** — Phases 1-6 (shipped 2026-06-06; full detail archived to `.planning/milestones/v1.0-phases/` and `.planning/milestones/v1.0-ROADMAP.md`)
+- 🚧 **v2.0 Civ Simulation** — Phases 1-5 (in progress)
+
+> **Phase numbering note:** v2.0 uses **reset numbering** — it starts at Phase 1, not Phase 7. The v1.0 phases 1-6 are archived; the headings below under "🚧 v2.0" are the live v2.0 phases.
+
+---
+
 ## Phases
 
-- [x] **Phase 1: CLI Completion** — Finish CLI gaps and lock down open-model tool-calling so the headless agent is production-ready before any UI work. *(complete 2026-05-08)*
-- [x] **Phase 2: Orchestration Layer** — Build the Rust-only actor model (supervisor, worktrees, shared context, git serialization) and validate headlessly. *(complete 2026-05-08)*
-- [x] **Phase 3: Tauri Shell** — Stand up the Tauri 2.x desktop shell with capability config, managed state, and TypeScript-typed IPC to the Rust core. *(complete 2026-05-09)*
-- [x] **Phase 4: Chat UI** — Deliver the table-stakes chat experience: streaming, tool blocks, diffs, sessions, permissions, model selector, slash commands. *(complete 2026-05-10)*
-- [x] **Phase 5: Agent Dashboard** — Make multi-agent orchestration visible: spawn, monitor, budget, and notify across multiple concurrent agents. *(complete 2026-05-10)*
-- [x] **Phase 6: Parallel Worktrees + Team Orchestration** — Enable parallel agents on isolated worktrees with role-based teams, swarm strategies, and merge checkpoints. *(complete 2026-05-11)*
+**Phase Numbering:**
+- Integer phases (1, 2, 3): Planned milestone work
+- Decimal phases (2.1, 2.2): Urgent insertions (marked INSERTED), appearing between their surrounding integers in numeric order.
+
+### 🚧 v2.0 Civ Simulation (active)
+
+- [ ] **Phase 1: W9-lite — Multi-Model World Creation + Leaderboard** — Create a world of 2-3 AI-model civs, watch a leaderboard rank them, and let harnesses read/drive via the arena bridge.
+- [ ] **Phase 2: W8 — Renderer Multi-Civ Identity** — Per-civ color tints and a multi-colony / focus-a-civ camera at multi-civ scale.
+- [ ] **Phase 3: W4 — Environment Engine** — Seasons drift temperature, disasters reshape terrain with forecasts, renewable-only regrowth creates scarcity.
+- [ ] **Phase 4: W6 — Combat & Diplomacy** — Claim/own/contest territory, deterministic raids, diplomacy stances + trades, wild predators.
+- [ ] **Phase 5: W5 — Genetics Depth & Selection** — Expanded visible genetics that cross Mendelian-style, with environmental selection that makes populations evolve.
+
+<details>
+<summary>✅ v1.0 Orchestration MVP (Phases 1-6) — SHIPPED 2026-06-06</summary>
+
+- [x] **Phase 1: CLI Completion** *(complete 2026-05-08)*
+- [x] **Phase 2: Orchestration Layer** *(complete 2026-05-08)*
+- [x] **Phase 3: Tauri Shell** *(complete 2026-05-09)*
+- [x] **Phase 4: Chat UI** *(complete 2026-05-10)*
+- [x] **Phase 5: Agent Dashboard** *(complete 2026-05-10)*
+- [x] **Phase 6: Parallel Worktrees + Team Orchestration** *(complete 2026-05-11)*
+
+Full phase detail, plans, and waves archived at `.planning/milestones/v1.0-ROADMAP.md` and `.planning/milestones/v1.0-phases/`.
+
+</details>
 
 ---
 
 ## Phase Details
 
-### Phase 1: CLI Completion
-**Goal**: A user can run a complete, cost-aware, resumable agent session from the CLI against Anthropic, Kimi K2, and MiniMax M1 with safe, interactive tool gating.
-**Depends on**: Nothing (foundation work on the existing Rust CLI).
-**Requirements**: CLI-01, CLI-02, CLI-03, CLI-04, CLI-05, CLI-06
+> The phases below are **v2.0** (sim-first order). Spec-of-record: `civ-multi-civ-world-plan.md` (workstreams W1-W10). Backend is already structurally multi-civ — `advance_civ_turn` already calls each civ's own LLM via `call_model_text`; these phases make the competition visible and the world alive.
+
+### Phase 1: W9-lite — Multi-Model World Creation + Leaderboard
+**Goal**: A user can create a world with 2-3 different AI-model civilizations (each a color), found it, and watch a leaderboard rank the living civs by score as turns advance — and agentic harnesses can read full state as text and drive the game on a shared scoreboard. This is the first phase the multi-civ AI competition becomes visible/creatable, and it unblocks human and harness testing of every later phase.
+**Depends on**: Nothing (first v2.0 phase; backend turn loop is already multi-civ)
+**Requirements**: CIV-01, CIV-02, CIV-03, ARENA-01, ARENA-02, ARENA-03
 **Success Criteria** (what must be TRUE):
-  1. User can approve/deny/always-allow tool calls interactively in the REPL and the choice is honored for the rest of the session.
-  2. User can run `/help`, `/clear`, `/model`, `/cost`, `/save`, and `/load` slash commands and see their effects in the REPL.
-  3. User sees per-turn and session-total token counts and dollar cost printed after each turn.
-  4. User can resume a previous session via `--resume <id>` and continues with full prior context.
-  5. Kimi K2 and MiniMax M1 complete a tool-call round-trip against real endpoints without falling back to text-only output, and the agent loop refuses a new turn when the configured cost budget is exceeded.
-**Plans**: 4 plans
+  1. User can create a world from the Civ creation UI with 2-3 participants, each assigned a distinct model and color, and found it.
+  2. User sees a leaderboard ranking the living civilizations by score that updates as turns advance.
+  3. Each civilization is driven by its own configured real-provider model (from `~/.xolotl-code/config.json`), and per-civ model decisions are visible in the log.
+  4. An external/agentic harness can read full game state (per-civ summaries + leaderboard) as text via `window.render_game_to_text()` without parsing pixels.
+  5. An external/agentic harness can drive the game via `window.civPilotControls` / `scripts/codex-play-civ.mjs` without breaking existing controls, and the leaderboard attributes civ scores to the controlling harness/model.
+**Plans**: TBD
+**UI hint**: yes
 
 Plans:
-**Wave 1:** - [x] 01-01-PLAN.md — Permission prompt: 120-char preview + [y]/[n]/[a] choices (CLI-01) *(complete 2026-05-08)*
-**Wave 2** *(blocked on Wave 1)*: - [x] 01-02-PLAN.md — Cost footer D-05 format + --budget flag + D-10 error message (CLI-03, CLI-06) *(complete 2026-05-08)*
-**Wave 3** *(blocked on Wave 2)*: - [x] 01-03-PLAN.md — --resume opens interactive REPL with loaded session (CLI-04) *(complete 2026-05-08)*
-**Wave 4** *(blocked on Wave 3)*: - [x] 01-04-PLAN.md — Slash command verification + Kimi/MiniMax live endpoint validation (CLI-02, CLI-05) *(complete 2026-05-08)*
+- [ ] 01-01: TBD
 
-Cross-cutting constraint: All plans target `main.rs` / `LiveCli` exclusively — `app.rs` is dead code.
+> **Implementation notes:** This phase changes the IPC surface — `create_civ_session` → multi-participant `CivSessionConfig { name, seed, civs: Vec<CivParticipant { name, model, color? }> }`; add `add_civ_to_session` (deferred-UI but the back-compat shape matters). `bindings.ts` is auto-generated by `tauri-specta` and drifts (gotcha #1): edit the Rust command first, regenerate via one `tauri dev`, keep single-`model` back-compat by mapping to a one-element `civs`. Extend — do not break — the existing arena interface: `renderSnapshotToText` / `window.render_game_to_text()`, `window.civPilotControls`, `scripts/codex-play-civ.mjs`. `civStore.ts` / `CivilizationView.tsx` get the multi-model participant picker + leaderboard panel. Backend tests can't run on Windows (WebView2) — verify backend via `cargo check` + `cargo clippy` + `cargo test --no-run`; frontend via `npx tsc --noEmit` + vitest.
 
-### Phase 2: Orchestration Layer
-**Goal**: The Rust core can supervise multiple isolated agents running in parallel on separate git worktrees with safe blocking semantics and serialized git writes — verifiable headlessly.
-**Depends on**: Phase 1
-**Requirements**: ORC-01, ORC-02, ORC-03, ORC-04, ORC-05, ORC-06, ORC-07
+### Phase 2: W8 — Renderer Multi-Civ Identity
+**Goal**: Each civilization's axolotls, buildings, and territory render tinted by that civ's color so colonies are visually distinguishable, and the camera frames all colonies by default while allowing focus on a single civ — performant at the larger multi-civ world scale.
+**Depends on**: Phase 1 (needs creatable multi-civ worlds to render and a leaderboard/civ list to drive focus)
+**Requirements**: REN-01, REN-02
 **Success Criteria** (what must be TRUE):
-  1. `AgentSupervisor` can start, list, and stop agents through a typed API, and each agent emits `AgentEvent`s through its registered `AgentHandle`.
-  2. A load test running multiple concurrent agents passes without freezing the runtime, proving every `run_turn()` executes inside `tokio::task::spawn_blocking`.
-  3. `WorktreeManager` creates, lists, and deletes git worktrees on demand, and each spawned agent runs against exactly one assigned worktree.
-  4. Two or more agents writing to the same repo through the git operation queue complete without `index.lock` corruption, and the existing `SubAgentSpawner` CLI behavior still works while also streaming NDJSON events to the supervisor.
-  5. Agents can publish and pull bounded (500–1000 token) snapshots through `SharedContextStore` without sharing mutable session objects.
-**Plans**: 6 plans
+  1. User can visually distinguish each civilization — axolotls/buildings/territory are tinted by that civ's color, and neutral entities (e.g. predators) are shown distinctly.
+  2. The camera frames all colonies by default and the user can focus a single civ via `focusCiv`.
+  3. Rendering stays smooth at the larger multi-civ world scale (chunked terrain rendering; no performance collapse at ~36k+ tiles).
+**Plans**: TBD
+**UI hint**: yes
 
 Plans:
-**Wave 1:**
-- [x] 02-01-PLAN.md — Core types: AgentId, AgentState, AgentEvent, AgentControl; supervisor module scaffold (ORC-01) *(complete 2026-05-08)*
+- [ ] 02-01: TBD
 
-**Wave 2** *(blocked on Wave 1 — parallel execution within wave)*:
-- [x] 02-02-PLAN.md — SharedContextStore (ORC-04) + GitOpQueue (ORC-07); tempfile dev-dep added *(complete 2026-05-08)*
-- [x] 02-03-PLAN.md — WorktreeManager: add/list/remove/prune via git CLI (ORC-05) *(complete 2026-05-08)*
+> **Implementation notes:** In `CivilizationGameCanvas.tsx`: replace per-tile `Image` baking with chunked `RenderTexture` terrain (32×32-tile chunks culled by `cameras.main.worldView`, +1 chunk margin) — required for the bigger world. Per-civ color tints on banners/rings/region overlays/minimap; one camera center per civ + `window.civCamera.focusCiv(civId)`. Verify via `npx tsc --noEmit` + vitest.
 
-**Wave 3** *(blocked on Wave 2)*:
-- [x] 02-04-PLAN.md — AgentHandle (subscribe/stop/pause) + AgentSupervisor registry (ORC-02, ORC-03) *(complete 2026-05-08)*
-
-**Wave 4** *(blocked on Wave 3)*:
-- [x] 02-05-PLAN.md — SubAgentSpawner extended: --working-dir + NDJSON stdout streaming (ORC-06) *(complete 2026-05-08)*
-
-**Wave 5** *(blocked on Wave 4)*:
-- [x] 02-06-PLAN.md — ORC integration tests + spawn_blocking load test with MockApiClient (ORC-01 through ORC-07) *(complete 2026-05-08)*
-
-Cross-cutting constraints: All new code lives in `runtime/src/supervisor/`; `AgentSupervisor` must be `Send + Sync` (Phase 3 Tauri managed state); `run_turn()` always in `tokio::task::spawn_blocking` (D-10 invariant enforced by ORC-03 load test with `max_blocking_threads(16)`).
-
-### Phase 3: Tauri Shell
-**Goal**: A Tauri 2.x desktop app launches and can drive the Rust orchestrator end-to-end through typed IPC, with permission prompts surfacing as UI events.
-**Depends on**: Phase 2
-**Requirements**: TAU-01, TAU-02, TAU-03, TAU-04, TAU-05
+### Phase 3: W4 — Environment Engine
+**Goal**: The world stops being stale — seasons advance over turns and drift temperature visibly; natural disasters trigger, are forecast and logged, and physically reshape terrain; renewable resources regrow while finite resources stay depleted, creating sustained scarcity.
+**Depends on**: Phase 1 (needs the multi-civ turn loop to tick environment into). Benefits from Phase 2 for disaster/season VFX, but is backend-gated and can land without it.
+**Requirements**: ENV-01, ENV-02, ENV-03
 **Success Criteria** (what must be TRUE):
-  1. The Tauri app launches a window on Windows and a smoke-test `invoke()` command from the frontend returns a value from the Rust backend.
-  2. Agent lifecycle commands (spawn/list/stop) issued from the frontend reach `AgentSupervisor` held as Tauri managed state and return without blocking the WebView.
-  3. A tool-call permission request originating in the Rust runtime surfaces in the frontend as a typed `AgentEvent` via `TauriPermissionPrompter`, and the user's response flows back to unblock the agent.
-  4. `specta` + `tauri-specta` regenerate TypeScript definitions for every `AgentEvent`, `AgentState`, and command on build, and the frontend imports them without hand-written types.
-  5. `window-state`, `clipboard-manager`, and `fs` plugins are installed and capability-granted, and a smoke test exercises each from the frontend.
-**Plans**: 5 plans
+  1. User sees seasons advance over turns and drift temperature, visibly affecting the world.
+  2. Natural disasters (flood/drought/earthquake/eruption) trigger, are announced via a forecast, are logged, and physically reshape the terrain.
+  3. Renewable resources (moss, kelp, wood, fiber, herbs) regrow over time while finite resources (ore, glowshards, amber, stone) stay depleted, creating observable sustained scarcity.
+**Plans**: TBD
 
 Plans:
-**Wave 1:**
-- [x] 03-01-PLAN.md — MSVC toolchain switch + tauri-app scaffold + runtime path dep (TAU-01 partial) *(complete 2026-05-08)*
+- [ ] 03-01: TBD
 
-**Wave 2** *(blocked on Wave 1)*:
-- [x] 03-02-PLAN.md — specta::Type derives on runtime types + AlwaysAllow + minimal lib.rs + bindings.ts generation (TAU-01, TAU-04) *(complete 2026-05-08)*
+> **Implementation notes:** New `CivEnvironment` / `CivDisaster` in `civilization.rs`; `tick_environment`, `apply_disaster_effects` (reuse `place_resource_patch`, `floor_y_at`, `is_substrate`, `seabed_row_at`), `resource_regrowth`. Single-player game mechanics are duplicated in `civilization.rs` and `tauriBrowserFallback.ts` — keep both in lockstep where the change touches shared mechanics. Backend tests can't run on Windows — verify via `cargo check` + `cargo clippy` + `cargo test --no-run` (spec names `disaster_effects_are_bounded_and_mutate_world`, `seasons_cycle`, `regrowth_is_renewable_only`).
 
-**Wave 3** *(blocked on Wave 2)*:
-- [x] 03-03-PLAN.md — AgentSupervisor managed state + lifecycle commands + event relay with Lagged handling (TAU-02) *(complete 2026-05-09)*
-
-**Wave 4** *(blocked on Wave 3)*:
-- [x] 03-04-PLAN.md — TauriPermissionPrompter + respond_to_permission + PendingPrompts managed state (TAU-03) *(complete 2026-05-09)*
-
-**Wave 5** *(blocked on Wave 4)*:
-- [x] 03-05-PLAN.md — Plugins registered + capability grants + final tsc check + human smoke test checkpoint (TAU-04, TAU-05) *(complete 2026-05-09)*
-
-Cross-cutting constraints: tauri-app/src-tauri/ is a separate Cargo workspace from rust/ (D-04); specta pinned at "=2.0.0-rc.25" in both Cargo.toml files; TauriPermissionPrompter lives in tauri-app/src-tauri/src/ only — runtime crate must not import tauri.
-
-### Phase 4: Chat UI
-**Goal**: A user can run a complete streamed chat session in the Tauri app with every table-stakes coding-assistant feature working.
-**Depends on**: Phase 3
-**Requirements**: UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07, UI-08, UI-09, UI-10, UI-11
+### Phase 4: W6 — Combat & Diplomacy
+**Goal**: Civilizations can claim/own/contest territory, resolve combat and raids deterministically with population/resource/territory consequences, set diplomacy stances and execute trades (allies don't fight), and defend with strength against wild predators that hunt axolotls.
+**Depends on**: Phase 1 (needs multi-civ decisions/turn loop). Benefits from Phase 3 (disasters such as `predator_incursion` spawn the wild predators) but does not strictly require it.
+**Requirements**: WAR-01, WAR-02, WAR-03, WAR-04
 **Success Criteria** (what must be TRUE):
-  1. User sees AI responses stream token-by-token without UI jank at 60–100 events/sec, with markdown, syntax-highlighted code blocks, and copy buttons rendering correctly.
-  2. User sees tool-call blocks (bash, file ops, grep, glob) as collapsible cards with truncated bash output and inline before/after diffs for file edits.
-  3. User can browse, resume, or delete saved sessions from a sidebar, and a 200+ turn session scrolls smoothly via virtualization.
-  4. User can switch model per session, see per-turn and session-total token/dollar cost, cancel an in-flight turn while preserving partial output, and approve/deny/always-allow permission prompts as inline cards.
-  5. User can open a slash-command palette with `/`, see described commands, and execute them inline in the chat input.
-**Plans**: 7 plans
+  1. A civilization can claim and own a region; ownership is tracked, contestable, and visible to the user.
+  2. Hostile civilizations resolve combat/raids deterministically, with visible population/resource/territory consequences (loser loses population, resources looted, region owner can flip).
+  3. Civilizations set diplomacy stances and execute trades; allied/trading civs do not fight each other.
+  4. Wild predators spawn and hunt axolotls, civilizations defend with strength, and killed predators drop food.
+**Plans**: TBD
 
 Plans:
-**Wave 1:**
-- [x] 04-01-PLAN.md — Bootstrap: TextDelta Rust variant, bindings.ts patch, npm install, shadcn init, Tailwind v4, vitest, run_agent_turn + session commands, CR fixes (UI-01, UI-06, UI-08) *(complete 2026-05-10)*
+- [ ] 04-01: TBD
 
-**Wave 2** *(parallel — no file overlap between 04-02 and 04-03)*:
-- [x] 04-02-PLAN.md — Zustand stores (chatStore, sessionStore) + utility libs (diff.ts, cost.ts) with unit tests (UI-01, UI-04, UI-09) *(complete 2026-05-10)*
-- [x] 04-03-PLAN.md — App shell layout + SessionSidebar + ChatPane skeleton + MessageInput + slash palette (UI-06, UI-08, UI-10, UI-11) *(complete 2026-05-10)*
+> **Implementation notes:** Extend the decision schema (`target_civ`, `region_id`, `offer`/`request` maps) with new `action_type`s (`claim`/`raid`/`fortify`/`diplomacy`/`migrate`) validated in `validate_action` and dispatched in `apply_model_decision`; `resolve_interactions(snapshot)` resolves combat/raids/trades/predators deterministically (seeded). Scoring folds territory/aggression into the existing ethics/intelligence/survival axes. Backend tests can't run on Windows — verify via `cargo check` + `cargo clippy` + `cargo test --no-run` (spec names `combat_is_deterministic_and_conserves_or_destroys`, `claim_sets_region_owner`, `allies_do_not_fight`, `predator_hunts_then_drops_food`).
 
-**Wave 3** *(sequential — Message.tsx overlap between 04-04 and 04-05)*:
-- [x] 04-04-PLAN.md — MessageList (virtualized) + Message + MarkdownRenderer + streaming cursor (UI-01, UI-02, UI-05, UI-09) *(complete 2026-05-10)*
-- [x] 04-05-PLAN.md — ToolBlock + DiffView + PermissionCard + Message.tsx updates (UI-03, UI-04, UI-07) *(complete 2026-05-10)*
-
-**Wave 4** *(blocked on Wave 3)*:
-- [x] 04-06-PLAN.md — useAgentEvents hook: rAF buffer, tool calls, permission events, session auto-save; mount in ChatPane (UI-01 through UI-11) *(complete 2026-05-10)*
-
-**Wave 5** *(blocked on Wave 4)*:
-- [x] 04-07-PLAN.md — Human smoke test checkpoint: verify all 5 success criteria in live Tauri window (UI-01 through UI-11) *(complete 2026-05-10)*
-
-Cross-cutting constraints: bindings.ts is manually maintained (D-13); run_agent_turn uses stub echo in Wave 1 — full ConversationRuntime wiring is a Wave 4 TODO; all frontend state via Zustand; rAF buffer is mandatory for TextDelta (D-02); virtualizer requires #root height:100%.
-
-### Phase 5: Agent Dashboard
-**Goal**: A user can spawn, monitor, budget, and be notified about multiple concurrent agents from a live dashboard inside the Tauri app.
-**Depends on**: Phase 4 (and Phase 2 supervisor)
-**Requirements**: AGT-01, AGT-02, AGT-03, AGT-04, AGT-05, AGT-06
+### Phase 5: W5 — Genetics Depth & Selection
+**Goal**: Axolotls carry expanded genetics (new traits + pattern alleles) that cross Mendelian-style and are visible, and environmental pressure (e.g. ice age, plague) raises mortality for ill-adapted genes so populations measurably evolve over runs.
+**Depends on**: Phase 3 (selection pressure needs the environment engine's seasons/disasters) and Phase 4 (the `strength` gene feeds combat).
+**Requirements**: GEN-01, GEN-02
 **Success Criteria** (what must be TRUE):
-  1. User can spawn 2+ agents from a dialog (model + task + worktree) and see each appear in a roster panel with status badge, task description, and cumulative cost.
-  2. User can expand any agent to watch its live conversation and tool activity stream independently of the others.
-  3. User can launch an agent in background mode and receive an OS-level notification when it completes.
-  4. User can assign a different model per agent so that the orchestrator and workers run on different providers in the same session.
-  5. User can set a per-agent dollar budget, and the agent halts and reports its status the moment that budget is exceeded.
-**Plans**: 7 plans
+  1. Axolotls carry expanded genetics (new traits + pattern alleles) that cross Mendelian-style across breeding and are visibly distinguishable (color morph × pattern × civ palette).
+  2. Environmental pressure (ice age, plague) raises mortality for ill-adapted genes, so a population's gene distribution measurably shifts over a run.
+**Plans**: TBD
 
 Plans:
-**Wave 1** *(parallel — no file overlap)*:
-- [x] 05-01-PLAN.md — Rust AgentHandle extension: task/model/budget fields + accumulate_cost + slugify_task + supervisor.spawn_agent_with_config with budget validation (AGT-03, AGT-05, AGT-06) *(complete 2026-05-10)*
-- [x] 05-02-PLAN.md — Install tauri-plugin-notification 2.3.3 (Rust + JS) + capability grant + CR-01/CR-04 fixes (AGT-04) *(complete 2026-05-10)*
+- [ ] 05-01: TBD
 
-**Wave 2** *(blocked on Wave 1)*:
-- [x] 05-03-PLAN.md — Tauri spawn_agent command extended with task/model/budget + spawn_event_relay budget enforcement + bindings.ts manual update (AGT-03, AGT-05, AGT-06) *(complete 2026-05-10)*
-
-**Wave 3** *(parallel — depends on 05-03)*:
-- [x] 05-04-PLAN.md — agentStore.ts Zustand store + tests + useAgentPanelEvents hook with rAF buffer and lazy notification permission (AGT-01, AGT-02, AGT-05, AGT-06) *(complete 2026-05-10)*
-- [x] 05-05-PLAN.md — AgentPanel + AgentCard + AgentStateBadge + SpawnAgentDialog + AgentCard tests (AGT-01, AGT-03, AGT-05) *(complete 2026-05-10)*
-
-**Wave 4** *(blocked on Wave 3)*:
-- [x] 05-06-PLAN.md — AgentMessageList virtualizer + AgentOutputView read-only + App.tsx 3-column wiring (AGT-01, AGT-02, AGT-04) *(complete 2026-05-10)*
-
-**Wave 5** *(blocked on Wave 4)*:
-- [ ] 05-07-PLAN.md — Pre-flight automated check + human smoke test (all AGT requirements)
-
-Cross-cutting constraints: Dark-only oklch color scheme; all frontend state via Zustand (agentStore); rAF buffer in agentStore for streaming; budget enforcement exclusively in Rust spawn_event_relay (never frontend); bindings.ts manually maintained (WebView2 DLL issue); agent self-execution via CLI subprocess (--task-prompt flag).
-
-### Phase 6: Parallel Worktrees + Team Orchestration
-**Goal**: A user can compose role-based agent teams or swarms running in parallel on separate worktrees, with file-conflict protection and reviewable merge checkpoints.
-**Depends on**: Phase 5 (and Phase 2 worktree + git queue)
-**Requirements**: WRK-01, WRK-02, WRK-03, WRK-04, WRK-05
-**Success Criteria** (what must be TRUE):
-  1. User can run 2+ agents concurrently on parallel git worktrees without index corruption or file-write conflicts, and the worktree panel shows which agent owns which branch with live activity indicators.
-  2. User can compose and launch a role-based team (Planner, Coder, Reviewer, Tester) with per-role model and task description from the UI.
-  3. User can configure a swarm strategy (agent count, shared objective, result aggregation method) and execute it from the UI.
-  4. When two agents attempt to write the same file, the file-ownership protocol prevents corruption and surfaces the conflict in the UI.
-  5. When parallel agents complete, a merge checkpoint UI lets the user review per-worktree changes and approve the merge.
-**Plans**: 4 plans
-
-Plans:
-**Wave 1:**
-- [x] 06-01-PLAN.md — Rust WorktreeManager + AgentSupervisor methods + 4 Tauri commands + bindings.ts update (WRK-01, WRK-02, WRK-03, WRK-04, WRK-05) *(complete 2026-05-11)*
-
-**Wave 2** *(blocked on Wave 1)*:
-- [x] 06-02-PLAN.md — agentStore extension (AgentGroup, groups, mergeCheckpointGroupId) + useGroupWatcher hook + SpawnAgentDialog backward-compat fix (WRK-01, WRK-04, WRK-05) *(complete 2026-05-11)*
-
-**Wave 3** *(blocked on Wave 2)*:
-- [x] 06-03-PLAN.md — AgentCard branch label + pulsing badge + AgentPanel group headers + LaunchTeamDialog (WRK-01, WRK-02, WRK-03, WRK-05) *(complete 2026-05-11)*
-
-**Wave 4** *(blocked on Wave 2 + Wave 3)*:
-- [x] 06-04-PLAN.md — MergeCheckpointView + App.tsx 3-branch center pane + final build check (WRK-04, WRK-05) *(complete 2026-05-11)*
-
-Cross-cutting constraints: bindings.ts manually maintained (WebView2 DLL issue); group concept lives in Tauri command layer + frontend only — Rust supervisor does NOT track groups; merge dispatched through existing GitOpQueue (serialized to prevent index.lock); shadcn accordion installed in Wave 4 Wave 0 step; all components dark-only oklch palette.
+> **Implementation notes:** Extend `CivGenes` (all `#[serde(default)]` so old eggs deserialize): `speed`, `cold_tolerance`, `disease_resistance`, `forage_yield`, `strength`, `pattern_a`/`pattern_b`. Update `random_genes`/`cross_genes`/`default_genes`; `expressed_pattern` mirrors `expressed_morph`; selection pressure in `run_life_cycle`; disasters temporarily raise mutation rate. Backend tests can't run on Windows — verify via `cargo check` + `cargo clippy` + `cargo test --no-run` (spec names `genetics_cross_is_deterministic_and_valid`, `selection_pressure_under_ice_age_favors_cold_tolerance`).
 
 ---
 
 ## Progress
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. CLI Completion | 4/4 | Complete | 2026-05-08 |
-| 2. Orchestration Layer | 6/6 | Complete | 2026-05-08 |
-| 3. Tauri Shell | 5/5 | Complete | 2026-05-09 |
-| 4. Chat UI | 7/7 | Complete | 2026-05-10 |
-| 5. Agent Dashboard | 7/7 | Complete | 2026-05-10 |
-| 6. Parallel Worktrees + Team Orchestration | 4/4 | Complete | 2026-05-11 |
+**Execution Order (v2.0):**
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. W9-lite — Multi-Model World Creation + Leaderboard | v2.0 | 0/TBD | Not started | - |
+| 2. W8 — Renderer Multi-Civ Identity | v2.0 | 0/TBD | Not started | - |
+| 3. W4 — Environment Engine | v2.0 | 0/TBD | Not started | - |
+| 4. W6 — Combat & Diplomacy | v2.0 | 0/TBD | Not started | - |
+| 5. W5 — Genetics Depth & Selection | v2.0 | 0/TBD | Not started | - |
+| 1-6 (v1.0) | v1.0 | 33/33 | Complete | 2026-06-06 |
 
 ---
 
-## Coverage
+## Coverage (v2.0)
 
-- **v1 requirements:** 40
-- **Mapped:** 40 / 40
+- **v2.0 requirements:** 16
+- **Mapped:** 16 / 16
 - **Orphans:** 0
 - **Duplicates:** 0
 
-| Phase | Requirement IDs | Count |
-|-------|-----------------|-------|
-| 1 | CLI-01, CLI-02, CLI-03, CLI-04, CLI-05, CLI-06 | 6 |
-| 2 | ORC-01, ORC-02, ORC-03, ORC-04, ORC-05, ORC-06, ORC-07 | 7 |
-| 3 | TAU-01, TAU-02, TAU-03, TAU-04, TAU-05 | 5 |
-| 4 | UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07, UI-08, UI-09, UI-10, UI-11 | 11 |
-| 5 | AGT-01, AGT-02, AGT-03, AGT-04, AGT-05, AGT-06 | 6 |
-| 6 | WRK-01, WRK-02, WRK-03, WRK-04, WRK-05 | 5 |
+| Phase | Workstream | Requirement IDs | Count |
+|-------|-----------|-----------------|-------|
+| 1 | W9-lite | CIV-01, CIV-02, CIV-03, ARENA-01, ARENA-02, ARENA-03 | 6 |
+| 2 | W8 | REN-01, REN-02 | 2 |
+| 3 | W4 | ENV-01, ENV-02, ENV-03 | 3 |
+| 4 | W6 | WAR-01, WAR-02, WAR-03, WAR-04 | 4 |
+| 5 | W5 | GEN-01, GEN-02 | 2 |
 
 ---
-*Roadmap created: 2026-05-07*
-*Last updated: 2026-05-11 — Phase 6 planned (4 plans across 4 waves)*
+*v2.0 roadmap created: 2026-06-06 (reset phase numbering; v1.0 archived)*

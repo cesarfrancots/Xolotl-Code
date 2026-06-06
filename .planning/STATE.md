@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Civ Simulation
 status: planning
-last_updated: "2026-06-06T21:33:49.637Z"
+last_updated: "2026-06-06T22:10:00.000Z"
 last_activity: 2026-06-06
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -24,70 +24,67 @@ progress:
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** v1 milestone COMPLETE — all 6 phases, 33 plans, 40 requirements delivered.
+- **Current Focus:** v2.0 Civ Simulation — roadmap created (5 phases, sim-first). Ready to plan Phase 1 (W9-lite: multi-model world creation + leaderboard + harness arena).
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-06-06 — Milestone v2.0 started
+Phase: 1 of 5 (W9-lite — Multi-Model World Creation + Leaderboard)
+Plan: — (not yet planned)
+Status: Ready to plan Phase 1
+Last activity: 2026-06-06 — v2.0 ROADMAP.md created (reset phase numbering; v1.0 archived)
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 | Metric | Value |
 |--------|-------|
-| Phases completed | 6 / 6 |
-| v1 requirements mapped | 40 / 40 |
-| v1 requirements completed | 40 / 40 |
-| Plans completed | 33 / 33 |
+| v2.0 phases completed | 0 / 5 |
+| v2.0 requirements mapped | 17 / 17 |
+| v2.0 requirements completed | 0 / 17 |
+| Plans completed | 0 / TBD |
 | Active blockers | 0 |
+| v1.0 (shipped) | 6 phases / 33 plans / 40 reqs |
 
 ## Accumulated Context
 
 ### Key Decisions
 
-- Worktree active map stores (PathBuf, String) tuple to enable branch cleanup on remove — prevents collision on respawn.
-- Failed spawn creates synthetic agent card (failed-${Date.now()}) so user sees red badge in AGENTS panel.
-- kimi2.6 is the canonical default model — matches CLI default; persisted to localStorage("xolotl-selected-model").
-- OS notifications fire unconditionally on Done/Failed regardless of window focus (D-14).
-- Rust core is not rewritten — extend only.
-- Tauri 2.x chosen for desktop shell (not Electron); leverages existing Rust backend directly.
-- Orchestrator runs in-process; worker sub-agents continue to use child-process `SubAgentSpawner`.
-- `ConversationRuntime::run_turn()` must always run inside `tokio::task::spawn_blocking` (day-one architectural invariant).
-- Frontend stack: React 19 + TypeScript + Zustand + Tailwind 4 + shadcn/Radix + `@tanstack/react-virtual`.
-- Type pipeline: `specta` + `tauri-specta` to generate TypeScript from Rust IPC types.
-- SharedContextStore uses `Arc<RwLock<HashMap>>` (vs Mutex) for read-heavy concurrent workload.
-- GitOpQueue uses `spawn_blocking` inside `tokio::spawn` to avoid blocking tokio worker threads on `std::process::Command`.
-- `thiserror` added to runtime `[dependencies]` (was workspace-only); resolves compile blocker for ContextError derive.
-- WorktreeManager uses Arc<Mutex<HashMap>> (not RwLock) — write-heavy add/remove vs SharedContextStore's read-heavy pull workload.
-- MSVC toolchain required for Tauri on Windows (GNU toolchain incompatible); resolved in Phase 3.
-- `std::sync::mpsc` (not tokio::oneshot) for TauriPermissionPrompter — enables recv_timeout(60s) without async complexity.
-- AlwaysAllow emits policy-update-requested and returns Allow — Phase 3 authorized scope; full session persistence deferred to Phase 4.
-- `bindings.ts` is committed to repo (D-13); partially hand-updated due to WebView2 DLL issue preventing binary execution.
-- `fs:default` (not `fs:allow-*`) for Phase 3 — path scoping deferred to Phase 4 when UI file ops are defined.
-- Group concept lives in Tauri command layer + frontend only — Rust supervisor does NOT track groups (Phase 6).
-- merge dispatched through existing GitOpQueue — serialized to prevent index.lock (Phase 6).
-- shadcn accordion installed in Phase 6 Wave 4 (MergeCheckpointView).
+- v2.0 uses RESET phase numbering — Phase 1 is the first v2.0 phase; v1.0 phases 1-6 are archived to `.planning/milestones/v1.0-phases/`.
+- Sim-first phase order: W9-lite → W8 → W4 → W6 → W5. W9-lite is first because it makes the multi-civ competition creatable/watchable and unblocks testing every later phase.
+- Backend turn loop is already structurally multi-civ (`advance_civ_turn` → `call_model_text` per civ); the gap is visibility + a living world, not the core loop.
+- Single-player possession layer ("Game B") is parked for this milestone.
+- Spec-of-record is `civ-multi-civ-world-plan.md` (W1–W10); W1/W2/W10.1/W10.2 already done & reviewed.
+
+### v2.0 Constraints (carry into every phase)
+
+- Backend (tauri-app/src-tauri) tests can't run on Windows (WebView2) — verify via `cargo check` + `cargo clippy` + `cargo test --no-run`; frontend via `npx tsc --noEmit` + vitest.
+- `bindings.ts` is auto-generated by `tauri-specta` and drifts — Phase 1 changes the IPC surface (`create_civ_session` → multi-participant `CivSessionConfig`); edit the Rust command first, regenerate carefully, keep single-`model` back-compat.
+- Single-player game mechanics are duplicated in `civilization.rs` and `tauriBrowserFallback.ts` — keep them in lockstep where touched (esp. Phase 3 environment).
+- Don't break the harness arena interface: `window.render_game_to_text()` / `renderSnapshotToText`, `window.civPilotControls`, `scripts/codex-play-civ.mjs` — extend only.
 
 ### Open Todos
 
-- None. All CR items resolved: CR-01/02/04 were already fixed in code; CR-03 fixed 2026-05-11 (lib.rs ancestor validation).
+- None.
 
 ### Blockers
 
 - None.
 
+## Deferred Items
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| UI | Add-civ mid-run UI, environment HUD, diplomacy-management UI (full W9) | Deferred to future milestone | v2.0 planning |
+| World | W10.3–W10.7 (terraform/place, blueprints, prospecting, fBm, caves) | Deferred | v2.0 planning |
+| Mode | "Zoom into a civ" embodied mode (Game B reuse) | Deferred / parked | v2.0 planning |
+
 ## Session Continuity
 
-- **Last action:** Phase 6 execution complete — all 4 plans executed, verified (9/9 automated + human approved).
-- **Next action:** v1 milestone complete. Consider `/gsd-new-milestone` for v1.1 or shipping.
-- **Last updated:** 2026-05-11
-- **Session resumed:** 2026-05-11 — reviewing options for next milestone or shipping
+- **Last action:** v2.0 ROADMAP.md created — 5 phases (sim-first), 17/17 requirements mapped, v1.0 collapsed to a milestone section.
+- **Next action:** Plan Phase 1 with `/gsd-plan-phase 1`.
+- **Last updated:** 2026-06-06
+- **Resume file:** None
 
 ---
-*State initialized: 2026-05-07*
-
-## Operator Next Steps
-
-- Start the next milestone with /gsd-new-milestone
+*State initialized: 2026-05-07; milestone v2.0 started 2026-06-06*

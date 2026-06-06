@@ -57,4 +57,22 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| _(filled by roadmap)_ | | |
+| CIV-01 | Phase 1 | Pending |
+| CIV-02 | Phase 1 | Pending |
+| CIV-03 | Phase 1 | Pending |
+| ARENA-01 | Phase 1 | Pending |
+| ARENA-02 | Phase 1 | Pending |
+| ARENA-03 | Phase 1 | Pending |
+| REN-01 | Phase 2 | Pending |
+| REN-02 | Phase 2 | Pending |
+| ENV-01 | Phase 3 | Pending |
+| ENV-02 | Phase 3 | Pending |
+| ENV-03 | Phase 3 | Pending |
+| WAR-01 | Phase 4 | Pending |
+| WAR-02 | Phase 4 | Pending |
+| WAR-03 | Phase 4 | Pending |
+| WAR-04 | Phase 4 | Pending |
+| GEN-01 | Phase 5 | Pending |
+| GEN-02 | Phase 5 | Pending |
+
+**Coverage:** 17 / 17 requirements mapped (CIV ×3, ARENA ×3, REN ×2, ENV ×3, WAR ×4, GEN ×2). No orphans, no duplicates.
