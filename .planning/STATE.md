@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Civ Simulation
 status: planning
-last_updated: "2026-06-06T22:10:00.000Z"
-last_activity: 2026-06-06
+last_updated: "2026-06-06T23:25:33.136Z"
+last_activity: 2026-06-06 — v2.0 ROADMAP.md created (reset phase numbering; v1.0 archived)
 progress:
   total_phases: 5
   completed_phases: 0
@@ -84,7 +84,7 @@ Progress: [░░░░░░░░░░] 0%
 - **Last action:** v2.0 ROADMAP.md created — 5 phases (sim-first), 17/17 requirements mapped, v1.0 collapsed to a milestone section.
 - **Next action:** Plan Phase 1 with `/gsd-plan-phase 1`.
 - **Last updated:** 2026-06-06
-- **Resume file:** None
+- **Resume file:** .planning/phases/01-w9-lite-multi-model-world-creation-leaderboard/01-CONTEXT.md
 
 ---
 *State initialized: 2026-05-07; milestone v2.0 started 2026-06-06*
