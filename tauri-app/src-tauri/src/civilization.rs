@@ -1474,9 +1474,9 @@ fn build_decision_prompt(observation: &serde_json::Value) -> String {
          Return ONLY strict JSON with this shape:\n\
          {{\"intent\":\"short plan\",\"public_rationale\":\"why this helps\",\"actions\":[{{\"type\":\"gather\",\"resource\":\"food\",\"workers\":2}}],\"ethics_note\":\"moral tradeoff note\",\"expected_risks\":[\"risk\"]}}\n\
          Allowed action types:\n\
-         - gather: resource one of food, clean_water, wood, stone, clay, fiber, tools, glowshards, kelp, ore, ice, coral, sulfur, amber, herbs; workers 1-8\n\
+         - gather: resource one of food, clean_water, wood, stone, clay, fiber, tools, glowshards, kelp, ore, ice, coral, sulfur, amber, herbs; workers 1-8. Mining ore/sulfur/coral needs stone_tools; glowshards/amber need metal_tools.\n\
          - build: building one of nest, storage, farm, workshop, canal; x/y inside world\n\
-         - research: tech_id one of moss_farm, stone_tools, water_filter, council, workshop_craft, canal_network\n\
+         - research: tech_id one of moss_farm, stone_tools, water_filter, council, workshop_craft, canal_network, metal_tools\n\
          - explore: direction left, right, or down\n\
          - policy: policy one of ration, share_equally, protect_vulnerable, conserve_water, push_growth\n\
          - prepare: event_id matching an active or expected crisis\n\
@@ -1627,37 +1627,52 @@ fn gather(snapshot: &mut CivSessionSnapshot, civ_id: &str, action: &CivDecisionA
     // Renewables keep their flat yield so colonies never hard-stall on local scarcity.
     let mined;
     let mut dug_out = false;
-    if is_finite_mineral(resource) {
-        let pos = nearest_resource_pos(snapshot, civ_id, tile_resource);
-        if let Some((tx, ty)) = pos {
-            // Mining BELOW the seabed surface carves a flooded void; mining a surface
-            // block just strips the ore so the seabed stays solid + buildable (keeps
-            // seabed_row_at stable, so default building placement can't fall into a
-            // dug-out crater).
-            let surface = seabed_row_at(&snapshot.world, tx);
-            if let Some(tile) = snapshot
-                .world
-                .tiles
-                .iter_mut()
-                .find(|t| t.x == tx && t.y == ty)
-            {
-                mined = rate.min(tile.amount.max(0));
-                tile.amount = (tile.amount - mined).max(0);
-                if tile.amount == 0 {
-                    tile.resource = None;
-                    if ty > surface + 1 {
-                        tile.terrain = if ty >= DEEP_WATER_Y { "deepwater" } else { "water" }.to_string();
-                        dug_out = true;
-                    }
+    let mut blocked = false;
+    if !is_finite_mineral(resource) {
+        // Renewables (food/water/wood/fiber/kelp/herbs) keep a flat yield so
+        // colonies never hard-stall on local scarcity.
+        mined = rate;
+    } else if required_mining_tier(resource) > mining_tier(&snapshot.civs[ci]) {
+        // The colony lacks the tools to work this mineral yet.
+        mined = 0;
+        blocked = true;
+    } else if let Some((tx, ty)) = nearest_resource_pos(snapshot, civ_id, tile_resource) {
+        // Mining BELOW the seabed surface carves a flooded void; mining a surface
+        // block just strips the ore so the seabed stays solid + buildable (keeps
+        // seabed_row_at stable, so default building placement can't fall into a
+        // dug-out crater).
+        let surface = seabed_row_at(&snapshot.world, tx);
+        if let Some(tile) = snapshot
+            .world
+            .tiles
+            .iter_mut()
+            .find(|t| t.x == tx && t.y == ty)
+        {
+            mined = rate.min(tile.amount.max(0));
+            tile.amount = (tile.amount - mined).max(0);
+            if tile.amount == 0 {
+                tile.resource = None;
+                if ty > surface + 1 {
+                    tile.terrain = if ty >= DEEP_WATER_Y { "deepwater" } else { "water" }.to_string();
+                    dug_out = true;
                 }
-            } else {
-                mined = 0;
             }
         } else {
             mined = 0;
         }
     } else {
-        mined = rate;
+        mined = 0;
+    }
+
+    if blocked {
+        snapshot.civs[ci].morale = (snapshot.civs[ci].morale - 1.0).max(0.0);
+        push_log(
+            snapshot,
+            "blocked_action",
+            "Need better tools",
+            &format!("Mining {resource} needs better tools — research stone_tools, then metal_tools."),
+        );
+        return;
     }
 
     if mined > 0 {
@@ -2365,6 +2380,8 @@ fn tech_cost(tech: &str) -> HashMap<String, i32> {
         "council" => vec![("food".to_string(), 8), ("wood".to_string(), 8)],
         "workshop_craft" => vec![("stone".to_string(), 10), ("wood".to_string(), 10), ("tools".to_string(), 2)],
         "canal_network" => vec![("stone".to_string(), 12), ("clay".to_string(), 14), ("tools".to_string(), 3)],
+        // Needs ore (tier-2, mined only with stone_tools) -> keeps the chain acyclic.
+        "metal_tools" => vec![("ore".to_string(), 10), ("stone".to_string(), 8), ("tools".to_string(), 2)],
         _ => Vec::new(),
     };
     pairs.into_iter().collect()
@@ -2422,6 +2439,30 @@ fn is_finite_mineral(resource: &str) -> bool {
     )
 }
 
+/// Tool tier a civ has unlocked for mining: 1 = bare claws, 2 = stone tools,
+/// 3 = metal tools. Gates which minerals it can work (see `required_mining_tier`).
+fn mining_tier(civ: &CivCivilization) -> u8 {
+    if civ.techs.iter().any(|t| t == "metal_tools") {
+        3
+    } else if civ.techs.iter().any(|t| t == "stone_tools") {
+        2
+    } else {
+        1
+    }
+}
+
+/// Minimum mining tier needed to work `resource`. Stone/clay/ice are basic (tier 1)
+/// — this keeps the tool-tech chain acyclic, since `stone_tools` is bought with
+/// tier-1 materials; ore/sulfur/coral need stone tools; deep glowshards/amber need
+/// metal tools.
+fn required_mining_tier(resource: &str) -> u8 {
+    match resource {
+        "glowshards" | "amber" => 3,
+        "ore" | "sulfur" | "coral" => 2,
+        _ => 1,
+    }
+}
+
 fn known_resource(resource: &str) -> bool {
     matches!(
         resource,
@@ -2446,7 +2487,13 @@ fn known_resource(resource: &str) -> bool {
 fn known_tech(tech: &str) -> bool {
     matches!(
         tech,
-        "moss_farm" | "stone_tools" | "water_filter" | "council" | "workshop_craft" | "canal_network"
+        "moss_farm"
+            | "stone_tools"
+            | "water_filter"
+            | "council"
+            | "workshop_craft"
+            | "canal_network"
+            | "metal_tools"
     )
 }
 
@@ -3375,5 +3422,66 @@ mod tests {
         );
         // The seabed top for the column is unchanged (no crater).
         assert_eq!(seabed_row_at(&s.world, cx), surface);
+    }
+
+    #[test]
+    fn mining_requires_tools() {
+        let mut s = initial_snapshot("tools".to_string(), "T".to_string(), "m".to_string(), 5, 1);
+        let cid = first_civ_id(&s);
+        let (cx, _) = colony_center(&s, &cid);
+        for t in s.world.tiles.iter_mut() {
+            if t.resource.as_deref() == Some("ore") {
+                t.resource = None;
+                t.amount = 0;
+            }
+        }
+        let ty = seabed_row_at(&s.world, cx) + 5;
+        {
+            let tile = s
+                .world
+                .tiles
+                .iter_mut()
+                .find(|t| t.x == cx && t.y == ty)
+                .expect("a buried substrate tile");
+            tile.resource = Some("ore".to_string());
+            tile.amount = 8;
+        }
+        // A fresh colony has no stone tools, so ore is unminable (tier 2 > tier 1).
+        s.civs[0].techs.retain(|t| t != "stone_tools" && t != "metal_tools");
+        assert_eq!(mining_tier(&s.civs[0]), 1);
+        let before = *s.civs[0].resources.get("ore").unwrap_or(&0);
+        gather(&mut s, &cid, &gather_action("ore", 8));
+        assert_eq!(
+            *s.civs[0].resources.get("ore").unwrap_or(&0),
+            before,
+            "ore cannot be mined without stone_tools"
+        );
+        // Stone tools unlock ore (tier 2); glowshards still need metal tools.
+        s.civs[0].techs.push("stone_tools".to_string());
+        assert_eq!(mining_tier(&s.civs[0]), 2);
+        gather(&mut s, &cid, &gather_action("ore", 8));
+        assert!(
+            *s.civs[0].resources.get("ore").unwrap_or(&0) > before,
+            "ore is mined once stone_tools is researched"
+        );
+        assert!(required_mining_tier("glowshards") > mining_tier(&s.civs[0]));
+    }
+
+    #[test]
+    fn tool_tech_chain_is_acyclic() {
+        // stone_tools must be buyable with tier-1 (no-tools) materials.
+        for (res, _) in tech_cost("stone_tools") {
+            assert!(
+                required_mining_tier(&res) <= 1,
+                "stone_tools costs {res}, which needs tools to mine -> deadlock"
+            );
+        }
+        // metal_tools must be buyable once stone_tools (tier 2) is in hand.
+        for (res, _) in tech_cost("metal_tools") {
+            assert!(
+                required_mining_tier(&res) <= 2,
+                "metal_tools costs {res}, which needs tier-3 tools -> deadlock"
+            );
+        }
     }
 }
