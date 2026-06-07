@@ -4915,6 +4915,72 @@ fn round1(value: f32) -> f32 {
     (value * 10.0).round() / 10.0
 }
 
+// --- Environment engine: pure, seed-deterministic helpers (W4) ---
+//
+// These leaf helpers are wired into the turn loop by the Wave-3 orchestrator
+// (`tick_environment`, plan 03-03). Until then they are exercised only by the
+// unit tests below, so each carries `#[allow(dead_code)]` to keep the
+// non-test lib build clippy-clean; the attribute comes out when Wave 3 lands.
+
+/// Turns spent in a season before it wraps to the next one. Claude's discretion
+/// per CONTEXT (Seasons & Temperature).
+#[allow(dead_code)]
+const SEASON_LEN: u32 = 8;
+#[allow(dead_code)]
+const SEASONS: [&str; 4] = ["spring", "summer", "autumn", "winter"];
+/// Unique env-tick RNG salt (distinct from `civ_turn_order`'s `0x51ED_2701`).
+#[allow(dead_code)]
+const ENV_SEASON_SALT: u32 = 0xE05A_F107;
+
+/// Mild/cold/warm baseline the temperature drifts toward each season.
+#[allow(dead_code)]
+fn season_target_temp(season: &str) -> f32 {
+    match season {
+        "summer" => 24.0,
+        "autumn" => 14.0,
+        "winter" => 4.0,
+        _ => 14.0, // spring (and any unknown) → mild baseline
+    }
+}
+
+/// Pure: advance the season counter and drift temperature/water_level toward the
+/// new season's target. Same inputs ⇒ identical output (deterministic replay —
+/// all randomness derives from `seed ^ turn ^ ENV_SEASON_SALT`, no SystemTime/uuid).
+/// The caller (`tick_environment`) assigns the returned fields and logs a season
+/// change. Returns `(season, turn_of_season, temperature, water_level)`.
+#[allow(dead_code)]
+fn advance_season(
+    season: &str,
+    turn_of_season: u32,
+    temperature: f32,
+    water_level: i32,
+    turn: u32,
+    seed: u32,
+) -> (String, u32, f32, i32) {
+    let mut tos = turn_of_season.saturating_add(1);
+    let mut idx = SEASONS.iter().position(|&s| s == season).unwrap_or(0);
+    if tos >= SEASON_LEN {
+        tos = 0;
+        idx = (idx + 1) % SEASONS.len();
+    }
+    let next_season = SEASONS[idx];
+    let target = season_target_temp(next_season);
+    let mut rng = (seed ^ turn.wrapping_mul(0x9E37_79B9) ^ ENV_SEASON_SALT).max(1);
+    let noise = rand_range(&mut rng, -0.6, 0.6);
+    let temp = temperature + (target - temperature) * 0.25 + noise;
+    let water_delta = match next_season {
+        "winter" => -2,
+        "spring" => 2,
+        _ => 0,
+    };
+    (
+        next_season.to_string(),
+        tos,
+        round1(temp),
+        (water_level + water_delta).clamp(-6, 6),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
