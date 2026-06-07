@@ -21,6 +21,7 @@ describe("nativeMenuActionFromPayload", () => {
     expect(nativeMenuActionFromPayload("xolotl:copy-latest-agent-worktree-link")).toBe("copy-latest-agent-worktree-link");
     expect(nativeMenuActionFromPayload("xolotl:copy-latest-agent-worktree-shell-open")).toBe("copy-latest-agent-worktree-shell-open");
     expect(nativeMenuActionFromPayload("xolotl:copy-latest-agent-worktree-context")).toBe("copy-latest-agent-worktree-context");
+    expect(nativeMenuActionFromPayload("xolotl:copy-latest-agent-worktree-shortcuts-json")).toBe("copy-latest-agent-worktree-shortcuts-json");
     expect(nativeMenuActionFromPayload("xolotl:status-copy-active-project-link")).toBe("status-copy-active-project-link");
     expect(nativeMenuActionFromPayload("xolotl:status-copy-active-project-shell-open")).toBe("status-copy-active-project-shell-open");
     expect(nativeMenuActionFromPayload("xolotl:new-active-project-terminal-tab")).toBe("new-active-project-terminal-tab");

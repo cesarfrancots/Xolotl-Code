@@ -22,6 +22,7 @@ import { errorDetail, MAC_APP_STATUS_EVENT, type MacAppStatus } from "./lib/macA
 import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
 import {
+  copyPathAutomationHandoff,
   copyPathContextHandoff,
   copyProjectAutomationHandoff,
   copyProjectContextHandoff,
@@ -361,6 +362,15 @@ export default function App() {
         (path, agent) => copyPathContextHandoff(path, { label: agent.task, kind: "Agent worktree" }),
         "Latest agent worktree context prompt copied.",
         "Copy latest agent worktree context prompt failed.",
+        "Check that the latest agent still has a worktree, then check clipboard permissions and try again.",
+      );
+      return;
+    }
+    if (action === "copy-latest-agent-worktree-shortcuts-json") {
+      runLatestAgentWorktreeHandoff(
+        (path, agent) => copyPathAutomationHandoff(path, { label: agent.task, kind: "Agent worktree" }),
+        "Latest agent worktree Shortcuts JSON copied.",
+        "Copy latest agent worktree Shortcuts JSON failed.",
         "Check that the latest agent still has a worktree, then check clipboard permissions and try again.",
       );
       return;

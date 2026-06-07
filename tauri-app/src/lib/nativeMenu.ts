@@ -27,6 +27,7 @@ const MENU_ACTION_BY_ID = {
   "xolotl:copy-latest-agent-worktree-link": "copy-latest-agent-worktree-link",
   "xolotl:copy-latest-agent-worktree-shell-open": "copy-latest-agent-worktree-shell-open",
   "xolotl:copy-latest-agent-worktree-context": "copy-latest-agent-worktree-context",
+  "xolotl:copy-latest-agent-worktree-shortcuts-json": "copy-latest-agent-worktree-shortcuts-json",
   "xolotl:status-copy-active-project-link": "status-copy-active-project-link",
   "xolotl:status-copy-active-project-shell-open": "status-copy-active-project-shell-open",
   "xolotl:new-active-project-terminal-tab": "new-active-project-terminal-tab",

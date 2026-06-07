@@ -6,6 +6,7 @@ import { useAgentStore } from "../../stores/agentStore";
 import { AgentMessageList } from "./AgentMessageList";
 import { AgentStateBadge } from "./AgentStateBadge";
 import {
+  copyPathAutomationHandoff,
   copyPathContextHandoff,
   copyTextToClipboard,
   copyXolotlCodeOpenShellCommand,
@@ -219,6 +220,18 @@ export function AgentOutputView({ agentId }: { agentId: string }) {
                   >
                     <ClipboardList className="h-3.5 w-3.5" />
                     Copy agent worktree context prompt
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void runAgentWorktreeHandoff(
+                      "clipboard",
+                      (path) => copyPathAutomationHandoff(path, { label: record.task, kind: "Agent worktree" }),
+                      "Agent worktree Shortcuts JSON copied.",
+                      "Copy agent worktree Shortcuts JSON failed.",
+                    )}
+                    className="gap-2 text-xs"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    Copy agent worktree Shortcuts JSON
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

@@ -83,6 +83,8 @@ const MENU_COPY_LATEST_AGENT_WORKTREE_LINK: &str = "xolotl:copy-latest-agent-wor
 const MENU_COPY_LATEST_AGENT_WORKTREE_SHELL_OPEN: &str =
     "xolotl:copy-latest-agent-worktree-shell-open";
 const MENU_COPY_LATEST_AGENT_WORKTREE_CONTEXT: &str = "xolotl:copy-latest-agent-worktree-context";
+const MENU_COPY_LATEST_AGENT_WORKTREE_SHORTCUTS_JSON: &str =
+    "xolotl:copy-latest-agent-worktree-shortcuts-json";
 const MENU_NEW_ACTIVE_PROJECT_TERMINAL_TAB: &str = "xolotl:new-active-project-terminal-tab";
 const MENU_COPY_ACTIVE_PROJECT_PATH: &str = "xolotl:copy-active-project-path";
 const MENU_COPY_ACTIVE_PROJECT_CONTEXT: &str = "xolotl:copy-active-project-context";
@@ -446,6 +448,11 @@ fn build_latest_agent_worktree_menu(app: &tauri::AppHandle) -> tauri::Result<Sub
         "Copy Context Prompt",
     )
     .build(app)?;
+    let copy_shortcuts_json = MenuItemBuilder::with_id(
+        MENU_COPY_LATEST_AGENT_WORKTREE_SHORTCUTS_JSON,
+        "Copy Shortcuts JSON",
+    )
+    .build(app)?;
 
     SubmenuBuilder::new(app, "Latest Agent Worktree")
         .item(&reveal)
@@ -457,6 +464,7 @@ fn build_latest_agent_worktree_menu(app: &tauri::AppHandle) -> tauri::Result<Sub
         .item(&copy_link)
         .item(&copy_shell)
         .item(&copy_context)
+        .item(&copy_shortcuts_json)
         .build()
 }
 
@@ -1110,6 +1118,8 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
         Some(MENU_COPY_LATEST_AGENT_WORKTREE_SHELL_OPEN)
     } else if id == MENU_COPY_LATEST_AGENT_WORKTREE_CONTEXT {
         Some(MENU_COPY_LATEST_AGENT_WORKTREE_CONTEXT)
+    } else if id == MENU_COPY_LATEST_AGENT_WORKTREE_SHORTCUTS_JSON {
+        Some(MENU_COPY_LATEST_AGENT_WORKTREE_SHORTCUTS_JSON)
     } else if id == STATUS_OPEN_LATEST_AGENT {
         Some(STATUS_OPEN_LATEST_AGENT)
     } else if id == STATUS_COPY_ACTIVE_PROJECT_LINK {
@@ -1396,6 +1406,12 @@ mod tests {
                 MENU_COPY_LATEST_AGENT_WORKTREE_CONTEXT
             )),
             Some(MENU_COPY_LATEST_AGENT_WORKTREE_CONTEXT)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(
+                MENU_COPY_LATEST_AGENT_WORKTREE_SHORTCUTS_JSON
+            )),
+            Some(MENU_COPY_LATEST_AGENT_WORKTREE_SHORTCUTS_JSON)
         );
         assert_eq!(
             menu_action_for_id(&tauri::menu::MenuId::new(MENU_TAB_EVAL)),

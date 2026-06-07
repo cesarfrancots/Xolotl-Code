@@ -22,6 +22,7 @@ const commandMocks = vi.hoisted(() => ({
   })),
 }));
 const pathActionMocks = vi.hoisted(() => ({
+  copyPathAutomationHandoff: vi.fn((_path: string, _options?: unknown) => Promise.resolve()),
   copyPathContextHandoff: vi.fn((_path: string, _options?: unknown) => Promise.resolve()),
   copyProjectAutomationHandoff: vi.fn((_path: string, _name?: string | null) => Promise.resolve()),
   copyProjectContextHandoff: vi.fn((_path: string, _name?: string | null) => Promise.resolve()),
@@ -429,6 +430,16 @@ describe("App tab navigation", () => {
       );
     });
     expect(await screen.findByText("Latest agent worktree context prompt copied.")).toBeTruthy();
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "copy-latest-agent-worktree-shortcuts-json" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyPathAutomationHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-executing",
+        { label: "Implement Mac handoffs", kind: "Agent worktree" },
+      );
+    });
+    expect(await screen.findByText("Latest agent worktree Shortcuts JSON copied.")).toBeTruthy();
   });
 
   it("shows recovery when the latest agent worktree cannot be resolved", async () => {
