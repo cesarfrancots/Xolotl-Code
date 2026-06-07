@@ -92,38 +92,39 @@ These hold for **every** requirement below and are checked at each phase close:
 
 ## Traceability
 
-Recommended mapping (validated/finalized by the roadmapper).
+Finalized by the roadmapper (`.planning/ROADMAP.md`, 2026-06-07). Phase ordering adopted from `research/SUMMARY.md` as-is — coverage validated with no changes needed. Status `Planned` = mapped into the roadmap with goal-backward success criteria; not yet decomposed into plans.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| POSS-01 | Phase 1 | Pending |
-| POSS-02 | Phase 1 | Pending |
-| POSS-03 | Phase 1 | Pending |
-| POSS-04 | Phase 1 | Pending |
-| ECON-01 | Phase 2 | Pending |
-| ECON-02 | Phase 2 | Pending |
-| ECON-03 | Phase 2 | Pending |
-| ECON-04 | Phase 2 | Pending |
-| SHOP-01 | Phase 3 | Pending |
-| SHOP-02 | Phase 3 | Pending |
-| SHOP-03 | Phase 3 | Pending |
-| SHOP-04 | Phase 3 | Pending |
-| ITEM-01 | Phase 4 | Pending |
-| CRAFT-01 | Phase 4 | Pending |
-| NPC-01 | Phase 4 | Pending |
-| NPC-02 | Phase 4 | Pending |
-| WORLD-01 | Phase 5 | Pending |
-| WORLD-02 | Phase 5 | Pending |
-| WORLD-03 | Phase 5 | Pending |
-| ASSET-01 | Phase 6 | Pending |
-| ASSET-02 | Phase 6 | Pending |
-| GAMEUI-01 | Phase 6 | Pending |
+| POSS-01 | Phase 1 | Planned |
+| POSS-02 | Phase 1 | Planned |
+| POSS-03 | Phase 1 | Planned |
+| POSS-04 | Phase 1 | Planned |
+| ECON-01 | Phase 2 | Planned |
+| ECON-02 | Phase 2 | Planned |
+| ECON-03 | Phase 2 | Planned |
+| ECON-04 | Phase 2 | Planned |
+| SHOP-01 | Phase 3 | Planned |
+| SHOP-02 | Phase 3 | Planned |
+| SHOP-03 | Phase 3 | Planned |
+| SHOP-04 | Phase 3 | Planned |
+| ITEM-01 | Phase 4 | Planned |
+| CRAFT-01 | Phase 4 | Planned |
+| NPC-01 | Phase 4 | Planned |
+| NPC-02 | Phase 4 | Planned |
+| WORLD-01 | Phase 5 | Planned (phase needs research) |
+| WORLD-02 | Phase 5 | Planned (phase needs research) |
+| WORLD-03 | Phase 5 | Planned (phase needs research) |
+| ASSET-01 | Phase 6 | Planned |
+| ASSET-02 | Phase 6 | Planned |
+| GAMEUI-01 | Phase 6 | Planned |
 
 **Coverage:**
 - v1 requirements: 22 total
 - Mapped to phases: 22
 - Unmapped: 0 ✓
+- Duplicates: 0 ✓
 
 ---
 *Requirements defined: 2026-06-07*
-*Last updated: 2026-06-07 after v2.1 research synthesis*
+*Last updated: 2026-06-07 after v2.1 roadmap creation (traceability finalized; 22/22 mapped, 0 orphans, 0 duplicates)*

@@ -9,10 +9,10 @@
 ## Milestones
 
 - ✅ **v1.0 Orchestration MVP** — Phases 1-6 (shipped 2026-06-06; full detail archived to `.planning/milestones/v1.0-phases/` and `.planning/milestones/v1.0-ROADMAP.md`)
-- ✅ **v2.0 Civ Simulation** — Phases 1-5 (shipped 2026-06-07; full detail archived to `.planning/milestones/v2.0-ROADMAP.md`; live UAT pending)
-- 🚧 **v2.1 Living World & Economy** — planning (requirements → roadmap next)
+- ✅ **v2.0 Civ Simulation** — Phases 1-5 (shipped 2026-06-07; live UAT pending; full detail archived to `.planning/milestones/v2.0-ROADMAP.md` and `.planning/milestones/v2.0-phases/`)
+- 🚧 **v2.1 Living World & Economy** — Phases 1-6 (active)
 
-> **Phase numbering note:** v2.0 uses **reset numbering** — it starts at Phase 1, not Phase 7. The v1.0 phases 1-6 are archived; the headings below under "🚧 v2.0" are the live v2.0 phases.
+> **Phase numbering note:** v2.1 uses **reset numbering** — it starts at Phase 1, not Phase 6. Each milestone's phases are self-contained; v1.0 (Phases 1-6) and v2.0 (Phases 1-5) are archived. The headings below under "🚧 v2.1" are the live phases.
 
 ---
 
@@ -22,13 +22,27 @@
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked INSERTED), appearing between their surrounding integers in numeric order.
 
-### 🚧 v2.0 Civ Simulation (active)
+### 🚧 v2.1 Living World & Economy (active)
 
-- [ ] **Phase 1: W9-lite — Multi-Model World Creation + Leaderboard** — Create a world of 2-3 AI-model civs, watch a leaderboard rank them, and let harnesses read/drive via the arena bridge.
-- [ ] **Phase 2: W8 — Renderer Multi-Civ Identity** — Per-civ color tints and a multi-colony / focus-a-civ camera at multi-civ scale.
-- [ ] **Phase 3: W4 — Environment Engine** — Seasons drift temperature, disasters reshape terrain with forecasts, renewable-only regrowth creates scarcity.
-- [ ] **Phase 4: W6 — Combat & Diplomacy** — Claim/own/contest territory, deterministic raids, diplomacy stances + trades, wild predators.
-- [ ] **Phase 5: W5 — Genetics Depth & Selection** — Expanded visible genetics that cross Mendelian-style, with environmental selection that makes populations evolve.
+- [ ] **Phase 1: Human Takeover (Possession)** — A user (or agent) can possess a whole civ and play it directly; the LLM never fires for a possessed civ. Cheap, high-value unlock that makes every later phase human-testable.
+- [ ] **Phase 2: Economy & Currency** — Each civ holds ≥5 distinct currencies and sells resources at fixed prices; a 200-turn greedy-miner sim proves every currency stays bounded AND is spent.
+- [ ] **Phase 3: Shop / Store + UI** — A game-native store drawer where humans browse a gated catalog and buy with currency; AI and agents buy at the identical price through the bridge.
+- [ ] **Phase 4: Items, Crafting & NPCs** — Widened item taxonomy + a 2-3 tier crafting cascade (Spawn-token loop) + interactable trader/quest-giver/fauna-handler NPCs (Favor faucet).
+- [ ] **Phase 5: Infinite / Chunked Procedural World** — Deterministic chunked terrain gen + sparse diff-persistence + chunked RenderTexture rendering, with prospecting and terraform. **[NEEDS RESEARCH]**
+- [ ] **Phase 6: Assets & Game-native UI** — Gemini-generated art for currencies/items/NPCs/tiles + a game-native HUD restyle of the Civ surface (with graceful no-key fallback).
+
+<details>
+<summary>✅ v2.0 Civ Simulation (Phases 1-5) — SHIPPED 2026-06-07 (live UAT pending)</summary>
+
+- [x] **Phase 1: W9-lite — Multi-Model World Creation + Leaderboard** *(complete 2026-06-06)*
+- [x] **Phase 2: W8 — Renderer Multi-Civ Identity** *(complete 2026-06-06)*
+- [x] **Phase 3: W4 — Environment Engine** *(complete 2026-06-07)*
+- [x] **Phase 4: W6 — Combat & Diplomacy** *(complete 2026-06-07)*
+- [x] **Phase 5: W5 — Genetics Depth & Selection** *(complete 2026-06-07)*
+
+All 17/17 requirements implemented and automated-verified (vitest + `cargo test --no-run`/clippy; milestone audit PASSED — `.planning/milestones/v2.0-MILESTONE-AUDIT.md`). Live human UAT (real providers + WebView2) + backend `cargo test` on CI + desktop exe refresh via `build.bat` remain a human/CI gate. Full phase detail, plans, and waves archived at `.planning/milestones/v2.0-ROADMAP.md` and `.planning/milestones/v2.0-phases/`.
+
+</details>
 
 <details>
 <summary>✅ v1.0 Orchestration MVP (Phases 1-6) — SHIPPED 2026-06-06</summary>
@@ -48,128 +62,131 @@ Full phase detail, plans, and waves archived at `.planning/milestones/v1.0-ROADM
 
 ## Phase Details
 
-> The phases below are **v2.0** (sim-first order). Spec-of-record: `civ-multi-civ-world-plan.md` (workstreams W1-W10). Backend is already structurally multi-civ — `advance_civ_turn` already calls each civ's own LLM via `call_model_text`; these phases make the competition visible and the world alive.
+> The phases below are **v2.1** (additive layer over the v2.0 engine). Grounding: `.planning/research/SUMMARY.md` (decision-ready synthesis with per-phase exit gates) + `.planning/research/ECONOMY.md` (concrete currency/price/catalog tables). Spec-of-record extends `civ-multi-civ-world-plan.md` (W10.3–W10.7).
+>
+> **Cross-cutting criteria (apply to EVERY phase, checked at phase close):**
+> - **PARITY** — every new human verb (possess / sell / buy / craft / talk-to-NPC / terraform) is also a `CivDecisionAction` arm AND a `civPilotControls` command AND appears in `render_game_to_text()`.
+> - **DETERMINISM** — no new draw on the shared founder/vein RNG; new world-gen uses salted per-chunk sub-streams. Verified on Windows via `cargo check` / `cargo clippy --pedantic` / `cargo test --no-run`; full tests on CI.
+> - **BACK-COMPAT** — every new struct field is `#[serde(default)]`; schema-shape changes bump `SCHEMA_VERSION` + extend `migrate_value_in_place`; a pre-v2.1 save loads cleanly each phase. `bindings.ts` regenerated via `tauri dev` (never hand-edited). Arena-bridge keys are append-only (legacy vitest locks stay byte-identical green).
+> - **FALLBACK = IPC MOCK ONLY** — `tauriBrowserFallback.ts` mocks new IPC commands with believable canned shapes; engine RNG/economy math is NEVER ported to TypeScript.
+> - **UI SCOPE** — restyle/UI work is confined to `tauri-app/src/components/civilization/`; never touch the harness chat/eval/settings surfaces.
 
-### Phase 1: W9-lite — Multi-Model World Creation + Leaderboard
-**Goal**: A user can create a world with 2-3 different AI-model civilizations (each a color), found it, and watch a leaderboard rank the living civs by score as turns advance — and agentic harnesses can read full state as text and drive the game on a shared scoreboard. This is the first phase the multi-civ AI competition becomes visible/creatable, and it unblocks human and harness testing of every later phase.
-**Depends on**: Nothing (first v2.0 phase; backend turn loop is already multi-civ)
-**Requirements**: CIV-01, CIV-02, CIV-03, ARENA-01, ARENA-02, ARENA-03
+### Phase 1: Human Takeover (Possession)
+**Goal**: A user can take over (possess) a whole civilization and play it directly as a fully player-controlled civ, issuing the same civ-level orders the AI uses and releasing control at will — and the backend turn loop never invokes the LLM for a possessed civ (no tokens burned, the AI does not act against the player), while combat/predator/environment passes still run. Possession is also agent-legible and agent-drivable. This is the cheapest high-value unlock (one `control_mode` field + one guard branch in `advance_civ_turn` to skip `call_model_text`) and it makes every later phase immediately human-testable.
+**Depends on**: Nothing (first v2.1 phase; reuses v2.0 `set_civ_controller`, `possessedEntityId`, `focusCiv`, and the existing intervention seam)
+**Requirements**: POSS-01, POSS-02, POSS-03, POSS-04
 **Success Criteria** (what must be TRUE):
-  1. User can create a world from the Civ creation UI with 2-3 participants, each assigned a distinct model and color, and found it.
-  2. User sees a leaderboard ranking the living civilizations by score that updates as turns advance.
-  3. Each civilization is driven by its own configured real-provider model (from `~/.xolotl-code/config.json`), and per-civ model decisions are visible in the log.
-  4. An external/agentic harness can read full game state (per-civ summaries + leaderboard) as text via `window.render_game_to_text()` without parsing pixels.
-  5. An external/agentic harness can drive the game via `window.civPilotControls` / `scripts/codex-play-civ.mjs` without breaking existing controls, and the leaderboard attributes civ scores to the controlling harness/model.
-**Plans**: 4 plans
+  1. A user can possess an entire civilization from the Civ UI and play it directly, competing against the remaining AI civs; possession state is clearly visible in-game.
+  2. A possessed civ burns ZERO model calls — the backend turn loop skips `call_model_text` for it (provable by a unit test counting model calls), while post-loop combat / predator / environment passes still run for it.
+  3. The user can issue the full `CivDecisionAction` order set to a possessed civ and release control back to the AI at any time (the civ resumes LLM-driven turns).
+  4. Possession/control-mode is agent-legible — it appears in `render_game_to_text()` — and an agent can possess/release a civ via `civPilotControls` at parity with the human surface.
+**Plans**: TBD
 **UI hint**: yes
 
-Plans:
-- [ ] 01-01-PLAN.md — Backend IPC shape: multi-participant create_civ_session + CivParticipant + controller tag + persisted reasoning log + headless bindings regen
-- [ ] 01-02-PLAN.md — Multi-model creation card (1-3 participants) + civStore createSession + selectedCivId state
-- [ ] 01-03-PLAN.md — Additive render_game_to_text (civs[]/leaderboard/environment) + CivPilotTextState + back-compat contract test
-- [ ] 01-04-PLAN.md — Leaderboard top-bar + selectedCivId-driven observer/log + reasoning toggle + civPilotControls civId/controller
+> **Implementation notes:** Add `control_mode` (`model` | `human`, `#[serde(default)]`) to `CivCivilization`; inject a guard branch in `advance_civ_turn` (~L874) so `control_mode != model` skips `call_model_text` but still runs the unconditional post-loop world passes. Frontend-only possession is NOT sufficient (Pitfall 4 — possession desync). Add `civPilotControls.possess(civId)` / release verbs; surface `controller` / control-mode in the text bridge. Research flag: standard patterns — skip phase research.
 
-> **Implementation notes:** This phase changes the IPC surface — `create_civ_session` → multi-participant `CivSessionConfig { name, seed, civs: Vec<CivParticipant { name, model, color? }> }`; add `add_civ_to_session` (deferred-UI but the back-compat shape matters). `bindings.ts` is auto-generated by `tauri-specta` and drifts (gotcha #1): edit the Rust command first, regenerate via one `tauri dev`, keep single-`model` back-compat by mapping to a one-element `civs`. Extend — do not break — the existing arena interface: `renderSnapshotToText` / `window.render_game_to_text()`, `window.civPilotControls`, `scripts/codex-play-civ.mjs`. `civStore.ts` / `CivilizationView.tsx` get the multi-model participant picker + leaderboard panel. Backend tests can't run on Windows (WebView2) — verify backend via `cargo check` + `cargo clippy` + `cargo test --no-run`; frontend via `npx tsc --noEmit` + vitest.
-
-### Phase 2: W8 — Renderer Multi-Civ Identity
-**Goal**: Each civilization's axolotls, buildings, and territory render tinted by that civ's color so colonies are visually distinguishable, and the camera frames all colonies by default while allowing focus on a single civ — performant at the larger multi-civ world scale.
-**Depends on**: Phase 1 (needs creatable multi-civ worlds to render and a leaderboard/civ list to drive focus)
-**Requirements**: REN-01, REN-02
+### Phase 2: Economy & Currency
+**Goal**: Each civ (AI or human-possessed) holds a wallet of ≥5 distinct currencies (Shells, Pearls, Tidewardens' Favor, Spawn-tokens, Ancient Amberglass) — each with a distinct faucet and a distinct sink — and can sell resources at fixed prices to earn the appropriate currency, subject to a per-turn sell cap and anti-exploit rules. The economy is balanced: over a long deterministic run no currency inflates unboundedly AND every currency is actually spent, and currency never feeds the score function. This is the foundational ledger every later phase spends against, and with possession live from Phase 1 the balance is immediately human-playable.
+**Depends on**: Phase 1 (possession makes economy balance human-testable)
+**Requirements**: ECON-01, ECON-02, ECON-03, ECON-04
 **Success Criteria** (what must be TRUE):
-  1. User can visually distinguish each civilization — axolotls/buildings/territory are tinted by that civ's color, and neutral entities (e.g. predators) are shown distinctly.
-  2. The camera frames all colonies by default and the user can focus a single civ via `focusCiv`.
-  3. Rendering stays smooth at the larger multi-civ world scale (chunked terrain rendering; no performance collapse at ~36k+ tiles).
-**Plans**: 2 plans
+  1. Each civ holds a wallet of ≥5 distinct currencies, each with a distinct source (faucet) and distinct sink, mirroring the existing `resources` idiom.
+  2. A civ (AI or human-possessed) can sell resources at fixed prices to earn the correct currency, bounded by a per-turn sell cap and anti-exploit rules (buy-price > sell-price; no downward conversion; deterministic round-down).
+  3. A 200-turn deterministic greedy-miner sim test proves every currency stays bounded (no unbounded inflation) AND every currency is actually spent; currency does NOT feed the score function.
+  4. Wallet balances, sell prices, and earn/spend events appear in `render_game_to_text()`, and the `sell` action is available to both AI and human-possessed civs at identical prices (PARITY).
+**Plans**: TBD
+
+> **Implementation notes:** `currencies: HashMap<String,i32>` on `CivCivilization` (`#[serde(default)]`); `sell_price()` / `known_currency()` catalog fns; `sell` arm in `validate_action` + `apply_model_decision` and a matching `civPilotControls.sell`. Use `ECONOMY.md` price tables / rates / anti-exploit rules as implementation defaults, then TUNE against the 200-turn sim-test (the exit gate). Pitfall 3 (imbalance) — sim-test is the gate; Pitfall 6 — serde(default). Research flag: ECONOMY.md is the spec — skip phase research.
+
+### Phase 3: Shop / Store + UI
+**Goal**: A user can open a game-native store UI, browse a categorized catalog (buffs, resources, buildings, items) gated by progression (era / tech / currency tier), see prices alongside their currency balances, and buy — a purchase deducts the correct currency, applies its effect, and shows a clear insufficient-funds state when unaffordable. The store is the primary human-facing currency sink and headline new surface, and an AI civ / agent can buy at the same prices through the bridge. The shop is mostly a routing-and-pricing layer over mutations (build / research / `CivModifier`) that already exist.
+**Depends on**: Phase 2 (the catalog must cost currency)
+**Requirements**: SHOP-01, SHOP-02, SHOP-03, SHOP-04
+**Success Criteria** (what must be TRUE):
+  1. A user can open a game-native store drawer, browse a categorized catalog (buffs / resources / buildings / items), and see prices alongside their per-currency balances.
+  2. A user can buy from the store: the purchase deducts the correct currency, applies the effect, and shows a clear insufficient-funds state when unaffordable.
+  3. Catalog entries are gated by progression (era / tech / currency tier) so the shop is a meaningful sink rather than a flat menu.
+  4. An AI civ can buy via a decision action and an agent can buy via `civPilotControls` at the SAME prices as the UI, and the catalog appears in `render_game_to_text()` (PARITY — one pricing table, one transaction fn, one sell-cap counter; UI and AI are thin clients).
+**Plans**: TBD
 **UI hint**: yes
 
-Plans:
-- [ ] 02-01-PLAN.md — Per-civ tint identity: pure tint helpers (named exports) + unit tests, then tint axolotls/buildings/region-overlay/minimap by civ color; dead civs greyed (REN-01)
-- [ ] 02-02-PLAN.md — Multi-colony camera: pure colonyBounds/focusTarget helpers + tests, frame-all default + re-frame on collapse, additive window.civCamera.focusCiv/frameAll, selectedCivId wiring (REN-02)
+> **Implementation notes:** `ShopPanel.tsx` drawer in `CivilizationView.tsx`; `shop_catalog()` + `shop_price()` backend fns; a `buy` / `shop_buy` intervention kind through `apply_intervention_to_snapshot` (~L3052) + decision arm; insufficient-funds UI state; catalog in `build_observation` + `render_game_to_text()`. Buffs reuse the existing `CivModifier` system (no new buff engine). Pitfall 11 (UI scope creep) — vertical slice first; "done" = browse / see price / buy / sell / see balances / insufficient-funds. Exit gate: an agent completes a buy via `civPilotControls.buy(itemId)` at identical price to UI; vitest green. Research flag: standard patterns — skip phase research.
 
-> **Implementation notes:** In `CivilizationGameCanvas.tsx`: replace per-tile `Image` baking with chunked `RenderTexture` terrain (32×32-tile chunks culled by `cameras.main.worldView`, +1 chunk margin) — required for the bigger world. Per-civ color tints on banners/rings/region overlays/minimap; one camera center per civ + `window.civCamera.focusCiv(civId)`. Verify via `npx tsc --noEmit` + vitest.
-
-### Phase 3: W4 — Environment Engine
-**Goal**: The world stops being stale — seasons advance over turns and drift temperature visibly; natural disasters trigger, are forecast and logged, and physically reshape terrain; renewable resources regrow while finite resources stay depleted, creating sustained scarcity.
-**Depends on**: Phase 1 (needs the multi-civ turn loop to tick environment into). Benefits from Phase 2 for disaster/season VFX, but is backend-gated and can land without it.
-**Requirements**: ENV-01, ENV-02, ENV-03
+### Phase 4: Items, Crafting & NPCs
+**Goal**: The resource/item taxonomy is widened with usable tools/items (mining, digging, harvesting, growing) held per civ; a civ can craft items and upgrades from resources via a 2-3 tier recipe cascade using the Spawn-token closed loop; and interactable NPCs (trader / quest-giver / fauna-handler) seeded near colonies can be engaged by both human and AI, with quests acting as the faucet for Tidewardens' Favor. These three sub-systems share `items: HashMap<String,i32>` and are cohesive enough to land together — items are shop SKUs and NPC rewards (needs Phases 2-3), crafting clones the build/research dispatch pattern, and NPC roles extend the already-rich task framework.
+**Depends on**: Phase 3 (items are shop SKUs and NPC rewards; crafting/NPC economics spend the Phase 2 currencies through the Phase 3 transaction layer)
+**Requirements**: ITEM-01, CRAFT-01, NPC-01, NPC-02
 **Success Criteria** (what must be TRUE):
-  1. User sees seasons advance over turns and drift temperature, visibly affecting the world.
-  2. Natural disasters (flood/drought/earthquake/eruption) trigger, are announced via a forecast, are logged, and physically reshape the terrain.
-  3. Renewable resources (moss, kelp, wood, fiber, herbs) regrow over time while finite resources (ore, glowshards, amber, stone) stay depleted, creating observable sustained scarcity.
-**Plans**: 3 plans
+  1. The resource/item taxonomy is widened with usable tools/items for mining, digging, harvesting, and growing more & better vegetation/resources; items are held per civ.
+  2. A civ can craft items and upgrades from resources via a 2-3 tier recipe cascade using the Spawn-token closed loop (tokens minted only by a workshop, spent only on recipes).
+  3. Interactable NPCs (trader / quest-giver / fauna-handler) are seeded near colonies and can be engaged by a player or an AI civ.
+  4. NPC interactions (trade, quests) are available to both human and AI via the bridge, and quests act as the faucet for Tidewardens' Favor (PARITY — every NPC interaction has a `civPilotControls` verb and a text-bridge block).
+**Plans**: TBD
 
-Plans:
-- [ ] 03-01-PLAN.md — Pure seasons/temperature (advance_season) + renewable-only regrowth (regrow_resources) helpers + determinism/invariant tests (ENV-01, ENV-03)
-- [ ] 03-02-PLAN.md — Pure disaster helpers: seed-deterministic roll_forecast + bounded invariant-safe apply_disaster_to_tiles terrain reshape + tests (ENV-02)
-- [ ] 03-03-PLAN.md — tick_environment orchestrator (locked sequence + logging) inserted at advance_civ_turn turn-start + byte-determinism/back-compat integration tests (ENV-01/02/03)
+> **Implementation notes:** `items: HashMap<String,i32>` on `CivCivilization` (`#[serde(default)]`); `item_def()` / `craft_recipe()` fns; `craft` action arm + intervention kind cloning build/research; new NPC `role` values on `kind:npc` entities using the existing task/quest framework; `trade_npc` / `quest` action arms. Pitfall 5 — every NPC interaction has a bridge verb; Pitfall 6 — `items` serde(default). Exit gate: agent crafts via text bridge; trader NPC accessible to both AI and human possession; pre-v2.1 save loads. Research flag: standard patterns — skip phase research.
 
-> **Implementation notes:** New `CivEnvironment` / `CivDisaster` in `civilization.rs`; `tick_environment`, `apply_disaster_effects` (reuse `place_resource_patch`, `floor_y_at`, `is_substrate`, `seabed_row_at`), `resource_regrowth`. Single-player game mechanics are duplicated in `civilization.rs` and `tauriBrowserFallback.ts` — keep both in lockstep where the change touches shared mechanics. Backend tests can't run on Windows — verify via `cargo check` + `cargo clippy` + `cargo test --no-run` (spec names `disaster_effects_are_bounded_and_mutate_world`, `seasons_cycle`, `regrowth_is_renewable_only`).
-
-### Phase 4: W6 — Combat & Diplomacy
-**Goal**: Civilizations can claim/own/contest territory, resolve combat and raids deterministically with population/resource/territory consequences, set diplomacy stances and execute trades (allies don't fight), and defend with strength against wild predators that hunt axolotls.
-**Depends on**: Phase 1 (needs multi-civ decisions/turn loop). Benefits from Phase 3 (disasters such as `predator_incursion` spawn the wild predators) but does not strictly require it.
-**Requirements**: WAR-01, WAR-02, WAR-03, WAR-04
+### Phase 5: Infinite / Chunked Procedural World
+**Goal**: The world becomes procedurally generated and effectively infinite/expandable — terrain is a deterministic function of (seed, coordinate) via chunked generation with organic fBm terrain and biomes that blend at chunk seams; players/civs can explore, prospect/discover (strata reports, POIs/landmarks), and terraform/place blocks, with only modifications persisted (sparse diffs) so save size and per-turn IPC stay bounded; and generation is cross-platform deterministic (golden-hash verified), stays performant while exploring (flat frame-time via chunked RenderTextures), and world state remains agent-legible. This is the highest-risk structural change — it goes last so all content types (items / NPCs / economy) are stable before the ground shifts.
+**Depends on**: Phase 4 (content types — items, NPCs, resources — must be stable before the world distributes them into chunks; retrofitting chunked persistence around unstable content would be a rewrite)
+**Requirements**: WORLD-01, WORLD-02, WORLD-03
 **Success Criteria** (what must be TRUE):
-  1. A civilization can claim and own a region; ownership is tracked, contestable, and visible to the user.
-  2. Hostile civilizations resolve combat/raids deterministically, with visible population/resource/territory consequences (loser loses population, resources looted, region owner can flip).
-  3. Civilizations set diplomacy stances and execute trades; allied/trading civs do not fight each other.
-  4. Wild predators spawn and hunt axolotls, civilizations defend with strength, and killed predators drop food.
-**Plans**: 3 plans
+  1. The world is procedurally generated and effectively infinite — `generate_chunk(seed, cx, cy)` is a pure, stateless function of (seed, coordinate) producing identical terrain regardless of explore order, with organic fBm terrain and biomes that blend at chunk seams (golden-hash verified, cross-platform deterministic).
+  2. Players/civs can explore, prospect/discover (strata reports, POIs/landmarks), and terraform/place blocks; only modifications are persisted (sparse diffs), keeping a 200-turn explored save under a size budget and per-turn IPC payload bounded (< 512 KB/turn).
+  3. Frame-time stays flat while exploring (chunked RenderTextures pooled/unloaded) and world state remains agent-legible in `render_game_to_text()`, with terraform/place exposed at human/agent parity (PARITY + DETERMINISM via salted per-chunk sub-streams).
+**Plans**: TBD
+**Research flag**: NEEDS RESEARCH — the `tile_at` lazy accessor, sparse diff-persistence schema (`CivWorld` struct shape), W8 Phaser `RenderTexture` chunk pooling/unloading, and per-chunk determinism testing are only partially spec-ed in `civ-multi-civ-world-plan.md`. `/gsd-plan-phase 5` MUST run a research pass first. Also decide `tauriBrowserFallback.ts` preview scope (bounded single starter-chunk vs multi-chunk mock) before Phase 5 begins.
 
-Plans:
-- [ ] 04-01-PLAN.md — New action surface: 5 CivDecisionAction fields + claim_region + set_stance + apply_trade + validation/dispatch + observation region ids + headless bindings regen (WAR-01, WAR-03)
-- [ ] 04-02-PLAN.md — Deterministic combat: civ_strength seam + resolve_attack (bounded entity-removal casualties, conserved plunder, region flip) + unilateral ally gate + queued combat world pass (WAR-02, WAR-03)
-- [ ] 04-03-PLAN.md — Wild predators: spawn_predators on predator_incursion + step_predators (hunt, civ_strength defense, cull-drops-food, expire) + predator world pass (WAR-04)
+> **Implementation notes:** Split `generate_world` into `generate_chunk(seed, cx, cy)` (pure, salted sub-stream RNG: `seed XOR 0xC4A0_5EED XOR mix(cx,cy)`) + a `tile_at(world, x, y)` lazy accessor; route every direct `tiles.iter().find()` site through the accessor. Sparse diff-persistence (persist only mined/placed tiles; regenerate untouched terrain from seed). W8 chunked `RenderTexture` baking in `CivilizationGameCanvas.tsx`. Pitfall 1 (RNG corruption — order-independence test BEFORE any chunk-dependent feature; re-baseline determinism goldens deliberately); Pitfall 2 (save bloat — decide diff model before writing terraform); Pitfall 10 (chunk seams). Exit gate: `gen_chunk(s,5,0)` identical regardless of explore order; 200-turn explored save under budget; IPC < 512 KB/turn; flat frame-time.
 
-> **Implementation notes:** Extend the decision schema (`target_civ`, `region_id`, `offer`/`request` maps) with new `action_type`s (`claim`/`raid`/`fortify`/`diplomacy`/`migrate`) validated in `validate_action` and dispatched in `apply_model_decision`; `resolve_interactions(snapshot)` resolves combat/raids/trades/predators deterministically (seeded). Scoring folds territory/aggression into the existing ethics/intelligence/survival axes. Backend tests can't run on Windows — verify via `cargo check` + `cargo clippy` + `cargo test --no-run` (spec names `combat_is_deterministic_and_conserves_or_destroys`, `claim_sets_region_owner`, `allies_do_not_fight`, `predator_hunts_then_drops_food`).
-
-### Phase 5: W5 — Genetics Depth & Selection
-**Goal**: Axolotls carry expanded genetics (new traits + pattern alleles) that cross Mendelian-style and are visible, and environmental pressure (e.g. ice age, plague) raises mortality for ill-adapted genes so populations measurably evolve over runs.
-**Depends on**: Phase 3 (selection pressure needs the environment engine's seasons/disasters) and Phase 4 (the `strength` gene feeds combat).
-**Requirements**: GEN-01, GEN-02
+### Phase 6: Assets & Game-native UI
+**Goal**: Game art (currency icons, item sprites, NPC characters, new tile types) is generated via the existing Gemini image pipeline, committed, and rendered in-game — and the Civilization UI is restyled to read as a game (game-native HUD + diegetic in-world markers) rather than part of the harness app, scoped to `civilization/` components only. The game runs gracefully with `GEMINI_API_KEY` unset (placeholder fallback, no crash); asset generation is a one-time, cached, build-time cost. This is the presentation layer — it depends on all new content keys (items, NPCs, tiles) existing, so it lands after Phase 4; it is parallelizable with Phase 5 but strictly after Phase 4 so the sprite sets are known.
+**Depends on**: Phase 4 (all content keys — item / NPC / currency / tile sets — must exist so the art jobs are complete; parallelizable with Phase 5)
+**Requirements**: ASSET-01, ASSET-02, GAMEUI-01
 **Success Criteria** (what must be TRUE):
-  1. Axolotls carry expanded genetics (new traits + pattern alleles) that cross Mendelian-style across breeding and are visibly distinguishable (color morph × pattern × civ palette).
-  2. Environmental pressure (ice age, plague) raises mortality for ill-adapted genes, so a population's gene distribution measurably shifts over a run.
-**Plans**: 2 plans
+  1. Game art (currency icons, item sprites, NPC characters, new tile types) is generated via the Gemini image pipeline, committed to `tauri-app/public/civ/`, and rendered in-game.
+  2. The game loads and runs gracefully with `GEMINI_API_KEY` unset (placeholder fallback, no crash); asset generation is a one-time, cached, build-time cost (no runtime API calls).
+  3. The Civilization UI reads as a game — game-native HUD + diegetic in-world markers — with all changes confined to `tauri-app/src/components/civilization/` (and `public/civ/`); no files outside that scope touched (UI SCOPE), `tsc --noEmit` + vitest green.
+**Plans**: TBD
+**UI hint**: yes
 
-Plans:
-- [ ] 05-01-PLAN.md - Expanded CivGenes (pattern alleles + strength/cold_resistance/disease_resistance) + pattern_rank/expressed_pattern + Mendelian cross_genes/random/default + visible entity pattern + text-state line + headless bindings regen + civ_strength seam (GEN-01)
-- [ ] 05-02-PLAN.md - gene_mortality_modifier + bounded selection death roll in run_life_cycle + first-class plague disaster + survivor floor + measurable multi-turn cold-resistance selection test (GEN-02)
-
-> **Implementation notes:** Extend `CivGenes` (all `#[serde(default)]` so old eggs deserialize): `speed`, `cold_tolerance`, `disease_resistance`, `forage_yield`, `strength`, `pattern_a`/`pattern_b`. Update `random_genes`/`cross_genes`/`default_genes`; `expressed_pattern` mirrors `expressed_morph`; selection pressure in `run_life_cycle`; disasters temporarily raise mutation rate. Backend tests can't run on Windows — verify via `cargo check` + `cargo clippy` + `cargo test --no-run` (spec names `genetics_cross_is_deterministic_and_valid`, `selection_pressure_under_ice_age_favors_cold_tolerance`).
+> **Implementation notes:** The complete Gemini pipeline already exists at `output/civ-gen/gemini/` (`gen.mjs` + `postprocess.py`, `gemini-2.5-flash-image` via Vertex express REST, build-time only) — v2.1 adds new job entries, no pipeline code change. Restyle is confined to `CivilizationView.tsx` and sibling `civilization/` components — zero engine or IPC changes. Pitfall 8 (Gemini cost/key/style — graceful unset fallback); Pitfall 11 (scope creep). Research flag: standard patterns — skip phase research.
 
 ---
 
 ## Progress
 
-**Execution Order (v2.0):**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+**Execution Order (v2.1):**
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
+(Phase 6 is parallelizable with Phase 5 but is sequenced after Phase 4 so content keys are known.)
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. W9-lite — Multi-Model World Creation + Leaderboard | v2.0 | 0/4 | Planned | - |
-| 2. W8 — Renderer Multi-Civ Identity | v2.0 | 0/2 | Planned | - |
-| 3. W4 — Environment Engine | v2.0 | 0/3 | Planned | - |
-| 4. W6 — Combat & Diplomacy | v2.0 | 0/3 | Planned | - |
-| 5. W5 — Genetics Depth & Selection | v2.0 | 0/TBD | Not started | - |
+| 1. Human Takeover (Possession) | v2.1 | 0/TBD | Not started | - |
+| 2. Economy & Currency | v2.1 | 0/TBD | Not started | - |
+| 3. Shop / Store + UI | v2.1 | 0/TBD | Not started | - |
+| 4. Items, Crafting & NPCs | v2.1 | 0/TBD | Not started | - |
+| 5. Infinite / Chunked Procedural World | v2.1 | 0/TBD | Not started (needs research) | - |
+| 6. Assets & Game-native UI | v2.1 | 0/TBD | Not started | - |
+| 1-5 (v2.0) | v2.0 | 14/14 | Complete | 2026-06-07 |
 | 1-6 (v1.0) | v1.0 | 33/33 | Complete | 2026-06-06 |
 
 ---
 
-## Coverage (v2.0)
+## Coverage (v2.1)
 
-- **v2.0 requirements:** 16
-- **Mapped:** 16 / 16
+- **v2.1 requirements:** 22
+- **Mapped:** 22 / 22
 - **Orphans:** 0
 - **Duplicates:** 0
 
 | Phase | Workstream | Requirement IDs | Count |
 |-------|-----------|-----------------|-------|
-| 1 | W9-lite | CIV-01, CIV-02, CIV-03, ARENA-01, ARENA-02, ARENA-03 | 6 |
-| 2 | W8 | REN-01, REN-02 | 2 |
-| 3 | W4 | ENV-01, ENV-02, ENV-03 | 3 |
-| 4 | W6 | WAR-01, WAR-02, WAR-03, WAR-04 | 4 |
-| 5 | W5 | GEN-01, GEN-02 | 2 |
+| 1 | Possession | POSS-01, POSS-02, POSS-03, POSS-04 | 4 |
+| 2 | Economy & Currency | ECON-01, ECON-02, ECON-03, ECON-04 | 4 |
+| 3 | Shop / Store + UI | SHOP-01, SHOP-02, SHOP-03, SHOP-04 | 4 |
+| 4 | Items, Crafting & NPCs | ITEM-01, CRAFT-01, NPC-01, NPC-02 | 4 |
+| 5 | Infinite / Chunked Procedural World | WORLD-01, WORLD-02, WORLD-03 | 3 |
+| 6 | Assets & Game-native UI | ASSET-01, ASSET-02, GAMEUI-01 | 3 |
 
 ---
-*v2.0 roadmap created: 2026-06-06 (reset phase numbering; v1.0 archived)*
+*v2.1 roadmap created: 2026-06-07 (reset phase numbering; v2.0 + v1.0 archived). Phase ordering adopted from `research/SUMMARY.md` (possession → economy → shop → items/NPCs → chunked world → assets/UI); coverage validated 22/22, 0 orphans, 0 duplicates.*
