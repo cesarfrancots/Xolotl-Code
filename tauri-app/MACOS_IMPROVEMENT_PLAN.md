@@ -409,7 +409,7 @@ Deliverables:
   - Consider editor-specific deep links for VS Code, Cursor, and Zed if they are installed and if detection is reliable.
 - Expand terminal handoff:
   - Current embedded terminal actions stay first-class.
-  - Consider optional external terminal launch for Terminal.app, iTerm2, or Warp behind a setting.
+  - Optional external terminal launch for Terminal.app, iTerm2, and Warp is available behind a macOS Settings preference for terminal cwd handoff actions.
   - Preserve active project/folder cwd and shell profile metadata.
 - Add task-result handoffs:
   - Reveal artifacts, copy paths, copy deep links, and open folders in editor from eval/agent result surfaces. Done for launched eval artifact folders and expanded agent worktree folders; deep links remain follow-up work.
@@ -421,6 +421,7 @@ Acceptance:
 
 - Handoff actions fail visibly and recoverably when an external app is not installed.
 - Embedded terminal remains the default reliable path.
+- Terminal cwd can open its active folder in the configured external Mac terminal without replacing the embedded terminal workflow.
 - External app support is additive and does not break browser/Vite tests.
 
 ### E. Menu Bar and Global Controls

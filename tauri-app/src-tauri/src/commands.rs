@@ -2646,6 +2646,7 @@ pub struct ApiKeyProviderStatus {
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct MacProductivitySettings {
     pub external_editor: Option<String>,
+    pub external_terminal: Option<String>,
     pub global_hotkey: MacGlobalHotkeySettings,
     pub status_item: MacStatusItemSettings,
     pub notifications: MacNotificationSettings,
@@ -2782,6 +2783,7 @@ fn config_get(config: &ConfigMap, key: &str) -> Option<String> {
 }
 
 const EXTERNAL_EDITOR_CONFIG_KEY: &str = "XOLOTL_EXTERNAL_EDITOR";
+const EXTERNAL_TERMINAL_CONFIG_KEY: &str = "XOLOTL_EXTERNAL_TERMINAL";
 const GLOBAL_HOTKEY_ENABLED_CONFIG_KEY: &str = "XOLOTL_GLOBAL_HOTKEY_ENABLED";
 const GLOBAL_HOTKEY_SHORTCUT_CONFIG_KEY: &str = "XOLOTL_GLOBAL_HOTKEY_SHORTCUT";
 const DEFAULT_GLOBAL_HOTKEY_SHORTCUT: &str = "CommandOrControl+Shift+Space";
@@ -2821,6 +2823,10 @@ fn external_editor_from_config(config: &ConfigMap) -> Option<String> {
     config_string(config, EXTERNAL_EDITOR_CONFIG_KEY)
 }
 
+fn external_terminal_from_config(config: &ConfigMap) -> Option<String> {
+    config_string(config, EXTERNAL_TERMINAL_CONFIG_KEY)
+}
+
 fn normalize_global_hotkey_shortcut(shortcut: &str) -> String {
     let shortcut = shortcut.trim();
     if shortcut.is_empty() {
@@ -2856,6 +2862,7 @@ fn mac_status_item_settings_from_config(config: &ConfigMap) -> MacStatusItemSett
 fn mac_productivity_settings_from_config(config: &ConfigMap) -> MacProductivitySettings {
     MacProductivitySettings {
         external_editor: external_editor_from_config(config),
+        external_terminal: external_terminal_from_config(config),
         global_hotkey: mac_global_hotkey_settings_from_config(config),
         status_item: mac_status_item_settings_from_config(config),
         notifications: mac_notification_settings_from_config(config),
@@ -2870,6 +2877,18 @@ fn set_external_editor_in_config(config: &mut ConfigMap, editor: &str) {
         config.insert(
             EXTERNAL_EDITOR_CONFIG_KEY.to_string(),
             serde_json::Value::String(editor.to_string()),
+        );
+    }
+}
+
+fn set_external_terminal_in_config(config: &mut ConfigMap, terminal: &str) {
+    let terminal = terminal.trim();
+    if terminal.is_empty() {
+        config.remove(EXTERNAL_TERMINAL_CONFIG_KEY);
+    } else {
+        config.insert(
+            EXTERNAL_TERMINAL_CONFIG_KEY.to_string(),
+            serde_json::Value::String(terminal.to_string()),
         );
     }
 }
@@ -3002,38 +3021,77 @@ pub(crate) fn show_productivity_notification_if_enabled(
         .show();
 }
 
-fn external_editor_is_app_bundle(editor: &str) -> bool {
-    editor.to_ascii_lowercase().ends_with(".app")
+fn external_launcher_is_app_bundle(launcher: &str) -> bool {
+    launcher.to_ascii_lowercase().ends_with(".app")
 }
 
-fn external_editor_has_path_separator(editor: &str) -> bool {
-    editor.contains('/') || editor.contains('\\')
+fn external_launcher_has_path_separator(launcher: &str) -> bool {
+    launcher.contains('/') || launcher.contains('\\')
 }
 
-fn external_editor_launch_command(
-    editor: &str,
+fn external_launcher_command(
+    launcher: &str,
     target: &Path,
+    empty_message: &str,
 ) -> Result<(std::ffi::OsString, Vec<std::ffi::OsString>), String> {
-    let editor = editor.trim();
-    if editor.is_empty() {
-        return Err("Set a preferred external editor in Settings first.".to_string());
+    let launcher = launcher.trim();
+    if launcher.is_empty() {
+        return Err(empty_message.to_string());
     }
 
     #[cfg(target_os = "macos")]
     {
-        if external_editor_is_app_bundle(editor) || !external_editor_has_path_separator(editor) {
+        if external_launcher_is_app_bundle(launcher)
+            || !external_launcher_has_path_separator(launcher)
+        {
             return Ok((
                 "/usr/bin/open".into(),
                 vec![
                     "-a".into(),
-                    editor.into(),
+                    launcher.into(),
                     target.as_os_str().to_os_string(),
                 ],
             ));
         }
     }
 
-    Ok((editor.into(), vec![target.as_os_str().to_os_string()]))
+    Ok((launcher.into(), vec![target.as_os_str().to_os_string()]))
+}
+
+fn external_editor_launch_command(
+    editor: &str,
+    target: &Path,
+) -> Result<(std::ffi::OsString, Vec<std::ffi::OsString>), String> {
+    external_launcher_command(
+        editor,
+        target,
+        "Set a preferred external editor in Settings first.",
+    )
+}
+
+fn normalize_external_terminal_for_launch(terminal: &str) -> String {
+    let terminal = terminal.trim();
+    if external_launcher_has_path_separator(terminal) {
+        return terminal.to_string();
+    }
+    match terminal.to_ascii_lowercase().as_str() {
+        "terminal.app" => "Terminal".to_string(),
+        "iterm2" | "iterm2.app" | "iterm.app" => "iTerm".to_string(),
+        "warp.app" => "Warp".to_string(),
+        _ => terminal.to_string(),
+    }
+}
+
+fn external_terminal_launch_command(
+    terminal: &str,
+    target: &Path,
+) -> Result<(std::ffi::OsString, Vec<std::ffi::OsString>), String> {
+    let terminal = normalize_external_terminal_for_launch(terminal);
+    external_launcher_command(
+        &terminal,
+        target,
+        "Set a preferred external terminal in macOS Settings first.",
+    )
 }
 
 fn env_api_key(env_var: &str) -> Option<String> {
@@ -3370,6 +3428,17 @@ pub fn set_external_editor(editor: String) -> Result<MacProductivitySettings, St
     Ok(mac_productivity_settings_from_config(&config))
 }
 
+/// Set the preferred external terminal. Use "Terminal", "iTerm", "Warp", or
+/// a full executable/app bundle path for custom terminal launchers.
+#[tauri::command]
+#[specta::specta]
+pub fn set_external_terminal(terminal: String) -> Result<MacProductivitySettings, String> {
+    let mut config = load_config();
+    set_external_terminal_in_config(&mut config, &terminal);
+    save_config(&config)?;
+    Ok(mac_productivity_settings_from_config(&config))
+}
+
 /// Set the opt-in global shortcut that brings Xolotl Code to the front.
 #[tauri::command]
 #[specta::specta]
@@ -3432,6 +3501,40 @@ pub fn open_path_in_external_editor(path: String) -> Result<(), String> {
         Err(format!(
             "Could not open editor '{}': {} exited with {status}",
             editor,
+            program.to_string_lossy()
+        ))
+    }
+}
+
+/// Open a folder in the configured external terminal without using a shell.
+#[tauri::command]
+#[specta::specta]
+pub fn open_path_in_external_terminal(path: String) -> Result<(), String> {
+    let raw = PathBuf::from(&path);
+    if !raw.exists() {
+        return Err(format!("Path does not exist: {path}"));
+    }
+    let target = std::fs::canonicalize(&raw).unwrap_or(raw);
+    if !target.is_dir() {
+        return Err(format!(
+            "Path is not a folder: {}",
+            target.to_string_lossy()
+        ));
+    }
+    let config = load_config();
+    let terminal = external_terminal_from_config(&config)
+        .ok_or_else(|| "Set a preferred external terminal in macOS Settings first.".to_string())?;
+    let (program, args) = external_terminal_launch_command(&terminal, &target)?;
+    let status = std::process::Command::new(&program)
+        .args(&args)
+        .status()
+        .map_err(|err| format!("Could not open terminal '{}': {err}", terminal))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Could not open terminal '{}': {} exited with {status}",
+            terminal,
             program.to_string_lossy()
         ))
     }
@@ -5701,6 +5804,28 @@ mod config_tests {
     }
 
     #[test]
+    fn external_terminal_setting_preserves_other_config_fields() {
+        let mut cfg = make_legacy_cli_config();
+
+        set_external_terminal_in_config(&mut cfg, "Warp");
+        assert_eq!(
+            external_terminal_from_config(&cfg),
+            Some("Warp".to_string())
+        );
+        assert_eq!(
+            config_get(&cfg, "KIMI_CODING_BASE_URL"),
+            Some("https://api.kimi.com/coding/v1".into())
+        );
+
+        set_external_terminal_in_config(&mut cfg, "  ");
+        assert_eq!(external_terminal_from_config(&cfg), None);
+        assert_eq!(
+            config_get(&cfg, "ANTHROPIC_API_KEY"),
+            Some("ant-xxx".into())
+        );
+    }
+
+    #[test]
     fn mac_global_hotkey_defaults_to_opt_in_off() {
         let cfg = make_legacy_cli_config();
         let settings = mac_global_hotkey_settings_from_config(&cfg);
@@ -5927,6 +6052,95 @@ mod config_tests {
                 program.to_string_lossy(),
                 "/Applications/Visual Studio Code.app"
             );
+            assert_eq!(args[0], target.as_os_str());
+        }
+    }
+
+    #[test]
+    fn external_terminal_launch_command_uses_macos_open_for_app_names() {
+        let target = std::path::Path::new("/Users/cesar/Project");
+        let (program, args) =
+            external_terminal_launch_command("Warp", target).expect("terminal app should work");
+
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(program.to_string_lossy(), "/usr/bin/open");
+            assert_eq!(args[0].to_string_lossy(), "-a");
+            assert_eq!(args[1].to_string_lossy(), "Warp");
+            assert_eq!(args[2], target.as_os_str());
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(program.to_string_lossy(), "Warp");
+            assert_eq!(args[0], target.as_os_str());
+        }
+    }
+
+    #[test]
+    fn external_terminal_launch_command_normalizes_common_mac_terminal_names() {
+        let target = std::path::Path::new("/Users/cesar/Project");
+
+        assert_eq!(
+            normalize_external_terminal_for_launch("Terminal.app"),
+            "Terminal"
+        );
+        assert_eq!(normalize_external_terminal_for_launch("iTerm2"), "iTerm");
+        assert_eq!(
+            normalize_external_terminal_for_launch("iTerm2.app"),
+            "iTerm"
+        );
+        assert_eq!(normalize_external_terminal_for_launch("Warp.app"), "Warp");
+        assert_eq!(
+            normalize_external_terminal_for_launch("/Applications/iTerm.app"),
+            "/Applications/iTerm.app"
+        );
+
+        let (program, args) = external_terminal_launch_command("iTerm2", target)
+            .expect("iTerm2 alias should launch iTerm");
+
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(program.to_string_lossy(), "/usr/bin/open");
+            assert_eq!(args[0].to_string_lossy(), "-a");
+            assert_eq!(args[1].to_string_lossy(), "iTerm");
+            assert_eq!(args[2], target.as_os_str());
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(program.to_string_lossy(), "iTerm");
+            assert_eq!(args[0], target.as_os_str());
+        }
+    }
+
+    #[test]
+    fn external_terminal_launch_command_accepts_executable_paths() {
+        let target = std::path::Path::new("/Users/cesar/Project");
+        let (program, args) = external_terminal_launch_command("/usr/local/bin/wezterm", target)
+            .expect("executable path should work");
+
+        assert_eq!(program.to_string_lossy(), "/usr/local/bin/wezterm");
+        assert_eq!(args[0], target.as_os_str());
+    }
+
+    #[test]
+    fn external_terminal_launch_command_accepts_app_bundle_paths() {
+        let target = std::path::Path::new("/Users/cesar/Project");
+        let (program, args) = external_terminal_launch_command("/Applications/Warp.app", target)
+            .expect("app bundle path should work");
+
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(program.to_string_lossy(), "/usr/bin/open");
+            assert_eq!(args[0].to_string_lossy(), "-a");
+            assert_eq!(args[1].to_string_lossy(), "/Applications/Warp.app");
+            assert_eq!(args[2], target.as_os_str());
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(program.to_string_lossy(), "/Applications/Warp.app");
             assert_eq!(args[0], target.as_os_str());
         }
     }

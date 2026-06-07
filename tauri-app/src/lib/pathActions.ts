@@ -83,3 +83,10 @@ export async function openPathInExternalEditor(path: string) {
     throw new Error(res.error);
   }
 }
+
+export async function openPathInExternalTerminal(path: string) {
+  const res = await commands.openPathInExternalTerminal(path);
+  if (res.status === "error") {
+    throw new Error(res.error);
+  }
+}

@@ -8,6 +8,7 @@ import { useProjectStore } from "../../stores/projectStore";
 
 const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn().mockResolvedValue(undefined),
+  openPathInExternalTerminal: vi.fn().mockResolvedValue(undefined),
   revealPathInFinder: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -75,7 +76,7 @@ it("shows active terminal shell profile metadata after spawn", () => {
   expect(screen.getByText("Inherited app environment + $SHELL")).toBeTruthy();
 });
 
-it("offers Finder and copy actions for the active terminal cwd", async () => {
+it("offers external terminal, Finder, and copy actions for the active terminal cwd", async () => {
   const user = userEvent.setup();
   render(<TerminalPanel />);
   const tab = useTerminalStore.getState().tabs[0];
@@ -94,6 +95,12 @@ it("offers Finder and copy actions for the active terminal cwd", async () => {
   await waitFor(() => {
     expect(pathActionMocks.revealPathInFinder).toHaveBeenCalledWith("/Users/cesar/project-a");
     expect(screen.getByText("Terminal cwd revealed in Finder.")).toBeTruthy();
+  });
+
+  await user.click(screen.getByLabelText("Open terminal cwd in external terminal"));
+  await waitFor(() => {
+    expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/project-a");
+    expect(screen.getByText("Terminal cwd opened in external terminal.")).toBeTruthy();
   });
 
   await user.click(screen.getByLabelText("Copy terminal cwd POSIX path"));
@@ -124,6 +131,29 @@ it("shows recovery guidance when revealing the terminal cwd fails", async () => 
   expect(await screen.findByText("Reveal terminal cwd in Finder failed.")).toBeTruthy();
   expect(screen.getByText(/Check that the terminal folder still exists/)).toBeTruthy();
   expect(screen.getByText(/Folder missing/)).toBeTruthy();
+});
+
+it("shows recovery guidance when opening the terminal cwd in an external terminal fails", async () => {
+  pathActionMocks.openPathInExternalTerminal.mockRejectedValueOnce(new Error("Terminal missing"));
+  const user = userEvent.setup();
+  render(<TerminalPanel />);
+  const tab = useTerminalStore.getState().tabs[0];
+
+  act(() => {
+    useTerminalStore.getState().setBackendInfo(tab.key, {
+      id: "pty-1",
+      shell: "/bin/zsh",
+      shell_name: "zsh",
+      cwd: "/Users/cesar/project-a",
+      env_source: "Inherited app environment + $SHELL",
+    });
+  });
+
+  await user.click(screen.getByLabelText("Open terminal cwd in external terminal"));
+
+  expect(await screen.findByText("Open terminal cwd in external terminal failed.")).toBeTruthy();
+  expect(screen.getByText(/Check the external terminal setting in macOS Settings/)).toBeTruthy();
+  expect(screen.getByText(/Terminal missing/)).toBeTruthy();
 });
 
 it("shows recovery guidance when copying the terminal cwd fails", async () => {

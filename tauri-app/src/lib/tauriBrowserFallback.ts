@@ -31,6 +31,7 @@ const PREVIEW_PROVIDERS = [
 ];
 
 const PREVIEW_EXTERNAL_EDITOR_KEY = "xolotl-preview-external-editor";
+const PREVIEW_EXTERNAL_TERMINAL_KEY = "xolotl-preview-external-terminal";
 const PREVIEW_GLOBAL_HOTKEY_KEY = "xolotl-preview-global-hotkey";
 const PREVIEW_STATUS_ITEM_KEY = "xolotl-preview-status-item";
 const PREVIEW_NOTIFICATIONS_KEY = "xolotl-preview-notifications";
@@ -1204,6 +1205,29 @@ function writePreviewExternalEditor(value: string) {
   return editor || null;
 }
 
+function readPreviewExternalTerminal() {
+  try {
+    const terminal = globalThis.localStorage?.getItem(PREVIEW_EXTERNAL_TERMINAL_KEY)?.trim();
+    return terminal || null;
+  } catch {
+    return null;
+  }
+}
+
+function writePreviewExternalTerminal(value: string) {
+  const terminal = value.trim();
+  try {
+    if (terminal) {
+      globalThis.localStorage?.setItem(PREVIEW_EXTERNAL_TERMINAL_KEY, terminal);
+    } else {
+      globalThis.localStorage?.removeItem(PREVIEW_EXTERNAL_TERMINAL_KEY);
+    }
+  } catch {
+    // Browser preview can run with storage disabled; keep the native API shape.
+  }
+  return terminal || null;
+}
+
 const EMPTY_PREVIEW_NOTIFICATIONS = {
   agent_finished: false,
   eval_finished: false,
@@ -1408,6 +1432,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
     case "get_mac_productivity_settings":
       return {
         external_editor: readPreviewExternalEditor(),
+        external_terminal: readPreviewExternalTerminal(),
         global_hotkey: readPreviewGlobalHotkey(),
         status_item: readPreviewStatusItem(),
         notifications: readPreviewNotifications(),
@@ -1416,6 +1441,17 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       const editor = isRecord(args) && typeof args.editor === "string" ? args.editor : "";
       return {
         external_editor: writePreviewExternalEditor(editor),
+        external_terminal: readPreviewExternalTerminal(),
+        global_hotkey: readPreviewGlobalHotkey(),
+        status_item: readPreviewStatusItem(),
+        notifications: readPreviewNotifications(),
+      };
+    }
+    case "set_external_terminal": {
+      const terminal = isRecord(args) && typeof args.terminal === "string" ? args.terminal : "";
+      return {
+        external_editor: readPreviewExternalEditor(),
+        external_terminal: writePreviewExternalTerminal(terminal),
         global_hotkey: readPreviewGlobalHotkey(),
         status_item: readPreviewStatusItem(),
         notifications: readPreviewNotifications(),
@@ -1425,6 +1461,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       const globalHotkey = isRecord(args) ? writePreviewGlobalHotkey(args.settings) : readPreviewGlobalHotkey();
       return {
         external_editor: readPreviewExternalEditor(),
+        external_terminal: readPreviewExternalTerminal(),
         global_hotkey: globalHotkey,
         status_item: readPreviewStatusItem(),
         notifications: readPreviewNotifications(),
@@ -1434,6 +1471,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       const statusItem = isRecord(args) ? writePreviewStatusItem(args.settings) : readPreviewStatusItem();
       return {
         external_editor: readPreviewExternalEditor(),
+        external_terminal: readPreviewExternalTerminal(),
         global_hotkey: readPreviewGlobalHotkey(),
         status_item: statusItem,
         notifications: readPreviewNotifications(),
@@ -1443,6 +1481,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       const notifications = isRecord(args) ? writePreviewNotifications(args.settings) : EMPTY_PREVIEW_NOTIFICATIONS;
       return {
         external_editor: readPreviewExternalEditor(),
+        external_terminal: readPreviewExternalTerminal(),
         global_hotkey: readPreviewGlobalHotkey(),
         status_item: readPreviewStatusItem(),
         notifications,
@@ -1483,6 +1522,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
     case "reveal_eval_result_in_finder":
     case "reveal_eval_artifacts_in_finder":
     case "open_path_in_external_editor":
+    case "open_path_in_external_terminal":
       return null;
     case "cleanup_eval_processes":
       return 0;

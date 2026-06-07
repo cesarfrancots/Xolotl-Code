@@ -110,6 +110,11 @@ export const commands = {
 	 *  Code" or "Cursor" on macOS, or a full executable path for CLI launchers.
 	 */
 	setExternalEditor: (editor: string) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_external_editor", { editor })),
+	/**
+	 *  Set the preferred external terminal. Use "Terminal", "iTerm", "Warp", or
+	 *  a full executable/app bundle path for custom terminal launchers.
+	 */
+	setExternalTerminal: (terminal: string) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_external_terminal", { terminal })),
 	/**  Set the opt-in global shortcut that brings Xolotl Code to the front. */
 	setMacGlobalHotkeySettings: (settings: MacGlobalHotkeySettings) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_mac_global_hotkey_settings", { settings })),
 	/**  Set the opt-in macOS menu bar status item preference. */
@@ -124,6 +129,8 @@ export const commands = {
 	setApiKey: (provider: string, key: string) => typedError<null, string>(__TAURI_INVOKE("set_api_key", { provider, key })),
 	/**  Open a path in the configured external editor without using a shell. */
 	openPathInExternalEditor: (path: string) => typedError<null, string>(__TAURI_INVOKE("open_path_in_external_editor", { path })),
+	/**  Open a folder in the configured external terminal without using a shell. */
+	openPathInExternalTerminal: (path: string) => typedError<null, string>(__TAURI_INVOKE("open_path_in_external_terminal", { path })),
 	/**
 	 *  Test connectivity to an AI provider using its configured API key.
 	 *  Returns "Connected to <provider>" on success.
@@ -779,6 +786,7 @@ export type MacNotificationSettings = {
 
 export type MacProductivitySettings = {
 	external_editor: string | null,
+	external_terminal: string | null,
 	global_hotkey: MacGlobalHotkeySettings,
 	status_item: MacStatusItemSettings,
 	notifications: MacNotificationSettings,

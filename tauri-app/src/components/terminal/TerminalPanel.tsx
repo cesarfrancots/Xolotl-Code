@@ -5,7 +5,7 @@ import { useUiStore } from "../../stores/uiStore";
 import { projectDisplayName, useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
 import { shortcutTitle } from "../../lib/macShortcuts";
-import { copyTextToClipboard, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, openPathInExternalTerminal, revealPathInFinder } from "../../lib/pathActions";
 import { TerminalView } from "./TerminalView";
 
 type TerminalStatusTone = "ok" | "error";
@@ -193,6 +193,24 @@ export function TerminalPanel() {
                 >
                   {macPathLabel(activeTab.cwd)}
                 </span>
+                <button
+                  type="button"
+                  title="Open terminal cwd in external terminal"
+                  aria-label="Open terminal cwd in external terminal"
+                  onClick={() => {
+                    if (activeTab.cwd) {
+                      void runCwdHandoff(
+                        "Open terminal cwd in external terminal",
+                        () => openPathInExternalTerminal(activeTab.cwd!),
+                        "Terminal cwd opened in external terminal.",
+                        "Check the external terminal setting in macOS Settings, or use Terminal, iTerm, Warp, an app bundle path, or executable path.",
+                      );
+                    }
+                  }}
+                  className="grid h-5 w-5 place-items-center rounded text-[oklch(0.45_0.010_225)] hover:bg-[oklch(0.16_0.006_245)] hover:text-[oklch(0.78_0.040_195)]"
+                >
+                  <TerminalSquare className="h-3 w-3" />
+                </button>
                 <button
                   type="button"
                   title="Reveal terminal cwd in Finder"

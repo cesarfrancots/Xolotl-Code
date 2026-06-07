@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   CheckCircle, XCircle, Loader2, Eye, EyeOff, Key, Plug, FileCode,
   RefreshCw, ShieldCheck, AlertCircle, Monitor, Code2, Bell, Keyboard,
+  TerminalSquare,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -381,6 +382,7 @@ function ProvidersPanel({ open }: { open: boolean }) {
 // ════════════════════════════════════════════════════════════════════════════
 const EMPTY_MAC_SETTINGS: MacProductivitySettings = {
   external_editor: null,
+  external_terminal: null,
   global_hotkey: {
     enabled: false,
     shortcut: DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT,
@@ -396,6 +398,7 @@ const EMPTY_MAC_SETTINGS: MacProductivitySettings = {
 };
 
 const EDITOR_PRESETS = ["Visual Studio Code", "Cursor", "Zed", "Sublime Text"];
+const TERMINAL_PRESETS = ["Terminal", "iTerm", "Warp"];
 const HOTKEY_PRESETS = [
   DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT,
   "CommandOrControl+Option+X",
@@ -409,6 +412,9 @@ function macRecoveryHint(error: string): string | null {
   }
   if (lower.includes("hotkey") || lower.includes("shortcut") || lower.includes("accelerator") || lower.includes("registered")) {
     return "Pick a different shortcut, save again, or disable the global hotkey if another Mac app owns it.";
+  }
+  if (lower.includes("terminal") || lower.includes("iterm") || lower.includes("warp")) {
+    return "Use Terminal, iTerm, Warp, an installed app bundle path, or a full executable path, then save the terminal preference again.";
   }
   if (lower.includes("editor") || lower.includes("application") || lower.includes("executable")) {
     return "Use an installed app name or a full executable path, then save the editor preference again.";
@@ -426,6 +432,7 @@ function macNotificationStatusTone(permission: NotificationPermissionState): "ok
 function MacPanel({ open }: { open: boolean }) {
   const [settings, setSettings] = useState<MacProductivitySettings>(EMPTY_MAC_SETTINGS);
   const [editor, setEditor] = useState("");
+  const [terminal, setTerminal] = useState("");
   const [hotkeyShortcut, setHotkeyShortcut] = useState(DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>("unknown");
   const [loading, setLoading] = useState(false);
@@ -433,14 +440,19 @@ function MacPanel({ open }: { open: boolean }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  function applyMacSettings(next: MacProductivitySettings) {
+    setSettings(next);
+    setEditor(next.external_editor ?? "");
+    setTerminal(next.external_terminal ?? "");
+    setHotkeyShortcut(normalizeGlobalHotkeyShortcut(next.global_hotkey.shortcut));
+  }
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const next = await commands.getMacProductivitySettings();
-      setSettings(next);
-      setEditor(next.external_editor ?? "");
-      setHotkeyShortcut(normalizeGlobalHotkeyShortcut(next.global_hotkey.shortcut));
+      applyMacSettings(next);
       setNotificationPermission(await getNotificationPermissionState());
     } catch (err) {
       setError(String(err));
@@ -457,11 +469,24 @@ function MacPanel({ open }: { open: boolean }) {
     setError("");
     const result = await commands.setExternalEditor(value.trim());
     if (result.status === "ok") {
-      setSettings(result.data);
-      setEditor(result.data.external_editor ?? "");
-      setHotkeyShortcut(normalizeGlobalHotkeyShortcut(result.data.global_hotkey.shortcut));
+      applyMacSettings(result.data);
       notifyMacProductivitySettingsChanged(result.data);
       setMessage(result.data.external_editor ? "External editor saved." : "External editor cleared.");
+    } else {
+      setError(result.error);
+    }
+    setSaving(false);
+  }
+
+  async function saveTerminal(value = terminal) {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    const result = await commands.setExternalTerminal(value.trim());
+    if (result.status === "ok") {
+      applyMacSettings(result.data);
+      notifyMacProductivitySettingsChanged(result.data);
+      setMessage(result.data.external_terminal ? "External terminal saved." : "External terminal cleared.");
     } else {
       setError(result.error);
     }
@@ -478,9 +503,7 @@ function MacPanel({ open }: { open: boolean }) {
     };
     const result = await commands.setMacGlobalHotkeySettings(nextHotkey);
     if (result.status === "ok") {
-      setSettings(result.data);
-      setEditor(result.data.external_editor ?? "");
-      setHotkeyShortcut(normalizeGlobalHotkeyShortcut(result.data.global_hotkey.shortcut));
+      applyMacSettings(result.data);
       notifyMacProductivitySettingsChanged(result.data);
       setMessage(result.data.global_hotkey.enabled ? "Global hotkey saved." : "Global hotkey disabled.");
     } else {
@@ -498,9 +521,7 @@ function MacPanel({ open }: { open: boolean }) {
     };
     const result = await commands.setMacStatusItemSettings(nextStatusItem);
     if (result.status === "ok") {
-      setSettings(result.data);
-      setEditor(result.data.external_editor ?? "");
-      setHotkeyShortcut(normalizeGlobalHotkeyShortcut(result.data.global_hotkey.shortcut));
+      applyMacSettings(result.data);
       notifyMacProductivitySettingsChanged(result.data);
       setMessage(result.data.status_item.enabled ? "Menu bar status item enabled." : "Menu bar status item disabled.");
     } else {
@@ -537,9 +558,7 @@ function MacPanel({ open }: { open: boolean }) {
     }
     const result = await commands.setMacNotificationSettings(nextNotifications);
     if (result.status === "ok") {
-      setSettings(result.data);
-      setEditor(result.data.external_editor ?? "");
-      setHotkeyShortcut(normalizeGlobalHotkeyShortcut(result.data.global_hotkey.shortcut));
+      applyMacSettings(result.data);
       notifyMacProductivitySettingsChanged(result.data);
       setMessage("Notification settings saved.");
     } else {
@@ -577,12 +596,18 @@ function MacPanel({ open }: { open: boolean }) {
 
   return (
     <div className="flex flex-col gap-3 p-5">
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
         <MacStatusTile
           icon={Code2}
           label="Editor"
           value={settings.external_editor ?? "Not configured"}
           tone={settings.external_editor ? "ok" : "muted"}
+        />
+        <MacStatusTile
+          icon={TerminalSquare}
+          label="Terminal"
+          value={settings.external_terminal ?? "Not configured"}
+          tone={settings.external_terminal ? "ok" : "muted"}
         />
         <MacStatusTile
           icon={Keyboard}
@@ -649,6 +674,55 @@ function MacPanel({ open }: { open: boolean }) {
         {settings.external_editor && (
           <p className="mt-2 text-xs text-[oklch(0.62_0.018_205)]">
             Current: <code className="rounded bg-[oklch(0.15_0.004_245)] px-1 py-0.5 text-[10px]">{settings.external_editor}</code>
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)] px-3 py-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-[oklch(0.90_0.025_220)]">
+          <TerminalSquare className="h-4 w-4 text-[oklch(0.68_0.050_190)]" />
+          Preferred external terminal
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-[oklch(0.58_0.012_225)]">
+          Terminal cwd actions can hand off the active folder to a native Mac terminal app.
+        </p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={terminal}
+            onChange={(e) => {
+              setTerminal(e.target.value);
+              setMessage("");
+              setError("");
+            }}
+            placeholder="Terminal, iTerm, Warp, or /Applications/Warp.app"
+            className="text-sm border-[oklch(0.24_0.010_235)] bg-[oklch(0.105_0.004_245)]"
+          />
+          <Button size="sm" variant="outline" disabled={saving || loading} onClick={() => void saveTerminal()} className="gap-1">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save Terminal"}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={saving || loading || !settings.external_terminal} onClick={() => void saveTerminal("")}>
+            Clear
+          </Button>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {TERMINAL_PRESETS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => {
+                setTerminal(preset);
+                setMessage("");
+                setError("");
+              }}
+              className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] px-2 py-1 text-[11px] text-[oklch(0.62_0.016_220)] transition-colors hover:border-[oklch(0.35_0.025_195)] hover:text-[oklch(0.82_0.025_210)]"
+            >
+              {preset}
+            </button>
+          ))}
+        </div>
+        {settings.external_terminal && (
+          <p className="mt-2 text-xs text-[oklch(0.62_0.018_205)]">
+            Current: <code className="rounded bg-[oklch(0.15_0.004_245)] px-1 py-0.5 text-[10px]">{settings.external_terminal}</code>
           </p>
         )}
       </div>

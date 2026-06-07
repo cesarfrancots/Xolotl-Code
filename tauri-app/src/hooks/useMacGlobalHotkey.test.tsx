@@ -41,6 +41,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 function settings(enabled: boolean, shortcut = "CommandOrControl+Shift+Space"): MacProductivitySettings {
   return {
     external_editor: null,
+    external_terminal: null,
     global_hotkey: { enabled, shortcut },
     status_item: { enabled: false },
     notifications: {

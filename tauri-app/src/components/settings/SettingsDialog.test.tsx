@@ -13,6 +13,7 @@ const commandMocks = vi.hoisted(() => ({
   getApiKeyStatus: vi.fn(() => Promise.resolve({})),
   getMacProductivitySettings: vi.fn(() => Promise.resolve({
     external_editor: "Cursor",
+    external_terminal: "Warp",
     global_hotkey: {
       enabled: false,
       shortcut: "CommandOrControl+Shift+Space",
@@ -30,6 +31,26 @@ const commandMocks = vi.hoisted(() => ({
     status: "ok" as const,
     data: {
       external_editor: editor || null,
+      external_terminal: "Warp",
+      global_hotkey: {
+        enabled: false,
+        shortcut: "CommandOrControl+Shift+Space",
+      },
+      status_item: {
+        enabled: false,
+      },
+      notifications: {
+        agent_finished: false,
+        eval_finished: false,
+        permission_required: false,
+      },
+    },
+  })),
+  setExternalTerminal: vi.fn((terminal: string) => Promise.resolve({
+    status: "ok" as const,
+    data: {
+      external_editor: "Cursor",
+      external_terminal: terminal || null,
       global_hotkey: {
         enabled: false,
         shortcut: "CommandOrControl+Shift+Space",
@@ -48,6 +69,7 @@ const commandMocks = vi.hoisted(() => ({
     status: "ok" as const,
     data: {
       external_editor: "Cursor",
+      external_terminal: "Warp",
       global_hotkey,
       status_item: {
         enabled: false,
@@ -67,6 +89,7 @@ const commandMocks = vi.hoisted(() => ({
     status: "ok" as const,
     data: {
       external_editor: "Cursor",
+      external_terminal: "Warp",
       global_hotkey: {
         enabled: false,
         shortcut: "CommandOrControl+Shift+Space",
@@ -83,6 +106,7 @@ const commandMocks = vi.hoisted(() => ({
     status: "ok" as const,
     data: {
       external_editor: "Cursor",
+      external_terminal: "Warp",
       global_hotkey: {
         enabled: false,
         shortcut: "CommandOrControl+Shift+Space",
@@ -108,6 +132,7 @@ vi.mock("../../bindings", () => ({
     getApiKeyStatus: commandMocks.getApiKeyStatus,
     getMacProductivitySettings: commandMocks.getMacProductivitySettings,
     setExternalEditor: commandMocks.setExternalEditor,
+    setExternalTerminal: commandMocks.setExternalTerminal,
     setMacGlobalHotkeySettings: commandMocks.setMacGlobalHotkeySettings,
     setMacStatusItemSettings: commandMocks.setMacStatusItemSettings,
     setMacNotificationSettings: commandMocks.setMacNotificationSettings,
@@ -148,6 +173,8 @@ describe("SettingsDialog", () => {
 
     expect(await screen.findByText("Editor")).toBeTruthy();
     expect(screen.getAllByText("Cursor").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Terminal").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Warp").length).toBeGreaterThan(0);
     expect(screen.getByText("Global Hotkey")).toBeTruthy();
     expect(screen.getAllByText("Disabled").length).toBeGreaterThan(0);
     expect(screen.getByText("Menu Bar")).toBeTruthy();
@@ -170,6 +197,23 @@ describe("SettingsDialog", () => {
 
     expect(commandMocks.setExternalEditor).toHaveBeenCalledWith("Visual Studio Code");
     expect(await screen.findByText("External editor saved.")).toBeTruthy();
+  });
+
+  it("loads and saves the macOS external terminal preference", async () => {
+    const user = userEvent.setup();
+    render(<SettingsDialog open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "macOS" }));
+
+    const terminalInput = await screen.findByPlaceholderText("Terminal, iTerm, Warp, or /Applications/Warp.app");
+    expect((terminalInput as HTMLInputElement).value).toBe("Warp");
+
+    await user.clear(terminalInput);
+    await user.type(terminalInput, "Terminal");
+    await user.click(screen.getByRole("button", { name: "Save Terminal" }));
+
+    expect(commandMocks.setExternalTerminal).toHaveBeenCalledWith("Terminal");
+    expect(await screen.findByText("External terminal saved.")).toBeTruthy();
   });
 
   it("saves macOS notification preferences", async () => {
