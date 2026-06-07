@@ -18,6 +18,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Shortcut hints use macOS symbols across workbench, terminal, sidebar footer, composer command button, and command palette rows.
 - Command palette includes native-menu actions, active project Finder/path actions, recent project entries, and terminal actions with Mac shortcut chips.
 - Command palette includes a File Browser section for current-folder reveal/copy/refresh/navigation and visible file/folder row actions.
+- Mac command routing uses a shared command model for global keydown handling, native-menu action normalization, and command-palette action rows.
 - File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
 - Directory paths passed at app launch are imported into the project store and activated on startup.
 - macOS open/reopen events are handled: file URLs from Finder/Open With are normalized into project-open requests, and Dock/app reopen focuses the main window.
@@ -118,8 +119,8 @@ Deliverables:
   - Prefer Cmd-first equivalents for Mac users.
   - Scope terminal tab shortcuts to terminal-open contexts where needed.
 - Menu parity:
-  - Keep native menu IDs, frontend action names, and command palette actions in sync.
-  - Add tests for any new command normalization.
+  - Keep native menu IDs, frontend action names, and command palette actions in sync. Done for the first shared Mac command model pass.
+  - Add tests for any new command normalization. Done for shared command actions, global keydown routing, and terminal-scoped shortcut routing.
 
 Acceptance:
 
@@ -294,7 +295,7 @@ This is the near-term order for this branch.
 2. Start Phase 2 Mac UI pass:
 3. Add Phase 2.5 keyboard parity:
    - Additional file-browser row commands in the command palette. Done for current-folder and visible-entry commands.
-   - Tests for menu, palette, and keydown routing.
+   - Tests for menu, palette, and keydown routing. Done for shared command actions, palette native rows, global shortcuts, and terminal-scoped shortcuts.
 4. Expand Phase 6 productivity features:
    - Notifications with click-through routing.
    - Optional global hotkey.

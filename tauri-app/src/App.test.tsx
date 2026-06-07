@@ -163,6 +163,34 @@ describe("App tab navigation", () => {
     expect(window.location.search).toBe("?tab=civ");
   });
 
+  it("dispatches shared Mac global shortcuts through the native action bridge", () => {
+    const actions: string[] = [];
+    const onAction = (event: Event) => actions.push((event as CustomEvent<string>).detail);
+    window.addEventListener(NATIVE_MENU_EVENT, onAction);
+
+    try {
+      render(<App />);
+
+      fireEvent.keyDown(window, { key: "n", metaKey: true });
+      fireEvent.keyDown(window, { key: "o", metaKey: true });
+      fireEvent.keyDown(window, { key: ",", metaKey: true });
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+      fireEvent.keyDown(window, { key: "j", metaKey: true });
+      fireEvent.keyDown(window, { key: "`", code: "Backquote", ctrlKey: true });
+
+      expect(actions).toEqual([
+        "new-chat",
+        "open-folder",
+        "settings",
+        "commands",
+        "toggle-terminal",
+        "toggle-terminal",
+      ]);
+    } finally {
+      window.removeEventListener(NATIVE_MENU_EVENT, onAction);
+    }
+  });
+
   it("returns to chat for the native new chat action", async () => {
     window.history.replaceState(null, "", "/?tab=eval");
     render(<App />);
@@ -188,6 +216,16 @@ describe("App tab navigation", () => {
     expect(useTerminalStore.getState().activeKey).toBe(tabs[0].key);
 
     fireEvent.keyDown(window, { key: "w", metaKey: true });
+    expect(useTerminalStore.getState().tabs).toHaveLength(0);
+    expect(useUiStore.getState().terminalPanelOpen).toBe(false);
+  });
+
+  it("does not reserve terminal tab shortcuts while the dock is closed", () => {
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: "t", metaKey: true });
+    fireEvent.keyDown(window, { key: "w", metaKey: true });
+
     expect(useTerminalStore.getState().tabs).toHaveLength(0);
     expect(useUiStore.getState().terminalPanelOpen).toBe(false);
   });

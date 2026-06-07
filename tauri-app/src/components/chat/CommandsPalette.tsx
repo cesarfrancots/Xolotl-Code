@@ -22,6 +22,7 @@ import {
 } from "../../lib/chatCommands";
 import { calcTurnCost, formatCostBar } from "../../lib/cost";
 import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "../../lib/fileBrowser";
+import { MAC_COMMANDS, type MacCommandId, type MacCommandSpec } from "../../lib/macCommandModel";
 import { formatMacShortcut } from "../../lib/macShortcuts";
 import { dispatchNativeMenuAction, type NativeMenuAction } from "../../lib/nativeMenu";
 import { copyTextToClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
@@ -50,6 +51,21 @@ interface PaletteCommand {
   run?: CommandAction;
   secondaryActions?: PaletteSecondaryAction[];
 }
+
+const MAC_COMMAND_ICONS: Record<MacCommandId, React.ComponentType<{ className?: string }>> = {
+  "new-chat": MessageSquare,
+  "open-folder": FolderPlus,
+  settings: Settings,
+  commands: Keyboard,
+  "toggle-terminal": TerminalSquare,
+  "tab-chat": MessageSquare,
+  "tab-eval": TestTubeDiagonal,
+  "tab-civ": Sprout,
+  "terminal-new": TerminalSquare,
+  "terminal-close": TerminalSquare,
+  "terminal-prev": TerminalSquare,
+  "terminal-next": TerminalSquare,
+};
 
 export function CommandsPalette({
   open, onOpenChange, onUsePrompt, customCommands = [], enableGlobalShortcut = true,
@@ -91,17 +107,9 @@ export function CommandsPalette({
       onOpenChange(false);
     };
 
-    const nativeCommands: PaletteCommand[] = [
-      { id: "native-new-chat", kind: "action", label: "New Chat", shortcut: "Cmd+N", description: "Start a fresh chat in the current workspace.", icon: MessageSquare, run: () => runNativeAction("new-chat") },
-      { id: "native-open-folder", kind: "action", label: "Open Folder", shortcut: "Cmd+O", description: "Choose a project folder with the native picker.", icon: FolderPlus, run: () => runNativeAction("open-folder") },
-      { id: "native-settings", kind: "action", label: "Settings", shortcut: "Cmd+Comma", description: "Open provider, skill, and app settings.", icon: Settings, run: () => runNativeAction("settings") },
-      { id: "native-terminal-toggle", kind: "action", label: "Toggle Terminal", shortcut: "Cmd+J", description: "Show or hide the terminal dock.", icon: TerminalSquare, run: () => runNativeAction("toggle-terminal") },
-      { id: "native-tab-chat", kind: "action", label: "Go to Chat", shortcut: "Cmd+1", description: "Switch the center workbench to Chat.", icon: MessageSquare, run: () => runNativeAction("tab-chat") },
-      { id: "native-tab-eval", kind: "action", label: "Go to Eval", shortcut: "Cmd+2", description: "Switch the center workbench to Eval.", icon: TestTubeDiagonal, run: () => runNativeAction("tab-eval") },
-      { id: "native-tab-civ", kind: "action", label: "Go to Civ", shortcut: "Cmd+3", description: "Switch the center workbench to Civ.", icon: Sprout, run: () => runNativeAction("tab-civ") },
-      { id: "native-terminal-new", kind: "action", label: activeProjectPath ? "New Terminal Here" : "New Terminal", shortcut: "Cmd+T", description: activeProjectPath ? macPathLabel(activeProjectPath) : "Create a terminal tab from the current app directory.", icon: TerminalSquare, run: () => runNativeAction("terminal-new") },
-      { id: "native-terminal-close", kind: "action", label: "Close Terminal Tab", shortcut: "Cmd+W", description: "Close the active terminal tab when the dock is open.", icon: TerminalSquare, run: () => runNativeAction("terminal-close") },
-    ];
+    const nativeCommands: PaletteCommand[] = MAC_COMMANDS
+      .filter((command) => command.id !== "commands")
+      .map((command) => paletteCommandFromMacCommand(command, runNativeAction, activeProjectPath));
 
     const projectCommands: PaletteCommand[] = [
       ...(activeProjectPath ? [
@@ -283,6 +291,23 @@ export function CommandsPalette({
       </DialogContent>
     </Dialog>
   );
+}
+
+function paletteCommandFromMacCommand(
+  command: MacCommandSpec,
+  runNativeAction: (action: NativeMenuAction) => void,
+  activeProjectPath: string | null,
+): PaletteCommand {
+  const isNewTerminal = command.id === "terminal-new";
+  return {
+    id: `native-${command.id}`,
+    kind: "action",
+    label: isNewTerminal && activeProjectPath ? "New Terminal Here" : command.label,
+    shortcut: command.shortcut,
+    description: isNewTerminal && activeProjectPath ? macPathLabel(activeProjectPath) : command.description,
+    icon: MAC_COMMAND_ICONS[command.id],
+    run: () => runNativeAction(command.action),
+  };
 }
 
 function runSlashCommand(

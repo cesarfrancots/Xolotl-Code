@@ -14,6 +14,7 @@ import { useProjectDrop } from "./hooks/useProjectDrop";
 import { useProjectOpenEvents } from "./hooks/useProjectOpenEvents";
 import { Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves } from "lucide-react";
 import { centerTabFromSearch, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
+import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
 import {
   dispatchNativeMenuAction,
@@ -179,51 +180,12 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return;
-
-      if (e.metaKey && !e.ctrlKey && !e.altKey && useUiStore.getState().terminalPanelOpen) {
-        const key = e.key.toLowerCase();
-        if (!e.shiftKey && key === "t") {
-          e.preventDefault();
-          dispatchNativeMenuAction("terminal-new");
-          return;
-        }
-        if (!e.shiftKey && key === "w") {
-          e.preventDefault();
-          dispatchNativeMenuAction("terminal-close");
-          return;
-        }
-        if (e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-          e.preventDefault();
-          dispatchNativeMenuAction(e.key === "ArrowLeft" ? "terminal-prev" : "terminal-next");
-          return;
-        }
-      }
-
-      const metaOnly = e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
-      if (metaOnly) {
-        const key = e.key.toLowerCase();
-        const actionByKey: Partial<Record<string, NativeMenuAction>> = {
-          ",": "settings",
-          "1": "tab-chat",
-          "2": "tab-eval",
-          "3": "tab-civ",
-          j: "toggle-terminal",
-          k: "commands",
-          n: "new-chat",
-          o: "open-folder",
-        };
-        const action = actionByKey[key];
-        if (action) {
-          e.preventDefault();
-          dispatchNativeMenuAction(action);
-          return;
-        }
-      }
-
-      if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "`" || e.code === "Backquote")) {
+      const action = macCommandActionForKeydown(e, {
+        terminalOpen: useUiStore.getState().terminalPanelOpen,
+      });
+      if (action) {
         e.preventDefault();
-        dispatchNativeMenuAction("toggle-terminal");
+        dispatchNativeMenuAction(action);
       }
     };
     window.addEventListener("keydown", onKeyDown);

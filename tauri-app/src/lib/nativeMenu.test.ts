@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAC_COMMANDS } from "./macCommandModel";
 import { nativeMenuActionFromPayload } from "./nativeMenu";
 
 describe("nativeMenuActionFromPayload", () => {
@@ -10,8 +11,9 @@ describe("nativeMenuActionFromPayload", () => {
   });
 
   it("accepts already-normalized frontend actions", () => {
-    expect(nativeMenuActionFromPayload("commands")).toBe("commands");
-    expect(nativeMenuActionFromPayload("toggle-terminal")).toBe("toggle-terminal");
+    for (const command of MAC_COMMANDS) {
+      expect(nativeMenuActionFromPayload(command.action)).toBe(command.action);
+    }
   });
 
   it("rejects unknown or malformed payloads", () => {
