@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import {
   ChevronDown,
   Command,
@@ -20,10 +20,14 @@ import { SessionItem } from "./SessionItem";
 import { ProjectsSection } from "./ProjectsSection";
 import { DirectoryBrowser } from "./DirectoryBrowser";
 import { commands } from "../../bindings";
-import { SettingsDialog } from "../settings/SettingsDialog";
 import { CommandsPalette } from "../chat/CommandsPalette";
 import { listenForNativeMenuActions } from "../../lib/nativeMenu";
 import { formatMacShortcut, shortcutTitle } from "../../lib/macShortcuts";
+
+const LazySettingsDialog = lazy(async () => {
+  const module = await import("../settings/SettingsDialog");
+  return { default: module.SettingsDialog };
+});
 
 /**
  * Left column — the workbench navigator.
@@ -102,7 +106,11 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
 
   return (
     <>
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <LazySettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+        </Suspense>
+      )}
       <aside
         data-collapsed={collapsed ? "true" : "false"}
         data-force-collapsed={forceCollapsed ? "true" : "false"}
