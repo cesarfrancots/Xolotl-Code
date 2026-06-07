@@ -5024,9 +5024,10 @@ const DISASTER_RADIUS_MAX: u32 = 8;
 const ENV_FORECAST_SALT: u32 = 0xD15A_57E2;
 
 /// Season-weighted disaster eligibility. `flood`/`quake` reshape terrain
-/// (`apply_disaster_to_tiles`); `drought`/`cold_snap` reuse the existing
-/// `resolve_environment` modifier arms; `storm`/`predator_incursion` are
-/// announce/one-shot (no new `CivModifier` kind without a matching arm — Pitfall 5).
+/// (`apply_disaster_to_tiles`); `drought`/`cold_snap`/`storm`/`predator_incursion`
+/// each reuse an EXISTING `resolve_environment` modifier arm
+/// (drought/cold_snap/fatigue/quarrel_pressure) so every fired kind has a real
+/// effect — no new `CivModifier` kind without a matching arm (Pitfall 5).
 fn disaster_kinds_for(season: &str, temperature: f32) -> &'static [&'static str] {
     match season {
         "winter" => &["cold_snap", "storm", "quake"],
@@ -5165,10 +5166,15 @@ fn tick_environment(snapshot: &mut CivSessionSnapshot) {
             apply_disaster_to_tiles(&mut snapshot.world.tiles, &forecast, width);
             // Reuse an EXISTING CivModifier kind so resolve_environment applies it
             // (Pitfall 5: never push an unknown kind — it would be a silent no-op).
+            // storm/predator_incursion map to the existing fatigue/quarrel_pressure
+            // morale arms (:2551,:2555) so the most-frequently-rolled kinds have a
+            // real mechanical effect (ENV-02) instead of being cosmetic.
             let modifier_kind = match forecast.kind.as_str() {
                 "drought" => Some("drought"),
                 "cold_snap" => Some("cold_snap"),
-                _ => None, // flood/quake = terrain-only; storm/predator = announce/one-shot
+                "storm" => Some("fatigue"),
+                "predator_incursion" => Some("quarrel_pressure"),
+                _ => None, // flood/quake = terrain-only (reshape, no modifier)
             };
             if let Some(mk) = modifier_kind {
                 snapshot.modifiers.push(CivModifier {
@@ -6970,9 +6976,16 @@ mod tests {
 
     #[test]
     fn tick_environment_fired_disaster_pushes_reused_modifier() {
-        // A fired drought pushes a reused "drought" CivModifier (existing
-        // resolve_environment arm applies it); a fired cold_snap pushes "cold_snap".
-        for (kind, modifier_kind) in [("drought", "drought"), ("cold_snap", "cold_snap")] {
+        // Every fired non-terrain disaster pushes a reused CivModifier whose kind has
+        // a LIVE resolve_environment arm (Pitfall 5: no unknown kind that would
+        // silently no-op). storm→fatigue and predator_incursion→quarrel_pressure give
+        // the most-frequently-rolled kinds a real mechanical effect (MD-01 / ENV-02).
+        for (kind, modifier_kind) in [
+            ("drought", "drought"),
+            ("cold_snap", "cold_snap"),
+            ("storm", "fatigue"),
+            ("predator_incursion", "quarrel_pressure"),
+        ] {
             let mut snapshot = test_snapshot("env-mod", "Mod", "mock-model", 42, 1);
             snapshot.environment.forecast = Some(pending_forecast(kind, 1));
             snapshot.turn = 1;
@@ -6981,8 +6994,18 @@ mod tests {
                 snapshot.modifiers.iter().any(|m| m.kind == modifier_kind),
                 "a fired {kind} must push a reused '{modifier_kind}' modifier"
             );
+            // The pushed kind must be one resolve_environment actually handles —
+            // assert it is NOT the silent-no-op wildcard set (negative test).
+            assert!(
+                matches!(
+                    modifier_kind,
+                    "drought" | "cold_snap" | "fatigue" | "quarrel_pressure"
+                ),
+                "a fired {kind} must map to a kind with a live resolve_environment arm"
+            );
         }
-        // A flood (terrain-only) must NOT push an unknown modifier kind (Pitfall 5).
+        // A flood (terrain-only) must NOT push any modifier — neither its own kind
+        // nor a reused one (Pitfall 5: no unknown 'flood' kind, and no modifier at all).
         let mut flood = test_snapshot("env-flood-mod", "Flood", "mock-model", 42, 1);
         flood.environment.forecast = Some(pending_forecast("flood", 1));
         flood.turn = 1;
@@ -6990,6 +7013,10 @@ mod tests {
         assert!(
             !flood.modifiers.iter().any(|m| m.kind == "flood"),
             "a flood must not introduce an unknown 'flood' modifier kind"
+        );
+        assert!(
+            flood.modifiers.is_empty(),
+            "a terrain-only flood must push no modifier at all"
         );
     }
 
