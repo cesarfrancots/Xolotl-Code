@@ -4,7 +4,7 @@ import {
   FlaskConical, Play, RotateCcw, ChevronDown, ChevronUp, Save,
   Eye, EyeOff, Trophy, History, ListChecks, Gavel, Trash2,
   Target, AlertTriangle, Activity, ShieldCheck, ScanSearch, Gauge,
-  CheckCircle2, CircleDot, ExternalLink, FileText, FolderOpen, MonitorPlay,
+  CheckCircle2, CircleDot, Code2, Copy, ExternalLink, FileText, FolderOpen, MonitorPlay,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
@@ -33,6 +33,7 @@ import {
   OPEN_EVAL_FROM_NOTIFICATION_EVENT,
   consumePendingEvalNotificationId,
 } from "../../hooks/useMacNotificationRoutes";
+import { copyTextToClipboard, openPathInExternalEditor } from "../../lib/pathActions";
 
 const ReliabilityDashboard = lazy(() => import("./ReliabilityDashboard"));
 
@@ -150,15 +151,15 @@ function hasScoreableOutput(state: { status: string; content: string; error?: st
 }
 
 type ArtifactLaunchState = "idle" | "starting" | "ok" | "error";
-type ArtifactRevealState = "idle" | "revealing" | "ok" | "error";
+type ArtifactHandoffState = "idle" | "working" | "ok" | "error";
 
 interface ArtifactActionStatus {
   state: ArtifactLaunchState;
   message: string;
   artifactDir?: string;
-  revealState?: ArtifactRevealState;
-  revealMessage?: string;
-  revealHint?: string;
+  handoffState?: ArtifactHandoffState;
+  handoffMessage?: string;
+  handoffHint?: string;
 }
 
 type FinderRevealTarget = "eval-file" | "eval-artifacts" | "generated-artifact";
@@ -519,7 +520,7 @@ function OutcomePreview({
           state: "ok",
           message: result.data.message,
           artifactDir: result.data.artifact_dir,
-          revealState: "idle",
+          handoffState: "idle",
         },
       }));
     } else {
@@ -527,25 +528,86 @@ function OutcomePreview({
     }
   };
 
-  const revealArtifact = async (artifact: EvalArtifact) => {
+  const runArtifactFolderHandoff = async (
+    artifact: EvalArtifact,
+    action: () => Promise<void>,
+    successMessage: string,
+    failureMessage: string,
+    recoveryHint: (error: unknown) => string,
+  ) => {
     const launched = launchStates[artifact.id];
     if (!launched?.artifactDir) return;
     setLaunchStates((prev) => ({
       ...prev,
-      [artifact.id]: { ...launched, revealState: "revealing", revealMessage: "", revealHint: undefined },
+      [artifact.id]: { ...launched, handoffState: "working", handoffMessage: "", handoffHint: undefined },
     }));
-    const result = await commands.revealInFinder(launched.artifactDir);
-    setLaunchStates((prev) => ({
-      ...prev,
-      [artifact.id]: {
-        ...(prev[artifact.id] ?? launched),
-        revealState: result.status === "ok" ? "ok" : "error",
-        revealMessage: result.status === "ok"
-          ? "Generated artifact folder revealed in Finder."
-          : finderRevealFailureMessage("generated-artifact"),
-        revealHint: result.status === "ok" ? undefined : finderRevealRecoveryHint("generated-artifact", result.error),
+    try {
+      await action();
+      setLaunchStates((prev) => ({
+        ...prev,
+        [artifact.id]: {
+          ...(prev[artifact.id] ?? launched),
+          handoffState: "ok",
+          handoffMessage: successMessage,
+          handoffHint: undefined,
+        },
+      }));
+    } catch (error) {
+      setLaunchStates((prev) => ({
+        ...prev,
+        [artifact.id]: {
+          ...(prev[artifact.id] ?? launched),
+          handoffState: "error",
+          handoffMessage: failureMessage,
+          handoffHint: recoveryHint(error),
+        },
+      }));
+    }
+  };
+
+  const revealArtifact = async (artifact: EvalArtifact) => {
+    const launched = launchStates[artifact.id];
+    if (!launched?.artifactDir) return;
+    await runArtifactFolderHandoff(
+      artifact,
+      async () => {
+        const result = await commands.revealInFinder(launched.artifactDir!);
+        if (result.status === "error") throw new Error(result.error);
       },
-    }));
+      "Generated artifact folder revealed in Finder.",
+      finderRevealFailureMessage("generated-artifact"),
+      (error) => finderRevealRecoveryHint("generated-artifact", error),
+    );
+  };
+
+  const copyArtifactFolderPath = async (artifact: EvalArtifact) => {
+    const launched = launchStates[artifact.id];
+    if (!launched?.artifactDir) return;
+    await runArtifactFolderHandoff(
+      artifact,
+      () => copyTextToClipboard(launched.artifactDir!),
+      "Generated artifact folder path copied.",
+      "Copy generated artifact folder path failed.",
+      (error) => {
+        const detail = error instanceof Error ? error.message : String(error ?? "");
+        return `Check macOS clipboard access and try copying the folder path again.${detail ? ` ${detail}` : ""}`;
+      },
+    );
+  };
+
+  const openArtifactFolderInEditor = async (artifact: EvalArtifact) => {
+    const launched = launchStates[artifact.id];
+    if (!launched?.artifactDir) return;
+    await runArtifactFolderHandoff(
+      artifact,
+      () => openPathInExternalEditor(launched.artifactDir!),
+      "Generated artifact folder opened in the external editor.",
+      "Open generated artifact folder in editor failed.",
+      (error) => {
+        const detail = error instanceof Error ? error.message : String(error ?? "");
+        return `Check the preferred editor in macOS Settings, or use an installed app name or executable path.${detail ? ` ${detail}` : ""}`;
+      },
+    );
   };
 
   return (
@@ -581,41 +643,68 @@ function OutcomePreview({
         <div className="flex flex-wrap gap-2 border-t border-[oklch(0.20_0.006_245)] px-3 py-2">
           {artifacts.map((artifact) => {
             const launch = launchStates[artifact.id] ?? { state: "idle" as ArtifactLaunchState, message: "" };
+            const handoffWorking = launch.handoffState === "working";
             return (
               <div key={artifact.id} className="flex min-w-[220px] max-w-full flex-col gap-1">
-                <div className="inline-flex min-w-0 items-center gap-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-1">
                   <button
                     type="button"
                     onClick={() => void startArtifact(artifact)}
                     disabled={launch.state === "starting" || launch.state === "ok"}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.66_0.020_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.66_0.020_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
                     title={launch.message || artifact.title}
                   >
-                    <ExternalLink className="h-3 w-3" />
-                    {launch.state === "starting" ? "Starting..." : artifact.kind === "python" ? "Start" : "Open"} {artifact.title}
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                    <span className="truncate">
+                      {launch.state === "starting" ? "Starting..." : artifact.kind === "python" ? "Start" : "Open"} {artifact.title}
+                    </span>
                   </button>
                   {launch.artifactDir && (
-                    <button
-                      type="button"
-                      onClick={() => void revealArtifact(artifact)}
-                      disabled={launch.revealState === "revealing"}
-                      className="inline-flex h-7 items-center gap-1 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.60_0.018_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
-                      title={launch.revealMessage || "Reveal generated artifact folder in Finder"}
-                      aria-label={`Reveal ${artifact.title} artifact in Finder`}
-                    >
-                      <FolderOpen className="h-3 w-3" />
-                      {launch.revealState === "revealing" ? "Revealing..." : "Reveal"}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void revealArtifact(artifact)}
+                        disabled={handoffWorking}
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.60_0.018_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
+                        title={launch.handoffMessage || "Reveal generated artifact folder in Finder"}
+                        aria-label={`Reveal ${artifact.title} artifact in Finder`}
+                      >
+                        <FolderOpen className="h-3 w-3" />
+                        Reveal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void copyArtifactFolderPath(artifact)}
+                        disabled={handoffWorking}
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.60_0.018_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
+                        title={launch.handoffMessage || "Copy generated artifact folder path"}
+                        aria-label={`Copy ${artifact.title} artifact folder path`}
+                      >
+                        <Copy className="h-3 w-3" />
+                        Copy Path
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void openArtifactFolderInEditor(artifact)}
+                        disabled={handoffWorking}
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.60_0.018_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
+                        title={launch.handoffMessage || "Open generated artifact folder in editor"}
+                        aria-label={`Open ${artifact.title} artifact folder in editor`}
+                      >
+                        <Code2 className="h-3 w-3" />
+                        Editor
+                      </button>
+                    </>
                   )}
                 </div>
                 {launch.state === "error" && (
                   <EvalInlineStatus tone="error" message="Could not start artifact." hint={launch.message} />
                 )}
-                {launch.revealMessage && (
+                {launch.handoffMessage && (
                   <EvalInlineStatus
-                    tone={launch.revealState === "error" ? "error" : "ok"}
-                    message={launch.revealMessage}
-                    hint={launch.revealHint}
+                    tone={launch.handoffState === "error" ? "error" : "ok"}
+                    message={launch.handoffMessage}
+                    hint={launch.handoffHint}
                   />
                 )}
               </div>

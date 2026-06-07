@@ -35,7 +35,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Terminal cwd metadata can reveal its folder in Finder and copy the POSIX cwd path.
 - Terminal cwd Finder/copy actions show inline success or recovery feedback instead of failing silently.
 - Eval history can reveal saved eval JSON files and the generated eval artifacts folder in Finder.
-- Launched eval outcome artifacts can reveal their generated artifact folder in Finder.
+- Launched eval outcome artifacts can reveal their generated artifact folder in Finder, copy its POSIX path, and open it in the preferred external editor.
 - Packaged launch-path smoke coverage is available through `npm run smoke:mac:launch-path`.
 - Packaged Launch Services/Open With smoke coverage is available through `npm run smoke:mac:open-project`.
 - Terminal tab commands are available from a native Terminal menu.
@@ -247,7 +247,7 @@ Deliverables:
 - Finder actions:
   - Reveal active project in Finder.
   - Quick Look project files from the sidebar and command palette. Done for visible file entries.
-  - Reveal generated eval artifacts in Finder. Done for saved eval JSON files, the eval-artifacts folder, and generated artifact folders after launch.
+  - Reveal generated eval artifacts in Finder. Done for saved eval JSON files, the eval-artifacts folder, and generated artifact folders after launch; launched artifact folders also support path copy and editor handoff.
   - Open project folder in the user's preferred external editor if configured. Done for active project rows and command palette access.
 - Notification actions for long-running tasks:
   - Agent finished. Done for opt-in native completion alerts and reopen-to-agent routing.
@@ -365,7 +365,7 @@ Deliverables:
   - Complete end-to-end manual QA for drag/drop, Open With, and file-url launch using real folders with spaces and package directories.
   - Consider an AppKit shim only for features Tauri cannot expose cleanly and only after the maintenance cost is clear.
 - Add Mac-friendly import/export surfaces:
-  - Export eval artifacts and generated reports to Finder-visible locations with reveal/copy actions.
+  - Export eval artifacts and generated reports to Finder-visible locations with reveal/copy actions. Done for launched eval artifact folders; persisted report export remains follow-up work.
   - Keep file writes explicit and avoid surprise background exports.
 
 Acceptance:
@@ -410,7 +410,7 @@ Deliverables:
   - Consider optional external terminal launch for Terminal.app, iTerm2, or Warp behind a setting.
   - Preserve active project/folder cwd and shell profile metadata.
 - Add task-result handoffs:
-  - Reveal artifacts, copy paths, copy deep links, and open folders in editor from eval/agent result surfaces.
+  - Reveal artifacts, copy paths, copy deep links, and open folders in editor from eval/agent result surfaces. Done for launched eval artifact folders; agent result surfaces and deep links remain follow-up work.
 - Add visible recovery for failed handoff actions. Done for command-palette Finder/editor/Quick Look/clipboard actions.
   - Done for terminal cwd Finder/copy actions.
 
