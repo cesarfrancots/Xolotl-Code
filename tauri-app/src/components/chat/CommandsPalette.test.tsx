@@ -474,6 +474,13 @@ describe("CommandsPalette", () => {
       "examples",
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Open recent folder examples in external terminal" }));
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/examples",
+      );
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "Open recent folder examples in editor" }));
     await waitFor(() => {
       expect(pathActionMocks.openPathInExternalEditor).toHaveBeenCalledWith(
@@ -484,6 +491,27 @@ describe("CommandsPalette", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reveal recent folder examples in Finder" }));
     await waitFor(() => {
       expect(pathActionMocks.revealPathInFinder).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/examples",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy POSIX path for recent folder examples" }));
+    await waitFor(() => {
+      expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/examples",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Xolotl link for recent folder examples" }));
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/examples",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy shell open command for recent folder examples" }));
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith(
         "/Users/cesar/Documents/Xolotl/examples",
       );
     });

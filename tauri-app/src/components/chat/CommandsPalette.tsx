@@ -314,6 +314,13 @@ export function CommandsPalette({
               run: () => { openTerminalAtPath(folderPath, folderName); onOpenChange(false); },
             },
             {
+              id: "external-terminal",
+              label: `Open recent folder ${folderName} in external terminal`,
+              title: "Open in external terminal",
+              icon: TerminalSquare,
+              run: () => runMacHandoff("Open in external terminal", () => openPathInExternalTerminal(folderPath), "terminal"),
+            },
+            {
               id: "open-editor",
               label: `Open recent folder ${folderName} in editor`,
               title: "Open in editor",
@@ -326,6 +333,27 @@ export function CommandsPalette({
               title: "Reveal in Finder",
               icon: ExternalLink,
               run: () => runMacHandoff("Reveal in Finder", () => revealPathInFinder(folderPath), "finder"),
+            },
+            {
+              id: "copy-posix",
+              label: `Copy POSIX path for recent folder ${folderName}`,
+              title: "Copy POSIX path",
+              icon: Copy,
+              run: () => runMacHandoff("Copy folder path", () => copyTextToClipboard(folderPath), "clipboard"),
+            },
+            {
+              id: "copy-link",
+              label: `Copy Xolotl link for recent folder ${folderName}`,
+              title: "Copy Xolotl link",
+              icon: Link2,
+              run: () => runMacHandoff("Copy Xolotl link", () => copyXolotlCodeOpenUrl(folderPath), "clipboard"),
+            },
+            {
+              id: "copy-shell-open",
+              label: `Copy shell open command for recent folder ${folderName}`,
+              title: "Copy shell open command",
+              icon: TerminalSquare,
+              run: () => runMacHandoff("Copy shell open command", () => copyXolotlCodeOpenShellCommand(folderPath), "clipboard"),
             },
             {
               id: "copy-context",
