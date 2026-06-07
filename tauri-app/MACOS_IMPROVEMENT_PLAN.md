@@ -36,6 +36,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Terminal cwd Finder/copy actions show inline success or recovery feedback instead of failing silently.
 - Eval history can reveal saved eval JSON files and the generated eval artifacts folder in Finder.
 - Launched eval outcome artifacts can reveal their generated artifact folder in Finder, copy its POSIX path, and open it in the preferred external editor.
+- Expanded agent output can reveal the active agent worktree in Finder, copy its POSIX path, and open it in the preferred external editor.
 - Packaged launch-path smoke coverage is available through `npm run smoke:mac:launch-path`.
 - Packaged Launch Services/Open With smoke coverage is available through `npm run smoke:mac:open-project`.
 - Terminal tab commands are available from a native Terminal menu.
@@ -410,9 +411,10 @@ Deliverables:
   - Consider optional external terminal launch for Terminal.app, iTerm2, or Warp behind a setting.
   - Preserve active project/folder cwd and shell profile metadata.
 - Add task-result handoffs:
-  - Reveal artifacts, copy paths, copy deep links, and open folders in editor from eval/agent result surfaces. Done for launched eval artifact folders; agent result surfaces and deep links remain follow-up work.
+  - Reveal artifacts, copy paths, copy deep links, and open folders in editor from eval/agent result surfaces. Done for launched eval artifact folders and expanded agent worktree folders; deep links remain follow-up work.
 - Add visible recovery for failed handoff actions. Done for command-palette Finder/editor/Quick Look/clipboard actions.
   - Done for terminal cwd Finder/copy actions.
+  - Done for expanded agent worktree Finder/copy/editor actions.
 
 Acceptance:
 

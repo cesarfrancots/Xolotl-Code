@@ -606,6 +606,24 @@ pub fn list_agents(supervisor: tauri::State<'_, Arc<AgentSupervisor>>) -> Vec<St
     supervisor.list().into_iter().map(|id| id.0).collect()
 }
 
+/// Return the filesystem path for an active agent worktree.
+#[tauri::command]
+#[specta::specta]
+pub fn get_agent_worktree_path(
+    supervisor: tauri::State<'_, Arc<AgentSupervisor>>,
+    agent_id: String,
+) -> Result<String, String> {
+    let id = AgentId(agent_id);
+    if supervisor.get_handle(&id).is_none() {
+        return Err(format!("agent {} not found", id.0));
+    }
+    let worktree_path = supervisor
+        .worktree_manager
+        .get_path(&id)
+        .ok_or_else(|| format!("no worktree path for agent {}", id.0))?;
+    Ok(worktree_path.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn stop_agent(

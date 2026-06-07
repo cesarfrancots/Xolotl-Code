@@ -18,6 +18,8 @@ export const commands = {
 	 */
 	spawnAgent: (task: string, model: string, budgetDollars: number | null, chatMode: boolean | null) => typedError<string, string>(__TAURI_INVOKE("spawn_agent", { task, model, budgetDollars, chatMode })),
 	listAgents: () => __TAURI_INVOKE<string[]>("list_agents"),
+	/**  Return the filesystem path for an active agent worktree. */
+	getAgentWorktreePath: (agentId: string) => typedError<string, string>(__TAURI_INVOKE("get_agent_worktree_path", { agentId })),
 	stopAgent: (agentId: string) => typedError<null, string>(__TAURI_INVOKE("stop_agent", { agentId })),
 	respondToPermission: (promptId: string, decision: PermissionDecision) => typedError<null, string>(__TAURI_INVOKE("respond_to_permission", { promptId, decision })),
 	testPermissionPrompt: () => typedError<string, string>(__TAURI_INVOKE("test_permission_prompt")),
