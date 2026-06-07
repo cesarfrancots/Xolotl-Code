@@ -32,6 +32,7 @@ const PREVIEW_PROVIDERS = [
 
 const PREVIEW_EXTERNAL_EDITOR_KEY = "xolotl-preview-external-editor";
 const PREVIEW_GLOBAL_HOTKEY_KEY = "xolotl-preview-global-hotkey";
+const PREVIEW_STATUS_ITEM_KEY = "xolotl-preview-status-item";
 const PREVIEW_NOTIFICATIONS_KEY = "xolotl-preview-notifications";
 const PREVIEW_CLIPBOARD_KEY = "xolotl-preview-clipboard";
 const DEFAULT_PREVIEW_GLOBAL_HOTKEY = "CommandOrControl+Shift+Space";
@@ -1241,6 +1242,30 @@ function writePreviewGlobalHotkey(value: unknown) {
   return globalHotkey;
 }
 
+function readPreviewStatusItem() {
+  try {
+    const raw = globalThis.localStorage?.getItem(PREVIEW_STATUS_ITEM_KEY);
+    if (!raw) return { enabled: false };
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return { enabled: false };
+    return { enabled: parsed.enabled === true };
+  } catch {
+    return { enabled: false };
+  }
+}
+
+function writePreviewStatusItem(value: unknown) {
+  const statusItem = isRecord(value) ? {
+    enabled: value.enabled === true,
+  } : { enabled: false };
+  try {
+    globalThis.localStorage?.setItem(PREVIEW_STATUS_ITEM_KEY, JSON.stringify(statusItem));
+  } catch {
+    // Browser preview can run with storage disabled; keep the native API shape.
+  }
+  return statusItem;
+}
+
 function readPreviewNotifications() {
   try {
     const raw = globalThis.localStorage?.getItem(PREVIEW_NOTIFICATIONS_KEY);
@@ -1377,6 +1402,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return {
         external_editor: readPreviewExternalEditor(),
         global_hotkey: readPreviewGlobalHotkey(),
+        status_item: readPreviewStatusItem(),
         notifications: readPreviewNotifications(),
       };
     case "set_external_editor": {
@@ -1384,6 +1410,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return {
         external_editor: writePreviewExternalEditor(editor),
         global_hotkey: readPreviewGlobalHotkey(),
+        status_item: readPreviewStatusItem(),
         notifications: readPreviewNotifications(),
       };
     }
@@ -1392,6 +1419,16 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return {
         external_editor: readPreviewExternalEditor(),
         global_hotkey: globalHotkey,
+        status_item: readPreviewStatusItem(),
+        notifications: readPreviewNotifications(),
+      };
+    }
+    case "set_mac_status_item_settings": {
+      const statusItem = isRecord(args) ? writePreviewStatusItem(args.settings) : readPreviewStatusItem();
+      return {
+        external_editor: readPreviewExternalEditor(),
+        global_hotkey: readPreviewGlobalHotkey(),
+        status_item: statusItem,
         notifications: readPreviewNotifications(),
       };
     }
@@ -1400,9 +1437,12 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return {
         external_editor: readPreviewExternalEditor(),
         global_hotkey: readPreviewGlobalHotkey(),
+        status_item: readPreviewStatusItem(),
         notifications,
       };
     }
+    case "update_mac_status_item":
+      return null;
     case "plugin:notification|is_permission_granted":
       return true;
     case "plugin:notification|request_permission":

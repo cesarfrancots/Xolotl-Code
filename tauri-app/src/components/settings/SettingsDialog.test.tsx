@@ -11,6 +11,9 @@ const commandMocks = vi.hoisted(() => ({
       enabled: false,
       shortcut: "CommandOrControl+Shift+Space",
     },
+    status_item: {
+      enabled: false,
+    },
     notifications: {
       agent_finished: false,
       eval_finished: false,
@@ -24,6 +27,9 @@ const commandMocks = vi.hoisted(() => ({
       global_hotkey: {
         enabled: false,
         shortcut: "CommandOrControl+Shift+Space",
+      },
+      status_item: {
+        enabled: false,
       },
       notifications: {
         agent_finished: false,
@@ -40,6 +46,9 @@ const commandMocks = vi.hoisted(() => ({
     data: {
       external_editor: "Cursor",
       global_hotkey,
+      status_item: {
+        enabled: false,
+      },
       notifications: {
         agent_finished: false,
         eval_finished: false,
@@ -59,7 +68,28 @@ const commandMocks = vi.hoisted(() => ({
         enabled: false,
         shortcut: "CommandOrControl+Shift+Space",
       },
+      status_item: {
+        enabled: false,
+      },
       notifications,
+    },
+  })),
+  setMacStatusItemSettings: vi.fn((status_item: {
+    enabled: boolean;
+  }) => Promise.resolve({
+    status: "ok" as const,
+    data: {
+      external_editor: "Cursor",
+      global_hotkey: {
+        enabled: false,
+        shortcut: "CommandOrControl+Shift+Space",
+      },
+      status_item,
+      notifications: {
+        agent_finished: false,
+        eval_finished: false,
+        permission_required: false,
+      },
     },
   })),
 }));
@@ -70,6 +100,7 @@ vi.mock("../../bindings", () => ({
     getMacProductivitySettings: commandMocks.getMacProductivitySettings,
     setExternalEditor: commandMocks.setExternalEditor,
     setMacGlobalHotkeySettings: commandMocks.setMacGlobalHotkeySettings,
+    setMacStatusItemSettings: commandMocks.setMacStatusItemSettings,
     setMacNotificationSettings: commandMocks.setMacNotificationSettings,
   },
 }));
@@ -152,5 +183,18 @@ describe("SettingsDialog", () => {
       enabled: true,
       shortcut: "CommandOrControl+Option+X",
     });
+  });
+
+  it("saves the opt-in macOS menu bar status item preference", async () => {
+    const user = userEvent.setup();
+    render(<SettingsDialog open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "macOS" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Show menu bar status item" }));
+
+    expect(commandMocks.setMacStatusItemSettings).toHaveBeenCalledWith({
+      enabled: true,
+    });
+    expect(await screen.findByText("Menu bar status item enabled.")).toBeTruthy();
   });
 });

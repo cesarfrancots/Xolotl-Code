@@ -1,8 +1,12 @@
+use serde::{Deserialize, Serialize};
 use specta_typescript::Typescript;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use tauri::menu::{AboutMetadata, Menu, MenuBuilder, MenuItemBuilder, Submenu, SubmenuBuilder};
+use tauri::menu::{
+    AboutMetadata, Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, Submenu, SubmenuBuilder,
+};
+use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
 use tauri_specta::{collect_commands, Builder};
 
@@ -22,14 +26,15 @@ use crate::commands::{
     pick_directory, remove_project, respond_to_permission, reveal_eval_artifacts_in_finder,
     reveal_eval_result_in_finder, reveal_in_finder, run_agent_turn, run_eval_suite, run_goal_grade,
     run_llm_judge, save_human_scores, save_manual_reviews, save_session, set_api_key,
-    set_external_editor, set_mac_global_hotkey_settings, set_mac_notification_settings, smoke_test,
-    spawn_agent, start_eval, start_eval_artifact, start_goal_eval, stop_agent, test_api_connection,
-    test_permission_prompt, touch_project, AutoScores, ChatMessage, DirChild, DirListing,
-    EvalArtifactFileInput, EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta, EvalResult,
-    EvalSuite, FileDiff, GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores, JudgeScores,
-    MacGlobalHotkeySettings, MacNotificationSettings, MacProductivitySettings, ManualReview,
-    ModelEvalResult, ProfileBuildResult, Project, PromptCommand, ProposalBuildResult,
-    ReasoningFlag, ReliabilityMetrics, RoleConfig, SessionMeta, SuitePrompt,
+    set_external_editor, set_mac_global_hotkey_settings, set_mac_notification_settings,
+    set_mac_status_item_settings, smoke_test, spawn_agent, start_eval, start_eval_artifact,
+    start_goal_eval, stop_agent, test_api_connection, test_permission_prompt, touch_project,
+    AutoScores, ChatMessage, DirChild, DirListing, EvalArtifactFileInput, EvalArtifactLaunchResult,
+    EvalArtifactRequest, EvalMeta, EvalResult, EvalSuite, FileDiff, GoalAxisScore, GoalGrade,
+    GroupLaunchResult, HumanScores, JudgeScores, MacGlobalHotkeySettings, MacNotificationSettings,
+    MacProductivitySettings, MacStatusItemSettings, ManualReview, ModelEvalResult,
+    ProfileBuildResult, Project, PromptCommand, ProposalBuildResult, ReasoningFlag,
+    ReliabilityMetrics, RoleConfig, SessionMeta, SuitePrompt,
 };
 use crate::permission_prompter::{PendingPrompts, PermissionDecision};
 use crate::skills_mcp::{
@@ -54,6 +59,10 @@ mod terminal;
 const MENU_EVENT: &str = "xolotl://menu";
 const PROJECT_OPEN_EVENT: &str = "xolotl://open-project";
 const APP_REOPEN_EVENT: &str = "xolotl://app-reopen";
+const STATUS_ITEM_ID: &str = "xolotl-status-item";
+const STATUS_PROJECT_ID: &str = "xolotl:status-project";
+const STATUS_AGENTS_ID: &str = "xolotl:status-agents";
+const MENU_FOCUS_WINDOW: &str = "xolotl:focus-window";
 const MENU_NEW_CHAT: &str = "xolotl:new-chat";
 const MENU_OPEN_FOLDER: &str = "xolotl:open-folder";
 const MENU_RECENT_PROJECT_PREFIX: &str = "xolotl:recent-project:";
@@ -72,6 +81,18 @@ const RECENT_PROJECT_LIMIT: usize = 8;
 
 #[derive(Default)]
 struct PendingOpenProjects(Mutex<Vec<String>>);
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, specta::Type)]
+pub struct MacStatusItemState {
+    pub active_project_name: Option<String>,
+    pub active_project_path: Option<String>,
+    pub running_agents: u32,
+    pub waiting_agents: u32,
+    pub total_agents: u32,
+}
+
+#[derive(Default)]
+pub(crate) struct MacStatusItemStateStore(Mutex<MacStatusItemState>);
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
@@ -119,6 +140,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             migrate_api_key_to_keychain,
             set_external_editor,
             set_mac_global_hotkey_settings,
+            set_mac_status_item_settings,
             set_mac_notification_settings,
             set_api_key,
             open_path_in_external_editor,
@@ -141,6 +163,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             pick_directory,
             browse_directory,
             convert_pdf,
+            macos_commands::update_mac_status_item,
             terminal_spawn,
             terminal_write,
             terminal_resize,
@@ -162,6 +185,8 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<Project>()
         .typ::<MacProductivitySettings>()
         .typ::<MacGlobalHotkeySettings>()
+        .typ::<MacStatusItemSettings>()
+        .typ::<MacStatusItemState>()
         .typ::<MacNotificationSettings>()
         .typ::<DirChild>()
         .typ::<DirListing>()
@@ -393,6 +418,142 @@ fn focus_main_window(app: &tauri::AppHandle) {
     }
 }
 
+fn mac_status_item_title(state: &MacStatusItemState) -> String {
+    let active_agents = state.running_agents.saturating_add(state.waiting_agents);
+    if active_agents == 0 {
+        "Xolotl".into()
+    } else {
+        format!("Xolotl {active_agents}")
+    }
+}
+
+fn mac_status_project_label(state: &MacStatusItemState) -> String {
+    if let Some(name) = state
+        .active_project_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        return format!("Project: {name}");
+    }
+    if let Some(path) = state
+        .active_project_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        return format!("Project: {}", mac_path_label(path));
+    }
+    "Project: No project".into()
+}
+
+fn mac_status_agents_label(state: &MacStatusItemState) -> String {
+    match (state.running_agents, state.waiting_agents) {
+        (0, 0) => "Agents: Idle".into(),
+        (running, 0) => format!("Agents: {running} running"),
+        (0, waiting) => format!("Agents: {waiting} waiting"),
+        (running, waiting) => {
+            format!("Agents: {running} running, {waiting} waiting")
+        }
+    }
+}
+
+fn mac_status_item_tooltip(state: &MacStatusItemState) -> String {
+    format!(
+        "Xolotl Code - {} - {}",
+        mac_status_project_label(state),
+        mac_status_agents_label(state)
+    )
+}
+
+fn build_mac_status_item_menu(
+    app: &tauri::AppHandle,
+    state: &MacStatusItemState,
+) -> tauri::Result<Menu<tauri::Wry>> {
+    let project = MenuItemBuilder::with_id(STATUS_PROJECT_ID, mac_status_project_label(state))
+        .enabled(false)
+        .build(app)?;
+    let agents = MenuItemBuilder::with_id(STATUS_AGENTS_ID, mac_status_agents_label(state))
+        .enabled(false)
+        .build(app)?;
+    let open = MenuItemBuilder::with_id(MENU_FOCUS_WINDOW, "Open Xolotl Code").build(app)?;
+    let new_chat = MenuItemBuilder::with_id(MENU_NEW_CHAT, "New Chat").build(app)?;
+    let open_folder = MenuItemBuilder::with_id(MENU_OPEN_FOLDER, "Open Folder...").build(app)?;
+    let commands = MenuItemBuilder::with_id(MENU_COMMANDS, "Command Palette...").build(app)?;
+    let toggle_terminal =
+        MenuItemBuilder::with_id(MENU_TOGGLE_TERMINAL, "Toggle Terminal").build(app)?;
+    let settings = MenuItemBuilder::with_id(MENU_SETTINGS, "Settings...").build(app)?;
+    let quit = PredefinedMenuItem::quit(app, Some("Quit Xolotl Code"))?;
+
+    MenuBuilder::new(app)
+        .item(&project)
+        .item(&agents)
+        .separator()
+        .item(&open)
+        .item(&new_chat)
+        .item(&open_folder)
+        .separator()
+        .item(&commands)
+        .item(&toggle_terminal)
+        .separator()
+        .item(&settings)
+        .separator()
+        .item(&quit)
+        .build()
+}
+
+fn mac_status_item_state(app: &tauri::AppHandle) -> MacStatusItemState {
+    let Some(state) = app.try_state::<MacStatusItemStateStore>() else {
+        return MacStatusItemState::default();
+    };
+    state
+        .0
+        .lock()
+        .map(|state| state.clone())
+        .unwrap_or_default()
+}
+
+pub(crate) fn update_mac_status_item(
+    app: &tauri::AppHandle,
+    state: &MacStatusItemState,
+) -> tauri::Result<()> {
+    let Some(tray) = app.tray_by_id(STATUS_ITEM_ID) else {
+        return Ok(());
+    };
+    tray.set_title(Some(mac_status_item_title(state)))?;
+    tray.set_tooltip(Some(mac_status_item_tooltip(state)))?;
+    tray.set_menu(Some(build_mac_status_item_menu(app, state)?))
+}
+
+pub(crate) fn set_mac_status_item_enabled(
+    app: &tauri::AppHandle,
+    enabled: bool,
+) -> tauri::Result<()> {
+    if !enabled {
+        let _ = app.remove_tray_by_id(STATUS_ITEM_ID);
+        return Ok(());
+    }
+
+    let state = mac_status_item_state(app);
+    if app.tray_by_id(STATUS_ITEM_ID).is_some() {
+        return update_mac_status_item(app, &state);
+    }
+
+    let menu = build_mac_status_item_menu(app, &state)?;
+    let mut builder = TrayIconBuilder::with_id(STATUS_ITEM_ID)
+        .title(mac_status_item_title(&state))
+        .tooltip(mac_status_item_tooltip(&state))
+        .menu(&menu)
+        .show_menu_on_left_click(true);
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder.icon(icon).icon_as_template(true);
+    }
+
+    builder.build(app)?;
+    Ok(())
+}
+
 mod macos_commands {
     #[tauri::command]
     #[specta::specta]
@@ -409,6 +570,26 @@ mod macos_commands {
     pub fn refresh_native_menu(app_handle: tauri::AppHandle) -> Result<(), String> {
         let menu = super::build_native_menu(&app_handle).map_err(|err| err.to_string())?;
         app_handle.set_menu(menu).map_err(|err| err.to_string())?;
+        Ok(())
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub fn update_mac_status_item(
+        app_handle: tauri::AppHandle,
+        state: super::MacStatusItemState,
+        store: tauri::State<'_, super::MacStatusItemStateStore>,
+    ) -> Result<(), String> {
+        if let Ok(mut stored) = store.0.lock() {
+            *stored = state.clone();
+        }
+        if super::commands::get_mac_productivity_settings()
+            .status_item
+            .enabled
+        {
+            super::set_mac_status_item_enabled(&app_handle, true).map_err(|err| err.to_string())?;
+            super::update_mac_status_item(&app_handle, &state).map_err(|err| err.to_string())?;
+        }
         Ok(())
     }
 }
@@ -596,6 +777,7 @@ pub fn run() {
         .manage(PendingPrompts::default())
         .manage(TerminalManager::default())
         .manage(PendingOpenProjects::default())
+        .manage(MacStatusItemStateStore::default())
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 cleanup_owned_processes(window.app_handle());
@@ -607,12 +789,20 @@ pub fn run() {
             let menu = build_native_menu(app.handle())?;
             app.set_menu(menu)?;
             app.on_menu_event(|app, event| {
-                if let Some(action) = menu_action_for_id(event.id()) {
+                if event.id() == MENU_FOCUS_WINDOW {
+                    focus_main_window(app);
+                } else if let Some(action) = menu_action_for_id(event.id()) {
                     let _ = app.emit(MENU_EVENT, action);
                 } else if let Some(path) = recent_project_path_from_menu_id(event.id()) {
                     let _ = app.emit(PROJECT_OPEN_EVENT, path);
                 }
             });
+            if crate::commands::get_mac_productivity_settings()
+                .status_item
+                .enabled
+            {
+                set_mac_status_item_enabled(app.handle(), true)?;
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -674,6 +864,28 @@ mod tests {
         let menu_id = tauri::menu::MenuId::new(format!("{MENU_RECENT_PROJECT_PREFIX}xyz"));
 
         assert_eq!(recent_project_path_from_menu_id(&menu_id), None);
+    }
+
+    #[test]
+    fn mac_status_item_formats_idle_and_active_state() {
+        let idle = MacStatusItemState::default();
+        assert_eq!(mac_status_item_title(&idle), "Xolotl");
+        assert_eq!(mac_status_project_label(&idle), "Project: No project");
+        assert_eq!(mac_status_agents_label(&idle), "Agents: Idle");
+
+        let active = MacStatusItemState {
+            active_project_name: Some("Xolotl Code".into()),
+            active_project_path: Some("/Users/cesar/Documents/Xolotl".into()),
+            running_agents: 2,
+            waiting_agents: 1,
+            total_agents: 4,
+        };
+        assert_eq!(mac_status_item_title(&active), "Xolotl 3");
+        assert_eq!(mac_status_project_label(&active), "Project: Xolotl Code");
+        assert_eq!(
+            mac_status_agents_label(&active),
+            "Agents: 2 running, 1 waiting"
+        );
     }
 
     #[test]

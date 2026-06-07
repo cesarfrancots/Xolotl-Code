@@ -108,6 +108,8 @@ export const commands = {
 	setExternalEditor: (editor: string) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_external_editor", { editor })),
 	/**  Set the opt-in global shortcut that brings Xolotl Code to the front. */
 	setMacGlobalHotkeySettings: (settings: MacGlobalHotkeySettings) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_mac_global_hotkey_settings", { settings })),
+	/**  Set the opt-in macOS menu bar status item preference. */
+	setMacStatusItemSettings: (settings: MacStatusItemSettings) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_mac_status_item_settings", { settings })),
 	/**  Set opt-in macOS notification preferences for long-running work. */
 	setMacNotificationSettings: (settings: MacNotificationSettings) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_mac_notification_settings", { settings })),
 	/**
@@ -191,6 +193,7 @@ export const commands = {
 	 *  using deterministic extraction — no AI, no OCR, no network.
 	 */
 	convertPdf: (path: string, format: string) => typedError<string, string>(__TAURI_INVOKE("convert_pdf", { path, format })),
+	updateMacStatusItem: (state: MacStatusItemState) => typedError<null, string>(__TAURI_INVOKE("update_mac_status_item", { state })),
 	/**  Spawn a new terminal. Returns its metadata (including the generated id). */
 	terminalSpawn: (cwd: string | null, shell: string | null, cols: number, rows: number) => typedError<TerminalInfo, string>(__TAURI_INVOKE("terminal_spawn", { cwd, shell, cols, rows })),
 	/**  Write input (keystrokes) to a terminal. */
@@ -766,7 +769,20 @@ export type MacNotificationSettings = {
 export type MacProductivitySettings = {
 	external_editor: string | null,
 	global_hotkey: MacGlobalHotkeySettings,
+	status_item: MacStatusItemSettings,
 	notifications: MacNotificationSettings,
+};
+
+export type MacStatusItemSettings = {
+	enabled: boolean,
+};
+
+export type MacStatusItemState = {
+	active_project_name: string | null,
+	active_project_path: string | null,
+	running_agents: number,
+	waiting_agents: number,
+	total_agents: number,
 };
 
 /**  User-authored post-eval review, intentionally separate from blind rubric scores. */

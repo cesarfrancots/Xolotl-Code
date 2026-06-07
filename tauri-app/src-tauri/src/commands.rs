@@ -2546,6 +2546,7 @@ pub struct ApiKeyProviderStatus {
 pub struct MacProductivitySettings {
     pub external_editor: Option<String>,
     pub global_hotkey: MacGlobalHotkeySettings,
+    pub status_item: MacStatusItemSettings,
     pub notifications: MacNotificationSettings,
 }
 
@@ -2553,6 +2554,11 @@ pub struct MacProductivitySettings {
 pub struct MacGlobalHotkeySettings {
     pub enabled: bool,
     pub shortcut: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct MacStatusItemSettings {
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -2678,6 +2684,7 @@ const EXTERNAL_EDITOR_CONFIG_KEY: &str = "XOLOTL_EXTERNAL_EDITOR";
 const GLOBAL_HOTKEY_ENABLED_CONFIG_KEY: &str = "XOLOTL_GLOBAL_HOTKEY_ENABLED";
 const GLOBAL_HOTKEY_SHORTCUT_CONFIG_KEY: &str = "XOLOTL_GLOBAL_HOTKEY_SHORTCUT";
 const DEFAULT_GLOBAL_HOTKEY_SHORTCUT: &str = "CommandOrControl+Shift+Space";
+const STATUS_ITEM_ENABLED_CONFIG_KEY: &str = "XOLOTL_STATUS_ITEM_ENABLED";
 const NOTIFY_AGENT_FINISHED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_AGENT_FINISHED";
 const NOTIFY_EVAL_FINISHED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_EVAL_FINISHED";
 const NOTIFY_PERMISSION_REQUIRED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_PERMISSION_REQUIRED";
@@ -2739,10 +2746,17 @@ fn mac_notification_settings_from_config(config: &ConfigMap) -> MacNotificationS
     }
 }
 
+fn mac_status_item_settings_from_config(config: &ConfigMap) -> MacStatusItemSettings {
+    MacStatusItemSettings {
+        enabled: config_bool(config, STATUS_ITEM_ENABLED_CONFIG_KEY),
+    }
+}
+
 fn mac_productivity_settings_from_config(config: &ConfigMap) -> MacProductivitySettings {
     MacProductivitySettings {
         external_editor: external_editor_from_config(config),
         global_hotkey: mac_global_hotkey_settings_from_config(config),
+        status_item: mac_status_item_settings_from_config(config),
         notifications: mac_notification_settings_from_config(config),
     }
 }
@@ -2794,6 +2808,13 @@ fn set_mac_notification_settings_in_config(
         NOTIFY_PERMISSION_REQUIRED_CONFIG_KEY,
         settings.permission_required,
     );
+}
+
+fn set_mac_status_item_settings_in_config(
+    config: &mut ConfigMap,
+    settings: &MacStatusItemSettings,
+) {
+    set_config_bool(config, STATUS_ITEM_ENABLED_CONFIG_KEY, settings.enabled);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3257,6 +3278,21 @@ pub fn set_mac_global_hotkey_settings(
     let mut config = load_config();
     set_mac_global_hotkey_settings_in_config(&mut config, &settings);
     save_config(&config)?;
+    Ok(mac_productivity_settings_from_config(&config))
+}
+
+/// Set the opt-in macOS menu bar status item preference.
+#[tauri::command]
+#[specta::specta]
+pub fn set_mac_status_item_settings(
+    app_handle: AppHandle,
+    settings: MacStatusItemSettings,
+) -> Result<MacProductivitySettings, String> {
+    let mut config = load_config();
+    set_mac_status_item_settings_in_config(&mut config, &settings);
+    save_config(&config)?;
+    crate::set_mac_status_item_enabled(&app_handle, settings.enabled)
+        .map_err(|err| err.to_string())?;
     Ok(mac_productivity_settings_from_config(&config))
 }
 
@@ -5362,6 +5398,37 @@ mod config_tests {
         assert_eq!(settings.shortcut, DEFAULT_GLOBAL_HOTKEY_SHORTCUT);
         assert!(!cfg.contains_key(GLOBAL_HOTKEY_ENABLED_CONFIG_KEY));
         assert!(!cfg.contains_key(GLOBAL_HOTKEY_SHORTCUT_CONFIG_KEY));
+        assert_eq!(
+            config_get(&cfg, "ANTHROPIC_API_KEY"),
+            Some("ant-xxx".into())
+        );
+    }
+
+    #[test]
+    fn mac_status_item_defaults_to_opt_in_off() {
+        let cfg = make_legacy_cli_config();
+        let settings = mac_status_item_settings_from_config(&cfg);
+
+        assert!(!settings.enabled);
+    }
+
+    #[test]
+    fn mac_status_item_settings_preserve_other_config_fields() {
+        let mut cfg = make_legacy_cli_config();
+
+        set_mac_status_item_settings_in_config(&mut cfg, &MacStatusItemSettings { enabled: true });
+        let settings = mac_status_item_settings_from_config(&cfg);
+
+        assert!(settings.enabled);
+        assert_eq!(
+            config_get(&cfg, "KIMI_CODING_BASE_URL"),
+            Some("https://api.kimi.com/coding/v1".into())
+        );
+
+        set_mac_status_item_settings_in_config(&mut cfg, &MacStatusItemSettings { enabled: false });
+        let settings = mac_status_item_settings_from_config(&cfg);
+        assert!(!settings.enabled);
+        assert!(!cfg.contains_key(STATUS_ITEM_ENABLED_CONFIG_KEY));
         assert_eq!(
             config_get(&cfg, "ANTHROPIC_API_KEY"),
             Some("ant-xxx".into())

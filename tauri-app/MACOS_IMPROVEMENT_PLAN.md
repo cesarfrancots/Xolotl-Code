@@ -45,6 +45,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Mac productivity notifications emit route metadata and Dock/app reopen can route back to the related Chat, Eval, or Agent view; eval ids are preserved while the lazy Eval view mounts.
 - Command palette includes clipboard-aware actions to seed a chat from the current text clipboard or ask for an explanation of the clipboard snippet.
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
+- macOS Settings include an opt-in menu bar status item with active project and agent-state summary plus quick access to common commands.
 - The Mac UI respects system reduced-motion and higher-contrast preferences, with a fallback keyboard focus ring for custom workbench controls.
 
 ## Phase 1 - Native Mac Shell
@@ -223,9 +224,9 @@ Deliverables:
 
 - Optional global hotkey to bring Xolotl Code to front. Done for opt-in settings, configurable accelerator persistence, runtime register/unregister, and window focus.
 - Optional menu bar helper or status item:
-  - Running agents count.
-  - Active project.
-  - Quick open command palette.
+  - Running agents count. Done for opt-in status item title/menu summary.
+  - Active project. Done for disabled status menu row.
+  - Quick open command palette. Done through the status item menu using the native command bridge.
 - Finder actions:
   - Reveal active project in Finder.
   - Reveal generated eval artifacts in Finder. Done for saved eval JSON files, the eval-artifacts folder, and generated artifact folders after launch.
@@ -254,6 +255,7 @@ Implementation order:
 3. Add opt-in global hotkey with settings UI and tests.
    - Done for the first implementation with the official Tauri global-shortcut plugin. Remaining validation: packaged-app manual collision behavior on a clean Mac account.
 4. Evaluate menu bar helper only after agent/eval status events are stable enough to summarize.
+   - Done for the first opt-in implementation: the frontend sends active project/running agent state to a native Tauri status item, and status menu actions reuse the existing native command bridge.
 
 ## Phase 7 - Distribution, Signing, and Update Path
 
@@ -313,7 +315,7 @@ This is the near-term order for this branch.
 4. Expand Phase 6 productivity features:
    - Notifications with click-through routing. Done for backend route metadata and macOS app-reopen routing; direct action payload support remains dependent on Tauri desktop notification support.
    - Optional global hotkey. Done for the first opt-in implementation.
-   - Optional status/menu bar helper if it proves useful in daily use.
+   - Optional status/menu bar helper. Done for the first opt-in implementation with active project, agent summary, command palette, terminal, settings, and project-opening actions.
 5. Harden distribution:
    - Universal build path.
    - Signing and notarization checklist.

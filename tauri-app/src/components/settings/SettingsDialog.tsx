@@ -14,6 +14,7 @@ import type {
   MacGlobalHotkeySettings,
   MacNotificationSettings,
   MacProductivitySettings,
+  MacStatusItemSettings,
   SkillManifest,
   McpServerConfig,
   McpTestResult,
@@ -384,6 +385,9 @@ const EMPTY_MAC_SETTINGS: MacProductivitySettings = {
     enabled: false,
     shortcut: DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT,
   },
+  status_item: {
+    enabled: false,
+  },
   notifications: {
     agent_finished: false,
     eval_finished: false,
@@ -458,6 +462,26 @@ function MacPanel({ open }: { open: boolean }) {
       setHotkeyShortcut(normalizeGlobalHotkeyShortcut(result.data.global_hotkey.shortcut));
       notifyMacProductivitySettingsChanged(result.data);
       setMessage(result.data.global_hotkey.enabled ? "Global hotkey saved." : "Global hotkey disabled.");
+    } else {
+      setError(result.error);
+    }
+    setSaving(false);
+  }
+
+  async function saveStatusItem(patch: Partial<MacStatusItemSettings> = {}) {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    const nextStatusItem = {
+      enabled: patch.enabled ?? settings.status_item.enabled,
+    };
+    const result = await commands.setMacStatusItemSettings(nextStatusItem);
+    if (result.status === "ok") {
+      setSettings(result.data);
+      setEditor(result.data.external_editor ?? "");
+      setHotkeyShortcut(normalizeGlobalHotkeyShortcut(result.data.global_hotkey.shortcut));
+      notifyMacProductivitySettingsChanged(result.data);
+      setMessage(result.data.status_item.enabled ? "Menu bar status item enabled." : "Menu bar status item disabled.");
     } else {
       setError(result.error);
     }
@@ -579,6 +603,28 @@ function MacPanel({ open }: { open: boolean }) {
             Current: <code className="rounded bg-[oklch(0.15_0.004_245)] px-1 py-0.5 text-[10px]">{settings.external_editor}</code>
           </p>
         )}
+      </div>
+
+      <div className="rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)] px-3 py-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-[oklch(0.90_0.025_220)]">
+          <Monitor className="h-4 w-4 text-[oklch(0.68_0.050_190)]" />
+          Menu bar helper
+        </div>
+        <div className="mt-3">
+          <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded border border-[oklch(0.22_0.008_240)] bg-[oklch(0.105_0.004_245)] px-3 py-2 text-xs text-[oklch(0.76_0.018_220)]">
+            <input
+              type="checkbox"
+              checked={settings.status_item.enabled}
+              disabled={saving || loading}
+              onChange={(event) => void saveStatusItem({ enabled: event.target.checked })}
+              className="h-4 w-4 accent-[oklch(0.68_0.050_190)]"
+            />
+            <span>Show menu bar status item</span>
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-[oklch(0.58_0.012_225)]">
+          Shows active project and agent status with quick access to Xolotl commands.
+        </p>
       </div>
 
       <div className="rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)] px-3 py-3">

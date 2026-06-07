@@ -13,6 +13,7 @@ import { useProjectStore } from "./stores/projectStore";
 import { useProjectDrop } from "./hooks/useProjectDrop";
 import { useMacGlobalHotkey } from "./hooks/useMacGlobalHotkey";
 import { useMacNotificationRoutes } from "./hooks/useMacNotificationRoutes";
+import { useMacStatusItem } from "./hooks/useMacStatusItem";
 import { useProjectOpenEvents } from "./hooks/useProjectOpenEvents";
 import { Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves } from "lucide-react";
 import { centerTabFromSearch, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
@@ -64,6 +65,7 @@ export default function App() {
 
   useProjectDrop();
   useMacGlobalHotkey();
+  useMacStatusItem();
   useProjectOpenEvents();
 
   const selectCenterTab = useCallback((tab: CenterTab) => {

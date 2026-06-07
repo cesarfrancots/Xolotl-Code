@@ -41,6 +41,7 @@ function settings(enabled: boolean, shortcut = "CommandOrControl+Shift+Space"): 
   return {
     external_editor: null,
     global_hotkey: { enabled, shortcut },
+    status_item: { enabled: false },
     notifications: {
       agent_finished: false,
       eval_finished: false,
