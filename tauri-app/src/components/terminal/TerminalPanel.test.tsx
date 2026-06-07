@@ -7,6 +7,7 @@ import { useUiStore } from "../../stores/uiStore";
 import { useProjectStore } from "../../stores/projectStore";
 
 const pathActionMocks = vi.hoisted(() => ({
+  copyPathAutomationHandoff: vi.fn().mockResolvedValue(undefined),
   copyPathContextHandoff: vi.fn().mockResolvedValue(undefined),
   copyTextToClipboard: vi.fn().mockResolvedValue(undefined),
   copyXolotlCodeOpenShellCommand: vi.fn().mockResolvedValue(undefined),
@@ -143,6 +144,20 @@ it("offers external terminal, Finder, and automation copy actions for the active
       },
     );
     expect(screen.getByText("Terminal cwd context prompt copied.")).toBeTruthy();
+  });
+
+  await user.click(screen.getByLabelText("Terminal cwd automation actions"));
+  await user.click(await screen.findByRole("menuitem", { name: "Copy terminal cwd Shortcuts JSON" }));
+  await waitFor(() => {
+    expect(pathActionMocks.copyPathAutomationHandoff).toHaveBeenCalledWith(
+      "/Users/cesar/project-a",
+      {
+        label: "~/project-a",
+        kind: "Terminal cwd",
+        relativePath: "project-a",
+      },
+    );
+    expect(screen.getByText("Terminal cwd Shortcuts JSON copied.")).toBeTruthy();
   });
 });
 
@@ -284,6 +299,30 @@ it("shows recovery guidance when copying the terminal cwd context prompt fails",
 
   expect(await screen.findByText("Copy terminal cwd context prompt failed.")).toBeTruthy();
   expect(screen.getByText(/try copying the terminal context prompt again/)).toBeTruthy();
+  expect(screen.getByText(/Clipboard blocked/)).toBeTruthy();
+});
+
+it("shows recovery guidance when copying the terminal cwd Shortcuts JSON fails", async () => {
+  pathActionMocks.copyPathAutomationHandoff.mockRejectedValueOnce(new Error("Clipboard blocked"));
+  const user = userEvent.setup();
+  render(<TerminalPanel />);
+  const tab = useTerminalStore.getState().tabs[0];
+
+  act(() => {
+    useTerminalStore.getState().setBackendInfo(tab.key, {
+      id: "pty-1",
+      shell: "/bin/zsh",
+      shell_name: "zsh",
+      cwd: "/Users/cesar/project-a",
+      env_source: "Inherited app environment + $SHELL",
+    });
+  });
+
+  await user.click(screen.getByLabelText("Terminal cwd automation actions"));
+  await user.click(await screen.findByRole("menuitem", { name: "Copy terminal cwd Shortcuts JSON" }));
+
+  expect(await screen.findByText("Copy terminal cwd Shortcuts JSON failed.")).toBeTruthy();
+  expect(screen.getByText(/try copying the terminal Shortcuts JSON again/)).toBeTruthy();
   expect(screen.getByText(/Clipboard blocked/)).toBeTruthy();
 });
 

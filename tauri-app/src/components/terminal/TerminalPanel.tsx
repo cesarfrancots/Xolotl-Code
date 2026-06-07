@@ -6,6 +6,7 @@ import { projectDisplayName, useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
 import { shortcutTitle } from "../../lib/macShortcuts";
 import {
+  copyPathAutomationHandoff,
   copyPathContextHandoff,
   copyTextToClipboard,
   copyXolotlCodeOpenShellCommand,
@@ -363,6 +364,26 @@ export function TerminalPanel() {
                     >
                       <ClipboardList className="h-3.5 w-3.5" />
                       Copy terminal cwd context prompt
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        if (activeTab.cwd) {
+                          void runCwdHandoff(
+                            "Copy terminal cwd Shortcuts JSON",
+                            () => copyPathAutomationHandoff(activeTab.cwd!, {
+                              label: macPathLabel(activeTab.cwd!),
+                              kind: "Terminal cwd",
+                              relativePath: activeProjectPath ? relativePathFromRoot(activeTab.cwd!, activeProjectPath) : null,
+                            }),
+                            "Terminal cwd Shortcuts JSON copied.",
+                            "Check macOS clipboard access and try copying the terminal Shortcuts JSON again.",
+                          );
+                        }
+                      }}
+                      className="gap-2 text-xs"
+                    >
+                      <ClipboardList className="h-3.5 w-3.5" />
+                      Copy terminal cwd Shortcuts JSON
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
