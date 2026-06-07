@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectsSection } from "./ProjectsSection";
-import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor } from "../../lib/pathActions";
+import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, revealPathInFinder } from "../../lib/pathActions";
 import { useProjectStore } from "../../stores/projectStore";
 
 vi.mock("../../lib/pathActions", async () => {
@@ -55,5 +55,31 @@ describe("ProjectsSection", () => {
     fireEvent.click(screen.getByLabelText("Open Xolotl in external editor"));
     expect(openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
     expect(onOpenProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows recovery guidance when revealing a project fails", async () => {
+    vi.mocked(revealPathInFinder).mockRejectedValueOnce(new Error("Project folder missing"));
+    const onOpenProject = vi.fn();
+
+    render(<ProjectsSection onOpenProject={onOpenProject} />);
+    fireEvent.click(screen.getByLabelText("Reveal Xolotl in Finder"));
+
+    expect(await screen.findByText("Reveal Xolotl in Finder failed.")).toBeTruthy();
+    expect(screen.getByText(/Check that the project folder still exists/)).toBeTruthy();
+    expect(screen.getByText(/Project folder missing/)).toBeTruthy();
+    expect(onOpenProject).not.toHaveBeenCalled();
+  });
+
+  it("shows recovery guidance when the external editor handoff fails", async () => {
+    vi.mocked(openPathInExternalEditor).mockRejectedValueOnce(new Error("Cursor missing"));
+    const onOpenProject = vi.fn();
+
+    render(<ProjectsSection onOpenProject={onOpenProject} />);
+    fireEvent.click(screen.getByLabelText("Open Xolotl in external editor"));
+
+    expect(await screen.findByText("Open Xolotl in external editor failed.")).toBeTruthy();
+    expect(screen.getByText(/Check the preferred editor in macOS Settings/)).toBeTruthy();
+    expect(screen.getByText(/Cursor missing/)).toBeTruthy();
+    expect(onOpenProject).not.toHaveBeenCalled();
   });
 });

@@ -101,4 +101,26 @@ describe("DirectoryBrowser", () => {
       "src",
     );
   });
+
+  it("shows recovery guidance when revealing the current folder fails", async () => {
+    vi.mocked(revealPathInFinder).mockRejectedValueOnce(new Error("Folder missing"));
+
+    render(<DirectoryBrowser />);
+    fireEvent.click(screen.getByLabelText("Reveal current folder in Finder"));
+
+    expect(await screen.findByText("Reveal current folder in Finder failed.")).toBeTruthy();
+    expect(screen.getByText(/Check that the folder still exists/)).toBeTruthy();
+    expect(screen.getByText(/Folder missing/)).toBeTruthy();
+  });
+
+  it("shows recovery guidance when Quick Look fails for a file", async () => {
+    vi.mocked(quickLookPath).mockRejectedValueOnce(new Error("Preview blocked"));
+
+    render(<DirectoryBrowser />);
+    fireEvent.click(screen.getByLabelText("Quick Look README.md"));
+
+    expect(await screen.findByText("Quick Look README.md failed.")).toBeTruthy();
+    expect(screen.getByText(/can be previewed by Quick Look/)).toBeTruthy();
+    expect(screen.getByText(/Preview blocked/)).toBeTruthy();
+  });
 });

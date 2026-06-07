@@ -21,6 +21,12 @@ import { useProjectStore, projectDisplayName } from "../../stores/projectStore";
 import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "../../lib/fileBrowser";
 import { copyTextToClipboard, quickLookPath, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 import { openTerminalAtPath } from "../../lib/terminalActions";
+import {
+  SidebarHandoffStatus,
+  sidebarHandoffRecoveryHint,
+  type SidebarHandoffKind,
+  type SidebarHandoffStatusState,
+} from "./SidebarHandoffStatus";
 
 /**
  * Lightweight file browser for the active project. Folders are navigable;
@@ -37,6 +43,7 @@ export function DirectoryBrowser() {
   const refreshBrowse = useProjectStore((s) => s.refreshBrowse);
   const [converting, setConverting] = useState<string | null>(null);
   const [convertError, setConvertError] = useState<string | null>(null);
+  const [handoffStatus, setHandoffStatus] = useState<SidebarHandoffStatusState | null>(null);
   const [showHidden, setShowHidden] = useState(false);
 
   if (!activePath) return null;
@@ -50,6 +57,7 @@ export function DirectoryBrowser() {
   async function convertPdf(path: string, name: string) {
     setConverting(path);
     setConvertError(null);
+    setHandoffStatus(null);
     try {
       const res = await commands.convertPdf(path, "md");
       if (res.status === "error") {
@@ -65,6 +73,25 @@ export function DirectoryBrowser() {
       );
     } finally {
       setConverting(null);
+    }
+  }
+
+  async function runHandoff(
+    label: string,
+    action: () => Promise<void>,
+    successMessage: string,
+    kind: SidebarHandoffKind,
+    target: string,
+  ) {
+    try {
+      await action();
+      setHandoffStatus({ tone: "ok", message: successMessage });
+    } catch (error) {
+      setHandoffStatus({
+        tone: "error",
+        message: `${label} failed.`,
+        hint: sidebarHandoffRecoveryHint(kind, error, target),
+      });
     }
   }
 
@@ -84,7 +111,13 @@ export function DirectoryBrowser() {
           type="button"
           title="Reveal in Finder"
           aria-label="Reveal current folder in Finder"
-          onClick={() => void revealPathInFinder(currentPath).catch((err) => console.error("reveal folder failed:", err))}
+          onClick={() => void runHandoff(
+            "Reveal current folder in Finder",
+            () => revealPathInFinder(currentPath),
+            "Current folder revealed in Finder.",
+            "finder",
+            "folder",
+          )}
           className="xolotl-sidebar-icon-button"
         >
           <ExternalLink className="h-3 w-3" />
@@ -93,7 +126,13 @@ export function DirectoryBrowser() {
           type="button"
           title="Copy POSIX path"
           aria-label="Copy current folder POSIX path"
-          onClick={() => void copyTextToClipboard(currentPath)}
+          onClick={() => void runHandoff(
+            "Copy current folder POSIX path",
+            () => copyTextToClipboard(currentPath),
+            "Current folder path copied.",
+            "clipboard",
+            "path",
+          )}
           className="xolotl-sidebar-icon-button"
         >
           <Copy className="h-3 w-3" />
@@ -159,6 +198,14 @@ export function DirectoryBrowser() {
         </p>
       )}
 
+      {handoffStatus && (
+        <SidebarHandoffStatus
+          status={handoffStatus}
+          onDismiss={() => setHandoffStatus(null)}
+          dismissLabel="Dismiss file browser status"
+        />
+      )}
+
       <div className="max-h-[34vh] overflow-y-auto px-1 pb-1">
         {loading && !listing ? (
           <div className="flex items-center gap-2 px-2 py-2 text-xs text-[oklch(0.52_0.012_230)]">
@@ -199,7 +246,13 @@ export function DirectoryBrowser() {
                         <span className="min-w-0 flex-1 truncate">{child.name}</span>
                         <EntryBadges badges={badges} />
                       </button>
-                      <PathActionButtons path={child.path} root={activePath} label={child.name} canOpenTerminal />
+                      <PathActionButtons
+                        path={child.path}
+                        root={activePath}
+                        label={child.name}
+                        onHandoffStatus={setHandoffStatus}
+                        canOpenTerminal
+                      />
                     </div>
                   ) : (
                     <div
@@ -221,7 +274,13 @@ export function DirectoryBrowser() {
                       {child.is_symlink && <Link2 className="h-3 w-3 flex-none text-[oklch(0.50_0.025_205)]" />}
                       <span className="min-w-0 flex-1 truncate">{child.name}</span>
                       <EntryBadges badges={badges} />
-                      <PathActionButtons path={child.path} root={activePath} label={child.name} canQuickLook />
+                      <PathActionButtons
+                        path={child.path}
+                        root={activePath}
+                        label={child.name}
+                        onHandoffStatus={setHandoffStatus}
+                        canQuickLook
+                      />
                       {child.is_pdf && (
                         <button
                           type="button"
@@ -257,14 +316,34 @@ function PathActionButtons({
   label,
   canOpenTerminal = false,
   canQuickLook = false,
+  onHandoffStatus,
 }: {
   path: string;
   root: string;
   label: string;
   canOpenTerminal?: boolean;
   canQuickLook?: boolean;
+  onHandoffStatus: (status: SidebarHandoffStatusState) => void;
 }) {
   const relativePath = relativePathFromRoot(path, root);
+  async function runRowHandoff(
+    actionLabel: string,
+    action: () => Promise<void>,
+    successMessage: string,
+    kind: SidebarHandoffKind,
+    target: string,
+  ) {
+    try {
+      await action();
+      onHandoffStatus({ tone: "ok", message: successMessage });
+    } catch (error) {
+      onHandoffStatus({
+        tone: "error",
+        message: `${actionLabel} failed.`,
+        hint: sidebarHandoffRecoveryHint(kind, error, target),
+      });
+    }
+  }
   return (
     <span className="flex flex-none items-center gap-0.5">
       {canOpenTerminal && (
@@ -286,7 +365,13 @@ function PathActionButtons({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            void quickLookPath(path).catch((err) => console.error("quick look path failed:", err));
+            void runRowHandoff(
+              `Quick Look ${label}`,
+              () => quickLookPath(path),
+              `${label} opened in Quick Look.`,
+              "quick-look",
+              "file",
+            );
           }}
           title="Quick Look"
           aria-label={`Quick Look ${label}`}
@@ -299,7 +384,13 @@ function PathActionButtons({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          void revealPathInFinder(path).catch((err) => console.error("reveal path failed:", err));
+          void runRowHandoff(
+            `Reveal ${label} in Finder`,
+            () => revealPathInFinder(path),
+            `${label} revealed in Finder.`,
+            "finder",
+            "path",
+          );
         }}
         title="Reveal in Finder"
         aria-label={`Reveal ${label} in Finder`}
@@ -311,7 +402,13 @@ function PathActionButtons({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          void copyTextToClipboard(path);
+          void runRowHandoff(
+            `Copy POSIX path for ${label}`,
+            () => copyTextToClipboard(path),
+            `POSIX path copied for ${label}.`,
+            "clipboard",
+            "path",
+          );
         }}
         title="Copy POSIX path"
         aria-label={`Copy POSIX path for ${label}`}
@@ -323,7 +420,13 @@ function PathActionButtons({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          void copyTextToClipboard(relativePath);
+          void runRowHandoff(
+            `Copy relative path for ${label}`,
+            () => copyTextToClipboard(relativePath),
+            `Relative path copied for ${label}.`,
+            "clipboard",
+            "path",
+          );
         }}
         title="Copy relative path"
         aria-label={`Copy relative path for ${label}`}

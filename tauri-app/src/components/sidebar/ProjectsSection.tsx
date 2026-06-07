@@ -1,7 +1,14 @@
+import { useState } from "react";
 import { Code2, Copy, ExternalLink, Folder, FolderPlus, Link2, X } from "lucide-react";
 import { useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
 import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, revealPathInFinder } from "../../lib/pathActions";
+import {
+  SidebarHandoffStatus,
+  sidebarHandoffRecoveryHint,
+  type SidebarHandoffKind,
+  type SidebarHandoffStatusState,
+} from "./SidebarHandoffStatus";
 
 /**
  * Codex-style quick-access list of working directories. "Open folder" launches
@@ -13,6 +20,26 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
   const activePath = useProjectStore((s) => s.activeProjectPath);
   const openFolderDialog = useProjectStore((s) => s.openFolderDialog);
   const removeProject = useProjectStore((s) => s.removeProject);
+  const [handoffStatus, setHandoffStatus] = useState<SidebarHandoffStatusState | null>(null);
+
+  async function runHandoff(
+    label: string,
+    action: () => Promise<void>,
+    successMessage: string,
+    kind: SidebarHandoffKind,
+    target: string,
+  ) {
+    try {
+      await action();
+      setHandoffStatus({ tone: "ok", message: successMessage });
+    } catch (error) {
+      setHandoffStatus({
+        tone: "error",
+        message: `${label} failed.`,
+        hint: sidebarHandoffRecoveryHint(kind, error, target),
+      });
+    }
+  }
 
   return (
     <div className="flex flex-col">
@@ -34,6 +61,14 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
           Open
         </button>
       </div>
+
+      {handoffStatus && (
+        <SidebarHandoffStatus
+          status={handoffStatus}
+          onDismiss={() => setHandoffStatus(null)}
+          dismissLabel="Dismiss project status"
+        />
+      )}
 
       {projects.length === 0 ? (
         <button
@@ -93,7 +128,13 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void revealPathInFinder(project.path).catch((err) => console.error("reveal project failed:", err));
+                      void runHandoff(
+                        `Reveal ${project.name} in Finder`,
+                        () => revealPathInFinder(project.path),
+                        `${project.name} revealed in Finder.`,
+                        "finder",
+                        "project folder",
+                      );
                     }}
                     title="Reveal in Finder"
                     aria-label={`Reveal ${project.name} in Finder`}
@@ -105,7 +146,13 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void copyTextToClipboard(project.path);
+                      void runHandoff(
+                        `Copy POSIX path for ${project.name}`,
+                        () => copyTextToClipboard(project.path),
+                        `POSIX path copied for ${project.name}.`,
+                        "clipboard",
+                        "path",
+                      );
                     }}
                     title="Copy POSIX path"
                     aria-label={`Copy POSIX path for ${project.name}`}
@@ -117,7 +164,13 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void copyXolotlCodeOpenUrl(project.path);
+                      void runHandoff(
+                        `Copy Xolotl link for ${project.name}`,
+                        () => copyXolotlCodeOpenUrl(project.path),
+                        `Xolotl link copied for ${project.name}.`,
+                        "clipboard",
+                        "path",
+                      );
                     }}
                     title="Copy Xolotl link"
                     aria-label={`Copy Xolotl link for ${project.name}`}
@@ -129,7 +182,13 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void openPathInExternalEditor(project.path).catch((err) => console.error("open project in editor failed:", err));
+                      void runHandoff(
+                        `Open ${project.name} in external editor`,
+                        () => openPathInExternalEditor(project.path),
+                        `${project.name} opened in the external editor.`,
+                        "editor",
+                        "project folder",
+                      );
                     }}
                     title="Open in external editor"
                     aria-label={`Open ${project.name} in external editor`}
