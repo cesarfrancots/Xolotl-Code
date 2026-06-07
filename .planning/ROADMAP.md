@@ -78,11 +78,12 @@ Plans:
   1. User can visually distinguish each civilization — axolotls/buildings/territory are tinted by that civ's color, and neutral entities (e.g. predators) are shown distinctly.
   2. The camera frames all colonies by default and the user can focus a single civ via `focusCiv`.
   3. Rendering stays smooth at the larger multi-civ world scale (chunked terrain rendering; no performance collapse at ~36k+ tiles).
-**Plans**: TBD
+**Plans**: 2 plans
 **UI hint**: yes
 
 Plans:
-- [ ] 02-01: TBD
+- [ ] 02-01-PLAN.md — Per-civ tint identity: pure tint helpers (named exports) + unit tests, then tint axolotls/buildings/region-overlay/minimap by civ color; dead civs greyed (REN-01)
+- [ ] 02-02-PLAN.md — Multi-colony camera: pure colonyBounds/focusTarget helpers + tests, frame-all default + re-frame on collapse, additive window.civCamera.focusCiv/frameAll, selectedCivId wiring (REN-02)
 
 > **Implementation notes:** In `CivilizationGameCanvas.tsx`: replace per-tile `Image` baking with chunked `RenderTexture` terrain (32×32-tile chunks culled by `cameras.main.worldView`, +1 chunk margin) — required for the bigger world. Per-civ color tints on banners/rings/region overlays/minimap; one camera center per civ + `window.civCamera.focusCiv(civId)`. Verify via `npx tsc --noEmit` + vitest.
 
@@ -141,7 +142,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1. W9-lite — Multi-Model World Creation + Leaderboard | v2.0 | 0/4 | Planned | - |
-| 2. W8 — Renderer Multi-Civ Identity | v2.0 | 0/TBD | Not started | - |
+| 2. W8 — Renderer Multi-Civ Identity | v2.0 | 0/2 | Planned | - |
 | 3. W4 — Environment Engine | v2.0 | 0/TBD | Not started | - |
 | 4. W6 — Combat & Diplomacy | v2.0 | 0/TBD | Not started | - |
 | 5. W5 — Genetics Depth & Selection | v2.0 | 0/TBD | Not started | - |
