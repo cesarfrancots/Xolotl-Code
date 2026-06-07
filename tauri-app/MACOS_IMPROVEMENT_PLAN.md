@@ -39,6 +39,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Terminal tabs resolve zsh/bash/fish-aware shell profiles and display shell, cwd, and environment source metadata.
 - macOS Settings include a preferred external editor, and active projects can open in that editor from project rows or the command palette.
 - macOS Settings include opt-in notification toggles for agent completion, eval completion, and permission prompts. Backend notifications now respect those toggles.
+- Command palette includes clipboard-aware actions to seed a chat from the current text clipboard or ask for an explanation of the clipboard snippet.
 
 ## Phase 1 - Native Mac Shell
 
@@ -228,8 +229,8 @@ Deliverables:
   - Eval finished. Done for opt-in single eval, goal eval, and suite completion alerts.
   - Permission required. Done for opt-in tool permission prompt alerts.
 - Clipboard-aware command palette actions:
-  - Explain selected code.
-  - Start chat with clipboard snippet.
+  - Explain selected code. Done for the current text clipboard.
+  - Start chat with clipboard snippet. Done for the current text clipboard.
 - Evaluate macOS Services or Shortcuts integration after core workflows are stable.
 
 Acceptance:
@@ -245,6 +246,7 @@ Implementation order:
 2. Add notification routing for existing long-running work.
    - Done for opt-in backend notifications. Click-to-view routing remains a follow-up because the current Tauri desktop notification wrapper ignores Rust-side action metadata.
 3. Add opt-in global hotkey with settings UI and tests.
+   - Dependency check complete: the global-shortcut plugin is not currently installed in the app; add the Tauri plugin deliberately before implementing this slice.
 4. Evaluate menu bar helper only after agent/eval status events are stable enough to summarize.
 
 ## Phase 7 - Distribution, Signing, and Update Path

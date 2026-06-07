@@ -32,6 +32,7 @@ const PREVIEW_PROVIDERS = [
 
 const PREVIEW_EXTERNAL_EDITOR_KEY = "xolotl-preview-external-editor";
 const PREVIEW_NOTIFICATIONS_KEY = "xolotl-preview-notifications";
+const PREVIEW_CLIPBOARD_KEY = "xolotl-preview-clipboard";
 
 const PREVIEW_SUITES = [
   {
@@ -1236,6 +1237,23 @@ function writePreviewNotifications(value: unknown) {
   return notifications;
 }
 
+function readPreviewClipboardText() {
+  try {
+    return globalThis.localStorage?.getItem(PREVIEW_CLIPBOARD_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writePreviewClipboardText(value: unknown) {
+  const text = typeof value === "string" ? value : "";
+  try {
+    globalThis.localStorage?.setItem(PREVIEW_CLIPBOARD_KEY, text);
+  } catch {
+    // Browser preview can run with storage disabled; keep the native API shape.
+  }
+}
+
 function installTauriBrowserFallback() {
   if (!import.meta.env.DEV) return;
   if (typeof window === "undefined") return;
@@ -1345,6 +1363,11 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
     case "plugin:notification|request_permission":
       return "granted";
     case "plugin:notification|notify":
+      return null;
+    case "plugin:clipboard-manager|read_text":
+      return readPreviewClipboardText();
+    case "plugin:clipboard-manager|write_text":
+      if (isRecord(args)) writePreviewClipboardText(args.text);
       return null;
     case "migrate_api_key_to_keychain":
       throw "Preview mode does not migrate keys to macOS Keychain.";

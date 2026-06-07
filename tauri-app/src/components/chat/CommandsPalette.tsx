@@ -4,7 +4,7 @@ import {
   Hash, Keyboard, Paperclip, FlaskConical, GitBranch, Users, FileText, Settings2,
   DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen, Archive, Gauge,
   MessageSquare, TerminalSquare, TestTubeDiagonal, Sprout, Settings, FolderPlus, ExternalLink, Copy,
-  Code2, CornerDownRight, CornerLeftUp, File as FileIcon, Folder, RefreshCw,
+  Clipboard, Code2, CornerDownRight, CornerLeftUp, File as FileIcon, Folder, RefreshCw,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
@@ -25,10 +25,14 @@ import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "..
 import { MAC_COMMANDS, type MacCommandId, type MacCommandSpec } from "../../lib/macCommandModel";
 import { formatMacShortcut } from "../../lib/macShortcuts";
 import { dispatchNativeMenuAction, type NativeMenuAction } from "../../lib/nativeMenu";
-import { copyTextToClipboard, openPathInExternalEditor, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, openPathInExternalEditor, readTextFromClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 
 type CommandAction = () => void | Promise<void>;
 type CommandKind = "slash" | "shortcut" | "file" | "action";
+
+export const SEED_COMPOSER_PROMPT_EVENT = "xolotl:seed-composer-prompt";
+const MAX_CLIPBOARD_PROMPT_CHARS = 24_000;
+export type ClipboardPromptMode = "chat" | "explain";
 
 interface PaletteSecondaryAction {
   id: string;
@@ -105,6 +109,22 @@ export function CommandsPalette({
     const runNativeAction = (action: NativeMenuAction) => {
       dispatchNativeMenuAction(action);
       onOpenChange(false);
+    };
+    const seedPrompt = (prompt: string) => {
+      if (onUsePrompt) {
+        onUsePrompt(prompt);
+      } else {
+        dispatchNativeMenuAction("tab-chat");
+        window.dispatchEvent(new CustomEvent(SEED_COMPOSER_PROMPT_EVENT, { detail: { prompt } }));
+      }
+      onOpenChange(false);
+    };
+    const runClipboardPrompt = async (mode: ClipboardPromptMode) => {
+      try {
+        seedPrompt(buildClipboardPrompt(mode, await readTextFromClipboard()));
+      } catch (err) {
+        console.error("read clipboard failed:", err);
+      }
     };
 
     const nativeCommands: PaletteCommand[] = MAC_COMMANDS
@@ -225,6 +245,9 @@ export function CommandsPalette({
       ...projectCommands,
       ...fileBrowserCommands,
 
+      { id: "clipboard-chat", kind: "action", label: "Start Chat With Clipboard", description: "Seed the composer with the current text clipboard.", icon: Clipboard, run: () => runClipboardPrompt("chat") },
+      { id: "clipboard-explain", kind: "action", label: "Explain Clipboard Snippet", description: "Ask Xolotl to explain the code or text currently on the clipboard.", icon: BookOpen, run: () => runClipboardPrompt("explain") },
+
       // Workflows point users at features they may not know exist.
       { id: "agents", kind: "action", label: "Spawn an agent", description: "Right sidebar: plus button. Agents work in isolated git worktrees.", icon: GitBranch },
       { id: "team", kind: "action", label: "Launch a team", description: "Right sidebar: people icon. Define roles and tasks for parallel agents.", icon: Users },
@@ -309,6 +332,37 @@ function paletteCommandFromMacCommand(
     icon: MAC_COMMAND_ICONS[command.id],
     run: () => runNativeAction(command.action),
   };
+}
+
+function trimClipboardForPrompt(text: string): { text: string; truncated: boolean } {
+  const normalized = text.replace(/\r\n/g, "\n").trim();
+  if (normalized.length <= MAX_CLIPBOARD_PROMPT_CHARS) {
+    return { text: normalized, truncated: false };
+  }
+  return {
+    text: normalized.slice(0, MAX_CLIPBOARD_PROMPT_CHARS),
+    truncated: true,
+  };
+}
+
+export function buildClipboardPrompt(mode: ClipboardPromptMode, clipboardText: string): string {
+  const { text, truncated } = trimClipboardForPrompt(clipboardText);
+  const header = mode === "explain"
+    ? "Explain this clipboard snippet clearly. Identify what it does, call out any important assumptions, and mention risks or improvements if you see them."
+    : "Start from this clipboard text:";
+  const emptyHint = mode === "explain"
+    ? "The clipboard does not currently contain text to explain."
+    : "The clipboard does not currently contain text.";
+  if (!text) return emptyHint;
+  return [
+    header,
+    "",
+    "```",
+    text,
+    "```",
+    truncated ? "" : null,
+    truncated ? `Clipboard text was truncated to ${MAX_CLIPBOARD_PROMPT_CHARS.toLocaleString()} characters.` : null,
+  ].filter((line): line is string => line !== null).join("\n");
 }
 
 function runSlashCommand(

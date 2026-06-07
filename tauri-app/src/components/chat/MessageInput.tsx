@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { ArrowUp, Check, ChevronDown, Command as CommandIcon, FileText, Gauge, Paperclip, ShieldCheck, X } from "lucide-react";
-import { CommandsPalette } from "./CommandsPalette";
+import { CommandsPalette, SEED_COMPOSER_PROMPT_EVENT } from "./CommandsPalette";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/button";
 import {
@@ -374,6 +374,15 @@ export function MessageInput() {
     };
     window.addEventListener("xolotl:seed-prompt", onSeed);
     return () => window.removeEventListener("xolotl:seed-prompt", onSeed);
+  }, [seedWorkflowPrompt]);
+
+  useEffect(() => {
+    const onSeedPrompt = (e: Event) => {
+      const prompt = (e as CustomEvent<{ prompt?: string }>).detail?.prompt;
+      if (prompt) seedWorkflowPrompt(prompt);
+    };
+    window.addEventListener(SEED_COMPOSER_PROMPT_EVENT, onSeedPrompt);
+    return () => window.removeEventListener(SEED_COMPOSER_PROMPT_EVENT, onSeedPrompt);
   }, [seedWorkflowPrompt]);
 
   // The file browser inserts converted PDF text into the composer via this

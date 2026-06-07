@@ -1,12 +1,13 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CommandsPalette } from "./CommandsPalette";
+import { CommandsPalette, SEED_COMPOSER_PROMPT_EVENT, buildClipboardPrompt } from "./CommandsPalette";
 import { NATIVE_MENU_EVENT, type NativeMenuAction } from "../../lib/nativeMenu";
 import { useProjectStore } from "../../stores/projectStore";
 
 const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn(() => Promise.resolve()),
   openPathInExternalEditor: vi.fn(() => Promise.resolve()),
+  readTextFromClipboard: vi.fn(() => Promise.resolve("const answer = 42;")),
   revealPathInFinder: vi.fn(() => Promise.resolve()),
 }));
 
@@ -16,6 +17,7 @@ vi.mock("../../lib/pathActions", async () => {
     ...actual,
     copyTextToClipboard: pathActionMocks.copyTextToClipboard,
     openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
+    readTextFromClipboard: pathActionMocks.readTextFromClipboard,
     revealPathInFinder: pathActionMocks.revealPathInFinder,
   };
 });
@@ -89,6 +91,8 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Reveal Active Project in Finder")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Path")).toBeTruthy();
     expect(screen.getByText("Open Active Project in Editor")).toBeTruthy();
+    expect(screen.getByText("Start Chat With Clipboard")).toBeTruthy();
+    expect(screen.getByText("Explain Clipboard Snippet")).toBeTruthy();
     expect(screen.getByText("Open Recent: Xolotl")).toBeTruthy();
   });
 
@@ -168,6 +172,46 @@ describe("CommandsPalette", () => {
     expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("docs/src");
   });
 
+  it("seeds clipboard prompts through the composer callback", async () => {
+    const onUsePrompt = vi.fn();
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} onUsePrompt={onUsePrompt} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Explain Clipboard Snippet" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.readTextFromClipboard).toHaveBeenCalled();
+      expect(onUsePrompt).toHaveBeenCalledWith(expect.stringContaining("const answer = 42;"));
+    });
+    expect(onUsePrompt.mock.calls[0][0]).toContain("Explain this clipboard snippet clearly.");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("dispatches clipboard prompt events when no composer callback is provided", async () => {
+    const events: string[] = [];
+    const actions: NativeMenuAction[] = [];
+    const onSeed = (event: Event) => {
+      events.push((event as CustomEvent<{ prompt: string }>).detail.prompt);
+    };
+    const onAction = (event: Event) => actions.push((event as CustomEvent<NativeMenuAction>).detail);
+    window.addEventListener(SEED_COMPOSER_PROMPT_EVENT, onSeed);
+    window.addEventListener(NATIVE_MENU_EVENT, onAction);
+
+    try {
+      render(<CommandsPalette open onOpenChange={vi.fn()} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Start Chat With Clipboard" }));
+
+      await waitFor(() => {
+        expect(events[0]).toContain("const answer = 42;");
+      });
+      expect(actions).toContain("tab-chat");
+    } finally {
+      window.removeEventListener(SEED_COMPOSER_PROMPT_EVENT, onSeed);
+      window.removeEventListener(NATIVE_MENU_EVENT, onAction);
+    }
+  });
+
   it("can disable its global command shortcut for secondary palette instances", () => {
     const onOpenChange = vi.fn();
     render(<CommandsPalette open={false} onOpenChange={onOpenChange} enableGlobalShortcut={false} />);
@@ -175,5 +219,12 @@ describe("CommandsPalette", () => {
     fireEvent.keyDown(window, { key: "k", metaKey: true });
 
     expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildClipboardPrompt", () => {
+  it("formats empty and explain clipboard prompts", () => {
+    expect(buildClipboardPrompt("chat", "   ")).toBe("The clipboard does not currently contain text.");
+    expect(buildClipboardPrompt("explain", "const x = 1;")).toContain("Explain this clipboard snippet clearly.");
   });
 });

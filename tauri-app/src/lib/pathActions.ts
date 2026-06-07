@@ -1,4 +1,4 @@
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { commands } from "../bindings";
 
 function stripTrailingSlash(path: string): string {
@@ -20,6 +20,14 @@ export async function copyTextToClipboard(text: string) {
     await writeText(text);
   } catch {
     await navigator.clipboard?.writeText(text).catch(() => undefined);
+  }
+}
+
+export async function readTextFromClipboard() {
+  try {
+    return await readText();
+  } catch {
+    return await navigator.clipboard?.readText?.() ?? "";
   }
 }
 
