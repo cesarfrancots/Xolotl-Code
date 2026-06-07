@@ -1,6 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import "./styles.css";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { SessionSidebar } from "./components/sidebar/SessionSidebar";
 import { useAgentStore, type AgentRecord } from "./stores/agentStore";
 import { useUiStore } from "./stores/uiStore";
@@ -15,10 +14,6 @@ import { shortcutTitle } from "./lib/macShortcuts";
 import {
   dispatchNativeMenuAction,
   listenForNativeMenuActions,
-  nativeMenuActionFromPayload,
-  nativeRecentProjectMenuActionFromPayload,
-  TAURI_MENU_EVENT,
-  TAURI_RECENT_PROJECT_MENU_EVENT,
   type NativeMenuAction,
   type NativeRecentProjectMenuPayload,
 } from "./lib/nativeMenu";
@@ -30,6 +25,7 @@ const loadChatPane = () => import("./components/chat/ChatPane");
 const loadAgentPanel = () => import("./components/agent/AgentPanel");
 const loadMacRuntimeBridge = () => import("./components/mac/MacRuntimeBridge");
 const loadMacAppStatusBanner = () => import("./components/mac/MacAppStatusBanner");
+const loadMacNativeMenuEventBridge = () => import("./components/mac/MacNativeMenuEventBridge");
 const loadPathActions = () => import("./lib/pathActions");
 
 const LazyChatPane = lazy(async () => {
@@ -65,6 +61,11 @@ const LazyMacRuntimeBridge = lazy(async () => {
 const LazyMacAppStatusBanner = lazy(async () => {
   const module = await loadMacAppStatusBanner();
   return { default: module.MacAppStatusBanner };
+});
+
+const LazyMacNativeMenuEventBridge = lazy(async () => {
+  const module = await loadMacNativeMenuEventBridge();
+  return { default: module.MacNativeMenuEventBridge };
 });
 
 const LazyAgentOutputView = lazy(async () => {
@@ -633,62 +634,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    let unlisten: UnlistenFn | null = null;
-
-    listen<string>(TAURI_MENU_EVENT, (event) => {
-      const action = nativeMenuActionFromPayload(event.payload);
-      if (action) dispatchNativeMenuAction(action);
-    })
-      .then((fn) => {
-        if (cancelled) fn();
-        else unlisten = fn;
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error("native menu listener failed:", err);
-        setMacAppStatus({
-          tone: "error",
-          message: "Native menu bridge unavailable.",
-          hint: `Restart Xolotl Code if menu commands stop responding. Keyboard shortcuts inside the app still work. ${errorDetail(err)}`,
-        });
-      });
-
-    return () => {
-      cancelled = true;
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: UnlistenFn | null = null;
-
-    listen<unknown>(TAURI_RECENT_PROJECT_MENU_EVENT, (event) => {
-      const payload = nativeRecentProjectMenuActionFromPayload(event.payload);
-      if (payload) handleNativeRecentProjectMenuAction(payload);
-    })
-      .then((fn) => {
-        if (cancelled) fn();
-        else unlisten = fn;
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error("recent project menu listener failed:", err);
-        setMacAppStatus({
-          tone: "error",
-          message: "Recent project menu bridge unavailable.",
-          hint: `Restart Xolotl Code if recent project handoff commands stop responding. Direct Open Recent entries still work. ${errorDetail(err)}`,
-        });
-      });
-
-    return () => {
-      cancelled = true;
-      if (unlisten) unlisten();
-    };
-  }, [handleNativeRecentProjectMenuAction]);
-
-  useEffect(() => {
     const handlePopState = () => setCenterTab(centerTabFromSearch(window.location.search));
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -761,6 +706,12 @@ export default function App() {
     <div className="min-h-0 w-screen flex flex-row overflow-hidden xolotl-shell">
       <Suspense fallback={null}>
         <LazyMacRuntimeBridge selectCenterTab={selectCenterTab} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <LazyMacNativeMenuEventBridge
+          onRecentProjectMenuAction={handleNativeRecentProjectMenuAction}
+          onBridgeStatus={setMacAppStatus}
+        />
       </Suspense>
       <SessionSidebar forceCollapsed={compactShell} />
       <div className="xolotl-workbench flex-1 min-w-0 min-h-0 flex flex-col">
