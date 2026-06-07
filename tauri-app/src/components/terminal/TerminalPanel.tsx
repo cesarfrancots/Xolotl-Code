@@ -1,5 +1,5 @@
-import { useEffect, type KeyboardEvent } from "react";
-import { Copy, ExternalLink, Plus, TerminalSquare, X } from "lucide-react";
+import { useEffect, useState, type KeyboardEvent } from "react";
+import { AlertCircle, CheckCircle, Copy, ExternalLink, Plus, TerminalSquare, X } from "lucide-react";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { useUiStore } from "../../stores/uiStore";
 import { projectDisplayName, useProjectStore } from "../../stores/projectStore";
@@ -7,6 +7,14 @@ import { macPathLabel } from "../../lib/fileBrowser";
 import { shortcutTitle } from "../../lib/macShortcuts";
 import { copyTextToClipboard, revealPathInFinder } from "../../lib/pathActions";
 import { TerminalView } from "./TerminalView";
+
+type TerminalStatusTone = "ok" | "error";
+
+interface TerminalStatus {
+  tone: TerminalStatusTone;
+  message: string;
+  hint?: string;
+}
 
 /**
  * The terminal dock's contents: a tab bar over a stack of {@link TerminalView}s.
@@ -18,6 +26,7 @@ export function TerminalPanel() {
   const activeKey = useTerminalStore((s) => s.activeKey);
   const terminalPanelOpen = useUiStore((s) => s.terminalPanelOpen);
   const activeProjectPath = useProjectStore((s) => s.activeProjectPath);
+  const [status, setStatus] = useState<TerminalStatus | null>(null);
   const activeTab = tabs.find((tab) => tab.key === activeKey) ?? null;
 
   // Open with one terminal ready to go.
@@ -26,6 +35,10 @@ export function TerminalPanel() {
       useTerminalStore.getState().addTab(undefined, useProjectStore.getState().activeProjectPath);
     }
   }, []);
+
+  useEffect(() => {
+    setStatus(null);
+  }, [activeKey]);
 
   function handleClose(key: string) {
     useTerminalStore.getState().closeTab(key);
@@ -36,7 +49,27 @@ export function TerminalPanel() {
   }
 
   function handleNewTerminal() {
+    setStatus(null);
     useTerminalStore.getState().addTab(undefined, useProjectStore.getState().activeProjectPath);
+  }
+
+  async function runCwdHandoff(
+    label: string,
+    action: () => Promise<void>,
+    successMessage: string,
+    hint: string,
+  ) {
+    try {
+      await action();
+      setStatus({ tone: "ok", message: successMessage });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err ?? "");
+      setStatus({
+        tone: "error",
+        message: `${label} failed.`,
+        hint: detail ? `${hint} ${detail}` : hint,
+      });
+    }
   }
 
   function selectAdjacentTab(direction: -1 | 1) {
@@ -165,7 +198,14 @@ export function TerminalPanel() {
                   title="Reveal terminal cwd in Finder"
                   aria-label="Reveal terminal cwd in Finder"
                   onClick={() => {
-                    if (activeTab.cwd) void revealPathInFinder(activeTab.cwd).catch((err) => console.error("reveal terminal cwd failed:", err));
+                    if (activeTab.cwd) {
+                      void runCwdHandoff(
+                        "Reveal terminal cwd in Finder",
+                        () => revealPathInFinder(activeTab.cwd!),
+                        "Terminal cwd revealed in Finder.",
+                        "Check that the terminal folder still exists and that macOS allows Xolotl Code to access it.",
+                      );
+                    }
                   }}
                   className="grid h-5 w-5 place-items-center rounded text-[oklch(0.45_0.010_225)] hover:bg-[oklch(0.16_0.006_245)] hover:text-[oklch(0.78_0.040_195)]"
                 >
@@ -176,7 +216,14 @@ export function TerminalPanel() {
                   title="Copy terminal cwd POSIX path"
                   aria-label="Copy terminal cwd POSIX path"
                   onClick={() => {
-                    if (activeTab.cwd) void copyTextToClipboard(activeTab.cwd);
+                    if (activeTab.cwd) {
+                      void runCwdHandoff(
+                        "Copy terminal cwd path",
+                        () => copyTextToClipboard(activeTab.cwd!),
+                        "Terminal cwd path copied.",
+                        "Check macOS clipboard access and try copying the path again.",
+                      );
+                    }
                   }}
                   className="grid h-5 w-5 place-items-center rounded text-[oklch(0.45_0.010_225)] hover:bg-[oklch(0.16_0.006_245)] hover:text-[oklch(0.78_0.040_195)]"
                 >
@@ -195,6 +242,7 @@ export function TerminalPanel() {
           </div>
         )}
       </div>
+      {status && <TerminalStatusBanner status={status} onDismiss={() => setStatus(null)} />}
       <div className="relative flex-1 min-h-0">
         {tabs.map((tab) => (
           <div
@@ -210,6 +258,37 @@ export function TerminalPanel() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function TerminalStatusBanner({
+  status,
+  onDismiss,
+}: {
+  status: TerminalStatus;
+  onDismiss: () => void;
+}) {
+  const Icon = status.tone === "error" ? AlertCircle : CheckCircle;
+  const classes = status.tone === "error"
+    ? "border-[oklch(0.34_0.055_25)] bg-[oklch(0.145_0.018_25)]/65 text-[oklch(0.78_0.090_25)]"
+    : "border-[oklch(0.32_0.045_155)] bg-[oklch(0.145_0.018_155)]/55 text-[oklch(0.74_0.080_155)]";
+
+  return (
+    <div className={`flex flex-none items-start gap-2 border-b px-3 py-2 text-xs ${classes}`}>
+      <Icon className="mt-0.5 h-3.5 w-3.5 flex-none" />
+      <div className="min-w-0 flex-1">
+        <div className="font-medium">{status.message}</div>
+        {status.hint && <div className="mt-0.5 leading-relaxed text-[oklch(0.67_0.045_45)]">{status.hint}</div>}
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="rounded px-1 text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.18_0.008_245)] hover:text-[oklch(0.86_0.016_220)]"
+        aria-label="Dismiss terminal status"
+      >
+        Dismiss
+      </button>
     </div>
   );
 }

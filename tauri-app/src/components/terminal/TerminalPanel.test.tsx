@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TerminalPanel } from "./TerminalPanel";
 import { useTerminalStore } from "../../stores/terminalStore";
@@ -91,10 +91,84 @@ it("offers Finder and copy actions for the active terminal cwd", async () => {
   });
 
   await user.click(screen.getByLabelText("Reveal terminal cwd in Finder"));
-  expect(pathActionMocks.revealPathInFinder).toHaveBeenCalledWith("/Users/cesar/project-a");
+  await waitFor(() => {
+    expect(pathActionMocks.revealPathInFinder).toHaveBeenCalledWith("/Users/cesar/project-a");
+    expect(screen.getByText("Terminal cwd revealed in Finder.")).toBeTruthy();
+  });
 
   await user.click(screen.getByLabelText("Copy terminal cwd POSIX path"));
-  expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/project-a");
+  await waitFor(() => {
+    expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/project-a");
+    expect(screen.getByText("Terminal cwd path copied.")).toBeTruthy();
+  });
+});
+
+it("shows recovery guidance when revealing the terminal cwd fails", async () => {
+  pathActionMocks.revealPathInFinder.mockRejectedValueOnce(new Error("Folder missing"));
+  const user = userEvent.setup();
+  render(<TerminalPanel />);
+  const tab = useTerminalStore.getState().tabs[0];
+
+  act(() => {
+    useTerminalStore.getState().setBackendInfo(tab.key, {
+      id: "pty-1",
+      shell: "/bin/zsh",
+      shell_name: "zsh",
+      cwd: "/Users/cesar/project-a",
+      env_source: "Inherited app environment + $SHELL",
+    });
+  });
+
+  await user.click(screen.getByLabelText("Reveal terminal cwd in Finder"));
+
+  expect(await screen.findByText("Reveal terminal cwd in Finder failed.")).toBeTruthy();
+  expect(screen.getByText(/Check that the terminal folder still exists/)).toBeTruthy();
+  expect(screen.getByText(/Folder missing/)).toBeTruthy();
+});
+
+it("shows recovery guidance when copying the terminal cwd fails", async () => {
+  pathActionMocks.copyTextToClipboard.mockRejectedValueOnce(new Error("Clipboard blocked"));
+  const user = userEvent.setup();
+  render(<TerminalPanel />);
+  const tab = useTerminalStore.getState().tabs[0];
+
+  act(() => {
+    useTerminalStore.getState().setBackendInfo(tab.key, {
+      id: "pty-1",
+      shell: "/bin/zsh",
+      shell_name: "zsh",
+      cwd: "/Users/cesar/project-a",
+      env_source: "Inherited app environment + $SHELL",
+    });
+  });
+
+  await user.click(screen.getByLabelText("Copy terminal cwd POSIX path"));
+
+  expect(await screen.findByText("Copy terminal cwd path failed.")).toBeTruthy();
+  expect(screen.getByText(/Check macOS clipboard access/)).toBeTruthy();
+  expect(screen.getByText(/Clipboard blocked/)).toBeTruthy();
+});
+
+it("dismisses terminal handoff status messages", async () => {
+  const user = userEvent.setup();
+  render(<TerminalPanel />);
+  const tab = useTerminalStore.getState().tabs[0];
+
+  act(() => {
+    useTerminalStore.getState().setBackendInfo(tab.key, {
+      id: "pty-1",
+      shell: "/bin/zsh",
+      shell_name: "zsh",
+      cwd: "/Users/cesar/project-a",
+      env_source: "Inherited app environment + $SHELL",
+    });
+  });
+
+  await user.click(screen.getByLabelText("Copy terminal cwd POSIX path"));
+  expect(await screen.findByText("Terminal cwd path copied.")).toBeTruthy();
+
+  await user.click(screen.getByLabelText("Dismiss terminal status"));
+  expect(screen.queryByText("Terminal cwd path copied.")).toBeNull();
 });
 
 it("closes a tab when its close button is clicked", async () => {

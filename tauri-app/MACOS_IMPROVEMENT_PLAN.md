@@ -31,6 +31,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - File browser entries can preview files with macOS Quick Look from row actions and the command palette.
 - File browser folders can open embedded terminals at the current folder or selected child folder, matching Finder-style "New Terminal Here" workflow.
 - Terminal cwd metadata can reveal its folder in Finder and copy the POSIX cwd path.
+- Terminal cwd Finder/copy actions show inline success or recovery feedback instead of failing silently.
 - Eval history can reveal saved eval JSON files and the generated eval artifacts folder in Finder.
 - Launched eval outcome artifacts can reveal their generated artifact folder in Finder.
 - Packaged launch-path smoke coverage is available through `npm run smoke:mac:launch-path`.
@@ -408,6 +409,7 @@ Deliverables:
 - Add task-result handoffs:
   - Reveal artifacts, copy paths, copy deep links, and open folders in editor from eval/agent result surfaces.
 - Add visible recovery for failed handoff actions. Done for command-palette Finder/editor/Quick Look/clipboard actions.
+  - Done for terminal cwd Finder/copy actions.
 
 Acceptance:
 
