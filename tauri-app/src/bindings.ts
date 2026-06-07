@@ -177,6 +177,8 @@ export const commands = {
 	 *  the item in Finder via `open -R`.
 	 */
 	revealInFinder: (path: string) => typedError<null, string>(__TAURI_INVOKE("reveal_in_finder", { path })),
+	/**  Preview a file or folder with macOS Quick Look without blocking the app. */
+	quickLookPath: (path: string) => typedError<null, string>(__TAURI_INVOKE("quick_look_path", { path })),
 	refreshNativeMenu: () => typedError<null, string>(__TAURI_INVOKE("refresh_native_menu")),
 	/**
 	 *  Open a native folder picker and return the chosen directory (or `None` if

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DirectoryBrowser } from "./DirectoryBrowser";
-import { copyTextToClipboard, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, quickLookPath, revealPathInFinder } from "../../lib/pathActions";
 import { useProjectStore } from "../../stores/projectStore";
 
 vi.mock("../../lib/pathActions", async () => {
@@ -9,6 +9,7 @@ vi.mock("../../lib/pathActions", async () => {
   return {
     ...actual,
     copyTextToClipboard: vi.fn(() => Promise.resolve()),
+    quickLookPath: vi.fn(() => Promise.resolve()),
     revealPathInFinder: vi.fn(() => Promise.resolve()),
   };
 });
@@ -78,5 +79,8 @@ describe("DirectoryBrowser", () => {
 
     fireEvent.click(screen.getByLabelText("Reveal src in Finder"));
     expect(revealPathInFinder).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/src");
+
+    fireEvent.click(screen.getByLabelText("Quick Look README.md"));
+    expect(quickLookPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/README.md");
   });
 });

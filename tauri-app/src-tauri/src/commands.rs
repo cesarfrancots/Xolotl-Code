@@ -1228,6 +1228,56 @@ fn reveal_existing_path_in_file_manager(path: &Path) -> Result<(), String> {
     }
 }
 
+fn quick_look_command(path: &Path) -> Result<(&'static str, Vec<std::ffi::OsString>), String> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok((
+            "/usr/bin/qlmanage",
+            vec!["-p".into(), path.as_os_str().to_os_string()],
+        ))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        Err("Quick Look is only available on macOS.".to_string())
+    }
+}
+
+/// Preview a file or folder with macOS Quick Look without blocking the app.
+#[tauri::command]
+#[specta::specta]
+pub fn quick_look_path(path: String) -> Result<(), String> {
+    let raw = PathBuf::from(&path);
+    if !raw.exists() {
+        return Err(format!("Path does not exist: {path}"));
+    }
+    let target = std::fs::canonicalize(&raw).unwrap_or(raw);
+    let (program, args) = quick_look_command(&target)?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut child = std::process::Command::new(program)
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|err| format!("Could not open Quick Look: {err}"))?;
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = program;
+        let _ = args;
+        Err("Quick Look is only available on macOS.".to_string())
+    }
+}
+
 fn is_valid_eval_id(id: &str) -> bool {
     !id.is_empty()
         && id
@@ -5304,6 +5354,28 @@ mod config_tests {
         {
             assert_eq!(program, "xdg-open");
             assert_eq!(args[0], path.as_os_str());
+        }
+    }
+
+    #[test]
+    fn quick_look_command_is_macos_only() {
+        let path = std::path::Path::new("/Users/cesar/Project/README.md");
+        let command = quick_look_command(path);
+
+        #[cfg(target_os = "macos")]
+        {
+            let (program, args) = command.expect("Quick Look command should exist on macOS");
+            assert_eq!(program, "/usr/bin/qlmanage");
+            assert_eq!(args[0].to_string_lossy(), "-p");
+            assert_eq!(args[1], path.as_os_str());
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(
+                command.unwrap_err(),
+                "Quick Look is only available on macOS."
+            );
         }
     }
 

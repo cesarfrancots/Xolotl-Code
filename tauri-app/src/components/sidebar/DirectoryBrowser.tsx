@@ -18,7 +18,7 @@ import {
 import { commands } from "../../bindings";
 import { useProjectStore, projectDisplayName } from "../../stores/projectStore";
 import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "../../lib/fileBrowser";
-import { copyTextToClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, quickLookPath, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 
 /**
  * Lightweight file browser for the active project. Folders are navigable;
@@ -210,7 +210,7 @@ export function DirectoryBrowser() {
                       {child.is_symlink && <Link2 className="h-3 w-3 flex-none text-[oklch(0.50_0.025_205)]" />}
                       <span className="min-w-0 flex-1 truncate">{child.name}</span>
                       <EntryBadges badges={badges} />
-                      <PathActionButtons path={child.path} root={activePath} label={child.name} />
+                      <PathActionButtons path={child.path} root={activePath} label={child.name} canQuickLook />
                       {child.is_pdf && (
                         <button
                           type="button"
@@ -240,10 +240,24 @@ export function DirectoryBrowser() {
   );
 }
 
-function PathActionButtons({ path, root, label }: { path: string; root: string; label: string }) {
+function PathActionButtons({ path, root, label, canQuickLook = false }: { path: string; root: string; label: string; canQuickLook?: boolean }) {
   const relativePath = relativePathFromRoot(path, root);
   return (
     <span className="flex flex-none items-center gap-0.5">
+      {canQuickLook && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            void quickLookPath(path).catch((err) => console.error("quick look path failed:", err));
+          }}
+          title="Quick Look"
+          aria-label={`Quick Look ${label}`}
+          className="xolotl-row-action-button"
+        >
+          <Eye className="h-3 w-3" />
+        </button>
+      )}
       <button
         type="button"
         onClick={(e) => {

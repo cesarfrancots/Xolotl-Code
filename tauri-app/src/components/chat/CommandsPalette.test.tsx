@@ -7,6 +7,7 @@ import { useProjectStore } from "../../stores/projectStore";
 const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn(() => Promise.resolve()),
   openPathInExternalEditor: vi.fn(() => Promise.resolve()),
+  quickLookPath: vi.fn(() => Promise.resolve()),
   readTextFromClipboard: vi.fn(() => Promise.resolve("const answer = 42;")),
   revealPathInFinder: vi.fn(() => Promise.resolve()),
 }));
@@ -17,6 +18,7 @@ vi.mock("../../lib/pathActions", async () => {
     ...actual,
     copyTextToClipboard: pathActionMocks.copyTextToClipboard,
     openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
+    quickLookPath: pathActionMocks.quickLookPath,
     readTextFromClipboard: pathActionMocks.readTextFromClipboard,
     revealPathInFinder: pathActionMocks.revealPathInFinder,
   };
@@ -105,7 +107,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Browse Parent Folder")).toBeTruthy();
     expect(screen.getByText("Back to Project Root")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Folder: src" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Reveal File: README.md" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Quick Look File: README.md" })).toBeTruthy();
     expect(screen.getByText("PDF")).toBeTruthy();
     expect(screen.queryByText(".env")).toBeNull();
   });
@@ -170,6 +172,9 @@ describe("CommandsPalette", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Copy relative path for src" }));
     expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("docs/src");
+
+    fireEvent.click(screen.getByRole("button", { name: "Quick Look File: README.md" }));
+    expect(pathActionMocks.quickLookPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/README.md");
   });
 
   it("seeds clipboard prompts through the composer callback", async () => {

@@ -4,7 +4,7 @@ import {
   Hash, Keyboard, Paperclip, FlaskConical, GitBranch, Users, FileText, Settings2,
   DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen, Archive, Gauge,
   MessageSquare, TerminalSquare, TestTubeDiagonal, Sprout, Settings, FolderPlus, ExternalLink, Copy,
-  Clipboard, Code2, CornerDownRight, CornerLeftUp, File as FileIcon, Folder, RefreshCw,
+  Clipboard, Code2, CornerDownRight, CornerLeftUp, Eye, Folder, RefreshCw,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
@@ -25,7 +25,7 @@ import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "..
 import { MAC_COMMANDS, type MacCommandId, type MacCommandSpec } from "../../lib/macCommandModel";
 import { formatMacShortcut } from "../../lib/macShortcuts";
 import { dispatchNativeMenuAction, type NativeMenuAction } from "../../lib/nativeMenu";
-import { copyTextToClipboard, openPathInExternalEditor, readTextFromClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, openPathInExternalEditor, quickLookPath, readTextFromClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 
 type CommandAction = () => void | Promise<void>;
 type CommandKind = "slash" | "shortcut" | "file" | "action";
@@ -173,23 +173,23 @@ export function CommandsPalette({
         return {
           id: `browser-entry-${child.path}`,
           kind: "file" as const,
-          label: `${child.is_dir ? "Open Folder" : "Reveal File"}: ${child.name}`,
+          label: `${child.is_dir ? "Open Folder" : "Quick Look File"}: ${child.name}`,
           syntax,
           description: relativePath,
-          icon: child.is_dir ? Folder : FileIcon,
+          icon: child.is_dir ? Folder : Eye,
           run: () => {
             if (child.is_dir) void browse(child.path);
-            else void revealPathInFinder(child.path);
+            else void quickLookPath(child.path).catch((err) => console.error("quick look file failed:", err));
             onOpenChange(false);
           },
           secondaryActions: [
-            ...(child.is_dir ? [{
+            {
               id: "reveal",
               label: `Reveal ${child.name} in Finder`,
               title: "Reveal in Finder",
               icon: ExternalLink,
               run: () => { void revealPathInFinder(child.path); onOpenChange(false); },
-            }] : []),
+            },
             {
               id: "copy-posix",
               label: `Copy POSIX path for ${child.name}`,
