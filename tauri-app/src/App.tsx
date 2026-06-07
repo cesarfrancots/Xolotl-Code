@@ -9,6 +9,8 @@ import { MergeCheckpointView } from "./components/agent/MergeCheckpointView";
 import { useAgentStore } from "./stores/agentStore";
 import { useUiStore } from "./stores/uiStore";
 import { useTerminalStore } from "./stores/terminalStore";
+import { useProjectStore } from "./stores/projectStore";
+import { useProjectDrop } from "./hooks/useProjectDrop";
 import { Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves } from "lucide-react";
 import { centerTabFromSearch, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
 import {
@@ -55,6 +57,8 @@ export default function App() {
   const terminalDockMounted = terminalPanelOpen || terminalTabCount > 0;
   const handledMenuActionRef = useRef<{ action: NativeMenuAction; at: number } | null>(null);
 
+  useProjectDrop();
+
   const selectCenterTab = useCallback((tab: CenterTab) => {
     setCenterTab(tab);
     const nextUrl = urlForCenterTab(window.location.href, tab);
@@ -62,6 +66,28 @@ export default function App() {
     if (nextUrl !== currentUrl) {
       window.history.pushState(null, "", nextUrl);
     }
+  }, []);
+
+  const addTerminalTab = useCallback(() => {
+    useUiStore.getState().setTerminalPanelOpen(true);
+    useTerminalStore.getState().addTab(undefined, useProjectStore.getState().activeProjectPath);
+  }, []);
+
+  const closeActiveTerminalTab = useCallback(() => {
+    const terminal = useTerminalStore.getState();
+    if (!terminal.activeKey) return;
+    terminal.closeTab(terminal.activeKey);
+    if (useTerminalStore.getState().tabs.length === 0) {
+      useUiStore.getState().setTerminalPanelOpen(false);
+    }
+  }, []);
+
+  const selectAdjacentTerminalTab = useCallback((direction: -1 | 1) => {
+    const terminal = useTerminalStore.getState();
+    const activeIndex = terminal.tabs.findIndex((tab) => tab.key === terminal.activeKey);
+    if (activeIndex === -1 || terminal.tabs.length < 2) return;
+    const nextIndex = (activeIndex + direction + terminal.tabs.length) % terminal.tabs.length;
+    terminal.setActive(terminal.tabs[nextIndex].key);
   }, []);
 
   const handleNativeMenuAction = useCallback((action: NativeMenuAction) => {
@@ -78,6 +104,22 @@ export default function App() {
       useUiStore.getState().toggleTerminalPanel();
       return;
     }
+    if (action === "terminal-new") {
+      addTerminalTab();
+      return;
+    }
+    if (action === "terminal-close") {
+      closeActiveTerminalTab();
+      return;
+    }
+    if (action === "terminal-prev") {
+      selectAdjacentTerminalTab(-1);
+      return;
+    }
+    if (action === "terminal-next") {
+      selectAdjacentTerminalTab(1);
+      return;
+    }
     if (action === "tab-chat") {
       selectCenterTab("chat");
       return;
@@ -91,7 +133,7 @@ export default function App() {
       void loadCivilizationView();
       selectCenterTab("civ");
     }
-  }, [selectCenterTab]);
+  }, [addTerminalTab, closeActiveTerminalTab, selectAdjacentTerminalTab, selectCenterTab]);
 
   useEffect(() => listenForNativeMenuActions(handleNativeMenuAction), [handleNativeMenuAction]);
 
@@ -134,6 +176,27 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+
+      if (e.metaKey && !e.ctrlKey && !e.altKey && useUiStore.getState().terminalPanelOpen) {
+        const key = e.key.toLowerCase();
+        if (!e.shiftKey && key === "t") {
+          e.preventDefault();
+          dispatchNativeMenuAction("terminal-new");
+          return;
+        }
+        if (!e.shiftKey && key === "w") {
+          e.preventDefault();
+          dispatchNativeMenuAction("terminal-close");
+          return;
+        }
+        if (e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+          e.preventDefault();
+          dispatchNativeMenuAction(e.key === "ArrowLeft" ? "terminal-prev" : "terminal-next");
+          return;
+        }
+      }
+
       const metaOnly = e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
       if (metaOnly) {
         const key = e.key.toLowerCase();

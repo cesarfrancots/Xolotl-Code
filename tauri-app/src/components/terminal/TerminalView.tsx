@@ -62,10 +62,12 @@ export function TerminalView({
   tabKey,
   active,
   visible,
+  cwd,
 }: {
   tabKey: string;
   active: boolean;
   visible: boolean;
+  cwd: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -147,7 +149,7 @@ export function TerminalView({
         return;
       }
 
-      const res = await commands.terminalSpawn(null, null, term.cols, term.rows);
+      const res = await commands.terminalSpawn(cwd, null, term.cols, term.rows);
       if (res.status === "error") {
         term.writeln(`\x1b[31m[failed to start shell: ${res.error}]\x1b[0m`);
         // No PTY id will ever arrive: stop listening and stop buffering, else
@@ -196,7 +198,7 @@ export function TerminalView({
       fitRef.current = null;
       idRef.current = null;
     };
-  }, [tabKey]);
+  }, [tabKey, cwd]);
 
   // When this tab becomes visible, re-fit (the container had no size while
   // hidden) and focus it. Defer a frame so layout has settled.

@@ -3,6 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { NATIVE_MENU_EVENT } from "./lib/nativeMenu";
+import { useProjectStore } from "./stores/projectStore";
+import { useTerminalStore } from "./stores/terminalStore";
+import { useUiStore } from "./stores/uiStore";
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
@@ -36,6 +39,10 @@ vi.mock("./components/civilization/CivilizationView", () => ({
   CivilizationView: () => <main>Civilization workspace</main>,
 }));
 
+vi.mock("./components/terminal/TerminalDock", () => ({
+  TerminalDock: () => <div>Terminal dock</div>,
+}));
+
 vi.mock("./stores/agentStore", () => ({
   useAgentStore: (selector: (state: { expandedAgentId: null; mergeCheckpointGroupId: null }) => unknown) =>
     selector({ expandedAgentId: null, mergeCheckpointGroupId: null }),
@@ -44,6 +51,15 @@ vi.mock("./stores/agentStore", () => ({
 describe("App tab navigation", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/");
+    useUiStore.setState({
+      sessionsCollapsed: false,
+      agentsCollapsed: false,
+      enabledSkills: [],
+      terminalPanelOpen: false,
+      terminalPanelHeight: 280,
+    });
+    useTerminalStore.setState({ tabs: [], activeKey: null });
+    useProjectStore.setState({ activeProjectPath: null, projects: [], listing: null });
   });
 
   it("keeps the app shell constrained to the visible viewport", () => {
@@ -123,5 +139,23 @@ describe("App tab navigation", () => {
 
     expect(screen.getByText("Chat workspace")).toBeTruthy();
     expect(window.location.search).toBe("");
+  });
+
+  it("handles Mac terminal tab shortcuts globally when the dock is open", async () => {
+    useUiStore.setState({ terminalPanelOpen: true });
+    useProjectStore.setState({ activeProjectPath: "/Users/cesar/work" });
+    render(<App />);
+    expect(await screen.findByText("Terminal dock")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "t", metaKey: true });
+
+    const tabs = useTerminalStore.getState().tabs;
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0].cwd).toBe("/Users/cesar/work");
+    expect(useTerminalStore.getState().activeKey).toBe(tabs[0].key);
+
+    fireEvent.keyDown(window, { key: "w", metaKey: true });
+    expect(useTerminalStore.getState().tabs).toHaveLength(0);
+    expect(useUiStore.getState().terminalPanelOpen).toBe(false);
   });
 });

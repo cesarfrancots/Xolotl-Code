@@ -10,11 +10,15 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - DMG packaging works through `scripts/package-mac-dmg.mjs`.
 - Browser storage is guarded for Tauri/WebView startup safety.
 - Embedded terminal opens reliably and focuses when the dock becomes visible.
-- Native macOS menu and Cmd shortcuts are being wired on this branch.
+- Native macOS menu and Cmd shortcuts are wired and smoke-tested.
+- File > New Chat, workbench tab shortcuts, command palette, and terminal toggle route through the native menu bridge.
+- Terminal tab commands are available from a native Terminal menu.
+- Terminal tabs capture the active project directory when they are created.
+- Finder-style folder drops on the app window can activate projects.
 
 ## Phase 1 - Native Mac Shell
 
-Status: in progress.
+Status: done.
 
 Deliverables:
 
@@ -62,14 +66,14 @@ Acceptance:
 
 ## Phase 3 - Finder and Project Workflow Integration
 
-Status: planned.
+Status: in progress.
 
 Deliverables:
 
 - Open project folders from Finder and command-line launch arguments.
 - Add a Recent Projects menu that mirrors the project store.
 - Add Dock menu shortcuts for New Chat, Open Folder, and recent projects if Tauri/AppKit support is practical.
-- Support drag-and-drop of folders onto the app window to open a project.
+- Support drag-and-drop of folders onto the app window to open a project. Done for Tauri window drops; still needs end-to-end Finder smoke coverage with a real project folder.
 - Improve file browser behavior for Mac paths:
   - Home directory display.
   - Hidden file visibility toggle.
@@ -83,16 +87,16 @@ Acceptance:
 
 ## Phase 4 - Terminal and Developer Environment Polish
 
-Status: planned.
+Status: in progress.
 
 Deliverables:
 
 - Improve shell detection for zsh, bash, fish, and user login shell.
-- Start terminals in the active project directory by default.
+- Start terminals in the active project directory by default. Done for newly created terminal tabs.
 - Add Mac-specific terminal shortcuts:
-  - Cmd+T: new terminal tab when terminal dock is focused.
-  - Cmd+W: close active terminal tab when terminal dock is focused.
-  - Cmd+Shift+Left/Right: switch terminal tabs.
+  - Cmd+T: new terminal tab. Done via native Terminal menu and dock fallback.
+  - Cmd+W: close active terminal tab. Done via native Terminal menu and dock fallback.
+  - Cmd+Shift+Left/Right: switch terminal tabs. Done via native Terminal menu and dock fallback.
 - Add terminal profile metadata:
   - Current shell.
   - Current working directory.
@@ -194,4 +198,3 @@ Automation targets:
 - Tauri Rust tests for menu ID mapping where practical.
 - Smoke script for `.app` launch, terminal focus, menu shortcuts, and project opening.
 - Build checks for app bundle, DMG, and universal target.
-

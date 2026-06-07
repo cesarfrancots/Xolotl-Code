@@ -7,6 +7,8 @@ export interface TerminalTab {
   /** Backend PTY id, assigned once `terminal_spawn` resolves. */
   backendId: string | null;
   title: string;
+  /** Directory the shell was launched in. Null means app launch cwd. */
+  cwd: string | null;
   /** The shell process has exited (read-only scrollback remains). */
   exited: boolean;
 }
@@ -15,7 +17,7 @@ interface TerminalState {
   tabs: TerminalTab[];
   activeKey: string | null;
   /** Create a new tab and make it active. Returns its key. */
-  addTab: (title?: string) => string;
+  addTab: (title?: string, cwd?: string | null) => string;
   setBackendId: (key: string, backendId: string) => void;
   markExited: (backendId: string) => void;
   closeTab: (key: string) => void;
@@ -36,13 +38,13 @@ let nextTerminalNum = 0;
 export const useTerminalStore = create<TerminalState>((set) => ({
   tabs: [],
   activeKey: null,
-  addTab: (title) => {
+  addTab: (title, cwd = null) => {
     const key = newKey();
     nextTerminalNum += 1;
     set((s) => ({
       tabs: [
         ...s.tabs,
-        { key, backendId: null, title: title ?? `Terminal ${nextTerminalNum}`, exited: false },
+        { key, backendId: null, title: title ?? `Terminal ${nextTerminalNum}`, cwd, exited: false },
       ],
       activeKey: key,
     }));

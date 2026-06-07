@@ -1,20 +1,22 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TerminalPanel } from "./TerminalPanel";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { useUiStore } from "../../stores/uiStore";
+import { useProjectStore } from "../../stores/projectStore";
 
 // Stub the xterm-backed view so the test never touches the real terminal.
 vi.mock("./TerminalView", () => ({
-  TerminalView: ({ tabKey, visible }: { tabKey: string; visible: boolean }) => (
-    <div data-testid={`view-${tabKey}`} data-visible={String(visible)} />
+  TerminalView: ({ tabKey, visible, cwd }: { tabKey: string; visible: boolean; cwd: string | null }) => (
+    <div data-testid={`view-${tabKey}`} data-visible={String(visible)} data-cwd={cwd ?? ""} />
   ),
 }));
 
 beforeEach(() => {
   useTerminalStore.setState({ tabs: [], activeKey: null });
   useUiStore.setState({ terminalPanelOpen: true });
+  useProjectStore.setState({ activeProjectPath: null, projects: [], listing: null });
 });
 
 it("auto-creates one terminal tab when opened empty", () => {
@@ -27,6 +29,22 @@ it("adds a tab when the new-terminal button is clicked", async () => {
   render(<TerminalPanel />);
   await user.click(screen.getByLabelText("New terminal"));
   expect(useTerminalStore.getState().tabs).toHaveLength(2);
+});
+
+it("launches new terminal tabs in the active project directory", async () => {
+  const user = userEvent.setup();
+  useProjectStore.setState({ activeProjectPath: "/Users/cesar/project-a" });
+
+  render(<TerminalPanel />);
+  expect(useTerminalStore.getState().tabs[0].cwd).toBe("/Users/cesar/project-a");
+
+  useProjectStore.setState({ activeProjectPath: "/Users/cesar/project-b" });
+  await user.click(screen.getByLabelText("New terminal"));
+
+  const tabs = useTerminalStore.getState().tabs;
+  expect(tabs[0].cwd).toBe("/Users/cesar/project-a");
+  expect(tabs[1].cwd).toBe("/Users/cesar/project-b");
+  expect(screen.getByTestId(`view-${tabs[1].key}`).getAttribute("data-cwd")).toBe("/Users/cesar/project-b");
 });
 
 it("closes a tab when its close button is clicked", async () => {
@@ -73,4 +91,27 @@ it("marks the active terminal view visible only while the dock is open", () => {
   useUiStore.setState({ terminalPanelOpen: true });
   rerender(<TerminalPanel />);
   expect(screen.getByTestId(`view-${activeKey}`).getAttribute("data-visible")).toBe("true");
+});
+
+it("supports Mac terminal dock shortcuts for tabs", () => {
+  render(<TerminalPanel />);
+  const dock = screen.getByRole("region", { name: "Terminal dock" });
+  const firstKey = useTerminalStore.getState().activeKey;
+
+  fireEvent.keyDown(dock, { key: "t", metaKey: true });
+  fireEvent.keyDown(dock, { key: "t", metaKey: true });
+
+  const tabsAfterAdd = useTerminalStore.getState().tabs;
+  expect(tabsAfterAdd).toHaveLength(3);
+  expect(useTerminalStore.getState().activeKey).toBe(tabsAfterAdd[2].key);
+
+  fireEvent.keyDown(dock, { key: "ArrowLeft", metaKey: true, shiftKey: true });
+  expect(useTerminalStore.getState().activeKey).toBe(tabsAfterAdd[1].key);
+
+  fireEvent.keyDown(dock, { key: "ArrowRight", metaKey: true, shiftKey: true });
+  expect(useTerminalStore.getState().activeKey).toBe(tabsAfterAdd[2].key);
+
+  fireEvent.keyDown(dock, { key: "w", metaKey: true });
+  expect(useTerminalStore.getState().tabs).toHaveLength(2);
+  expect(useTerminalStore.getState().tabs.some((tab) => tab.key === firstKey)).toBe(true);
 });

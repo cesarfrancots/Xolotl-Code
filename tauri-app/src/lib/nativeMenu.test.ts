@@ -5,6 +5,7 @@ describe("nativeMenuActionFromPayload", () => {
   it("normalizes native Tauri menu ids to frontend actions", () => {
     expect(nativeMenuActionFromPayload("xolotl:new-chat")).toBe("new-chat");
     expect(nativeMenuActionFromPayload("xolotl:open-folder")).toBe("open-folder");
+    expect(nativeMenuActionFromPayload("xolotl:terminal-new-tab")).toBe("terminal-new");
     expect(nativeMenuActionFromPayload("xolotl:tab-civ")).toBe("tab-civ");
   });
 

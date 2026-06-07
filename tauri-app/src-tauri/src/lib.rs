@@ -52,6 +52,10 @@ const MENU_OPEN_FOLDER: &str = "xolotl:open-folder";
 const MENU_SETTINGS: &str = "xolotl:settings";
 const MENU_COMMANDS: &str = "xolotl:commands";
 const MENU_TOGGLE_TERMINAL: &str = "xolotl:toggle-terminal";
+const MENU_TERMINAL_NEW_TAB: &str = "xolotl:terminal-new-tab";
+const MENU_TERMINAL_CLOSE_TAB: &str = "xolotl:terminal-close-tab";
+const MENU_TERMINAL_PREV_TAB: &str = "xolotl:terminal-prev-tab";
+const MENU_TERMINAL_NEXT_TAB: &str = "xolotl:terminal-next-tab";
 const MENU_TAB_CHAT: &str = "xolotl:tab-chat";
 const MENU_TAB_EVAL: &str = "xolotl:tab-eval";
 const MENU_TAB_CIV: &str = "xolotl:tab-civ";
@@ -203,6 +207,20 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
     let toggle_terminal = MenuItemBuilder::with_id(MENU_TOGGLE_TERMINAL, "Toggle Terminal")
         .accelerator("CmdOrCtrl+KeyJ")
         .build(app)?;
+    let new_terminal_tab = MenuItemBuilder::with_id(MENU_TERMINAL_NEW_TAB, "New Terminal Tab")
+        .accelerator("CmdOrCtrl+KeyT")
+        .build(app)?;
+    let close_terminal_tab =
+        MenuItemBuilder::with_id(MENU_TERMINAL_CLOSE_TAB, "Close Terminal Tab")
+            .accelerator("CmdOrCtrl+KeyW")
+            .build(app)?;
+    let previous_terminal_tab =
+        MenuItemBuilder::with_id(MENU_TERMINAL_PREV_TAB, "Previous Terminal Tab")
+            .accelerator("CmdOrCtrl+Shift+ArrowLeft")
+            .build(app)?;
+    let next_terminal_tab = MenuItemBuilder::with_id(MENU_TERMINAL_NEXT_TAB, "Next Terminal Tab")
+        .accelerator("CmdOrCtrl+Shift+ArrowRight")
+        .build(app)?;
     let chat_tab = MenuItemBuilder::with_id(MENU_TAB_CHAT, "Chat")
         .accelerator("CmdOrCtrl+Digit1")
         .build(app)?;
@@ -230,8 +248,6 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(&new_chat)
         .item(&open_folder)
-        .separator()
-        .close_window()
         .build()?;
 
     let edit_menu = SubmenuBuilder::new(app, "Edit")
@@ -257,6 +273,14 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
         .item(&civ_tab)
         .build()?;
 
+    let terminal_menu = SubmenuBuilder::new(app, "Terminal")
+        .item(&new_terminal_tab)
+        .item(&close_terminal_tab)
+        .separator()
+        .item(&previous_terminal_tab)
+        .item(&next_terminal_tab)
+        .build()?;
+
     let window_menu = SubmenuBuilder::new(app, "Window")
         .minimize()
         .maximize()
@@ -270,6 +294,7 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
         .item(&edit_menu)
         .item(&view_menu)
         .item(&workbench_menu)
+        .item(&terminal_menu)
         .item(&window_menu)
         .build()
 }
@@ -285,6 +310,14 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
         Some(MENU_COMMANDS)
     } else if id == MENU_TOGGLE_TERMINAL {
         Some(MENU_TOGGLE_TERMINAL)
+    } else if id == MENU_TERMINAL_NEW_TAB {
+        Some(MENU_TERMINAL_NEW_TAB)
+    } else if id == MENU_TERMINAL_CLOSE_TAB {
+        Some(MENU_TERMINAL_CLOSE_TAB)
+    } else if id == MENU_TERMINAL_PREV_TAB {
+        Some(MENU_TERMINAL_PREV_TAB)
+    } else if id == MENU_TERMINAL_NEXT_TAB {
+        Some(MENU_TERMINAL_NEXT_TAB)
     } else if id == MENU_TAB_CHAT {
         Some(MENU_TAB_CHAT)
     } else if id == MENU_TAB_EVAL {
