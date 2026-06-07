@@ -817,6 +817,11 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
     // so first-mover advantage on shared resources rotates fairly across civs.
     let turn_order = civ_turn_order(&snapshot);
 
+    // Attacks are QUEUED during the decision loop, not resolved inline, so all attacks
+    // declared this turn resolve together in one deterministic attacker-sorted pass
+    // after the loop (WAR-02, Pitfall 2). Each entry is (attacker_civ_id, target_civ_id).
+    let mut attacks: Vec<(String, String)> = Vec::new();
+
     for civ_id in &turn_order {
         let Some(ci) = civ_index(&snapshot, civ_id) else {
             continue;
@@ -883,7 +888,27 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
             Some(reasoning)
         };
         apply_model_decision(&mut snapshot, civ_id, &decision, reasoning);
+
+        // Collect attack/raid intents to resolve in the post-loop combat pass. The
+        // action was already validated in 04-01's validate_action; here we only record
+        // (attacker, target) — resolution is deferred so order is deterministic, not
+        // dependent on the shuffled decision order.
+        for action in &decision.actions {
+            if matches!(action.action_type.as_str(), "attack" | "raid") {
+                if let Some(target) = action.target.as_deref() {
+                    if !target.trim().is_empty() {
+                        attacks.push((civ_id.clone(), target.to_string()));
+                    }
+                }
+            }
+        }
     }
+
+    // COMBAT WORLD PASS — runs AFTER the decision loop and BEFORE resolve_environment,
+    // so casualties (entity removals) land before run_life_cycle re-syncs the
+    // population mirror this same turn (WAR-02).
+    resolve_combat(&mut snapshot, &mut attacks);
+
     // Resolve each civ's environment, then collapse any that ran out of axolotls.
     for civ_id in &turn_order {
         resolve_environment(&mut snapshot, civ_id);
@@ -5442,6 +5467,54 @@ fn resolve_attack(
     win
 }
 
+/// The post-decision COMBAT WORLD PASS (WAR-02). Resolves every attack queued during
+/// the decision loop in one deterministic order: `attacks` is sorted by
+/// `(attacker, target)` so the resolution order never depends on the shuffled
+/// decision order (Pitfall 2), and a SINGLE rng stream seeded with the distinct
+/// combat salt `0xC0FF_EE01` is threaded across all attacks. A civ that collapsed
+/// earlier this pass is skipped defensively (T-04-01). The ally-refusal log is
+/// emitted inside `resolve_attack`; to avoid a contradictory "raid repelled" line for
+/// an ally, this pass detects the same unilateral ally stance and `continue`s without
+/// the generic combat log when the gate would fire.
+fn resolve_combat(snapshot: &mut CivSessionSnapshot, attacks: &mut [(String, String)]) {
+    attacks.sort();
+    let mut rng = (snapshot.seed ^ snapshot.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+    for (attacker, defender) in attacks.iter() {
+        let Some(ai) = civ_index(snapshot, attacker) else {
+            continue;
+        };
+        if civ_index(snapshot, defender).is_none() {
+            continue;
+        }
+        // Ally gate: resolve_attack also enforces this and logs the refusal; detect it
+        // here so the no-op does not also emit a misleading generic "raid" line.
+        let allied = snapshot.civs[ai]
+            .diplomacy
+            .get(defender)
+            .map(String::as_str)
+            == Some("ally");
+        if allied {
+            resolve_attack(snapshot, attacker, defender, &mut rng);
+            continue;
+        }
+        let win = resolve_attack(snapshot, attacker, defender, &mut rng);
+        push_log(
+            snapshot,
+            "combat",
+            &format!(
+                "{} raided {}",
+                civ_label(snapshot, attacker),
+                civ_label(snapshot, defender)
+            ),
+            if win {
+                "The raid broke through — plunder taken and territory may have shifted."
+            } else {
+                "The raid was repelled with losses on both sides."
+            },
+        );
+    }
+}
+
 // --- Environment engine: pure, seed-deterministic helpers (W4) ---
 //
 // These leaf helpers are wired into the turn loop by the Wave-3 orchestrator
@@ -8398,5 +8471,117 @@ mod tests {
             "no entity removal when attacking an ally"
         );
         assert!(s.log.len() > logs_before, "the ally refusal must be logged");
+    }
+
+    // --- WAR-02 combat world pass (resolve_combat) tests (04-02 Task 2) ---
+
+    #[test]
+    fn turn_with_combat_is_replay_stable() {
+        let mut base = multi_civ_snapshot(2024, 2);
+        base.turn = 5;
+        // civ-2 hostile toward civ-1, with its own entities to lose; queue civ-1→civ-2.
+        give_civ_axolotls(&mut base, &civ_id_for(1), 8);
+        set_stance(&mut base, &civ_id_for(1), &civ_id_for(0), "hostile");
+        let mut a = base.clone();
+        let mut b = base.clone();
+        let mut qa = vec![(civ_id_for(0), civ_id_for(1))];
+        let mut qb = vec![(civ_id_for(0), civ_id_for(1))];
+        resolve_combat(&mut a, &mut qa);
+        resolve_combat(&mut b, &mut qb);
+        // Compare the combat-mutated state (civs + entities + regions). The log carries
+        // a wall-clock `created_at`, so the established determinism tests compare the
+        // load-bearing state, not the full snapshot — see tick_environment_deterministic.
+        assert_eq!(
+            serde_json::to_string(&a.civs).unwrap(),
+            serde_json::to_string(&b.civs).unwrap(),
+            "civs must be byte-identical across the replayed combat pass"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "entity casualties must be byte-identical across the replayed combat pass"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.regions).unwrap(),
+            serde_json::to_string(&b.world.regions).unwrap(),
+            "region ownership must be byte-identical across the replayed combat pass"
+        );
+    }
+
+    #[test]
+    fn resolve_combat_sorts_attacks_into_fixed_order() {
+        // Two attacks queued in opposite orders must produce identical state, proving
+        // the pass sorts the queue before resolving (order-independent of decision order).
+        let mut base = multi_civ_snapshot(2024, 3);
+        base.turn = 9;
+        give_civ_axolotls(&mut base, &civ_id_for(1), 8);
+        give_civ_axolotls(&mut base, &civ_id_for(2), 8);
+        // civ-1 attacks civ-2; civ-3 attacks civ-2. Boost both attackers.
+        for cid in [civ_id_for(0), civ_id_for(2)] {
+            let i = civ_index(&base, &cid).unwrap();
+            base.civs[i].population += 60;
+            *base.civs[i]
+                .resources
+                .entry("tools".to_string())
+                .or_insert(0) += 200;
+        }
+        let mut a = base.clone();
+        let mut b = base.clone();
+        // Queue in one order on `a`, the reverse on `b`.
+        let mut qa = vec![
+            (civ_id_for(0), civ_id_for(1)),
+            (civ_id_for(2), civ_id_for(1)),
+        ];
+        let mut qb = vec![
+            (civ_id_for(2), civ_id_for(1)),
+            (civ_id_for(0), civ_id_for(1)),
+        ];
+        resolve_combat(&mut a, &mut qa);
+        resolve_combat(&mut b, &mut qb);
+        assert_eq!(
+            serde_json::to_string(&a.civs).unwrap(),
+            serde_json::to_string(&b.civs).unwrap(),
+            "resolution must be independent of the queued (decision) order"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "casualties must be independent of the queued order"
+        );
+        // The pass sorts the slice in place to a fixed (attacker, target) order.
+        assert_eq!(qa, qb, "both queues must sort to the same fixed order");
+        assert!(
+            qa.windows(2).all(|w| w[0] <= w[1]),
+            "the queue must be sorted ascending after the pass"
+        );
+    }
+
+    #[test]
+    fn combat_pass_runs_before_population_mirror_resync() {
+        // Simulate the advance_civ_turn ordering: combat pass, THEN resolve_environment.
+        // The defender's population mirror must reflect the casualties.
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 3;
+        // civ-1 is the defender (it has founder entities); boost the attacker (civ-2).
+        let attacker = civ_id_for(1);
+        let defender = civ_id_for(0);
+        let ai = civ_index(&s, &attacker).unwrap();
+        s.civs[ai].population += 80;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 400;
+        let before = living_axolotl_count(&s, &defender);
+        let mut queue = vec![(attacker.clone(), defender.clone())];
+        resolve_combat(&mut s, &mut queue);
+        let after_entities = living_axolotl_count(&s, &defender);
+        assert!(
+            after_entities < before,
+            "the combat pass must remove defender entities ({before} -> {after_entities})"
+        );
+        // Now resolve_environment re-syncs the mirror — it must equal the survivor count.
+        resolve_environment(&mut s, &defender);
+        let di = civ_index(&s, &defender).unwrap();
+        assert_eq!(
+            s.civs[di].population, after_entities,
+            "population mirror (re-synced after combat) must reflect the casualties"
+        );
     }
 }
