@@ -55,6 +55,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Keychain read failures surface in Settings with recovery text instead of looking like missing provider keys.
 - Terminal tabs resolve zsh/bash/fish-aware shell profiles and display shell, cwd, and environment source metadata.
 - macOS Settings include a preferred external editor, and active projects can open in that editor from project rows or the command palette.
+- macOS Settings detect installed Mac editor and terminal app bundles in common Applications locations and prioritize those choices above manual presets.
 - macOS Settings include opt-in notification toggles for agent completion, eval completion, and permission prompts. Backend notifications now respect those toggles.
 - Mac productivity notifications emit route metadata and Dock/app reopen can route back to the related Chat, Eval, or Agent view; eval ids are preserved while the lazy Eval view mounts.
 - App-level Mac recovery status surfaces native menu, notification routing, app reopen routing, global hotkey, productivity settings, and menu bar status item runtime failures without replacing the active workspace.
@@ -417,10 +418,11 @@ Deliverables:
 - Expand external editor support:
   - Keep the preferred editor setting.
   - Add per-action error recovery when the configured editor is missing.
-  - Consider editor-specific deep links for VS Code, Cursor, and Zed if they are installed and if detection is reliable.
+  - Consider editor-specific deep links for VS Code, Cursor, and Zed if they are installed and if detection is reliable. First pass done for installed app-bundle detection in macOS Settings while preserving `/usr/bin/open -a` handoff.
 - Expand terminal handoff:
   - Current embedded terminal actions stay first-class.
   - Optional external terminal launch for Terminal.app, iTerm2, and Warp is available behind a macOS Settings preference for terminal cwd, project row, current-folder, and folder-entry handoff actions.
+  - Installed Mac terminal apps are detected in Settings so users can choose Terminal, iTerm, Warp, Ghostty, or WezTerm without typing app names manually.
   - Preserve active project/folder cwd and shell profile metadata.
 - Add task-result handoffs:
   - Reveal artifacts, copy paths, copy deep links, and open folders in editor from eval/agent result surfaces. Done for launched eval artifact folders and expanded agent worktree folders, including `xolotl-code://` link-copying handoffs.

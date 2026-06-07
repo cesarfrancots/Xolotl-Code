@@ -9,11 +9,16 @@ import type {
 
 type CommandResult<T> = Promise<{ status: "ok"; data: T } | { status: "error"; error: string }>;
 
-const commandMocks = vi.hoisted(() => ({
-  getApiKeyStatus: vi.fn(() => Promise.resolve({})),
-  getMacProductivitySettings: vi.fn(() => Promise.resolve({
+const commandMocks = vi.hoisted(() => {
+  const macSettings = (overrides: Partial<MacProductivitySettings> = {}): MacProductivitySettings => ({
     external_editor: "Cursor",
     external_terminal: "Warp",
+    detected_editors: [
+      { label: "Cursor", value: "Cursor", path: "/Applications/Cursor.app" },
+    ],
+    detected_terminals: [
+      { label: "Warp", value: "Warp", path: "/Applications/Warp.app" },
+    ],
     global_hotkey: {
       enabled: false,
       shortcut: "CommandOrControl+Shift+Space",
@@ -26,100 +31,41 @@ const commandMocks = vi.hoisted(() => ({
       eval_finished: false,
       permission_required: false,
     },
-  })),
-  setExternalEditor: vi.fn((editor: string) => Promise.resolve({
-    status: "ok" as const,
-    data: {
-      external_editor: editor || null,
-      external_terminal: "Warp",
-      global_hotkey: {
-        enabled: false,
-        shortcut: "CommandOrControl+Shift+Space",
-      },
-      status_item: {
-        enabled: false,
-      },
-      notifications: {
-        agent_finished: false,
-        eval_finished: false,
-        permission_required: false,
-      },
-    },
-  })),
-  setExternalTerminal: vi.fn((terminal: string) => Promise.resolve({
-    status: "ok" as const,
-    data: {
-      external_editor: "Cursor",
-      external_terminal: terminal || null,
-      global_hotkey: {
-        enabled: false,
-        shortcut: "CommandOrControl+Shift+Space",
-      },
-      status_item: {
-        enabled: false,
-      },
-      notifications: {
-        agent_finished: false,
-        eval_finished: false,
-        permission_required: false,
-      },
-    },
-  })),
-  setMacGlobalHotkeySettings: vi.fn((global_hotkey: MacGlobalHotkeySettings): CommandResult<MacProductivitySettings> => Promise.resolve({
-    status: "ok" as const,
-    data: {
-      external_editor: "Cursor",
-      external_terminal: "Warp",
-      global_hotkey,
-      status_item: {
-        enabled: false,
-      },
-      notifications: {
-        agent_finished: false,
-        eval_finished: false,
-        permission_required: false,
-      },
-    },
-  })),
-  setMacNotificationSettings: vi.fn((notifications: {
-    agent_finished: boolean;
-    eval_finished: boolean;
-    permission_required: boolean;
-  }) => Promise.resolve({
-    status: "ok" as const,
-    data: {
-      external_editor: "Cursor",
-      external_terminal: "Warp",
-      global_hotkey: {
-        enabled: false,
-        shortcut: "CommandOrControl+Shift+Space",
-      },
-      status_item: {
-        enabled: false,
-      },
-      notifications,
-    },
-  })),
-  setMacStatusItemSettings: vi.fn((status_item: {
-    enabled: boolean;
-  }) => Promise.resolve({
-    status: "ok" as const,
-    data: {
-      external_editor: "Cursor",
-      external_terminal: "Warp",
-      global_hotkey: {
-        enabled: false,
-        shortcut: "CommandOrControl+Shift+Space",
-      },
-      status_item,
-      notifications: {
-        agent_finished: false,
-        eval_finished: false,
-        permission_required: false,
-      },
-    },
-  })),
-}));
+    ...overrides,
+  });
+
+  return {
+    macSettings,
+    getApiKeyStatus: vi.fn(() => Promise.resolve({})),
+    getMacProductivitySettings: vi.fn(() => Promise.resolve(macSettings())),
+    setExternalEditor: vi.fn((editor: string) => Promise.resolve({
+      status: "ok" as const,
+      data: macSettings({ external_editor: editor || null }),
+    })),
+    setExternalTerminal: vi.fn((terminal: string) => Promise.resolve({
+      status: "ok" as const,
+      data: macSettings({ external_terminal: terminal || null }),
+    })),
+    setMacGlobalHotkeySettings: vi.fn((global_hotkey: MacGlobalHotkeySettings): CommandResult<MacProductivitySettings> => Promise.resolve({
+      status: "ok" as const,
+      data: macSettings({ global_hotkey }),
+    })),
+    setMacNotificationSettings: vi.fn((notifications: {
+      agent_finished: boolean;
+      eval_finished: boolean;
+      permission_required: boolean;
+    }) => Promise.resolve({
+      status: "ok" as const,
+      data: macSettings({ notifications }),
+    })),
+    setMacStatusItemSettings: vi.fn((status_item: {
+      enabled: boolean;
+    }) => Promise.resolve({
+      status: "ok" as const,
+      data: macSettings({ status_item }),
+    })),
+  };
+});
 
 const notificationMocks = vi.hoisted(() => ({
   getNotificationPermissionState: vi.fn(() => Promise.resolve("granted")),
@@ -225,6 +171,29 @@ describe("SettingsDialog", () => {
 
     expect(commandMocks.setExternalTerminal).toHaveBeenCalledWith("Terminal");
     expect(await screen.findByText("External terminal saved.")).toBeTruthy();
+  });
+
+  it("surfaces detected Mac app choices for external handoff settings", async () => {
+    commandMocks.getMacProductivitySettings.mockResolvedValueOnce(commandMocks.macSettings({
+      external_editor: null,
+      external_terminal: null,
+      detected_editors: [
+        { label: "Zed", value: "Zed", path: "/Applications/Zed.app" },
+      ],
+      detected_terminals: [
+        { label: "iTerm", value: "iTerm", path: "/Applications/iTerm.app" },
+      ],
+    }));
+    const user = userEvent.setup();
+    render(<SettingsDialog open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "macOS" }));
+    await user.click(await screen.findByRole("button", { name: "Use installed editor Zed" }));
+    await user.click(await screen.findByRole("button", { name: "Use installed terminal iTerm" }));
+
+    expect((screen.getByPlaceholderText("Visual Studio Code, Cursor, Zed, or /usr/local/bin/code") as HTMLInputElement).value).toBe("Zed");
+    expect((screen.getByPlaceholderText("Terminal, iTerm, Warp, or /Applications/Warp.app") as HTMLInputElement).value).toBe("iTerm");
+    expect(screen.getAllByText("Installed").length).toBeGreaterThanOrEqual(2);
   });
 
   it("saves macOS notification preferences", async () => {

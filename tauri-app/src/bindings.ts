@@ -773,6 +773,12 @@ export type JudgeScores = {
 	rationale: { [key in string]: string },
 };
 
+export type MacExternalAppCandidate = {
+	label: string,
+	value: string,
+	path: string,
+};
+
 export type MacGlobalHotkeySettings = {
 	enabled: boolean,
 	shortcut: string,
@@ -787,6 +793,8 @@ export type MacNotificationSettings = {
 export type MacProductivitySettings = {
 	external_editor: string | null,
 	external_terminal: string | null,
+	detected_editors: MacExternalAppCandidate[],
+	detected_terminals: MacExternalAppCandidate[],
 	global_hotkey: MacGlobalHotkeySettings,
 	status_item: MacStatusItemSettings,
 	notifications: MacNotificationSettings,

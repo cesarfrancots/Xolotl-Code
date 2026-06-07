@@ -12,6 +12,7 @@ import { Input } from "../ui/input";
 import { commands } from "../../bindings";
 import type {
   ApiKeyProviderStatus,
+  MacExternalAppCandidate,
   MacGlobalHotkeySettings,
   MacNotificationSettings,
   MacProductivitySettings,
@@ -385,6 +386,8 @@ function ProvidersPanel({ open }: { open: boolean }) {
 const EMPTY_MAC_SETTINGS: MacProductivitySettings = {
   external_editor: null,
   external_terminal: null,
+  detected_editors: [],
+  detected_terminals: [],
   global_hotkey: {
     enabled: false,
     shortcut: DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT,
@@ -406,6 +409,36 @@ const HOTKEY_PRESETS = [
   "CommandOrControl+Option+X",
   "CommandOrControl+Shift+X",
 ];
+
+interface MacAppChoice {
+  label: string;
+  value: string;
+  path?: string;
+  installed: boolean;
+}
+
+function macAppChoices(detected: MacExternalAppCandidate[], presets: string[]): MacAppChoice[] {
+  const seen = new Set<string>();
+  const installed = detected.map((candidate) => {
+    seen.add(candidate.value);
+    return {
+      label: candidate.label,
+      value: candidate.value,
+      path: candidate.path,
+      installed: true,
+    };
+  });
+  return [
+    ...installed,
+    ...presets
+      .filter((preset) => !seen.has(preset))
+      .map((preset) => ({
+        label: preset,
+        value: preset,
+        installed: false,
+      })),
+  ];
+}
 
 function macRecoveryHint(error: string): string | null {
   const lower = error.toLowerCase();
@@ -596,6 +629,9 @@ function MacPanel({ open }: { open: boolean }) {
     }
   }
 
+  const editorChoices = macAppChoices(settings.detected_editors, EDITOR_PRESETS);
+  const terminalChoices = macAppChoices(settings.detected_terminals, TERMINAL_PRESETS);
+
   return (
     <div className="flex flex-col gap-3 p-5">
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
@@ -658,18 +694,29 @@ function MacPanel({ open }: { open: boolean }) {
           </Button>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {EDITOR_PRESETS.map((preset) => (
+          {editorChoices.map((choice) => (
             <button
-              key={preset}
+              key={choice.value}
               type="button"
+              aria-label={choice.installed ? `Use installed editor ${choice.label}` : `Use editor preset ${choice.label}`}
+              title={choice.path}
               onClick={() => {
-                setEditor(preset);
+                setEditor(choice.value);
                 setMessage("");
                 setError("");
               }}
-              className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] px-2 py-1 text-[11px] text-[oklch(0.62_0.016_220)] transition-colors hover:border-[oklch(0.35_0.025_195)] hover:text-[oklch(0.82_0.025_210)]"
+              className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] transition-colors ${
+                choice.installed
+                  ? "border-[oklch(0.34_0.038_185)] bg-[oklch(0.15_0.010_205)] text-[oklch(0.78_0.040_190)] hover:border-[oklch(0.44_0.052_185)] hover:text-[oklch(0.90_0.045_190)]"
+                  : "border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] text-[oklch(0.62_0.016_220)] hover:border-[oklch(0.35_0.025_195)] hover:text-[oklch(0.82_0.025_210)]"
+              }`}
             >
-              {preset}
+              <span>{choice.label}</span>
+              {choice.installed && (
+                <span className="rounded bg-[oklch(0.20_0.020_190)] px-1 text-[9px] uppercase text-[oklch(0.72_0.038_185)]">
+                  Installed
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -707,18 +754,29 @@ function MacPanel({ open }: { open: boolean }) {
           </Button>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {TERMINAL_PRESETS.map((preset) => (
+          {terminalChoices.map((choice) => (
             <button
-              key={preset}
+              key={choice.value}
               type="button"
+              aria-label={choice.installed ? `Use installed terminal ${choice.label}` : `Use terminal preset ${choice.label}`}
+              title={choice.path}
               onClick={() => {
-                setTerminal(preset);
+                setTerminal(choice.value);
                 setMessage("");
                 setError("");
               }}
-              className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] px-2 py-1 text-[11px] text-[oklch(0.62_0.016_220)] transition-colors hover:border-[oklch(0.35_0.025_195)] hover:text-[oklch(0.82_0.025_210)]"
+              className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] transition-colors ${
+                choice.installed
+                  ? "border-[oklch(0.34_0.038_185)] bg-[oklch(0.15_0.010_205)] text-[oklch(0.78_0.040_190)] hover:border-[oklch(0.44_0.052_185)] hover:text-[oklch(0.90_0.045_190)]"
+                  : "border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] text-[oklch(0.62_0.016_220)] hover:border-[oklch(0.35_0.025_195)] hover:text-[oklch(0.82_0.025_210)]"
+              }`}
             >
-              {preset}
+              <span>{choice.label}</span>
+              {choice.installed && (
+                <span className="rounded bg-[oklch(0.20_0.020_190)] px-1 text-[9px] uppercase text-[oklch(0.72_0.038_185)]">
+                  Installed
+                </span>
+              )}
             </button>
           ))}
         </div>

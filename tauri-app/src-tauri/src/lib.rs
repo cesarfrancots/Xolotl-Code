@@ -33,10 +33,10 @@ use crate::commands::{
     test_api_connection, test_permission_prompt, touch_project, AutoScores, ChatMessage, DirChild,
     DirListing, EvalArtifactFileInput, EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta,
     EvalReportExportResult, EvalResult, EvalSuite, FileDiff, GoalAxisScore, GoalGrade,
-    GroupLaunchResult, HumanScores, JudgeScores, MacGlobalHotkeySettings, MacNotificationSettings,
-    MacProductivitySettings, MacStatusItemSettings, ManualReview, ModelEvalResult,
-    ProfileBuildResult, Project, PromptCommand, ProposalBuildResult, ReasoningFlag,
-    ReliabilityMetrics, RoleConfig, SessionMeta, SuitePrompt,
+    GroupLaunchResult, HumanScores, JudgeScores, MacExternalAppCandidate, MacGlobalHotkeySettings,
+    MacNotificationSettings, MacProductivitySettings, MacStatusItemSettings, ManualReview,
+    ModelEvalResult, ProfileBuildResult, Project, PromptCommand, ProposalBuildResult,
+    ReasoningFlag, ReliabilityMetrics, RoleConfig, SessionMeta, SuitePrompt,
 };
 use crate::permission_prompter::{PendingPrompts, PermissionDecision};
 use crate::skills_mcp::{
@@ -192,6 +192,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<SessionMeta>()
         .typ::<Project>()
         .typ::<MacProductivitySettings>()
+        .typ::<MacExternalAppCandidate>()
         .typ::<MacGlobalHotkeySettings>()
         .typ::<MacStatusItemSettings>()
         .typ::<MacStatusItemState>()

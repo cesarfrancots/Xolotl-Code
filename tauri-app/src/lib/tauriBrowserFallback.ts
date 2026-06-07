@@ -1433,6 +1433,8 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return {
         external_editor: readPreviewExternalEditor(),
         external_terminal: readPreviewExternalTerminal(),
+        detected_editors: [],
+        detected_terminals: [],
         global_hotkey: readPreviewGlobalHotkey(),
         status_item: readPreviewStatusItem(),
         notifications: readPreviewNotifications(),
@@ -1442,6 +1444,8 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return {
         external_editor: writePreviewExternalEditor(editor),
         external_terminal: readPreviewExternalTerminal(),
+        detected_editors: [],
+        detected_terminals: [],
         global_hotkey: readPreviewGlobalHotkey(),
         status_item: readPreviewStatusItem(),
         notifications: readPreviewNotifications(),
@@ -1452,6 +1456,8 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return {
         external_editor: readPreviewExternalEditor(),
         external_terminal: writePreviewExternalTerminal(terminal),
+        detected_editors: [],
+        detected_terminals: [],
         global_hotkey: readPreviewGlobalHotkey(),
         status_item: readPreviewStatusItem(),
         notifications: readPreviewNotifications(),
@@ -1462,6 +1468,8 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return {
         external_editor: readPreviewExternalEditor(),
         external_terminal: readPreviewExternalTerminal(),
+        detected_editors: [],
+        detected_terminals: [],
         global_hotkey: globalHotkey,
         status_item: readPreviewStatusItem(),
         notifications: readPreviewNotifications(),
@@ -1472,6 +1480,8 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return {
         external_editor: readPreviewExternalEditor(),
         external_terminal: readPreviewExternalTerminal(),
+        detected_editors: [],
+        detected_terminals: [],
         global_hotkey: readPreviewGlobalHotkey(),
         status_item: statusItem,
         notifications: readPreviewNotifications(),
@@ -1482,6 +1492,8 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return {
         external_editor: readPreviewExternalEditor(),
         external_terminal: readPreviewExternalTerminal(),
+        detected_editors: [],
+        detected_terminals: [],
         global_hotkey: readPreviewGlobalHotkey(),
         status_item: readPreviewStatusItem(),
         notifications,

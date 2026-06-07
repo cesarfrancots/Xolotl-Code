@@ -2643,10 +2643,19 @@ pub struct ApiKeyProviderStatus {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+pub struct MacExternalAppCandidate {
+    pub label: String,
+    pub value: String,
+    pub path: String,
+}
+
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct MacProductivitySettings {
     pub external_editor: Option<String>,
     pub external_terminal: Option<String>,
+    pub detected_editors: Vec<MacExternalAppCandidate>,
+    pub detected_terminals: Vec<MacExternalAppCandidate>,
     pub global_hotkey: MacGlobalHotkeySettings,
     pub status_item: MacStatusItemSettings,
     pub notifications: MacNotificationSettings,
@@ -2792,6 +2801,79 @@ const NOTIFY_AGENT_FINISHED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_AGENT_FINISHED";
 const NOTIFY_EVAL_FINISHED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_EVAL_FINISHED";
 const NOTIFY_PERMISSION_REQUIRED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_PERMISSION_REQUIRED";
 
+#[derive(Clone, Copy)]
+struct MacAppCandidateSpec {
+    label: &'static str,
+    value: &'static str,
+    bundle_names: &'static [&'static str],
+}
+
+const MAC_EDITOR_CANDIDATES: &[MacAppCandidateSpec] = &[
+    MacAppCandidateSpec {
+        label: "Visual Studio Code",
+        value: "Visual Studio Code",
+        bundle_names: &["Visual Studio Code.app"],
+    },
+    MacAppCandidateSpec {
+        label: "Cursor",
+        value: "Cursor",
+        bundle_names: &["Cursor.app"],
+    },
+    MacAppCandidateSpec {
+        label: "Zed",
+        value: "Zed",
+        bundle_names: &["Zed.app"],
+    },
+    MacAppCandidateSpec {
+        label: "Windsurf",
+        value: "Windsurf",
+        bundle_names: &["Windsurf.app"],
+    },
+    MacAppCandidateSpec {
+        label: "Sublime Text",
+        value: "Sublime Text",
+        bundle_names: &["Sublime Text.app"],
+    },
+    MacAppCandidateSpec {
+        label: "Nova",
+        value: "Nova",
+        bundle_names: &["Nova.app"],
+    },
+    MacAppCandidateSpec {
+        label: "Xcode",
+        value: "Xcode",
+        bundle_names: &["Xcode.app"],
+    },
+];
+
+const MAC_TERMINAL_CANDIDATES: &[MacAppCandidateSpec] = &[
+    MacAppCandidateSpec {
+        label: "Terminal",
+        value: "Terminal",
+        bundle_names: &["Terminal.app"],
+    },
+    MacAppCandidateSpec {
+        label: "iTerm",
+        value: "iTerm",
+        bundle_names: &["iTerm.app", "iTerm2.app"],
+    },
+    MacAppCandidateSpec {
+        label: "Warp",
+        value: "Warp",
+        bundle_names: &["Warp.app"],
+    },
+    MacAppCandidateSpec {
+        label: "Ghostty",
+        value: "Ghostty",
+        bundle_names: &["Ghostty.app"],
+    },
+    MacAppCandidateSpec {
+        label: "WezTerm",
+        value: "WezTerm",
+        bundle_names: &["WezTerm.app"],
+    },
+];
+
 fn config_string(config: &ConfigMap, key: &str) -> Option<String> {
     config
         .get(key)
@@ -2859,10 +2941,65 @@ fn mac_status_item_settings_from_config(config: &ConfigMap) -> MacStatusItemSett
     }
 }
 
+fn detect_mac_app_candidates(
+    specs: &[MacAppCandidateSpec],
+    roots: &[PathBuf],
+) -> Vec<MacExternalAppCandidate> {
+    specs
+        .iter()
+        .filter_map(|spec| {
+            spec.bundle_names
+                .iter()
+                .flat_map(|bundle_name| roots.iter().map(move |root| root.join(bundle_name)))
+                .find(|path| path.exists())
+                .map(|path| MacExternalAppCandidate {
+                    label: spec.label.to_string(),
+                    value: spec.value.to_string(),
+                    path: path.to_string_lossy().to_string(),
+                })
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn mac_app_search_roots() -> Vec<PathBuf> {
+    let mut roots = vec![
+        PathBuf::from("/Applications"),
+        PathBuf::from("/System/Applications"),
+        PathBuf::from("/System/Applications/Utilities"),
+    ];
+    if let Ok(home) = std::env::var("HOME") {
+        roots.push(PathBuf::from(home).join("Applications"));
+    }
+    roots
+}
+
+#[cfg(target_os = "macos")]
+fn detected_external_editors() -> Vec<MacExternalAppCandidate> {
+    detect_mac_app_candidates(MAC_EDITOR_CANDIDATES, &mac_app_search_roots())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn detected_external_editors() -> Vec<MacExternalAppCandidate> {
+    Vec::new()
+}
+
+#[cfg(target_os = "macos")]
+fn detected_external_terminals() -> Vec<MacExternalAppCandidate> {
+    detect_mac_app_candidates(MAC_TERMINAL_CANDIDATES, &mac_app_search_roots())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn detected_external_terminals() -> Vec<MacExternalAppCandidate> {
+    Vec::new()
+}
+
 fn mac_productivity_settings_from_config(config: &ConfigMap) -> MacProductivitySettings {
     MacProductivitySettings {
         external_editor: external_editor_from_config(config),
         external_terminal: external_terminal_from_config(config),
+        detected_editors: detected_external_editors(),
+        detected_terminals: detected_external_terminals(),
         global_hotkey: mac_global_hotkey_settings_from_config(config),
         status_item: mac_status_item_settings_from_config(config),
         notifications: mac_notification_settings_from_config(config),
@@ -5823,6 +5960,60 @@ mod config_tests {
             config_get(&cfg, "ANTHROPIC_API_KEY"),
             Some("ant-xxx".into())
         );
+    }
+
+    fn unique_temp_app_root(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("xolotl-code-{name}-{}-{nanos}", std::process::id()))
+    }
+
+    #[test]
+    fn detect_mac_app_candidates_returns_installed_bundles_in_spec_order() {
+        let root = unique_temp_app_root("app-detection");
+        std::fs::create_dir_all(root.join("Cursor.app"))
+            .expect("test app bundle should be created");
+        std::fs::create_dir_all(root.join("iTerm2.app"))
+            .expect("test terminal bundle should be created");
+
+        let specs = [
+            MacAppCandidateSpec {
+                label: "Visual Studio Code",
+                value: "Visual Studio Code",
+                bundle_names: &["Visual Studio Code.app"],
+            },
+            MacAppCandidateSpec {
+                label: "Cursor",
+                value: "Cursor",
+                bundle_names: &["Cursor.app"],
+            },
+            MacAppCandidateSpec {
+                label: "iTerm",
+                value: "iTerm",
+                bundle_names: &["iTerm.app", "iTerm2.app"],
+            },
+        ];
+
+        let detected = detect_mac_app_candidates(&specs, &[root.clone()]);
+        assert_eq!(
+            detected,
+            vec![
+                MacExternalAppCandidate {
+                    label: "Cursor".into(),
+                    value: "Cursor".into(),
+                    path: root.join("Cursor.app").to_string_lossy().to_string(),
+                },
+                MacExternalAppCandidate {
+                    label: "iTerm".into(),
+                    value: "iTerm".into(),
+                    path: root.join("iTerm2.app").to_string_lossy().to_string(),
+                },
+            ]
+        );
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
