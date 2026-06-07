@@ -3132,7 +3132,7 @@ function seedVariant(seed: number, id: string): number {
   return hash % VARIANT_COUNT;
 }
 
-function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?: PlayerTextState): string {
+export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?: PlayerTextState): string {
   const civ = primaryCiv(snapshot);
   const possessedPlayer = playerState?.possessedEntityId && playerState.player
     ? { id: playerState.possessedEntityId, player: playerState.player }
