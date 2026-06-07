@@ -17,6 +17,8 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Finder-style folder drops on the app window can activate projects.
 - Sidebar project paths use Mac-style `~` home labels.
 - File browser entries include hidden, alias, and package metadata.
+- Provider API keys saved from the Mac app use macOS Keychain, with env-var and legacy config-file fallback.
+- Settings show whether each provider key comes from Keychain, an environment variable, or the legacy config file.
 
 ## Phase 1 - Native Mac Shell
 
@@ -113,15 +115,17 @@ Acceptance:
 
 ## Phase 5 - Secure Mac Storage and Permissions
 
-Status: planned.
+Status: in progress.
 
 Deliverables:
 
-- Move API keys from local app storage into macOS Keychain or a Tauri-backed secure storage layer.
+- Move API keys from local app storage into macOS Keychain or a Tauri-backed secure storage layer. Done for keys saved from the Mac app; env vars still override saved keys and `~/.xolotl-code/config.json` remains a legacy fallback.
 - Add migration from existing stored keys with a clear one-time confirmation.
 - Add settings UI for key storage status:
-  - Stored in Keychain.
-  - Missing.
+  - Stored in Keychain. Done.
+  - Loaded from environment variable. Done.
+  - Loaded from legacy config file. Done.
+  - Missing. Done.
   - Needs migration.
 - Review filesystem permissions and user prompts for project access.
 - Add better error recovery when macOS denies file or notification permissions.

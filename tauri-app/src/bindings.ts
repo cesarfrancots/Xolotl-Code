@@ -88,11 +88,12 @@ export const commands = {
 	 *  check for any response (200/404 both prove the host is up).
 	 */
 	testMcpServer: (name: string) => __TAURI_INVOKE<McpTestResult>("test_mcp_server", { name }),
-	/**  Returns which providers have an API key configured (env var or config file). */
-	getApiKeyStatus: () => __TAURI_INVOKE<{ [key in string]: boolean }>("get_api_key_status"),
+	/**  Returns which providers have an API key configured and where it came from. */
+	getApiKeyStatus: () => __TAURI_INVOKE<{ [key in string]: ApiKeyProviderStatus }>("get_api_key_status"),
 	/**
 	 *  Save an API key for a provider. Pass an empty string to clear the key.
-	 *  Preserves all other fields in config.json (CLI-written settings).
+	 *  On macOS app-saved keys are stored in Keychain; other config.json fields
+	 *  are still preserved for CLI-written settings.
 	 */
 	setApiKey: (provider: string, key: string) => typedError<null, string>(__TAURI_INVOKE("set_api_key", { provider, key })),
 	/**
@@ -225,6 +226,11 @@ export type AgentId = string;
 export type AgentState = "Idle" | "Planning" | "Executing" | 
 /**  Blocked on a permission prompt or context pull. */
 "Waiting" | "Done" | "Failed";
+
+export type ApiKeyProviderStatus = {
+	configured: boolean,
+	source: string,
+};
 
 /**  Mechanical scores derived from response text (no LLM involved). */
 export type AutoScores = {

@@ -1252,7 +1252,12 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       resetPreviewCivSession();
       return null;
     case "get_api_key_status":
-      return Object.fromEntries(PREVIEW_PROVIDERS.map((provider) => [provider, false]));
+      return Object.fromEntries(
+        PREVIEW_PROVIDERS.map((provider) => [
+          provider,
+          { configured: false, source: "none" },
+        ])
+      );
     case "load_session":
     case "save_session":
     case "delete_session":

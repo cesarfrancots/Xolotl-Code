@@ -9,7 +9,12 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { commands } from "../../bindings";
-import type { SkillManifest, McpServerConfig, McpTestResult } from "../../bindings";
+import type {
+  ApiKeyProviderStatus,
+  SkillManifest,
+  McpServerConfig,
+  McpTestResult,
+} from "../../bindings";
 import { useUiStore } from "../../stores/uiStore";
 
 interface ProviderConfig {
@@ -45,7 +50,7 @@ export function SettingsDialog({
         <DialogHeader className="px-5 py-4 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.118_0.004_245)]">
           <DialogTitle className="text-base text-[oklch(0.92_0.015_220)]">Settings</DialogTitle>
           <DialogDescription className="text-xs text-[oklch(0.58_0.012_225)]">
-            Runtime config lives in <code className="text-[10px] bg-[oklch(0.15_0.004_245)] px-1 rounded">~/.xolotl-code/</code>. Environment variables override saved keys.
+            Provider keys saved from the Mac app use Keychain. Environment variables still override saved keys.
           </DialogDescription>
         </DialogHeader>
 
@@ -102,14 +107,32 @@ interface ProviderState {
   showKey: boolean;
 }
 
+const EMPTY_API_KEY_STATUS: ApiKeyProviderStatus = {
+  configured: false,
+  source: "none",
+};
+
 function makeInitialState(): Record<string, ProviderState> {
   return Object.fromEntries(
     PROVIDERS.map((p) => [p.id, { key: "", saving: false, testState: "idle" as TestState, testMessage: "", showKey: false }])
   );
 }
 
+function providerStatusLabel(source: string): string | null {
+  switch (source) {
+    case "environment":
+      return "Env var";
+    case "macos_keychain":
+      return "Keychain";
+    case "config_file":
+      return "Config file";
+    default:
+      return null;
+  }
+}
+
 function ProvidersPanel({ open }: { open: boolean }) {
-  const [status, setStatus] = useState<Record<string, boolean>>({});
+  const [status, setStatus] = useState<Record<string, ApiKeyProviderStatus>>({});
   const [state, setState] = useState<Record<string, ProviderState>>(makeInitialState);
   const [loadingStatus, setLoadingStatus] = useState(false);
 
@@ -136,7 +159,7 @@ function ProvidersPanel({ open }: { open: boolean }) {
     updateProvider(provider, { saving: true });
     const result = await commands.setApiKey(provider, state[provider].key.trim());
     if (result.status === "ok") {
-      setStatus((prev) => ({ ...prev, [provider]: state[provider].key.trim().length > 0 }));
+      await refreshStatus();
       updateProvider(provider, { saving: false, key: "", testState: "idle", testMessage: "" });
     } else {
       updateProvider(provider, { saving: false, testState: "error", testMessage: result.error });
@@ -153,16 +176,26 @@ function ProvidersPanel({ open }: { open: boolean }) {
     }
   }
 
-  function handleClear(provider: string) {
-    void commands.setApiKey(provider, "").then(() => {
-      setStatus((prev) => ({ ...prev, [provider]: false }));
+  async function handleClear(provider: string) {
+    updateProvider(provider, { saving: true });
+    const result = await commands.setApiKey(provider, "");
+    if (result.status === "ok") {
+      await refreshStatus();
       updateProvider(provider, { key: "", testState: "idle", testMessage: "" });
-    });
+    } else {
+      updateProvider(provider, { testState: "error", testMessage: result.error });
+    }
+    updateProvider(provider, { saving: false });
   }
 
-  const configuredCount = PROVIDERS.filter((provider) => status[provider.id]).length;
+  const configuredCount = PROVIDERS.filter((provider) => status[provider.id]?.configured).length;
   const hasAnyProvider = configuredCount > 0;
-  const primaryReady = Boolean(status.kimi_coding || status.deepseek || status.anthropic || status.bedrock);
+  const primaryReady = Boolean(
+    status.kimi_coding?.configured
+      || status.deepseek?.configured
+      || status.anthropic?.configured
+      || status.bedrock?.configured
+  );
 
   return (
     <div className="flex flex-col gap-3 p-5">
@@ -195,7 +228,9 @@ function ProvidersPanel({ open }: { open: boolean }) {
 
       {PROVIDERS.map((provider) => {
         const ps = state[provider.id];
-        const isSet = status[provider.id] ?? false;
+        const providerStatus = status[provider.id] ?? EMPTY_API_KEY_STATUS;
+        const isSet = providerStatus.configured;
+        const sourceLabel = providerStatusLabel(providerStatus.source);
         return (
           <div key={provider.id} className="flex flex-col gap-2 rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)] px-3 py-3">
             <div className="flex items-start justify-between gap-3">
@@ -208,7 +243,7 @@ function ProvidersPanel({ open }: { open: boolean }) {
               </div>
               {isSet ? (
                 <span className="flex flex-none items-center gap-1 rounded border border-[oklch(0.32_0.045_155)] bg-[oklch(0.15_0.018_155)] px-2 py-0.5 text-xs text-[oklch(0.72_0.085_155)]">
-                  <CheckCircle className="h-3 w-3" /> Configured
+                  <CheckCircle className="h-3 w-3" /> {sourceLabel ?? "Configured"}
                 </span>
               ) : (
                 <span className="flex-none rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] px-2 py-0.5 text-xs text-[oklch(0.50_0.010_225)]">Not set</span>
@@ -251,7 +286,7 @@ function ProvidersPanel({ open }: { open: boolean }) {
               </p>
             )}
             {isSet && (
-              <button type="button" className="self-start text-xs text-[oklch(0.48_0.010_225)] hover:text-red-400 underline underline-offset-2" onClick={() => handleClear(provider.id)}>
+              <button type="button" className="self-start text-xs text-[oklch(0.48_0.010_225)] hover:text-red-400 underline underline-offset-2 disabled:pointer-events-none disabled:opacity-50" disabled={ps.saving} onClick={() => void handleClear(provider.id)}>
                 Clear key
               </button>
             )}

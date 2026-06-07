@@ -7,6 +7,8 @@ use runtime::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
+#[cfg(target_os = "macos")]
+use std::process::{Command, Output};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
@@ -2428,7 +2430,33 @@ const MINIMAX_OPENAI_BASE_URL: &str = "https://api.minimax.io/v1";
 const MINIMAX_CHAT_MODEL: &str = "MiniMax-M2.7";
 const DEEPSEEK_OPENAI_BASE_URL: &str = "https://api.deepseek.com";
 const DEEPSEEK_DEFAULT_MODEL: &str = "deepseek-v4-pro";
+const MACOS_KEYCHAIN_SERVICE: &str = "com.xolotl.code";
 const CHAT_SYSTEM_PROMPT: &str = "You are xolotl, a concise coding assistant. For standalone greetings, thanks, acknowledgements, or other trivial small-talk turns, answer immediately in one short sentence and do not emit hidden reasoning, <think> tags, or a planning preamble. Use reasoning only when the user asks for analysis, coding, debugging, planning, or another task that benefits from multi-step work.";
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ApiKeyProviderStatus {
+    pub configured: bool,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApiKeyStorageSource {
+    Environment,
+    MacosKeychain,
+    ConfigFile,
+    None,
+}
+
+impl ApiKeyStorageSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Environment => "environment",
+            Self::MacosKeychain => "macos_keychain",
+            Self::ConfigFile => "config_file",
+            Self::None => "none",
+        }
+    }
+}
 
 fn supports_anthropic_adaptive_thinking(model: &str) -> bool {
     model.contains("opus-4-7") || model.contains("opus-4-6") || model.contains("sonnet-4-6")
@@ -2447,6 +2475,18 @@ fn provider_env_var(provider: &str) -> Option<&'static str> {
         "bedrock" => Some("BEDROCK_API_KEY"),
         _ => None,
     }
+}
+
+fn is_provider_api_key_env_var(env_var: &str) -> bool {
+    matches!(
+        env_var,
+        "ANTHROPIC_API_KEY"
+            | "KIMI_API_KEY"
+            | "KIMI_CODING_API_KEY"
+            | "MINIMAX_API_KEY"
+            | "DEEPSEEK_API_KEY"
+            | "BEDROCK_API_KEY"
+    )
 }
 
 fn home_config_path() -> PathBuf {
@@ -2490,6 +2530,10 @@ fn normalize_api_key(key: &str) -> String {
         .to_string()
 }
 
+fn normalize_optional_api_key(key: Option<String>) -> Option<String> {
+    key.map(|k| normalize_api_key(&k)).filter(|k| !k.is_empty())
+}
+
 fn config_get(config: &ConfigMap, key: &str) -> Option<String> {
     config
         .get(key)
@@ -2498,19 +2542,211 @@ fn config_get(config: &ConfigMap, key: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Resolve a key: env var first, then config file.
-fn resolve_api_key(env_var: &str, config: &ConfigMap) -> Option<String> {
-    std::env::var(env_var)
-        .ok()
-        .map(|k| normalize_api_key(&k))
-        .filter(|k| !k.is_empty())
-        .or_else(|| config_get(config, env_var))
+fn env_api_key(env_var: &str) -> Option<String> {
+    normalize_optional_api_key(std::env::var(env_var).ok())
 }
 
-/// Returns which providers have an API key configured (env var or config file).
+fn resolve_api_key_from_sources(
+    env_var: &str,
+    env_value: Option<String>,
+    keychain_value: Option<String>,
+    config: &ConfigMap,
+) -> (Option<String>, ApiKeyStorageSource) {
+    if let Some(key) = normalize_optional_api_key(env_value) {
+        return (Some(key), ApiKeyStorageSource::Environment);
+    }
+
+    if is_provider_api_key_env_var(env_var) {
+        if let Some(key) = normalize_optional_api_key(keychain_value) {
+            return (Some(key), ApiKeyStorageSource::MacosKeychain);
+        }
+    }
+
+    if let Some(key) = config_get(config, env_var) {
+        return (Some(key), ApiKeyStorageSource::ConfigFile);
+    }
+
+    (None, ApiKeyStorageSource::None)
+}
+
+fn keychain_api_key(env_var: &str) -> Option<String> {
+    if !is_provider_api_key_env_var(env_var) {
+        return None;
+    }
+    macos_keychain_get(env_var).ok().flatten()
+}
+
+fn resolve_api_key_with_source(
+    env_var: &str,
+    config: &ConfigMap,
+) -> (Option<String>, ApiKeyStorageSource) {
+    let env_value = env_api_key(env_var);
+    if env_value.is_some() {
+        return resolve_api_key_from_sources(env_var, env_value, None, config);
+    }
+    resolve_api_key_from_sources(env_var, None, keychain_api_key(env_var), config)
+}
+
+/// Resolve a key: env var first, then macOS Keychain, then config file.
+fn resolve_api_key(env_var: &str, config: &ConfigMap) -> Option<String> {
+    resolve_api_key_with_source(env_var, config).0
+}
+
+fn api_key_provider_status(env_var: &str, config: &ConfigMap) -> ApiKeyProviderStatus {
+    let (key, source) = resolve_api_key_with_source(env_var, config);
+    ApiKeyProviderStatus {
+        configured: key.is_some(),
+        source: source.as_str().to_string(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn security_command_error(action: &str, output: &Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if stderr.is_empty() {
+        format!(
+            "macOS Keychain {action} failed with status {:?}",
+            output.status.code()
+        )
+    } else {
+        format!("macOS Keychain {action} failed: {stderr}")
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn security_item_not_found(output: &Output) -> bool {
+    output.status.code() == Some(44)
+        || String::from_utf8_lossy(&output.stderr)
+            .to_ascii_lowercase()
+            .contains("could not be found")
+}
+
+#[cfg(target_os = "macos")]
+fn macos_keychain_get(account: &str) -> Result<Option<String>, String> {
+    let output = Command::new("/usr/bin/security")
+        .args([
+            "find-generic-password",
+            "-s",
+            MACOS_KEYCHAIN_SERVICE,
+            "-a",
+            account,
+            "-w",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("macOS Keychain read failed: {e}"))?;
+
+    if output.status.success() {
+        return Ok(normalize_optional_api_key(Some(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        )));
+    }
+
+    if security_item_not_found(&output) {
+        return Ok(None);
+    }
+
+    Err(security_command_error("read", &output))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn macos_keychain_get(_account: &str) -> Result<Option<String>, String> {
+    Ok(None)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_keychain_set(account: &str, api_key: &str) -> Result<(), String> {
+    let output = Command::new("/usr/bin/security")
+        .args([
+            "add-generic-password",
+            "-U",
+            "-s",
+            MACOS_KEYCHAIN_SERVICE,
+            "-a",
+            account,
+            "-w",
+            api_key,
+            "-T",
+            "/usr/bin/security",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("macOS Keychain write failed: {e}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(security_command_error("write", &output))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_keychain_delete(account: &str) -> Result<(), String> {
+    let output = Command::new("/usr/bin/security")
+        .args([
+            "delete-generic-password",
+            "-s",
+            MACOS_KEYCHAIN_SERVICE,
+            "-a",
+            account,
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("macOS Keychain delete failed: {e}"))?;
+
+    if output.status.success() || security_item_not_found(&output) {
+        Ok(())
+    } else {
+        Err(security_command_error("delete", &output))
+    }
+}
+
+fn remove_config_api_key(config: &mut ConfigMap, env_var: &str) -> Result<(), String> {
+    if config.remove(env_var).is_some() {
+        save_config(config)
+    } else {
+        Ok(())
+    }
+}
+
+fn save_api_key_to_storage(
+    env_var: &str,
+    normalized_key: String,
+    config: &mut ConfigMap,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_keychain_set(env_var, &normalized_key)?;
+        remove_config_api_key(config, env_var)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        config.insert(
+            env_var.to_string(),
+            serde_json::Value::String(normalized_key),
+        );
+        save_config(config)
+    }
+}
+
+fn clear_api_key_from_storage(env_var: &str, config: &mut ConfigMap) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_keychain_delete(env_var)?;
+        remove_config_api_key(config, env_var)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        remove_config_api_key(config, env_var)
+    }
+}
+
+/// Returns which providers have an API key configured and where it came from.
 #[tauri::command]
 #[specta::specta]
-pub fn get_api_key_status() -> HashMap<String, bool> {
+pub fn get_api_key_status() -> HashMap<String, ApiKeyProviderStatus> {
     let config = load_config();
     let mut status = HashMap::new();
     for provider in [
@@ -2524,14 +2760,15 @@ pub fn get_api_key_status() -> HashMap<String, bool> {
         let env_var = provider_env_var(provider).unwrap();
         status.insert(
             provider.to_string(),
-            resolve_api_key(env_var, &config).is_some(),
+            api_key_provider_status(env_var, &config),
         );
     }
     status
 }
 
 /// Save an API key for a provider. Pass an empty string to clear the key.
-/// Preserves all other fields in config.json (CLI-written settings).
+/// On macOS app-saved keys are stored in Keychain; other config.json fields
+/// are still preserved for CLI-written settings.
 #[tauri::command]
 #[specta::specta]
 pub fn set_api_key(provider: String, key: String) -> Result<(), String> {
@@ -2540,14 +2777,10 @@ pub fn set_api_key(provider: String, key: String) -> Result<(), String> {
     let mut config = load_config();
     let normalized_key = normalize_api_key(&key);
     if normalized_key.is_empty() {
-        config.remove(env_var);
+        clear_api_key_from_storage(env_var, &mut config)
     } else {
-        config.insert(
-            env_var.to_string(),
-            serde_json::Value::String(normalized_key),
-        );
+        save_api_key_to_storage(env_var, normalized_key, &mut config)
     }
-    save_config(&config)
 }
 
 /// Test connectivity to an AI provider using its configured API key.
@@ -4454,7 +4687,60 @@ mod config_tests {
         assert_eq!(provider_env_var("kimi_coding"), Some("KIMI_CODING_API_KEY"));
         assert_eq!(provider_env_var("minimax"), Some("MINIMAX_API_KEY"));
         assert_eq!(provider_env_var("deepseek"), Some("DEEPSEEK_API_KEY"));
+        assert_eq!(provider_env_var("bedrock"), Some("BEDROCK_API_KEY"));
         assert_eq!(provider_env_var("nope"), None);
+    }
+
+    #[test]
+    fn api_key_resolution_prefers_env_then_keychain_then_config() {
+        let mut cfg = ConfigMap::new();
+        cfg.insert(
+            "KIMI_API_KEY".into(),
+            serde_json::Value::String("file-kimi".into()),
+        );
+
+        let (key, source) = resolve_api_key_from_sources(
+            "KIMI_API_KEY",
+            Some(" env-kimi ".into()),
+            Some("keychain-kimi".into()),
+            &cfg,
+        );
+        assert_eq!(key, Some("env-kimi".into()));
+        assert_eq!(source, ApiKeyStorageSource::Environment);
+
+        let (key, source) = resolve_api_key_from_sources(
+            "KIMI_API_KEY",
+            None,
+            Some(" keychain-kimi ".into()),
+            &cfg,
+        );
+        assert_eq!(key, Some("keychain-kimi".into()));
+        assert_eq!(source, ApiKeyStorageSource::MacosKeychain);
+
+        let (key, source) = resolve_api_key_from_sources("KIMI_API_KEY", None, None, &cfg);
+        assert_eq!(key, Some("file-kimi".into()));
+        assert_eq!(source, ApiKeyStorageSource::ConfigFile);
+    }
+
+    #[test]
+    fn keychain_lookup_is_limited_to_provider_api_keys() {
+        let mut cfg = ConfigMap::new();
+        cfg.insert(
+            "BEDROCK_REGION".into(),
+            serde_json::Value::String("us-west-2".into()),
+        );
+
+        let (key, source) = resolve_api_key_from_sources(
+            "BEDROCK_REGION",
+            None,
+            Some("should-not-use-keychain".into()),
+            &cfg,
+        );
+
+        assert_eq!(key, Some("us-west-2".into()));
+        assert_eq!(source, ApiKeyStorageSource::ConfigFile);
+        assert!(!is_provider_api_key_env_var("BEDROCK_REGION"));
+        assert!(is_provider_api_key_env_var("BEDROCK_API_KEY"));
     }
 
     #[test]
