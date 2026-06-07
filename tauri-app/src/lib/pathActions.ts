@@ -67,6 +67,31 @@ export async function copyProjectContextHandoff(path: string, name?: string | nu
   await copyTextToClipboard(projectContextHandoffText(path, name));
 }
 
+export interface PathContextHandoffOptions {
+  label?: string | null;
+  kind?: string | null;
+  relativePath?: string | null;
+}
+
+export function pathContextHandoffText(path: string, options: PathContextHandoffOptions = {}): string {
+  const label = options.label?.trim() || projectLabelFromPath(path);
+  const kind = options.kind?.trim() || "Path";
+  const relativePath = options.relativePath?.trim();
+  return [
+    "Xolotl Code path context",
+    `${kind}: ${label}`,
+    `Path: ${path}`,
+    relativePath ? `Relative Path: ${relativePath}` : null,
+    `Open: ${xolotlCodeOpenUrl(path)}`,
+    "",
+    `Use this as the ${kind.toLowerCase()} context for Xolotl Code automation, Shortcuts, Raycast, Alfred, or shell handoff.`,
+  ].filter((line): line is string => line !== null).join("\n");
+}
+
+export async function copyPathContextHandoff(path: string, options: PathContextHandoffOptions = {}) {
+  await copyTextToClipboard(pathContextHandoffText(path, options));
+}
+
 export async function readTextFromClipboard() {
   try {
     return await readText();

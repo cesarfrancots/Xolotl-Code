@@ -5,6 +5,7 @@ import { NATIVE_MENU_EVENT, type NativeMenuAction } from "../../lib/nativeMenu";
 import { useProjectStore } from "../../stores/projectStore";
 
 const pathActionMocks = vi.hoisted(() => ({
+  copyPathContextHandoff: vi.fn(() => Promise.resolve()),
   copyProjectContextHandoff: vi.fn(() => Promise.resolve()),
   copyTextToClipboard: vi.fn(() => Promise.resolve()),
   copyXolotlCodeOpenShellCommand: vi.fn(() => Promise.resolve()),
@@ -23,6 +24,7 @@ vi.mock("../../lib/pathActions", async () => {
   const actual = await vi.importActual<typeof import("../../lib/pathActions")>("../../lib/pathActions");
   return {
     ...actual,
+    copyPathContextHandoff: pathActionMocks.copyPathContextHandoff,
     copyProjectContextHandoff: pathActionMocks.copyProjectContextHandoff,
     copyTextToClipboard: pathActionMocks.copyTextToClipboard,
     copyXolotlCodeOpenShellCommand: pathActionMocks.copyXolotlCodeOpenShellCommand,
@@ -125,6 +127,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Reveal Current Folder in Finder")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Xolotl Link")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Shell Open Command")).toBeTruthy();
+    expect(screen.getByText("Copy Current Folder Context Prompt")).toBeTruthy();
     expect(screen.getByText("New Terminal in Current Folder")).toBeTruthy();
     expect(screen.getByText("Open Current Folder in External Terminal")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Relative Path")).toBeTruthy();
@@ -345,6 +348,21 @@ describe("CommandsPalette", () => {
     });
   });
 
+  it("copies current folder context prompts from the palette", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Current Folder Context Prompt" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/docs",
+        { kind: "Folder", relativePath: "docs" },
+      );
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
   it("runs file-browser row actions from the palette", async () => {
     const browse = vi.fn(() => Promise.resolve());
     const onOpenChange = vi.fn();
@@ -375,6 +393,22 @@ describe("CommandsPalette", () => {
     await waitFor(() => {
       expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith(
         "/Users/cesar/Documents/Xolotl/docs/src",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy context prompt for src" }));
+    await waitFor(() => {
+      expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/docs/src",
+        { label: "src", kind: "Folder", relativePath: "docs/src" },
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy context prompt for README.md" }));
+    await waitFor(() => {
+      expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/docs/README.md",
+        { label: "README.md", kind: "File", relativePath: "docs/README.md" },
       );
     });
 

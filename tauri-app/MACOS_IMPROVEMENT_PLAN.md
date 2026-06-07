@@ -18,7 +18,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Sidebar projects and file browser use compact Mac navigator rows, count badges, consistent utility icon buttons, and tighter Finder-style metadata labels.
 - Shortcut hints use macOS symbols across workbench, terminal, sidebar footer, composer command button, and command palette rows.
 - Command palette includes native-menu actions, active-project Finder/terminal/path/context actions, recent project entries with compact Mac handoffs, and terminal actions with Mac shortcut chips.
-- Command palette includes a File Browser section for current-folder reveal/copy/refresh/navigation and visible file/folder row actions.
+- Command palette includes a File Browser section for current-folder reveal/copy/context/refresh/navigation and visible file/folder row actions.
 - Command palette keeps Mac handoff failures visible with recovery guidance for Finder, editor, Quick Look, and clipboard actions.
 - Mac command routing uses a shared command model for global keydown handling, native-menu action normalization, and command-palette action rows.
 - File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
@@ -28,7 +28,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - The macOS bundle registers `xolotl-code://open?path=...` project links for Shortcuts, Raycast, Alfred, and shell automation.
 - Project rows and the command palette can copy `xolotl-code://open?path=...` links for saved projects, current folders, and visible file-browser entries.
 - The command palette can copy Terminal-safe `open 'xolotl-code://...'` commands for active projects, current folders, and visible file-browser entries.
-- The command palette can copy a prompt-ready active project context block with the POSIX path and `xolotl-code://` link for Shortcuts, Raycast, Alfred, and shell automation.
+- The command palette can copy prompt-ready context blocks with POSIX paths, relative paths where useful, and `xolotl-code://` links for active projects, current folders, and visible file-browser entries.
 - Saved project rows and file browser entries can reveal their target in Finder.
 - File browser entries can copy POSIX paths and project-relative paths.
 - File browser browse failures show macOS-specific recovery for missing folders and privacy-denied folder access.
@@ -148,7 +148,7 @@ Deliverables:
 - Command palette:
   - Show Mac symbols for shortcuts where useful: Cmd, Shift, Option, Control. Done for the first palette shortcut-chip pass.
   - Add project-aware commands for Open Recent, Reveal in Finder, New Terminal Here, and Copy Path. Done for active project commands and recent project rows with compact secondary handoffs.
-  - Add file-browser commands for current folder navigation, Finder reveal, Quick Look, New Terminal Here, and visible row copy/path actions. Done for the current listing and non-hidden visible entries.
+  - Add file-browser commands for current folder navigation, Finder reveal, Quick Look, New Terminal Here, and visible row copy/path/context actions. Done for the current listing and non-hidden visible entries.
   - Keep action names short and scan-friendly.
 - Keyboard model:
   - Preserve existing web-friendly shortcuts where they do not conflict.
@@ -376,7 +376,7 @@ Deliverables:
 
 - Make project and file handoff frictionless:
   - Continue expanding `xolotl-code://open?path=...` links where they naturally fit.
-  - Add a command-palette action to copy a prompt-ready project context link when a project is active. Done for active project path + `xolotl-code://` link context blocks.
+  - Add command-palette actions to copy prompt-ready context links for active projects, current folders, and visible entries. Done for path + `xolotl-code://` link context blocks with relative paths where useful.
   - Add documentation or in-app affordances for using links from Shortcuts, Raycast, Alfred, and shell scripts without adding noisy onboarding text to the main UI. Done for command-palette shell-open command copying.
   - Keep native-menu access for active project handoffs. Done for File > Active Project, including embedded-terminal, POSIX path, and prompt-ready context blocks.
 - Improve Finder-originated workflows:

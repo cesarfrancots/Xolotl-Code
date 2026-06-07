@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  pathContextHandoffText,
   projectContextHandoffText,
   relativePathFromRoot,
   xolotlCodeOpenShellCommand,
@@ -60,5 +61,33 @@ describe("projectContextHandoffText", () => {
 
   it("falls back to the path basename when no project name is available", () => {
     expect(projectContextHandoffText("/Users/cesar/Documents/Xolotl").split("\n")[1]).toBe("Project: Xolotl");
+  });
+});
+
+describe("pathContextHandoffText", () => {
+  it("formats a prompt-ready folder context block with a relative path", () => {
+    expect(pathContextHandoffText("/Users/cesar/Documents/Xolotl/docs", {
+      kind: "Folder",
+      label: "docs",
+      relativePath: "docs",
+    })).toBe([
+      "Xolotl Code path context",
+      "Folder: docs",
+      "Path: /Users/cesar/Documents/Xolotl/docs",
+      "Relative Path: docs",
+      "Open: xolotl-code://open?path=%2FUsers%2Fcesar%2FDocuments%2FXolotl%2Fdocs",
+      "",
+      "Use this as the folder context for Xolotl Code automation, Shortcuts, Raycast, Alfred, or shell handoff.",
+    ].join("\n"));
+  });
+
+  it("falls back to a path basename and omits blank relative paths", () => {
+    const lines = pathContextHandoffText("/Users/cesar/Documents/Xolotl/README.md", {
+      kind: "File",
+      relativePath: " ",
+    }).split("\n");
+
+    expect(lines[1]).toBe("File: README.md");
+    expect(lines).not.toContain("Relative Path: ");
   });
 });
