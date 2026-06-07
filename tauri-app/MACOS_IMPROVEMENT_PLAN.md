@@ -14,6 +14,8 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - File > New Chat, workbench tab shortcuts, command palette, and terminal toggle route through the native menu bridge.
 - File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
 - Directory paths passed at app launch are imported into the project store and activated on startup.
+- Saved project rows and file browser entries can reveal their target in Finder.
+- File browser entries can copy POSIX paths and project-relative paths.
 - Terminal tab commands are available from a native Terminal menu.
 - Terminal tabs capture the active project directory when they are created.
 - Finder-style folder drops on the app window can activate projects.
@@ -138,8 +140,8 @@ Acceptance:
 
 Next implementation details:
 
-- Add Reveal in Finder for the active project, selected file, and terminal cwd.
-- Add Copy POSIX Path and Copy Relative Path actions to file browser rows.
+- Add Reveal in Finder for the active project, saved projects, and file browser entries. Done for saved projects, current browser folder, and visible entries; terminal cwd still needs follow-up.
+- Add Copy POSIX Path and Copy Relative Path actions to file browser rows. Done for visible entries; current folder and saved projects support POSIX path copy.
 - Investigate Tauri reopen/open-url/document-open support for dragging a folder onto the Dock icon or launching via Finder "Open With".
 - Add a packaged-app smoke script that launches the `.app` with a temporary directory argument and asserts the project is activated.
 - Evaluate Dock menu support only after project-open event handling is stable.
@@ -276,9 +278,10 @@ Automation targets:
 This is the near-term order for this branch.
 
 1. Finish Phase 3 native project workflows:
-   - Packaged launch with a project path.
-   - Finder/Dock open validation.
-   - Reveal in Finder and copy-path actions.
+   - Promote packaged launch-path smoke into a repeatable script.
+   - Terminal cwd Reveal in Finder.
+   - Finder/Dock open validation and automation.
+   - Dock menu feasibility for New Chat, Open Folder, and recent projects.
 2. Start Phase 2 Mac UI pass:
    - Header/titlebar-safe layout.
    - Segmented workbench tabs.

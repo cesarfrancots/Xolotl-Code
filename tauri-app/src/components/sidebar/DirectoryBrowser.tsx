@@ -1,8 +1,11 @@
 import { useState } from "react";
 import {
   CornerLeftUp,
+  CornerDownRight,
+  Copy,
   Eye,
   EyeOff,
+  ExternalLink,
   File as FileIcon,
   FileText,
   Folder,
@@ -15,6 +18,7 @@ import {
 import { commands } from "../../bindings";
 import { useProjectStore, projectDisplayName } from "../../stores/projectStore";
 import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "../../lib/fileBrowser";
+import { copyTextToClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 
 /**
  * Lightweight file browser for the active project. Folders are navigable;
@@ -37,6 +41,7 @@ export function DirectoryBrowser() {
 
   const atRoot = listing?.path === activePath;
   const here = listing ? projectDisplayName(listing.path) : "";
+  const currentPath = listing?.path ?? activePath;
   const visibleChildren = listing ? visibleDirectoryChildren(listing.children, showHidden) : [];
   const hiddenCount = listing ? listing.children.length - visibleChildren.length : 0;
 
@@ -68,6 +73,24 @@ export function DirectoryBrowser() {
           <Folder className="h-3.5 w-3.5 flex-none" />
           <span className="truncate" title={listing?.path ? macPathLabel(listing.path) : undefined}>{here || "Files"}</span>
         </span>
+        <button
+          type="button"
+          title="Reveal in Finder"
+          aria-label="Reveal current folder in Finder"
+          onClick={() => void revealPathInFinder(currentPath).catch((err) => console.error("reveal folder failed:", err))}
+          className="grid h-6 w-6 flex-none place-items-center rounded text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.16_0.004_240)] hover:text-[oklch(0.82_0.015_220)]"
+        >
+          <ExternalLink className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          title="Copy POSIX path"
+          aria-label="Copy current folder POSIX path"
+          onClick={() => void copyTextToClipboard(currentPath)}
+          className="grid h-6 w-6 flex-none place-items-center rounded text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.16_0.004_240)] hover:text-[oklch(0.82_0.015_220)]"
+        >
+          <Copy className="h-3 w-3" />
+        </button>
         <button
           type="button"
           title={showHidden ? "Hide hidden files" : hiddenCount > 0 ? `Show ${hiddenCount} hidden item${hiddenCount === 1 ? "" : "s"}` : "Show hidden files"}
@@ -138,28 +161,33 @@ export function DirectoryBrowser() {
               return (
                 <li key={child.path}>
                   {child.is_dir ? (
-                    <button
-                      type="button"
-                      onClick={() => void browse(child.path)}
+                    <div
                       className={[
-                        "group flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[13px] hover:bg-[oklch(0.155_0.004_240)] hover:text-[oklch(0.90_0.012_220)]",
+                        "group flex w-full items-center gap-2 rounded px-2 py-1 text-[13px] hover:bg-[oklch(0.155_0.004_240)] hover:text-[oklch(0.90_0.012_220)]",
                         child.is_hidden ? "text-[oklch(0.50_0.010_225)]" : "text-[oklch(0.74_0.010_225)]",
                       ].join(" ")}
                       title={macPathLabel(child.path)}
                     >
-                      {child.is_package ? (
-                        <Package className="h-3.5 w-3.5 flex-none text-[oklch(0.72_0.050_260)]" />
-                      ) : (
-                        <Folder className="h-3.5 w-3.5 flex-none text-[oklch(0.62_0.045_195)]" />
-                      )}
-                      {child.is_symlink && <Link2 className="h-3 w-3 flex-none text-[oklch(0.58_0.035_205)]" />}
-                      <span className="min-w-0 flex-1 truncate">{child.name}</span>
-                      <EntryBadges badges={badges} />
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => void browse(child.path)}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.55_0.04_195)]"
+                      >
+                        {child.is_package ? (
+                          <Package className="h-3.5 w-3.5 flex-none text-[oklch(0.72_0.050_260)]" />
+                        ) : (
+                          <Folder className="h-3.5 w-3.5 flex-none text-[oklch(0.62_0.045_195)]" />
+                        )}
+                        {child.is_symlink && <Link2 className="h-3 w-3 flex-none text-[oklch(0.58_0.035_205)]" />}
+                        <span className="min-w-0 flex-1 truncate">{child.name}</span>
+                        <EntryBadges badges={badges} />
+                      </button>
+                      <PathActionButtons path={child.path} root={activePath} label={child.name} />
+                    </div>
                   ) : (
                     <div
                       className={[
-                        "flex w-full items-center gap-2 rounded px-2 py-1 text-[13px]",
+                        "group flex w-full items-center gap-2 rounded px-2 py-1 text-[13px] hover:bg-[oklch(0.155_0.004_240)]",
                         child.is_pdf
                           ? "text-[oklch(0.80_0.012_220)]"
                           : child.is_hidden
@@ -176,6 +204,7 @@ export function DirectoryBrowser() {
                       {child.is_symlink && <Link2 className="h-3 w-3 flex-none text-[oklch(0.50_0.025_205)]" />}
                       <span className="min-w-0 flex-1 truncate">{child.name}</span>
                       <EntryBadges badges={badges} />
+                      <PathActionButtons path={child.path} root={activePath} label={child.name} />
                       {child.is_pdf && (
                         <button
                           type="button"
@@ -202,6 +231,50 @@ export function DirectoryBrowser() {
         )}
       </div>
     </div>
+  );
+}
+
+function PathActionButtons({ path, root, label }: { path: string; root: string; label: string }) {
+  const relativePath = relativePathFromRoot(path, root);
+  return (
+    <span className="flex flex-none items-center gap-0.5">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          void revealPathInFinder(path).catch((err) => console.error("reveal path failed:", err));
+        }}
+        title="Reveal in Finder"
+        aria-label={`Reveal ${label} in Finder`}
+        className="grid h-5 w-5 place-items-center rounded text-[oklch(0.40_0_0)] opacity-0 transition-opacity hover:text-[oklch(0.72_0.045_195)] group-hover:opacity-100 focus-visible:opacity-100"
+      >
+        <ExternalLink className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          void copyTextToClipboard(path);
+        }}
+        title="Copy POSIX path"
+        aria-label={`Copy POSIX path for ${label}`}
+        className="grid h-5 w-5 place-items-center rounded text-[oklch(0.40_0_0)] opacity-0 transition-opacity hover:text-[oklch(0.72_0.045_195)] group-hover:opacity-100 focus-visible:opacity-100"
+      >
+        <Copy className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          void copyTextToClipboard(relativePath);
+        }}
+        title="Copy relative path"
+        aria-label={`Copy relative path for ${label}`}
+        className="grid h-5 w-5 place-items-center rounded text-[oklch(0.40_0_0)] opacity-0 transition-opacity hover:text-[oklch(0.72_0.045_195)] group-hover:opacity-100 focus-visible:opacity-100"
+      >
+        <CornerDownRight className="h-3 w-3" />
+      </button>
+    </span>
   );
 }
 

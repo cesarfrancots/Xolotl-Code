@@ -1165,6 +1165,50 @@ pub fn touch_project(path: String) -> Result<(), String> {
     Ok(())
 }
 
+fn reveal_command(path: &Path) -> (&'static str, Vec<std::ffi::OsString>) {
+    #[cfg(target_os = "macos")]
+    {
+        ("open", vec!["-R".into(), path.as_os_str().to_os_string()])
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        ("explorer", vec![format!("/select,{}", path.display()).into()])
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let target = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        };
+        ("xdg-open", vec![target.as_os_str().to_os_string()])
+    }
+}
+
+/// Reveal a file or folder in the platform file manager. On macOS this selects
+/// the item in Finder via `open -R`.
+#[tauri::command]
+#[specta::specta]
+pub fn reveal_in_finder(path: String) -> Result<(), String> {
+    let raw = PathBuf::from(&path);
+    if !raw.exists() {
+        return Err(format!("Path does not exist: {path}"));
+    }
+    let target = std::fs::canonicalize(&raw).unwrap_or(raw);
+    let (program, args) = reveal_command(&target);
+    let status = std::process::Command::new(program)
+        .args(args)
+        .status()
+        .map_err(|err| format!("Could not reveal path: {err}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Could not reveal path: {program} exited with {status}"))
+    }
+}
+
 /// Open a native folder picker and return the chosen directory (or `None` if
 /// the user cancelled).
 #[tauri::command]
@@ -4808,6 +4852,31 @@ mod config_tests {
             }"#,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn reveal_command_uses_platform_file_manager() {
+        let path = std::path::Path::new("/Users/cesar/Project");
+        let (program, args) = reveal_command(path);
+
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(program, "open");
+            assert_eq!(args[0].to_string_lossy(), "-R");
+            assert_eq!(args[1], path.as_os_str());
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(program, "explorer");
+            assert!(args[0].to_string_lossy().starts_with("/select,"));
+        }
+
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            assert_eq!(program, "xdg-open");
+            assert_eq!(args[0], path.as_os_str());
+        }
     }
 
     #[test]

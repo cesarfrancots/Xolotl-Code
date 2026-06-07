@@ -153,6 +153,11 @@ export const commands = {
 	removeProject: (path: string) => typedError<Project[], string>(__TAURI_INVOKE("remove_project", { path })),
 	/**  Mark a project as just-opened (bumps it to the top of the list). */
 	touchProject: (path: string) => typedError<null, string>(__TAURI_INVOKE("touch_project", { path })),
+	/**
+	 *  Reveal a file or folder in the platform file manager. On macOS this selects
+	 *  the item in Finder via `open -R`.
+	 */
+	revealInFinder: (path: string) => typedError<null, string>(__TAURI_INVOKE("reveal_in_finder", { path })),
 	refreshNativeMenu: () => typedError<null, string>(__TAURI_INVOKE("refresh_native_menu")),
 	/**
 	 *  Open a native folder picker and return the chosen directory (or `None` if

@@ -1,6 +1,7 @@
-import { Folder, FolderPlus, X } from "lucide-react";
+import { Copy, ExternalLink, Folder, FolderPlus, X } from "lucide-react";
 import { useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
+import { copyTextToClipboard, revealPathInFinder } from "../../lib/pathActions";
 
 /**
  * Codex-style quick-access list of working directories. "Open folder" launches
@@ -90,6 +91,30 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                       {macPathLabel(project.path)}
                     </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void revealPathInFinder(project.path).catch((err) => console.error("reveal project failed:", err));
+                    }}
+                    title="Reveal in Finder"
+                    aria-label={`Reveal ${project.name} in Finder`}
+                    className="grid h-5 w-5 flex-none place-items-center rounded text-[oklch(0.40_0_0)] opacity-0 transition-opacity hover:text-[oklch(0.72_0.045_195)] group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void copyTextToClipboard(project.path);
+                    }}
+                    title="Copy POSIX path"
+                    aria-label={`Copy POSIX path for ${project.name}`}
+                    className="grid h-5 w-5 flex-none place-items-center rounded text-[oklch(0.40_0_0)] opacity-0 transition-opacity hover:text-[oklch(0.72_0.045_195)] group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
                   <button
                     type="button"
                     onClick={(e) => {

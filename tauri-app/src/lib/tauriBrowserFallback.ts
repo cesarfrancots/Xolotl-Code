@@ -1268,6 +1268,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
     case "save_manual_reviews":
     case "touch_project":
     case "refresh_native_menu":
+    case "reveal_in_finder":
       return null;
     case "cleanup_eval_processes":
       return 0;
