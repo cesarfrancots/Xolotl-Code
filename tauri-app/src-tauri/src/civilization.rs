@@ -7016,4 +7016,109 @@ mod tests {
             "a finite ore tile must never regrow"
         );
     }
+
+    // --- ENV-01/02/03: full-tick byte-determinism + back-compat (Wave-3 / 03-03 Task 2) ---
+
+    #[test]
+    fn tick_environment_deterministic() {
+        // Threat T-03-08: a single tick on two clones of the same (seed, turn) must
+        // yield serde-identical environment + world.tiles (deterministic replay).
+        let mut a = test_snapshot("det", "Det", "mock-model", 777, 1);
+        let mut b = a.clone();
+        a.turn = 1;
+        b.turn = 1;
+        tick_environment(&mut a);
+        tick_environment(&mut b);
+        assert_eq!(
+            serde_json::to_string(&a.environment).unwrap(),
+            serde_json::to_string(&b.environment).unwrap(),
+            "environment must be byte-deterministic for a given (seed, turn)"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.tiles).unwrap(),
+            serde_json::to_string(&b.world.tiles).unwrap(),
+            "world.tiles must be byte-deterministic for a given (seed, turn)"
+        );
+    }
+
+    #[test]
+    fn tick_environment_multi_turn_deterministic() {
+        // Run a full multi-turn replay on two clones (incrementing turn as
+        // advance_civ_turn does) and assert final environment + tiles serde-equal.
+        // Seed 777 fires at least one disaster within 12 turns (forecast→fire→expiry
+        // cycle), so this also exercises the reshape path under replay.
+        let mut a = test_snapshot("multi", "Multi", "mock-model", 777, 1);
+        let mut b = a.clone();
+        let mut saw_disaster = false;
+        for t in 1..=12u32 {
+            a.turn = t;
+            tick_environment(&mut a);
+            b.turn = t;
+            tick_environment(&mut b);
+            if !a.environment.disasters.is_empty() {
+                saw_disaster = true;
+            }
+        }
+        assert_eq!(
+            serde_json::to_string(&a.environment).unwrap(),
+            serde_json::to_string(&b.environment).unwrap(),
+            "multi-turn environment replay must be byte-identical"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.tiles).unwrap(),
+            serde_json::to_string(&b.world.tiles).unwrap(),
+            "multi-turn world.tiles replay must be byte-identical"
+        );
+        assert!(
+            saw_disaster,
+            "seed 777 must fire at least one disaster within 12 turns (exercises the cycle)"
+        );
+    }
+
+    #[test]
+    fn tile_count_invariant_after_ticks() {
+        // Threat T-03-10: repeated ticks (including disaster fires) never add or
+        // remove tiles — the world stays exactly width * WORLD_HEIGHT.
+        let mut a = test_snapshot("inv", "Inv", "mock-model", 777, 1);
+        let n = a.world.tiles.len();
+        let expected = (a.world.width * WORLD_HEIGHT) as usize;
+        assert_eq!(n, expected, "world starts at width * WORLD_HEIGHT");
+        for t in 1..=24u32 {
+            a.turn = t;
+            tick_environment(&mut a);
+        }
+        assert_eq!(
+            a.world.tiles.len(),
+            n,
+            "tile count must be invariant across many ticks"
+        );
+        assert_eq!(
+            a.world.tiles.len(),
+            expected,
+            "tile count must stay width * WORLD_HEIGHT after ticks"
+        );
+    }
+
+    #[test]
+    fn old_save_loads_calm_spring() {
+        // Threat T-03-09: a save missing the `environment` key still loads, defaulting
+        // to a calm spring via #[serde(default = "default_environment")]. This proves
+        // the no-new-field line held (a non-defaulted new field would fail to parse).
+        let s = test_snapshot("oldsave", "Old", "mock-model", 9, 1);
+        let mut value = serde_json::to_value(&s).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("environment")
+            .expect("snapshot serialized with an environment key");
+        let raw = serde_json::to_string(&value).unwrap();
+        let loaded = parse_snapshot(&raw).expect("old save (no environment) must still load");
+        assert_eq!(
+            loaded.environment.season, "spring",
+            "an env-less save defaults to calm spring"
+        );
+        assert_eq!(loaded.environment.turn_of_season, 0);
+        assert!(loaded.environment.disasters.is_empty());
+        assert!(loaded.environment.forecast.is_none());
+    }
 }
