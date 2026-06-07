@@ -2272,6 +2272,67 @@ fn apply_model_decision(
             "explore" => explore(snapshot, civ_id, action),
             "policy" => policy(snapshot, civ_id, action),
             "prepare" => prepare(snapshot, civ_id, action),
+            "claim" => match claim_region(snapshot, civ_id, action.target.as_deref()) {
+                Ok(region_id) => push_log(
+                    snapshot,
+                    "claim",
+                    &format!("{} claimed territory", civ_label(snapshot, civ_id)),
+                    &format!(
+                        "Region {region_id} is now held by {}.",
+                        civ_label(snapshot, civ_id)
+                    ),
+                ),
+                Err(why) => push_log(
+                    snapshot,
+                    "claim",
+                    &format!("{}'s claim failed", civ_label(snapshot, civ_id)),
+                    &why,
+                ),
+            },
+            "diplomacy" | "set_stance" => {
+                if let (Some(t), Some(st)) = (action.target.as_deref(), action.stance.as_deref()) {
+                    set_stance(snapshot, civ_id, t, st);
+                    push_log(
+                        snapshot,
+                        "diplomacy",
+                        &format!(
+                            "{} set stance {st} toward {}",
+                            civ_label(snapshot, civ_id),
+                            civ_label(snapshot, t)
+                        ),
+                        "Diplomatic posture updated.",
+                    );
+                }
+            }
+            "trade" => {
+                if let (Some(t), Some(give), Some(recv)) = (
+                    action.target.as_deref(),
+                    action.resource.as_deref(),
+                    action.receive.as_deref(),
+                ) {
+                    let give_amt = i32::try_from(action.amount.unwrap_or(0)).unwrap_or(i32::MAX);
+                    let recv_amt =
+                        i32::try_from(action.receive_amount.unwrap_or(0)).unwrap_or(i32::MAX);
+                    match apply_trade(snapshot, civ_id, t, give, give_amt, recv, recv_amt) {
+                        Ok(()) => push_log(
+                            snapshot,
+                            "trade",
+                            &format!(
+                                "{} traded with {}",
+                                civ_label(snapshot, civ_id),
+                                civ_label(snapshot, t)
+                            ),
+                            &format!("Gave {give_amt} {give}, received {recv_amt} {recv}."),
+                        ),
+                        Err(why) => push_log(
+                            snapshot,
+                            "trade",
+                            &format!("{}'s trade failed", civ_label(snapshot, civ_id)),
+                            &why,
+                        ),
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -4122,6 +4183,150 @@ fn consume(resources: &mut HashMap<String, i32>, resource: &str, amount: i32) ->
     let missing = (amount - *entry).max(0);
     *entry = (*entry - amount).max(0);
     missing
+}
+
+/// Write `civ_id`'s diplomacy stance toward `target` (WAR-03). The stance value is
+/// validated upstream in `validate_action`; here we just persist it. Self-targeting
+/// and unknown targets are defensive no-ops so a malformed model decision can never
+/// corrupt the map or panic (T-04-01).
+fn set_stance(snapshot: &mut CivSessionSnapshot, civ_id: &str, target: &str, stance: &str) {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return;
+    };
+    if target == civ_id || civ_index(snapshot, target).is_none() {
+        return;
+    }
+    snapshot.civs[ci]
+        .diplomacy
+        .insert(target.to_string(), stance.to_string());
+}
+
+/// Claim a region for `civ_id` (WAR-01). Generalizes the home-claim at spawn: a civ
+/// may claim an UNCLAIMED region that is ADJACENT to territory it already owns. With
+/// an explicit `target` region id, that region is claimed (rejected if owned or
+/// non-adjacent); without one, the deterministically-lowest-id adjacent unclaimed
+/// region is claimed. Returns the claimed region id on success. Ownership only ever
+/// flips away from a civ via a raid (04-02), never by claim (T-04-06).
+fn claim_region(
+    snapshot: &mut CivSessionSnapshot,
+    civ_id: &str,
+    target: Option<&str>,
+) -> Result<String, String> {
+    if civ_index(snapshot, civ_id).is_none() {
+        return Err("unknown civ".to_string());
+    }
+    // This civ's owned [x, x+width) intervals, plus its spawn column (the home seed).
+    let owned: Vec<(u32, u32)> = snapshot
+        .world
+        .regions
+        .iter()
+        .filter(|r| r.owner.as_deref() == Some(civ_id))
+        .map(|r| (r.x, r.x + r.width))
+        .collect();
+    let spawn_x = civ_index(snapshot, civ_id).map(|ci| snapshot.civs[ci].spawn_x);
+
+    // A region is adjacent if its interval borders or overlaps any owned interval,
+    // or it contains this civ's spawn column (the first claim from home).
+    let is_adjacent = |r: &CivRegion| -> bool {
+        let (lo, hi) = (r.x, r.x + r.width);
+        if let Some(sx) = spawn_x {
+            if sx >= lo && sx < hi {
+                return true;
+            }
+        }
+        owned.iter().any(|&(olo, ohi)| lo <= ohi && olo <= hi)
+    };
+
+    if let Some(region_id) = target {
+        let region = snapshot
+            .world
+            .regions
+            .iter_mut()
+            .find(|r| r.id == region_id)
+            .ok_or_else(|| format!("no such region: {region_id}"))?;
+        if region.owner.is_some() {
+            return Err(format!("region {region_id} is already owned"));
+        }
+        if !is_adjacent(region) {
+            return Err(format!(
+                "region {region_id} is not adjacent to your territory"
+            ));
+        }
+        region.owner = Some(civ_id.to_string());
+        Ok(region_id.to_string())
+    } else {
+        // Pick the deterministically-lowest-id unclaimed adjacent region.
+        let mut candidates: Vec<String> = snapshot
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.is_none() && is_adjacent(r))
+            .map(|r| r.id.clone())
+            .collect();
+        candidates.sort();
+        let region_id = candidates
+            .into_iter()
+            .next()
+            .ok_or("no adjacent unclaimed region to expand into")?;
+        if let Some(region) = snapshot
+            .world
+            .regions
+            .iter_mut()
+            .find(|r| r.id == region_id)
+        {
+            region.owner = Some(civ_id.to_string());
+        }
+        Ok(region_id)
+    }
+}
+
+/// Deterministic two-civ resource swap (WAR-03). Both gives are capped at the
+/// giver's current holdings, drained via `consume` (clamps >=0) and credited to the
+/// receiver with the SAME capped amount, so totals are conserved and no resource can
+/// go negative (T-04-04). Blocked (returns Err, mutates nothing) when either side has
+/// declared the other hostile (T-04-05). Self-trade is rejected.
+///
+/// Borrow discipline: both holdings are read into copied scalars FIRST, then all of
+/// one civ's map mutations are applied, then the other's — never interleaving a live
+/// `&mut` borrow of `civs[fi]` with one of `civs[ti]`.
+fn apply_trade(
+    snapshot: &mut CivSessionSnapshot,
+    from: &str,
+    to: &str,
+    give: &str,
+    give_amt: i32,
+    recv: &str,
+    recv_amt: i32,
+) -> Result<(), String> {
+    let fi = civ_index(snapshot, from).ok_or("unknown from civ")?;
+    let ti = civ_index(snapshot, to).ok_or("unknown to civ")?;
+    if fi == ti {
+        return Err("cannot trade with self".to_string());
+    }
+    // Block if either side declared the other hostile.
+    let hostile = snapshot.civs[fi].diplomacy.get(to).map(String::as_str) == Some("hostile")
+        || snapshot.civs[ti].diplomacy.get(from).map(String::as_str) == Some("hostile");
+    if hostile {
+        return Err("trade blocked: hostile stance".to_string());
+    }
+    // Read both holdings first (copied i32) so nothing goes negative and totals conserve.
+    let give_have = *snapshot.civs[fi].resources.get(give).unwrap_or(&0);
+    let recv_have = *snapshot.civs[ti].resources.get(recv).unwrap_or(&0);
+    let g = give_amt.max(0).min(give_have);
+    let r = recv_amt.max(0).min(recv_have);
+    // Civ-by-civ mutation: drain `from`'s give + credit its received resource, THEN
+    // drain `to`'s give + credit its received resource. No interleaved &mut borrows.
+    consume(&mut snapshot.civs[fi].resources, give, g);
+    *snapshot.civs[fi]
+        .resources
+        .entry(recv.to_string())
+        .or_insert(0) += r;
+    consume(&mut snapshot.civs[ti].resources, recv, r);
+    *snapshot.civs[ti]
+        .resources
+        .entry(give.to_string())
+        .or_insert(0) += g;
+    Ok(())
 }
 
 fn has_modifier(snapshot: &CivSessionSnapshot, kind: &str) -> bool {
@@ -7441,5 +7646,204 @@ mod tests {
         // gather/build/etc. are unaffected.
         let err = validate_action(&action_json(r#"{"type":"teleport"}"#)).unwrap_err();
         assert_eq!(err, "unknown action type: teleport");
+    }
+
+    // ---- W6 (Phase 4) claim_region / set_stance / apply_trade helpers ----
+
+    /// The first region NOT owned by civ-1 (the home region is claimed at spawn).
+    /// Regions tile contiguously, so the neighbour of the home region is adjacent.
+    fn first_unclaimed_region_id(s: &CivSessionSnapshot) -> String {
+        s.world
+            .regions
+            .iter()
+            .find(|r| r.owner.is_none())
+            .map(|r| r.id.clone())
+            .expect("a world has at least one unclaimed region")
+    }
+
+    /// An unclaimed region adjacent to civ-1's owned territory (shares a boundary
+    /// with the home region, since regions tile contiguously across the world).
+    fn adjacent_unclaimed_region_id(s: &CivSessionSnapshot, civ_id: &str) -> String {
+        let owned: Vec<(u32, u32)> = s
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.as_deref() == Some(civ_id))
+            .map(|r| (r.x, r.x + r.width))
+            .collect();
+        s.world
+            .regions
+            .iter()
+            .filter(|r| r.owner.is_none())
+            .find(|r| {
+                let (lo, hi) = (r.x, r.x + r.width);
+                owned.iter().any(|&(olo, ohi)| lo <= ohi && olo <= hi)
+            })
+            .map(|r| r.id.clone())
+            .expect("a contiguous world has an unclaimed region adjacent to home")
+    }
+
+    #[test]
+    fn claim_region_sets_owner_on_adjacent_unclaimed() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(0);
+        let region_id = adjacent_unclaimed_region_id(&s, &cid);
+        let claimed = claim_region(&mut s, &cid, Some(&region_id)).expect("adjacent claim ok");
+        assert_eq!(claimed, region_id);
+        let region = s.world.regions.iter().find(|r| r.id == region_id).unwrap();
+        assert_eq!(region.owner.as_deref(), Some(cid.as_str()));
+    }
+
+    #[test]
+    fn claim_region_auto_expands_when_target_omitted() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(0);
+        let owned_before = s
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.as_deref() == Some(cid.as_str()))
+            .count();
+        let claimed = claim_region(&mut s, &cid, None).expect("auto-expand ok");
+        let region = s.world.regions.iter().find(|r| r.id == claimed).unwrap();
+        assert_eq!(region.owner.as_deref(), Some(cid.as_str()));
+        let owned_after = s
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.as_deref() == Some(cid.as_str()))
+            .count();
+        assert_eq!(owned_after, owned_before + 1);
+    }
+
+    #[test]
+    fn claim_region_rejects_owned_region() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(0);
+        // First give civ-2 an adjacent region of civ-1's, then have civ-1 try to claim it.
+        let region_id = adjacent_unclaimed_region_id(&s, &cid);
+        if let Some(region) = s.world.regions.iter_mut().find(|r| r.id == region_id) {
+            region.owner = Some(civ_id_for(1));
+        }
+        let err = claim_region(&mut s, &cid, Some(&region_id)).unwrap_err();
+        assert!(err.contains("already owned"), "got: {err}");
+        // Owner unchanged (still civ-2).
+        let region = s.world.regions.iter().find(|r| r.id == region_id).unwrap();
+        assert_eq!(region.owner.as_deref(), Some(civ_id_for(1).as_str()));
+    }
+
+    #[test]
+    fn claim_region_rejects_non_adjacent() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(0);
+        // Strip civ-1's owned regions AND its spawn so nothing is adjacent, then
+        // attempt to claim some unclaimed region.
+        for region in &mut s.world.regions {
+            if region.owner.as_deref() == Some(cid.as_str()) {
+                region.owner = None;
+            }
+        }
+        if let Some(ci) = civ_index(&s, &cid) {
+            // Move the spawn far outside every region so no region contains it.
+            s.civs[ci].spawn_x = u32::MAX;
+        }
+        let region_id = first_unclaimed_region_id(&s);
+        let err = claim_region(&mut s, &cid, Some(&region_id)).unwrap_err();
+        assert!(err.contains("not adjacent"), "got: {err}");
+        let region = s.world.regions.iter().find(|r| r.id == region_id).unwrap();
+        assert!(
+            region.owner.is_none(),
+            "non-adjacent claim must not mutate owner"
+        );
+    }
+
+    #[test]
+    fn set_stance_writes_diplomacy_map() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let a = civ_id_for(0);
+        let b = civ_id_for(1);
+        set_stance(&mut s, &a, &b, "ally");
+        let ci = civ_index(&s, &a).unwrap();
+        assert_eq!(
+            s.civs[ci].diplomacy.get(&b).map(String::as_str),
+            Some("ally")
+        );
+        // Self-targeting is ignored.
+        set_stance(&mut s, &a, &a, "hostile");
+        assert!(s.civs[ci].diplomacy.get(&a).is_none());
+    }
+
+    #[test]
+    fn apply_trade_swaps_and_conserves_resources() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let a = civ_id_for(0);
+        let b = civ_id_for(1);
+        let ai = civ_index(&s, &a).unwrap();
+        let bi = civ_index(&s, &b).unwrap();
+        // Known starting holdings (initial_snapshot seeds food=42, stone=10).
+        let a_food0 = s.civs[ai].resources["food"];
+        let a_stone0 = s.civs[ai].resources["stone"];
+        let b_food0 = s.civs[bi].resources["food"];
+        let b_stone0 = s.civs[bi].resources["stone"];
+        apply_trade(&mut s, &a, &b, "food", 10, "stone", 5).expect("trade ok");
+        assert_eq!(s.civs[ai].resources["food"], a_food0 - 10);
+        assert_eq!(s.civs[ai].resources["stone"], a_stone0 + 5);
+        assert_eq!(s.civs[bi].resources["food"], b_food0 + 10);
+        assert_eq!(s.civs[bi].resources["stone"], b_stone0 - 5);
+        // Conservation: total food and total stone across both civs is unchanged.
+        assert_eq!(
+            s.civs[ai].resources["food"] + s.civs[bi].resources["food"],
+            a_food0 + b_food0
+        );
+        assert_eq!(
+            s.civs[ai].resources["stone"] + s.civs[bi].resources["stone"],
+            a_stone0 + b_stone0
+        );
+    }
+
+    #[test]
+    fn apply_trade_clamps_over_ask_and_never_negative() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let a = civ_id_for(0);
+        let b = civ_id_for(1);
+        let ai = civ_index(&s, &a).unwrap();
+        let bi = civ_index(&s, &b).unwrap();
+        let a_food0 = s.civs[ai].resources["food"];
+        let b_food0 = s.civs[bi].resources["food"];
+        // Ask civ-1 to give 1_000_000 food (far more than it holds) for nothing back.
+        apply_trade(&mut s, &a, &b, "food", 1_000_000, "stone", 0).expect("clamped trade ok");
+        // Giver is drained to 0 (never negative); receiver gains exactly the giver's holdings.
+        assert_eq!(s.civs[ai].resources["food"], 0);
+        assert_eq!(s.civs[bi].resources["food"], b_food0 + a_food0);
+        assert!(s.civs[ai].resources.values().all(|&v| v >= 0));
+        assert!(s.civs[bi].resources.values().all(|&v| v >= 0));
+    }
+
+    #[test]
+    fn apply_trade_blocked_when_hostile() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let a = civ_id_for(0);
+        let b = civ_id_for(1);
+        let ai = civ_index(&s, &a).unwrap();
+        let bi = civ_index(&s, &b).unwrap();
+        // civ-2 declares civ-1 hostile; the trade must be refused and mutate nothing.
+        set_stance(&mut s, &b, &a, "hostile");
+        let snap_before = serde_json::to_string(&s.civs).unwrap();
+        let err = apply_trade(&mut s, &a, &b, "food", 10, "stone", 5).unwrap_err();
+        assert!(err.contains("hostile"), "got: {err}");
+        assert_eq!(
+            serde_json::to_string(&s.civs).unwrap(),
+            snap_before,
+            "a hostile-blocked trade must mutate nothing"
+        );
+        let _ = (ai, bi);
+    }
+
+    #[test]
+    fn apply_trade_rejects_self_trade() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let a = civ_id_for(0);
+        let err = apply_trade(&mut s, &a, &a, "food", 10, "stone", 5).unwrap_err();
+        assert!(err.contains("self"), "got: {err}");
     }
 }
