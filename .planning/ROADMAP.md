@@ -113,10 +113,12 @@ Plans:
   2. Hostile civilizations resolve combat/raids deterministically, with visible population/resource/territory consequences (loser loses population, resources looted, region owner can flip).
   3. Civilizations set diplomacy stances and execute trades; allied/trading civs do not fight each other.
   4. Wild predators spawn and hunt axolotls, civilizations defend with strength, and killed predators drop food.
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: TBD
+- [ ] 04-01-PLAN.md — New action surface: 5 CivDecisionAction fields + claim_region + set_stance + apply_trade + validation/dispatch + observation region ids + headless bindings regen (WAR-01, WAR-03)
+- [ ] 04-02-PLAN.md — Deterministic combat: civ_strength seam + resolve_attack (bounded entity-removal casualties, conserved plunder, region flip) + unilateral ally gate + queued combat world pass (WAR-02, WAR-03)
+- [ ] 04-03-PLAN.md — Wild predators: spawn_predators on predator_incursion + step_predators (hunt, civ_strength defense, cull-drops-food, expire) + predator world pass (WAR-04)
 
 > **Implementation notes:** Extend the decision schema (`target_civ`, `region_id`, `offer`/`request` maps) with new `action_type`s (`claim`/`raid`/`fortify`/`diplomacy`/`migrate`) validated in `validate_action` and dispatched in `apply_model_decision`; `resolve_interactions(snapshot)` resolves combat/raids/trades/predators deterministically (seeded). Scoring folds territory/aggression into the existing ethics/intelligence/survival axes. Backend tests can't run on Windows — verify via `cargo check` + `cargo clippy` + `cargo test --no-run` (spec names `combat_is_deterministic_and_conserves_or_destroys`, `claim_sets_region_owner`, `allies_do_not_fight`, `predator_hunts_then_drops_food`).
 
@@ -146,7 +148,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. W9-lite — Multi-Model World Creation + Leaderboard | v2.0 | 0/4 | Planned | - |
 | 2. W8 — Renderer Multi-Civ Identity | v2.0 | 0/2 | Planned | - |
 | 3. W4 — Environment Engine | v2.0 | 0/3 | Planned | - |
-| 4. W6 — Combat & Diplomacy | v2.0 | 0/TBD | Not started | - |
+| 4. W6 — Combat & Diplomacy | v2.0 | 0/3 | Planned | - |
 | 5. W5 — Genetics Depth & Selection | v2.0 | 0/TBD | Not started | - |
 | 1-6 (v1.0) | v1.0 | 33/33 | Complete | 2026-06-06 |
 
