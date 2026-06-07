@@ -7,10 +7,15 @@ import { useUiStore } from "../../stores/uiStore";
 import { useProjectStore } from "../../stores/projectStore";
 
 const pathActionMocks = vi.hoisted(() => ({
+  copyPathContextHandoff: vi.fn().mockResolvedValue(undefined),
   copyTextToClipboard: vi.fn().mockResolvedValue(undefined),
   copyXolotlCodeOpenShellCommand: vi.fn().mockResolvedValue(undefined),
   copyXolotlCodeOpenUrl: vi.fn().mockResolvedValue(undefined),
   openPathInExternalTerminal: vi.fn().mockResolvedValue(undefined),
+  relativePathFromRoot: vi.fn((path: string, root: string) => {
+    if (path === root) return ".";
+    return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+  }),
   revealPathInFinder: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -80,6 +85,7 @@ it("shows active terminal shell profile metadata after spawn", () => {
 
 it("offers external terminal, Finder, and automation copy actions for the active terminal cwd", async () => {
   const user = userEvent.setup();
+  useProjectStore.setState({ activeProjectPath: "/Users/cesar" });
   render(<TerminalPanel />);
   const tab = useTerminalStore.getState().tabs[0];
 
@@ -121,6 +127,19 @@ it("offers external terminal, Finder, and automation copy actions for the active
   await waitFor(() => {
     expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/project-a");
     expect(screen.getByText("Terminal cwd shell open command copied.")).toBeTruthy();
+  });
+
+  await user.click(screen.getByLabelText("Copy terminal cwd context prompt"));
+  await waitFor(() => {
+    expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
+      "/Users/cesar/project-a",
+      {
+        label: "~/project-a",
+        kind: "Terminal cwd",
+        relativePath: "project-a",
+      },
+    );
+    expect(screen.getByText("Terminal cwd context prompt copied.")).toBeTruthy();
   });
 });
 
@@ -236,6 +255,29 @@ it("shows recovery guidance when copying the terminal cwd shell open command fai
 
   expect(await screen.findByText("Copy terminal cwd shell open command failed.")).toBeTruthy();
   expect(screen.getByText(/try copying the shell open command again/)).toBeTruthy();
+  expect(screen.getByText(/Clipboard blocked/)).toBeTruthy();
+});
+
+it("shows recovery guidance when copying the terminal cwd context prompt fails", async () => {
+  pathActionMocks.copyPathContextHandoff.mockRejectedValueOnce(new Error("Clipboard blocked"));
+  const user = userEvent.setup();
+  render(<TerminalPanel />);
+  const tab = useTerminalStore.getState().tabs[0];
+
+  act(() => {
+    useTerminalStore.getState().setBackendInfo(tab.key, {
+      id: "pty-1",
+      shell: "/bin/zsh",
+      shell_name: "zsh",
+      cwd: "/Users/cesar/project-a",
+      env_source: "Inherited app environment + $SHELL",
+    });
+  });
+
+  await user.click(screen.getByLabelText("Copy terminal cwd context prompt"));
+
+  expect(await screen.findByText("Copy terminal cwd context prompt failed.")).toBeTruthy();
+  expect(screen.getByText(/try copying the terminal context prompt again/)).toBeTruthy();
   expect(screen.getByText(/Clipboard blocked/)).toBeTruthy();
 });
 

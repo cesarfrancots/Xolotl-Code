@@ -1,15 +1,17 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { AlertCircle, CheckCircle, Copy, ExternalLink, Link2, Plus, TerminalSquare, X } from "lucide-react";
+import { AlertCircle, CheckCircle, ClipboardList, Copy, ExternalLink, Link2, Plus, TerminalSquare, X } from "lucide-react";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { useUiStore } from "../../stores/uiStore";
 import { projectDisplayName, useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
 import { shortcutTitle } from "../../lib/macShortcuts";
 import {
+  copyPathContextHandoff,
   copyTextToClipboard,
   copyXolotlCodeOpenShellCommand,
   copyXolotlCodeOpenUrl,
   openPathInExternalTerminal,
+  relativePathFromRoot,
   revealPathInFinder,
 } from "../../lib/pathActions";
 import { TerminalView } from "./TerminalView";
@@ -323,6 +325,28 @@ export function TerminalPanel() {
                   className="grid h-5 w-5 place-items-center rounded text-[oklch(0.45_0.010_225)] hover:bg-[oklch(0.16_0.006_245)] hover:text-[oklch(0.78_0.040_195)]"
                 >
                   <TerminalSquare className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  title="Copy terminal cwd context prompt"
+                  aria-label="Copy terminal cwd context prompt"
+                  onClick={() => {
+                    if (activeTab.cwd) {
+                      void runCwdHandoff(
+                        "Copy terminal cwd context prompt",
+                        () => copyPathContextHandoff(activeTab.cwd!, {
+                          label: macPathLabel(activeTab.cwd!),
+                          kind: "Terminal cwd",
+                          relativePath: activeProjectPath ? relativePathFromRoot(activeTab.cwd!, activeProjectPath) : null,
+                        }),
+                        "Terminal cwd context prompt copied.",
+                        "Check macOS clipboard access and try copying the terminal context prompt again.",
+                      );
+                    }
+                  }}
+                  className="grid h-5 w-5 place-items-center rounded text-[oklch(0.45_0.010_225)] hover:bg-[oklch(0.16_0.006_245)] hover:text-[oklch(0.78_0.040_195)]"
+                >
+                  <ClipboardList className="h-3 w-3" />
                 </button>
               </span>
             )}
