@@ -20,11 +20,17 @@ export interface CivState {
   turnRunning: boolean;
   error: string | null;
   lastEventType: string | null;
+  selectedCivId: string | null;
 
   loadModels: () => Promise<void>;
   loadSessions: () => Promise<void>;
-  createSession: (config: { name: string; model: string; seed?: number | null }) => Promise<void>;
+  createSession: (config: {
+    name: string;
+    seed?: number | null;
+    civs: { name: string; model: string; color?: string | null }[];
+  }) => Promise<void>;
   loadSession: (id: string) => Promise<void>;
+  setSelectedCivId: (id: string | null) => void;
   deleteSession: (id: string) => Promise<void>;
   advanceTurn: () => Promise<void>;
   applyIntervention: (intervention: CivIntervention) => Promise<void>;
@@ -131,6 +137,7 @@ function normalizeCiv(value: unknown, fallbackName: string, fallbackModel: strin
     techs: stringArray(input.techs),
     policies: stringArray(input.policies),
     score: normalizeScore(input.score),
+    controller: typeof input.controller === "string" ? input.controller : null,
   };
 }
 
@@ -215,6 +222,7 @@ export const useCivStore = create<CivState>()((set, get) => ({
   turnRunning: false,
   error: null,
   lastEventType: null,
+  selectedCivId: null,
 
   loadModels: async () => {
     try {
@@ -236,7 +244,7 @@ export const useCivStore = create<CivState>()((set, get) => ({
   },
 
   createSession: async (config) => {
-    set({ loading: true, error: null });
+    set({ loading: true, error: null, selectedCivId: null });
     const result = await commands.createCivSession(config);
     if (result.status === "error") {
       set({ error: result.error, loading: false });
@@ -246,8 +254,10 @@ export const useCivStore = create<CivState>()((set, get) => ({
     await get().loadSession(result.data);
   },
 
+  setSelectedCivId: (id) => set({ selectedCivId: id }),
+
   loadSession: async (id) => {
-    set({ loading: true, error: null });
+    set({ loading: true, error: null, selectedCivId: null });
     const result = await commands.loadCivSession(id);
     if (result.status === "error") {
       set({ error: result.error, loading: false });
