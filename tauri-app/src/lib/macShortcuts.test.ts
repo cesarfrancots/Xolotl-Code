@@ -5,6 +5,7 @@ describe("formatMacShortcut", () => {
   it("renders macOS modifier symbols for command-style shortcuts", () => {
     expect(formatMacShortcut("Cmd+K")).toBe("⌘K");
     expect(formatMacShortcut("CmdOrCtrl+Shift+ArrowLeft")).toBe("⌘⇧←");
+    expect(formatMacShortcut("CommandOrControl+Shift+Space")).toBe("⌘⇧Space");
     expect(formatMacShortcut("Ctrl+Backquote")).toBe("⌃`");
   });
 

@@ -7,6 +7,10 @@ const commandMocks = vi.hoisted(() => ({
   getApiKeyStatus: vi.fn(() => Promise.resolve({})),
   getMacProductivitySettings: vi.fn(() => Promise.resolve({
     external_editor: "Cursor",
+    global_hotkey: {
+      enabled: false,
+      shortcut: "CommandOrControl+Shift+Space",
+    },
     notifications: {
       agent_finished: false,
       eval_finished: false,
@@ -17,6 +21,25 @@ const commandMocks = vi.hoisted(() => ({
     status: "ok" as const,
     data: {
       external_editor: editor || null,
+      global_hotkey: {
+        enabled: false,
+        shortcut: "CommandOrControl+Shift+Space",
+      },
+      notifications: {
+        agent_finished: false,
+        eval_finished: false,
+        permission_required: false,
+      },
+    },
+  })),
+  setMacGlobalHotkeySettings: vi.fn((global_hotkey: {
+    enabled: boolean;
+    shortcut: string;
+  }) => Promise.resolve({
+    status: "ok" as const,
+    data: {
+      external_editor: "Cursor",
+      global_hotkey,
       notifications: {
         agent_finished: false,
         eval_finished: false,
@@ -32,6 +55,10 @@ const commandMocks = vi.hoisted(() => ({
     status: "ok" as const,
     data: {
       external_editor: "Cursor",
+      global_hotkey: {
+        enabled: false,
+        shortcut: "CommandOrControl+Shift+Space",
+      },
       notifications,
     },
   })),
@@ -42,8 +69,22 @@ vi.mock("../../bindings", () => ({
     getApiKeyStatus: commandMocks.getApiKeyStatus,
     getMacProductivitySettings: commandMocks.getMacProductivitySettings,
     setExternalEditor: commandMocks.setExternalEditor,
+    setMacGlobalHotkeySettings: commandMocks.setMacGlobalHotkeySettings,
     setMacNotificationSettings: commandMocks.setMacNotificationSettings,
   },
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    show: vi.fn(),
+    unminimize: vi.fn(),
+    setFocus: vi.fn(),
+  }),
+}));
+
+vi.mock("@tauri-apps/plugin-global-shortcut", () => ({
+  register: vi.fn(),
+  unregister: vi.fn(),
 }));
 
 vi.mock("../../lib/notificationActions", () => ({
@@ -87,5 +128,29 @@ describe("SettingsDialog", () => {
       permission_required: false,
     });
     expect(await screen.findByText("Notification settings saved.")).toBeTruthy();
+  });
+
+  it("saves the opt-in macOS global hotkey preference", async () => {
+    const user = userEvent.setup();
+    render(<SettingsDialog open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "macOS" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Enable global hotkey" }));
+
+    expect(commandMocks.setMacGlobalHotkeySettings).toHaveBeenCalledWith({
+      enabled: true,
+      shortcut: "CommandOrControl+Shift+Space",
+    });
+    expect(await screen.findByText("Global hotkey saved.")).toBeTruthy();
+
+    const shortcutInput = screen.getByRole("textbox", { name: "Global hotkey shortcut" });
+    await user.clear(shortcutInput);
+    await user.type(shortcutInput, "CommandOrControl+Option+X");
+    await user.click(screen.getByRole("button", { name: "Save Hotkey" }));
+
+    expect(commandMocks.setMacGlobalHotkeySettings).toHaveBeenLastCalledWith({
+      enabled: true,
+      shortcut: "CommandOrControl+Option+X",
+    });
   });
 });

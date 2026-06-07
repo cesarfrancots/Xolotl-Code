@@ -102,6 +102,8 @@ export const commands = {
 	 *  Code" or "Cursor" on macOS, or a full executable path for CLI launchers.
 	 */
 	setExternalEditor: (editor: string) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_external_editor", { editor })),
+	/**  Set the opt-in global shortcut that brings Xolotl Code to the front. */
+	setMacGlobalHotkeySettings: (settings: MacGlobalHotkeySettings) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_mac_global_hotkey_settings", { settings })),
 	/**  Set opt-in macOS notification preferences for long-running work. */
 	setMacNotificationSettings: (settings: MacNotificationSettings) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_mac_notification_settings", { settings })),
 	/**
@@ -744,6 +746,11 @@ export type JudgeScores = {
 	rationale: { [key in string]: string },
 };
 
+export type MacGlobalHotkeySettings = {
+	enabled: boolean,
+	shortcut: string,
+};
+
 export type MacNotificationSettings = {
 	agent_finished: boolean,
 	eval_finished: boolean,
@@ -752,6 +759,7 @@ export type MacNotificationSettings = {
 
 export type MacProductivitySettings = {
 	external_editor: string | null,
+	global_hotkey: MacGlobalHotkeySettings,
 	notifications: MacNotificationSettings,
 };
 

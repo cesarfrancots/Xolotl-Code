@@ -11,6 +11,7 @@ import { useUiStore } from "./stores/uiStore";
 import { useTerminalStore } from "./stores/terminalStore";
 import { useProjectStore } from "./stores/projectStore";
 import { useProjectDrop } from "./hooks/useProjectDrop";
+import { useMacGlobalHotkey } from "./hooks/useMacGlobalHotkey";
 import { useProjectOpenEvents } from "./hooks/useProjectOpenEvents";
 import { Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves } from "lucide-react";
 import { centerTabFromSearch, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
@@ -61,6 +62,7 @@ export default function App() {
   const handledMenuActionRef = useRef<{ action: NativeMenuAction; at: number } | null>(null);
 
   useProjectDrop();
+  useMacGlobalHotkey();
   useProjectOpenEvents();
 
   const selectCenterTab = useCallback((tab: CenterTab) => {

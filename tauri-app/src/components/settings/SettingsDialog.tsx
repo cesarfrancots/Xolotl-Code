@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   CheckCircle, XCircle, Loader2, Eye, EyeOff, Key, Plug, FileCode,
-  RefreshCw, ShieldCheck, AlertCircle, Monitor, Code2, Bell,
+  RefreshCw, ShieldCheck, AlertCircle, Monitor, Code2, Bell, Keyboard,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -11,6 +11,7 @@ import { Input } from "../ui/input";
 import { commands } from "../../bindings";
 import type {
   ApiKeyProviderStatus,
+  MacGlobalHotkeySettings,
   MacNotificationSettings,
   MacProductivitySettings,
   SkillManifest,
@@ -24,6 +25,12 @@ import {
   sendSettingsTestNotification,
   type NotificationPermissionState,
 } from "../../lib/notificationActions";
+import {
+  DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT,
+  normalizeGlobalHotkeyShortcut,
+  notifyMacProductivitySettingsChanged,
+} from "../../hooks/useMacGlobalHotkey";
+import { formatMacShortcut } from "../../lib/macShortcuts";
 
 interface ProviderConfig {
   id: string;
@@ -373,6 +380,10 @@ function ProvidersPanel({ open }: { open: boolean }) {
 // ════════════════════════════════════════════════════════════════════════════
 const EMPTY_MAC_SETTINGS: MacProductivitySettings = {
   external_editor: null,
+  global_hotkey: {
+    enabled: false,
+    shortcut: DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT,
+  },
   notifications: {
     agent_finished: false,
     eval_finished: false,
@@ -381,10 +392,16 @@ const EMPTY_MAC_SETTINGS: MacProductivitySettings = {
 };
 
 const EDITOR_PRESETS = ["Visual Studio Code", "Cursor", "Zed", "Sublime Text"];
+const HOTKEY_PRESETS = [
+  DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT,
+  "CommandOrControl+Option+X",
+  "CommandOrControl+Shift+X",
+];
 
 function MacPanel({ open }: { open: boolean }) {
   const [settings, setSettings] = useState<MacProductivitySettings>(EMPTY_MAC_SETTINGS);
   const [editor, setEditor] = useState("");
+  const [hotkeyShortcut, setHotkeyShortcut] = useState(DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>("unknown");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -398,6 +415,7 @@ function MacPanel({ open }: { open: boolean }) {
       const next = await commands.getMacProductivitySettings();
       setSettings(next);
       setEditor(next.external_editor ?? "");
+      setHotkeyShortcut(normalizeGlobalHotkeyShortcut(next.global_hotkey.shortcut));
       setNotificationPermission(await getNotificationPermissionState());
     } catch (err) {
       setError(String(err));
@@ -416,7 +434,30 @@ function MacPanel({ open }: { open: boolean }) {
     if (result.status === "ok") {
       setSettings(result.data);
       setEditor(result.data.external_editor ?? "");
+      setHotkeyShortcut(normalizeGlobalHotkeyShortcut(result.data.global_hotkey.shortcut));
+      notifyMacProductivitySettingsChanged(result.data);
       setMessage(result.data.external_editor ? "External editor saved." : "External editor cleared.");
+    } else {
+      setError(result.error);
+    }
+    setSaving(false);
+  }
+
+  async function saveGlobalHotkey(patch: Partial<MacGlobalHotkeySettings> = {}) {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    const nextHotkey = {
+      enabled: patch.enabled ?? settings.global_hotkey.enabled,
+      shortcut: normalizeGlobalHotkeyShortcut(patch.shortcut ?? hotkeyShortcut),
+    };
+    const result = await commands.setMacGlobalHotkeySettings(nextHotkey);
+    if (result.status === "ok") {
+      setSettings(result.data);
+      setEditor(result.data.external_editor ?? "");
+      setHotkeyShortcut(normalizeGlobalHotkeyShortcut(result.data.global_hotkey.shortcut));
+      notifyMacProductivitySettingsChanged(result.data);
+      setMessage(result.data.global_hotkey.enabled ? "Global hotkey saved." : "Global hotkey disabled.");
     } else {
       setError(result.error);
     }
@@ -453,6 +494,8 @@ function MacPanel({ open }: { open: boolean }) {
     if (result.status === "ok") {
       setSettings(result.data);
       setEditor(result.data.external_editor ?? "");
+      setHotkeyShortcut(normalizeGlobalHotkeyShortcut(result.data.global_hotkey.shortcut));
+      notifyMacProductivitySettingsChanged(result.data);
       setMessage("Notification settings saved.");
     } else {
       setError(result.error);
@@ -536,6 +579,58 @@ function MacPanel({ open }: { open: boolean }) {
             Current: <code className="rounded bg-[oklch(0.15_0.004_245)] px-1 py-0.5 text-[10px]">{settings.external_editor}</code>
           </p>
         )}
+      </div>
+
+      <div className="rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)] px-3 py-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-[oklch(0.90_0.025_220)]">
+          <Keyboard className="h-4 w-4 text-[oklch(0.68_0.050_190)]" />
+          Global hotkey
+        </div>
+        <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
+          <label className="flex min-h-9 cursor-pointer items-center gap-2 rounded border border-[oklch(0.22_0.008_240)] bg-[oklch(0.105_0.004_245)] px-3 py-2 text-xs text-[oklch(0.76_0.018_220)]">
+            <input
+              type="checkbox"
+              checked={settings.global_hotkey.enabled}
+              disabled={saving || loading}
+              onChange={(event) => void saveGlobalHotkey({ enabled: event.target.checked })}
+              className="h-4 w-4 accent-[oklch(0.68_0.050_190)]"
+            />
+            <span>Enable global hotkey</span>
+          </label>
+          <Input
+            aria-label="Global hotkey shortcut"
+            value={hotkeyShortcut}
+            onChange={(e) => {
+              setHotkeyShortcut(e.target.value);
+              setMessage("");
+              setError("");
+            }}
+            placeholder={DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT}
+            className="min-w-0 text-sm font-mono border-[oklch(0.24_0.010_235)] bg-[oklch(0.105_0.004_245)] lg:flex-1"
+          />
+          <Button size="sm" variant="outline" disabled={saving || loading} onClick={() => void saveGlobalHotkey()} className="gap-1">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save Hotkey"}
+          </Button>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {HOTKEY_PRESETS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => {
+                setHotkeyShortcut(preset);
+                setMessage("");
+                setError("");
+              }}
+              className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] px-2 py-1 text-[11px] text-[oklch(0.62_0.016_220)] transition-colors hover:border-[oklch(0.35_0.025_195)] hover:text-[oklch(0.82_0.025_210)]"
+            >
+              {formatMacShortcut(preset)}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-[oklch(0.58_0.012_225)]">
+          Current: <code className="rounded bg-[oklch(0.15_0.004_245)] px-1 py-0.5 text-[10px]">{settings.global_hotkey.enabled ? formatMacShortcut(settings.global_hotkey.shortcut) : "Disabled"}</code>
+        </p>
       </div>
 
       <div className="rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)] px-3 py-3">

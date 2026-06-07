@@ -40,6 +40,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - macOS Settings include a preferred external editor, and active projects can open in that editor from project rows or the command palette.
 - macOS Settings include opt-in notification toggles for agent completion, eval completion, and permission prompts. Backend notifications now respect those toggles.
 - Command palette includes clipboard-aware actions to seed a chat from the current text clipboard or ask for an explanation of the clipboard snippet.
+- macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
 
 ## Phase 1 - Native Mac Shell
 
@@ -215,7 +216,7 @@ Status: in progress.
 
 Deliverables:
 
-- Optional global hotkey to bring Xolotl Code to front.
+- Optional global hotkey to bring Xolotl Code to front. Done for opt-in settings, configurable accelerator persistence, runtime register/unregister, and window focus.
 - Optional menu bar helper or status item:
   - Running agents count.
   - Active project.
@@ -246,7 +247,7 @@ Implementation order:
 2. Add notification routing for existing long-running work.
    - Done for opt-in backend notifications. Click-to-view routing remains a follow-up because the current Tauri desktop notification wrapper ignores Rust-side action metadata.
 3. Add opt-in global hotkey with settings UI and tests.
-   - Dependency check complete: the global-shortcut plugin is not currently installed in the app; add the Tauri plugin deliberately before implementing this slice.
+   - Done for the first implementation with the official Tauri global-shortcut plugin. Remaining validation: packaged-app manual collision behavior on a clean Mac account.
 4. Evaluate menu bar helper only after agent/eval status events are stable enough to summarize.
 
 ## Phase 7 - Distribution, Signing, and Update Path

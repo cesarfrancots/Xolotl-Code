@@ -1,6 +1,7 @@
 const TOKEN_LABELS: Record<string, string> = {
   cmd: "⌘",
   command: "⌘",
+  commandorcontrol: "⌘",
   cmdorctrl: "⌘",
   ctrl: "⌃",
   control: "⌃",
@@ -11,6 +12,7 @@ const TOKEN_LABELS: Record<string, string> = {
   return: "↩",
   escape: "Esc",
   esc: "Esc",
+  space: "Space",
   arrowleft: "←",
   arrowright: "→",
   arrowup: "↑",

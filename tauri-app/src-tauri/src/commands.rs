@@ -1179,7 +1179,10 @@ fn reveal_command(path: &Path) -> (&'static str, Vec<std::ffi::OsString>) {
 
     #[cfg(target_os = "windows")]
     {
-        ("explorer", vec![format!("/select,{}", path.display()).into()])
+        (
+            "explorer",
+            vec![format!("/select,{}", path.display()).into()],
+        )
     }
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
@@ -1211,7 +1214,9 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
     if status.success() {
         Ok(())
     } else {
-        Err(format!("Could not reveal path: {program} exited with {status}"))
+        Err(format!(
+            "Could not reveal path: {program} exited with {status}"
+        ))
     }
 }
 
@@ -1839,7 +1844,10 @@ async fn start_eval_inner_full(
             .count();
         let completed = eval_result.results.len().saturating_sub(failed);
         let result_summary = if failed == 0 {
-            format!("{completed} model{} complete", if completed == 1 { "" } else { "s" })
+            format!(
+                "{completed} model{} complete",
+                if completed == 1 { "" } else { "s" }
+            )
         } else {
             format!("{completed} complete, {failed} failed")
         };
@@ -2530,7 +2538,14 @@ pub struct ApiKeyProviderStatus {
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct MacProductivitySettings {
     pub external_editor: Option<String>,
+    pub global_hotkey: MacGlobalHotkeySettings,
     pub notifications: MacNotificationSettings,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct MacGlobalHotkeySettings {
+    pub enabled: bool,
+    pub shortcut: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -2653,6 +2668,9 @@ fn config_get(config: &ConfigMap, key: &str) -> Option<String> {
 }
 
 const EXTERNAL_EDITOR_CONFIG_KEY: &str = "XOLOTL_EXTERNAL_EDITOR";
+const GLOBAL_HOTKEY_ENABLED_CONFIG_KEY: &str = "XOLOTL_GLOBAL_HOTKEY_ENABLED";
+const GLOBAL_HOTKEY_SHORTCUT_CONFIG_KEY: &str = "XOLOTL_GLOBAL_HOTKEY_SHORTCUT";
+const DEFAULT_GLOBAL_HOTKEY_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 const NOTIFY_AGENT_FINISHED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_AGENT_FINISHED";
 const NOTIFY_EVAL_FINISHED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_EVAL_FINISHED";
 const NOTIFY_PERMISSION_REQUIRED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_PERMISSION_REQUIRED";
@@ -2688,6 +2706,24 @@ fn external_editor_from_config(config: &ConfigMap) -> Option<String> {
     config_string(config, EXTERNAL_EDITOR_CONFIG_KEY)
 }
 
+fn normalize_global_hotkey_shortcut(shortcut: &str) -> String {
+    let shortcut = shortcut.trim();
+    if shortcut.is_empty() {
+        DEFAULT_GLOBAL_HOTKEY_SHORTCUT.to_string()
+    } else {
+        shortcut.to_string()
+    }
+}
+
+fn mac_global_hotkey_settings_from_config(config: &ConfigMap) -> MacGlobalHotkeySettings {
+    MacGlobalHotkeySettings {
+        enabled: config_bool(config, GLOBAL_HOTKEY_ENABLED_CONFIG_KEY),
+        shortcut: config_string(config, GLOBAL_HOTKEY_SHORTCUT_CONFIG_KEY)
+            .map(|shortcut| normalize_global_hotkey_shortcut(&shortcut))
+            .unwrap_or_else(|| DEFAULT_GLOBAL_HOTKEY_SHORTCUT.to_string()),
+    }
+}
+
 fn mac_notification_settings_from_config(config: &ConfigMap) -> MacNotificationSettings {
     MacNotificationSettings {
         agent_finished: config_bool(config, NOTIFY_AGENT_FINISHED_CONFIG_KEY),
@@ -2699,6 +2735,7 @@ fn mac_notification_settings_from_config(config: &ConfigMap) -> MacNotificationS
 fn mac_productivity_settings_from_config(config: &ConfigMap) -> MacProductivitySettings {
     MacProductivitySettings {
         external_editor: external_editor_from_config(config),
+        global_hotkey: mac_global_hotkey_settings_from_config(config),
         notifications: mac_notification_settings_from_config(config),
     }
 }
@@ -2715,6 +2752,22 @@ fn set_external_editor_in_config(config: &mut ConfigMap, editor: &str) {
     }
 }
 
+fn set_mac_global_hotkey_settings_in_config(
+    config: &mut ConfigMap,
+    settings: &MacGlobalHotkeySettings,
+) {
+    set_config_bool(config, GLOBAL_HOTKEY_ENABLED_CONFIG_KEY, settings.enabled);
+    let shortcut = normalize_global_hotkey_shortcut(&settings.shortcut);
+    if shortcut == DEFAULT_GLOBAL_HOTKEY_SHORTCUT {
+        config.remove(GLOBAL_HOTKEY_SHORTCUT_CONFIG_KEY);
+    } else {
+        config.insert(
+            GLOBAL_HOTKEY_SHORTCUT_CONFIG_KEY.to_string(),
+            serde_json::Value::String(shortcut),
+        );
+    }
+}
+
 fn set_mac_notification_settings_in_config(
     config: &mut ConfigMap,
     settings: &MacNotificationSettings,
@@ -2724,7 +2777,11 @@ fn set_mac_notification_settings_in_config(
         NOTIFY_AGENT_FINISHED_CONFIG_KEY,
         settings.agent_finished,
     );
-    set_config_bool(config, NOTIFY_EVAL_FINISHED_CONFIG_KEY, settings.eval_finished);
+    set_config_bool(
+        config,
+        NOTIFY_EVAL_FINISHED_CONFIG_KEY,
+        settings.eval_finished,
+    );
     set_config_bool(
         config,
         NOTIFY_PERMISSION_REQUIRED_CONFIG_KEY,
@@ -2806,10 +2863,7 @@ fn external_editor_launch_command(
         }
     }
 
-    Ok((
-        editor.into(),
-        vec![target.as_os_str().to_os_string()],
-    ))
+    Ok((editor.into(), vec![target.as_os_str().to_os_string()]))
 }
 
 fn env_api_key(env_var: &str) -> Option<String> {
@@ -3142,6 +3196,18 @@ pub fn get_mac_productivity_settings() -> MacProductivitySettings {
 pub fn set_external_editor(editor: String) -> Result<MacProductivitySettings, String> {
     let mut config = load_config();
     set_external_editor_in_config(&mut config, &editor);
+    save_config(&config)?;
+    Ok(mac_productivity_settings_from_config(&config))
+}
+
+/// Set the opt-in global shortcut that brings Xolotl Code to the front.
+#[tauri::command]
+#[specta::specta]
+pub fn set_mac_global_hotkey_settings(
+    settings: MacGlobalHotkeySettings,
+) -> Result<MacProductivitySettings, String> {
+    let mut config = load_config();
+    set_mac_global_hotkey_settings_in_config(&mut config, &settings);
     save_config(&config)?;
     Ok(mac_productivity_settings_from_config(&config))
 }
@@ -5188,7 +5254,57 @@ mod config_tests {
 
         set_external_editor_in_config(&mut cfg, "  ");
         assert_eq!(external_editor_from_config(&cfg), None);
-        assert_eq!(config_get(&cfg, "ANTHROPIC_API_KEY"), Some("ant-xxx".into()));
+        assert_eq!(
+            config_get(&cfg, "ANTHROPIC_API_KEY"),
+            Some("ant-xxx".into())
+        );
+    }
+
+    #[test]
+    fn mac_global_hotkey_defaults_to_opt_in_off() {
+        let cfg = make_legacy_cli_config();
+        let settings = mac_global_hotkey_settings_from_config(&cfg);
+
+        assert!(!settings.enabled);
+        assert_eq!(settings.shortcut, DEFAULT_GLOBAL_HOTKEY_SHORTCUT);
+    }
+
+    #[test]
+    fn mac_global_hotkey_settings_preserve_other_config_fields() {
+        let mut cfg = make_legacy_cli_config();
+
+        set_mac_global_hotkey_settings_in_config(
+            &mut cfg,
+            &MacGlobalHotkeySettings {
+                enabled: true,
+                shortcut: "CommandOrControl+Option+X".into(),
+            },
+        );
+        let settings = mac_global_hotkey_settings_from_config(&cfg);
+
+        assert!(settings.enabled);
+        assert_eq!(settings.shortcut, "CommandOrControl+Option+X");
+        assert_eq!(
+            config_get(&cfg, "KIMI_CODING_BASE_URL"),
+            Some("https://api.kimi.com/coding/v1".into())
+        );
+
+        set_mac_global_hotkey_settings_in_config(
+            &mut cfg,
+            &MacGlobalHotkeySettings {
+                enabled: false,
+                shortcut: " ".into(),
+            },
+        );
+        let settings = mac_global_hotkey_settings_from_config(&cfg);
+        assert!(!settings.enabled);
+        assert_eq!(settings.shortcut, DEFAULT_GLOBAL_HOTKEY_SHORTCUT);
+        assert!(!cfg.contains_key(GLOBAL_HOTKEY_ENABLED_CONFIG_KEY));
+        assert!(!cfg.contains_key(GLOBAL_HOTKEY_SHORTCUT_CONFIG_KEY));
+        assert_eq!(
+            config_get(&cfg, "ANTHROPIC_API_KEY"),
+            Some("ant-xxx".into())
+        );
     }
 
     #[test]
@@ -5236,7 +5352,10 @@ mod config_tests {
         assert!(!settings.eval_finished);
         assert!(!settings.permission_required);
         assert!(!cfg.contains_key(NOTIFY_AGENT_FINISHED_CONFIG_KEY));
-        assert_eq!(config_get(&cfg, "ANTHROPIC_API_KEY"), Some("ant-xxx".into()));
+        assert_eq!(
+            config_get(&cfg, "ANTHROPIC_API_KEY"),
+            Some("ant-xxx".into())
+        );
     }
 
     #[test]
@@ -5285,8 +5404,8 @@ mod config_tests {
     #[test]
     fn external_editor_launch_command_accepts_executable_paths() {
         let target = std::path::Path::new("/Users/cesar/Project");
-        let (program, args) =
-            external_editor_launch_command("/usr/local/bin/code", target).expect("executable path should work");
+        let (program, args) = external_editor_launch_command("/usr/local/bin/code", target)
+            .expect("executable path should work");
 
         assert_eq!(program.to_string_lossy(), "/usr/local/bin/code");
         assert_eq!(args[0], target.as_os_str());
@@ -5295,23 +5414,27 @@ mod config_tests {
     #[test]
     fn external_editor_launch_command_accepts_app_bundle_paths() {
         let target = std::path::Path::new("/Users/cesar/Project");
-        let (program, args) = external_editor_launch_command(
-            "/Applications/Visual Studio Code.app",
-            target,
-        )
-        .expect("app bundle path should work");
+        let (program, args) =
+            external_editor_launch_command("/Applications/Visual Studio Code.app", target)
+                .expect("app bundle path should work");
 
         #[cfg(target_os = "macos")]
         {
             assert_eq!(program.to_string_lossy(), "/usr/bin/open");
             assert_eq!(args[0].to_string_lossy(), "-a");
-            assert_eq!(args[1].to_string_lossy(), "/Applications/Visual Studio Code.app");
+            assert_eq!(
+                args[1].to_string_lossy(),
+                "/Applications/Visual Studio Code.app"
+            );
             assert_eq!(args[2], target.as_os_str());
         }
 
         #[cfg(not(target_os = "macos"))]
         {
-            assert_eq!(program.to_string_lossy(), "/Applications/Visual Studio Code.app");
+            assert_eq!(
+                program.to_string_lossy(),
+                "/Applications/Visual Studio Code.app"
+            );
             assert_eq!(args[0], target.as_os_str());
         }
     }

@@ -21,12 +21,13 @@ use crate::commands::{
     load_session, merge_worktrees, migrate_api_key_to_keychain, open_path_in_external_editor,
     pick_directory, remove_project, respond_to_permission, reveal_in_finder, run_agent_turn,
     run_eval_suite, run_goal_grade, run_llm_judge, save_human_scores, save_manual_reviews,
-    save_session, set_api_key, set_external_editor, set_mac_notification_settings, smoke_test,
-    spawn_agent, start_eval, start_eval_artifact, start_goal_eval, stop_agent,
-    test_api_connection, test_permission_prompt, touch_project, AutoScores, ChatMessage, DirChild,
-    DirListing, EvalArtifactFileInput, EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta,
-    EvalResult, EvalSuite, FileDiff, GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores,
-    JudgeScores, MacNotificationSettings, MacProductivitySettings, ManualReview, ModelEvalResult,
+    save_session, set_api_key, set_external_editor, set_mac_global_hotkey_settings,
+    set_mac_notification_settings, smoke_test, spawn_agent, start_eval, start_eval_artifact,
+    start_goal_eval, stop_agent, test_api_connection, test_permission_prompt, touch_project,
+    AutoScores, ChatMessage, DirChild, DirListing, EvalArtifactFileInput, EvalArtifactLaunchResult,
+    EvalArtifactRequest, EvalMeta, EvalResult, EvalSuite, FileDiff, GoalAxisScore, GoalGrade,
+    GroupLaunchResult, HumanScores, JudgeScores, MacGlobalHotkeySettings, MacNotificationSettings,
+    MacProductivitySettings, ManualReview, ModelEvalResult,
     ProfileBuildResult, Project, PromptCommand, ProposalBuildResult, ReasoningFlag,
     ReliabilityMetrics, RoleConfig, SessionMeta, SuitePrompt,
 };
@@ -114,6 +115,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             get_mac_productivity_settings,
             migrate_api_key_to_keychain,
             set_external_editor,
+            set_mac_global_hotkey_settings,
             set_mac_notification_settings,
             set_api_key,
             open_path_in_external_editor,
@@ -155,6 +157,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<SessionMeta>()
         .typ::<Project>()
         .typ::<MacProductivitySettings>()
+        .typ::<MacGlobalHotkeySettings>()
         .typ::<MacNotificationSettings>()
         .typ::<DirChild>()
         .typ::<DirListing>()
@@ -239,7 +242,10 @@ fn hex_decode(value: &str) -> Option<Vec<u8>> {
 }
 
 fn recent_project_menu_id(path: &str) -> String {
-    format!("{MENU_RECENT_PROJECT_PREFIX}{}", hex_encode(path.as_bytes()))
+    format!(
+        "{MENU_RECENT_PROJECT_PREFIX}{}",
+        hex_encode(path.as_bytes())
+    )
 }
 
 fn recent_project_path_from_menu_id(id: &tauri::menu::MenuId) -> Option<String> {
@@ -379,7 +385,9 @@ fn focus_main_window(app: &tauri::AppHandle) {
 mod macos_commands {
     #[tauri::command]
     #[specta::specta]
-    pub fn launch_project_paths(state: tauri::State<'_, super::PendingOpenProjects>) -> Vec<String> {
+    pub fn launch_project_paths(
+        state: tauri::State<'_, super::PendingOpenProjects>,
+    ) -> Vec<String> {
         let launch_paths = super::launch_project_paths_from_args(std::env::args_os());
         let pending_paths = super::drain_pending_project_paths(&state);
         super::dedupe_project_paths(launch_paths.into_iter().chain(pending_paths))
@@ -567,6 +575,7 @@ pub fn run() {
         .unwrap_or(cwd);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
@@ -651,8 +660,7 @@ mod tests {
 
     #[test]
     fn launch_project_paths_keep_existing_directories_once() {
-        let root =
-            std::env::temp_dir().join(format!("xolotl-launch-paths-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("xolotl-launch-paths-{}", std::process::id()));
         let project = root.join("Project With Spaces");
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&project).expect("project test dir should be created");
@@ -675,8 +683,7 @@ mod tests {
 
     #[test]
     fn project_paths_from_open_urls_accepts_file_directory_urls() {
-        let root =
-            std::env::temp_dir().join(format!("xolotl-open-url-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("xolotl-open-url-{}", std::process::id()));
         let project = root.join("Project From Finder");
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&project).expect("project test dir should be created");

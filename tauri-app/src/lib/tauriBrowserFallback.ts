@@ -31,8 +31,10 @@ const PREVIEW_PROVIDERS = [
 ];
 
 const PREVIEW_EXTERNAL_EDITOR_KEY = "xolotl-preview-external-editor";
+const PREVIEW_GLOBAL_HOTKEY_KEY = "xolotl-preview-global-hotkey";
 const PREVIEW_NOTIFICATIONS_KEY = "xolotl-preview-notifications";
 const PREVIEW_CLIPBOARD_KEY = "xolotl-preview-clipboard";
+const DEFAULT_PREVIEW_GLOBAL_HOTKEY = "CommandOrControl+Shift+Space";
 
 const PREVIEW_SUITES = [
   {
@@ -1207,6 +1209,38 @@ const EMPTY_PREVIEW_NOTIFICATIONS = {
   permission_required: false,
 };
 
+function readPreviewGlobalHotkey() {
+  try {
+    const raw = globalThis.localStorage?.getItem(PREVIEW_GLOBAL_HOTKEY_KEY);
+    if (!raw) return { enabled: false, shortcut: DEFAULT_PREVIEW_GLOBAL_HOTKEY };
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return { enabled: false, shortcut: DEFAULT_PREVIEW_GLOBAL_HOTKEY };
+    return {
+      enabled: parsed.enabled === true,
+      shortcut: typeof parsed.shortcut === "string" && parsed.shortcut.trim()
+        ? parsed.shortcut.trim()
+        : DEFAULT_PREVIEW_GLOBAL_HOTKEY,
+    };
+  } catch {
+    return { enabled: false, shortcut: DEFAULT_PREVIEW_GLOBAL_HOTKEY };
+  }
+}
+
+function writePreviewGlobalHotkey(value: unknown) {
+  const globalHotkey = isRecord(value) ? {
+    enabled: value.enabled === true,
+    shortcut: typeof value.shortcut === "string" && value.shortcut.trim()
+      ? value.shortcut.trim()
+      : DEFAULT_PREVIEW_GLOBAL_HOTKEY,
+  } : { enabled: false, shortcut: DEFAULT_PREVIEW_GLOBAL_HOTKEY };
+  try {
+    globalThis.localStorage?.setItem(PREVIEW_GLOBAL_HOTKEY_KEY, JSON.stringify(globalHotkey));
+  } catch {
+    // Browser preview can run with storage disabled; keep the native API shape.
+  }
+  return globalHotkey;
+}
+
 function readPreviewNotifications() {
   try {
     const raw = globalThis.localStorage?.getItem(PREVIEW_NOTIFICATIONS_KEY);
@@ -1342,12 +1376,22 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
     case "get_mac_productivity_settings":
       return {
         external_editor: readPreviewExternalEditor(),
+        global_hotkey: readPreviewGlobalHotkey(),
         notifications: readPreviewNotifications(),
       };
     case "set_external_editor": {
       const editor = isRecord(args) && typeof args.editor === "string" ? args.editor : "";
       return {
         external_editor: writePreviewExternalEditor(editor),
+        global_hotkey: readPreviewGlobalHotkey(),
+        notifications: readPreviewNotifications(),
+      };
+    }
+    case "set_mac_global_hotkey_settings": {
+      const globalHotkey = isRecord(args) ? writePreviewGlobalHotkey(args.settings) : readPreviewGlobalHotkey();
+      return {
+        external_editor: readPreviewExternalEditor(),
+        global_hotkey: globalHotkey,
         notifications: readPreviewNotifications(),
       };
     }
@@ -1355,6 +1399,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       const notifications = isRecord(args) ? writePreviewNotifications(args.settings) : EMPTY_PREVIEW_NOTIFICATIONS;
       return {
         external_editor: readPreviewExternalEditor(),
+        global_hotkey: readPreviewGlobalHotkey(),
         notifications,
       };
     }
@@ -1364,6 +1409,12 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return "granted";
     case "plugin:notification|notify":
       return null;
+    case "plugin:global-shortcut|register":
+    case "plugin:global-shortcut|unregister":
+    case "plugin:global-shortcut|unregister_all":
+      return null;
+    case "plugin:global-shortcut|is_registered":
+      return false;
     case "plugin:clipboard-manager|read_text":
       return readPreviewClipboardText();
     case "plugin:clipboard-manager|write_text":
