@@ -74,20 +74,29 @@ These capabilities are already implemented in the Rust codebase (`rust/` folder)
 - ✓ `specta` + `tauri-specta` type generation to `bindings.ts`; `tsc --noEmit` passes — `bindings.ts`
 - ✓ `window-state`, `clipboard-manager`, `fs` plugins registered + capability-granted; all smoke-tested in live window — `lib.rs`, `capabilities/default.json`
 
+### Validated in v1.0: Chat UI, Dashboard & Teams *(Phases 4-6, 2026-05-11)*
+
+- ✓ Tauri shell wrapping the Rust core via IPC — v1.0
+- ✓ Chat-first UI: message thread, streaming responses, tool-use display, inline diffs — v1.0
+- ✓ Agent spawning from UI (model/task selection) + live agent status panel — v1.0
+- ✓ Parallel worktree support (agents on separate git branches, per-worktree activity) — v1.0
+- ✓ Role-based agent teams (Planner/Coder/Reviewer/Tester) + shared-context collaboration — v1.0
+- ✓ Background agents, per-agent model selector, orchestration/team config — v1.0
+
+### Validated in v2.0: Civ Simulation *(Phases 1-5, 2026-06-07)*
+
+- ✓ Multi-model world creation (1-3 AI-model civs, per-civ color/controller) + live leaderboard — CIV-01/02/03
+- ✓ Harness arena: full text state via `render_game_to_text()` + `civPilotControls` drive on a shared scoreboard — ARENA-01/02/03
+- ✓ Renderer multi-civ identity (per-civ color tints) + multi-colony / focus-a-civ camera — REN-01/02
+- ✓ Environment engine: seasons drift temperature, disasters reshape terrain, renewable-only regrowth — ENV-01/02/03
+- ✓ Combat, raids, territory ownership, diplomacy/trades, wild predators (all deterministic/seeded) — WAR-01/02/03/04
+- ✓ Expanded visible Mendelian genetics + environmental selection with measurable evolution — GEN-01/02
+
+*(Implemented + automated-verified; live human UAT of the running sim still pending — see MILESTONES.md verification status.)*
+
 ### Active
 
-Tauri desktop app (Phase 4+):
-
-- [ ] Tauri shell wrapping the Rust core via IPC
-- [ ] Chat-first UI: message thread, streaming responses, tool use display, inline diffs
-- [ ] Agent spawning from UI: create sub-agents with model/task selection
-- [ ] Agent status panel: live view of running agents, progress, output
-- [ ] Parallel worktree support: spawn agents on different git branches, visualize per-worktree activity
-- [ ] Role-based agent teams: orchestrator assigns Planner/Coder/Reviewer/Tester roles, routes context
-- [ ] Shared context window collaboration: multiple agents reading/writing to a shared context object
-- [ ] Background agents: long-running agents that notify on completion
-- [ ] Model selector UI: switch between Anthropic/Kimi/MiniMax/Ollama per agent
-- [ ] Agent orchestration config: define team compositions, swarm strategies, cost budgets
+Defined per milestone — current milestone requirements live in `.planning/REQUIREMENTS.md` (see **Current Milestone** above).
 
 ### Out of Scope
 
@@ -127,6 +136,9 @@ The multi-agent system needs a protocol layer: agents need to communicate task s
 | Chat-first UI (not IDE-lite) | Orchestration view > editing view; agents do the editing | — Pending |
 | Both combined moat: multi-agent + open models | Neither Cursor nor Codex handles both well; the combo is differentiated | — Pending |
 | Child-process sub-agents for isolation | Existing `subagent/spawner.rs` — safe, isolated, simple. Shared-context teams need additional in-process layer | — Pending |
+| Civ sim doubles as a harness eval/arena (v2.0) | One artifact is both a watchable game and a harness scoreboard; arena interface kept strictly additive | ✓ Good |
+| Deterministic, seeded sim engine — combat/env/genetics (v2.0) | Reproducible runs + unit-testable on Windows via `cargo test --no-run` despite WebView2 blocking live backend tests | ✓ Good |
+| v2.0 reset phase numbering (Civ sim = Phases 1-5) | Each milestone's phases stay self-contained; prior milestone archived to `milestones/` | ✓ Good |
 
 ## Evolution
 
@@ -146,4 +158,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-07 after initialization*
+*Last updated: 2026-06-07 after v2.0 Civ Simulation milestone (code-complete; live UAT pending)*

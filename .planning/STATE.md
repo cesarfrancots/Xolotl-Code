@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Civ Simulation
-status: executing
-last_updated: "2026-06-07T00:52:55.946Z"
-last_activity: 2026-06-07 -- Phase 05 COMPLETE & verified — ALL 5 v2.0 phases done (autonomous run)
+status: Awaiting next milestone
+last_updated: "2026-06-07T14:38:45.508Z"
+last_activity: 2026-06-07 — Milestone v2.0 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
@@ -28,13 +28,10 @@ progress:
 
 ## Current Position
 
-Phase: 05 (w5-genetics-depth-selection) — ✅ COMPLETE & VERIFIED — milestone v2.0 fully implemented
-Plan: 2 of 2 done (+ Nyquist sign-off; code review CLEAN, no fixes needed)
-Status: Phase 05 verified PASSED (GEN-01/02; ~20 genetics unit tests compile [cargo test --no-run 0], clippy baseline-only, tsc 0, run on CI). Expanded genome (pattern alleles + strength/cold/disease resistance, Mendelian, visible) + env-driven selection (gene_mortality_modifier + plague + run_life_cycle death roll) with a MEASURABLE deterministic evolution proof (mean cold_resistance strictly rises). civ_strength Phase-4 seam closed with genes.strength. New CivGenes/entity fields → additive bindings regen (tsc 0). Nyquist signed off.
-Last activity: 2026-06-07 -- Phase 05 complete (autonomous) — milestone v2.0 all phases done
-Next: Milestone lifecycle — audit (gsd-audit-milestone) → complete (gsd-complete-milestone v2.0) → cleanup (gsd-cleanup). Then manual UAT of the live sim (needs providers + WebView2) + rebuild desktop exe via build.bat.
-
-Progress: [██████████] 100% of Phase 05 (2/2 plans) · milestone 100% (5/5 phases) 🎉
+Phase: Milestone v2.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-07 — Milestone v2.0 completed and archived
 
 ## Performance Metrics
 
@@ -76,9 +73,12 @@ Progress: [██████████] 100% of Phase 05 (2/2 plans) · miles
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| UI | Add-civ mid-run UI, environment HUD, diplomacy-management UI (full W9) | Deferred to future milestone | v2.0 planning |
-| World | W10.3–W10.7 (terraform/place, blueprints, prospecting, fBm, caves) | Deferred | v2.0 planning |
-| Mode | "Zoom into a civ" embodied mode (Game B reuse) | Deferred / parked | v2.0 planning |
+| UI | Add-civ mid-run UI, environment HUD, diplomacy-management UI (full W9) | Deferred → v2.1 scope | v2.0 planning |
+| World | W10.3–W10.7 (terraform/place, blueprints, prospecting, fBm, caves) | Deferred → v2.1 scope | v2.0 planning |
+| Mode | "Zoom into a civ" embodied mode (Game B reuse) | Deferred → v2.1 scope | v2.0 planning |
+| Verification | Phase 02 (renderer) live UAT — `human_needed` (WebView2 + real providers) | UAT pending | v2.0 close |
+| Verification | Phase 03 (environment) live UAT — `human_needed` (WebView2 + real providers) | UAT pending | v2.0 close |
+| CI/Build | Backend `cargo test` on Linux/macOS CI + desktop exe refresh via `build.bat` | Pending | v2.0 close |
 
 ## Session Continuity
 
@@ -89,3 +89,7 @@ Progress: [██████████] 100% of Phase 05 (2/2 plans) · miles
 
 ---
 *State initialized: 2026-05-07; milestone v2.0 started 2026-06-06*
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
