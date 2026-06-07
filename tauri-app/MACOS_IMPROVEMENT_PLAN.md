@@ -38,6 +38,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Eval history can export saved evals as Markdown reports to `~/Documents/Xolotl Code/Eval Reports` with reveal/copy follow-up actions.
 - Launched eval outcome artifacts can reveal their generated artifact folder in Finder, copy its POSIX path, and open it in the preferred external editor.
 - Expanded agent output can reveal the active agent worktree in Finder, copy its POSIX path, and open it in the preferred external editor.
+- Launched eval outcome artifacts and expanded agent worktrees can copy `xolotl-code://open?path=...` links for automation handoff.
 - Packaged launch-path smoke coverage is available through `npm run smoke:mac:launch-path`.
 - Packaged Launch Services/Open With smoke coverage is available through `npm run smoke:mac:open-project`.
 - Terminal tab commands are available from a native Terminal menu.
@@ -412,7 +413,7 @@ Deliverables:
   - Optional external terminal launch for Terminal.app, iTerm2, and Warp is available behind a macOS Settings preference for terminal cwd, project row, current-folder, and folder-entry handoff actions.
   - Preserve active project/folder cwd and shell profile metadata.
 - Add task-result handoffs:
-  - Reveal artifacts, copy paths, copy deep links, and open folders in editor from eval/agent result surfaces. Done for launched eval artifact folders and expanded agent worktree folders; deep links remain follow-up work.
+  - Reveal artifacts, copy paths, copy deep links, and open folders in editor from eval/agent result surfaces. Done for launched eval artifact folders and expanded agent worktree folders, including `xolotl-code://` link-copying handoffs.
 - Add visible recovery for failed handoff actions. Done for command-palette Finder/editor/Quick Look/clipboard actions.
   - Done for terminal cwd Finder/copy actions.
   - Done for expanded agent worktree Finder/copy/editor actions.

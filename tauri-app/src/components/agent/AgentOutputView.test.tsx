@@ -15,6 +15,7 @@ const commandMocks = vi.hoisted(() => ({
 
 const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn<(text: string) => Promise<void>>((_text) => Promise.resolve()),
+  copyXolotlCodeOpenUrl: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   openPathInExternalEditor: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   revealPathInFinder: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
 }));
@@ -25,6 +26,7 @@ vi.mock("../../bindings", () => ({
 
 vi.mock("../../lib/pathActions", () => ({
   copyTextToClipboard: pathActionMocks.copyTextToClipboard,
+  copyXolotlCodeOpenUrl: pathActionMocks.copyXolotlCodeOpenUrl,
   openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
   revealPathInFinder: pathActionMocks.revealPathInFinder,
 }));
@@ -61,6 +63,7 @@ describe("AgentOutputView Mac worktree handoffs", () => {
       data: "/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-1",
     });
     pathActionMocks.copyTextToClipboard.mockResolvedValue(undefined);
+    pathActionMocks.copyXolotlCodeOpenUrl.mockResolvedValue(undefined);
     pathActionMocks.openPathInExternalEditor.mockResolvedValue(undefined);
     pathActionMocks.revealPathInFinder.mockResolvedValue(undefined);
     useAgentStore.setState({
@@ -82,6 +85,19 @@ describe("AgentOutputView Mac worktree handoffs", () => {
       expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-1");
     });
     expect(await screen.findByText("Agent worktree path copied.")).toBeTruthy();
+  });
+
+  it("copies the active agent worktree Xolotl link", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentOutputView agentId="agent-1" />);
+    await user.click(screen.getByLabelText("Copy agent worktree Xolotl link"));
+
+    await waitFor(() => {
+      expect(commandMocks.getAgentWorktreePath).toHaveBeenCalledWith("agent-1");
+      expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-1");
+    });
+    expect(await screen.findByText("Agent worktree Xolotl link copied.")).toBeTruthy();
   });
 
   it("shows recovery guidance when the agent worktree cannot be resolved", async () => {

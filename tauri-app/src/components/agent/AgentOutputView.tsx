@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Code2, Copy, FolderOpen, X } from "lucide-react";
+import { Code2, Copy, FolderOpen, Link2, X } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
 import { useAgentStore } from "../../stores/agentStore";
 import { AgentMessageList } from "./AgentMessageList";
 import { AgentStateBadge } from "./AgentStateBadge";
-import { copyTextToClipboard, openPathInExternalEditor, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, revealPathInFinder } from "../../lib/pathActions";
 
 type AgentWorktreeHandoffState = "idle" | "working" | "ok" | "error";
 
@@ -16,7 +16,7 @@ function agentWorktreeRecoveryHint(error: unknown, action: "finder" | "clipboard
     case "finder":
       return `Check that the agent is still active and that macOS has allowed Xolotl Code to access the worktree folder.${suffix}`;
     case "clipboard":
-      return `Check macOS clipboard access, then try copying the worktree path again.${suffix}`;
+      return `Check macOS clipboard access, then try the worktree copy action again.${suffix}`;
     case "editor":
       return `Check the preferred editor in macOS Settings, or use an installed app name or executable path.${suffix}`;
   }
@@ -121,6 +121,22 @@ export function AgentOutputView({ agentId }: { agentId: string }) {
                 )}
               >
                 <Copy className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                title={handoffMessage || "Copy agent worktree Xolotl link"}
+                aria-label="Copy agent worktree Xolotl link"
+                disabled={handoffWorking}
+                onClick={() => void runAgentWorktreeHandoff(
+                  "clipboard",
+                  copyXolotlCodeOpenUrl,
+                  "Agent worktree Xolotl link copied.",
+                  "Copy agent worktree Xolotl link failed.",
+                )}
+              >
+                <Link2 className="h-3.5 w-3.5" />
               </Button>
               <Button
                 variant="ghost"

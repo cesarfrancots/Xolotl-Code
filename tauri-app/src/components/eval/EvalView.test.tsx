@@ -37,6 +37,7 @@ const commandMocks = vi.hoisted(() => ({
 
 const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn<(text: string) => Promise<void>>((_text) => Promise.resolve()),
+  copyXolotlCodeOpenUrl: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   openPathInExternalEditor: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   revealPathInFinder: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
 }));
@@ -51,6 +52,7 @@ vi.mock("../../bindings", () => ({
 
 vi.mock("../../lib/pathActions", () => ({
   copyTextToClipboard: pathActionMocks.copyTextToClipboard,
+  copyXolotlCodeOpenUrl: pathActionMocks.copyXolotlCodeOpenUrl,
   openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
   revealPathInFinder: pathActionMocks.revealPathInFinder,
 }));
@@ -154,6 +156,7 @@ describe("EvalView Mac Finder handoffs", () => {
     commandMocks.listEvals.mockResolvedValue([savedEvalMeta]);
     commandMocks.loadEval.mockResolvedValue({ status: "ok", data: JSON.stringify(savedEvalResult) });
     pathActionMocks.copyTextToClipboard.mockResolvedValue(undefined);
+    pathActionMocks.copyXolotlCodeOpenUrl.mockResolvedValue(undefined);
     pathActionMocks.openPathInExternalEditor.mockResolvedValue(undefined);
     pathActionMocks.revealPathInFinder.mockResolvedValue(undefined);
   });
@@ -277,6 +280,29 @@ describe("EvalView Mac Finder handoffs", () => {
       expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/.xolotl-code/eval-artifacts/artifact-1");
     });
     expect(await screen.findByText("Generated artifact folder path copied.")).toBeTruthy();
+  });
+
+  it("copies a generated artifact folder Xolotl link after launch", async () => {
+    seedCompletedEval(`
+\`\`\`html
+<!doctype html>
+<html><body><button>Open me</button></body></html>
+\`\`\`
+`);
+    const user = userEvent.setup();
+
+    render(<EvalView />);
+    await user.click(screen.getByRole("button", { name: "Ready for scores" }));
+    await user.click(await screen.findByRole("button", { name: /Open index.html/ }));
+    await waitFor(() => {
+      expect(commands.startEvalArtifact).toHaveBeenCalled();
+    });
+    await user.click(await screen.findByLabelText("Copy index.html artifact folder Xolotl link"));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/.xolotl-code/eval-artifacts/artifact-1");
+    });
+    expect(await screen.findByText("Generated artifact folder Xolotl link copied.")).toBeTruthy();
   });
 
   it("shows recovery guidance when opening a generated artifact folder in the editor fails", async () => {
