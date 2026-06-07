@@ -832,6 +832,21 @@ function maybeWriteState(dir, stepIndex, state) {
   );
 }
 
+async function startInAppPilot(page, options, timeoutMs = 10000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const started = await page.evaluate((pilotOptions) => {
+      const controls = window.civPilotControls;
+      if (!controls?.start) return false;
+      controls.start(pilotOptions);
+      return true;
+    }, options);
+    if (started) return true;
+    await page.waitForTimeout(200);
+  }
+  return false;
+}
+
 export async function runCodexCivPlayer(options = {}) {
   const args = {
     ...parseArgs(["node", "codex-play-civ.mjs"]),
@@ -865,12 +880,7 @@ export async function runCodexCivPlayer(options = {}) {
     console.log(`Codex player connected: ${args.url}`);
 
     if (args.inAppPilot) {
-      const started = await page.evaluate((options) => {
-        const controls = window.civPilotControls;
-        if (!controls) return false;
-        controls.start(options);
-        return true;
-      }, {
+      const started = await startInAppPilot(page, {
         goal: args.goal,
         possessId: args.possessId,
         requesterId: args.requesterId,

@@ -406,7 +406,7 @@ export function CivilizationView() {
   }, [possessedEntityId, possessableAxos]);
 
   useEffect(() => {
-    window.civPilotControls = {
+    const controls: NonNullable<Window["civPilotControls"]> = {
       start: (options = {}) => {
         const nextGoal = options.goal ?? pilotGoal;
         const nextPossessedId = options.possessId && possessableAxos.some((entity) => entity.id === options.possessId)
@@ -438,8 +438,9 @@ export function CivilizationView() {
         focusGameCanvasSoon();
       },
     };
+    window.civPilotControls = controls;
     return () => {
-      delete window.civPilotControls;
+      if (window.civPilotControls === controls) delete window.civPilotControls;
     };
   }, [pilotGoal, possessableAxos, selectedPlayerId]);
 
