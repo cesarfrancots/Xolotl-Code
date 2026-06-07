@@ -68,6 +68,9 @@ const STATUS_AGENTS_ID: &str = "xolotl:status-agents";
 const STATUS_REVEAL_ACTIVE_PROJECT: &str = "xolotl:status-reveal-active-project";
 const STATUS_OPEN_ACTIVE_PROJECT_EDITOR: &str = "xolotl:status-open-active-project-editor";
 const STATUS_OPEN_ACTIVE_PROJECT_TERMINAL: &str = "xolotl:status-open-active-project-terminal";
+const STATUS_COPY_ACTIVE_PROJECT_LINK: &str = "xolotl:status-copy-active-project-link";
+const STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN: &str =
+    "xolotl:status-copy-active-project-shell-open";
 const MENU_FOCUS_WINDOW: &str = "xolotl:focus-window";
 const MENU_NEW_CHAT: &str = "xolotl:new-chat";
 const MENU_OPEN_FOLDER: &str = "xolotl:open-folder";
@@ -544,6 +547,16 @@ fn build_mac_status_item_menu(
         "Open Active Project in External Terminal",
     )
     .build(app)?;
+    let copy_active_project_link = MenuItemBuilder::with_id(
+        STATUS_COPY_ACTIVE_PROJECT_LINK,
+        "Copy Active Project Xolotl Link",
+    )
+    .build(app)?;
+    let copy_active_project_shell_open = MenuItemBuilder::with_id(
+        STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN,
+        "Copy Shell Open Command",
+    )
+    .build(app)?;
     let open = MenuItemBuilder::with_id(MENU_FOCUS_WINDOW, "Open Xolotl Code").build(app)?;
     let new_chat = MenuItemBuilder::with_id(MENU_NEW_CHAT, "New Chat").build(app)?;
     let open_folder = MenuItemBuilder::with_id(MENU_OPEN_FOLDER, "Open Folder...").build(app)?;
@@ -563,6 +576,9 @@ fn build_mac_status_item_menu(
             .item(&reveal_active_project)
             .item(&open_active_project_editor)
             .item(&open_active_project_terminal)
+            .separator()
+            .item(&copy_active_project_link)
+            .item(&copy_active_project_shell_open)
             .separator();
     }
 
@@ -821,6 +837,10 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
         Some(STATUS_OPEN_ACTIVE_PROJECT_EDITOR)
     } else if id == STATUS_OPEN_ACTIVE_PROJECT_TERMINAL {
         Some(STATUS_OPEN_ACTIVE_PROJECT_TERMINAL)
+    } else if id == STATUS_COPY_ACTIVE_PROJECT_LINK {
+        Some(STATUS_COPY_ACTIVE_PROJECT_LINK)
+    } else if id == STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN {
+        Some(STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN)
     } else {
         None
     }
@@ -989,6 +1009,16 @@ mod tests {
                 STATUS_OPEN_ACTIVE_PROJECT_TERMINAL
             )),
             Some(STATUS_OPEN_ACTIVE_PROJECT_TERMINAL)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(STATUS_COPY_ACTIVE_PROJECT_LINK)),
+            Some(STATUS_COPY_ACTIVE_PROJECT_LINK)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(
+                STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN
+            )),
+            Some(STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN)
         );
     }
 

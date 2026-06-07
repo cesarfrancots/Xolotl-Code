@@ -66,6 +66,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
 - macOS Settings include an opt-in menu bar status item with active project and agent-state summary plus quick access to common commands.
 - The optional menu bar status item can reveal the active project in Finder and hand it off to the configured external editor or external terminal.
+- The optional menu bar status item can copy the active project `xolotl-code://` link and Terminal-safe shell open command for Shortcuts, Raycast, Alfred, and shell automation.
 - macOS Settings show compact status tiles and targeted recovery guidance for editor, global-hotkey, menu-bar, and notification states.
 - The Mac UI respects system reduced-motion and higher-contrast preferences, with a fallback keyboard focus ring for custom workbench controls.
 - Mac release preflight checks are available through `npm run release:mac:preflight` and the release checklist is tracked in `MACOS_RELEASE_CHECKLIST.md`.

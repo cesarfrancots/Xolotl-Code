@@ -13,6 +13,8 @@ const tauriEventMocks = vi.hoisted(() => ({
   listen: vi.fn((_eventName: string, _handler?: unknown) => Promise.resolve(() => {})),
 }));
 const pathActionMocks = vi.hoisted(() => ({
+  copyXolotlCodeOpenShellCommand: vi.fn((_path: string) => Promise.resolve()),
+  copyXolotlCodeOpenUrl: vi.fn((_path: string) => Promise.resolve()),
   openPathInExternalEditor: vi.fn((_path: string) => Promise.resolve()),
   openPathInExternalTerminal: vi.fn((_path: string) => Promise.resolve()),
   revealPathInFinder: vi.fn((_path: string) => Promise.resolve()),
@@ -197,6 +199,25 @@ describe("App tab navigation", () => {
     expect(await screen.findByText("Active project revealed in Finder.")).toBeTruthy();
   });
 
+  it("copies active project automation commands from the menu bar status item", async () => {
+    useProjectStore.setState({ activeProjectPath: "/Users/cesar/Documents/Xolotl" });
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "status-copy-active-project-link" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+    expect(await screen.findByText("Active project Xolotl link copied.")).toBeTruthy();
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "status-copy-active-project-shell-open" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+    expect(await screen.findByText("Active project shell open command copied.")).toBeTruthy();
+  });
+
   it("shows recovery when menu bar project actions have no active project", async () => {
     render(<App />);
 
@@ -217,6 +238,18 @@ describe("App tab navigation", () => {
     expect(await screen.findByText("Open active project in external terminal failed.")).toBeTruthy();
     expect(screen.getByText(/Check the preferred external terminal in macOS Settings/)).toBeTruthy();
     expect(screen.getByText(/Warp missing/)).toBeTruthy();
+  });
+
+  it("shows recovery when menu bar copy automation fails", async () => {
+    pathActionMocks.copyXolotlCodeOpenUrl.mockRejectedValueOnce(new Error("clipboard denied"));
+    useProjectStore.setState({ activeProjectPath: "/Users/cesar/Documents/Xolotl" });
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "status-copy-active-project-link" }));
+
+    expect(await screen.findByText("Copy active project Xolotl link failed.")).toBeTruthy();
+    expect(screen.getByText(/Check clipboard permissions and try again/)).toBeTruthy();
+    expect(screen.getByText(/clipboard denied/)).toBeTruthy();
   });
 
   it("marks the active workbench segment and exposes Mac shortcut hints", async () => {

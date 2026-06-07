@@ -20,7 +20,13 @@ import { centerTabFromSearch, initialCenterTabFromSearch, persistCenterTab, type
 import { errorDetail, MAC_APP_STATUS_EVENT, type MacAppStatus } from "./lib/macAppStatus";
 import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
-import { openPathInExternalEditor, openPathInExternalTerminal, revealPathInFinder } from "./lib/pathActions";
+import {
+  copyXolotlCodeOpenShellCommand,
+  copyXolotlCodeOpenUrl,
+  openPathInExternalEditor,
+  openPathInExternalTerminal,
+  revealPathInFinder,
+} from "./lib/pathActions";
 import {
   dispatchNativeMenuAction,
   listenForNativeMenuActions,
@@ -186,6 +192,24 @@ export default function App() {
         "Active project opened in the external terminal.",
         "Open active project in external terminal failed.",
         "Check the preferred external terminal in macOS Settings, or choose an installed terminal app.",
+      );
+      return;
+    }
+    if (action === "status-copy-active-project-link") {
+      runActiveProjectStatusHandoff(
+        copyXolotlCodeOpenUrl,
+        "Active project Xolotl link copied.",
+        "Copy active project Xolotl link failed.",
+        "Check clipboard permissions and try again.",
+      );
+      return;
+    }
+    if (action === "status-copy-active-project-shell-open") {
+      runActiveProjectStatusHandoff(
+        copyXolotlCodeOpenShellCommand,
+        "Active project shell open command copied.",
+        "Copy active project shell open command failed.",
+        "Check clipboard permissions and try again.",
       );
       return;
     }

@@ -17,6 +17,8 @@ const MENU_ACTION_BY_ID = {
   "xolotl:status-reveal-active-project": "status-reveal-active-project",
   "xolotl:status-open-active-project-editor": "status-open-active-project-editor",
   "xolotl:status-open-active-project-terminal": "status-open-active-project-terminal",
+  "xolotl:status-copy-active-project-link": "status-copy-active-project-link",
+  "xolotl:status-copy-active-project-shell-open": "status-copy-active-project-shell-open",
 } as const;
 
 export type NativeMenuAction = (typeof MENU_ACTION_BY_ID)[keyof typeof MENU_ACTION_BY_ID];
