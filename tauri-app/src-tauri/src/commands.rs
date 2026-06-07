@@ -6,6 +6,7 @@ use runtime::{
 };
 use serde::Serialize;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 #[cfg(target_os = "macos")]
@@ -555,6 +556,12 @@ pub struct EvalArtifactRequest {
 pub struct EvalArtifactLaunchResult {
     pub artifact_dir: String,
     pub entry_path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct EvalReportExportResult {
+    pub report_path: String,
     pub message: String,
 }
 
@@ -1316,6 +1323,32 @@ fn eval_result_path(id: &str) -> Result<PathBuf, String> {
 pub fn reveal_eval_result_in_finder(id: String) -> Result<(), String> {
     let path = eval_result_path(&id)?;
     reveal_existing_path_in_file_manager(&path)
+}
+
+/// Export a persisted eval result as a Finder-visible Markdown report.
+#[tauri::command]
+#[specta::specta]
+pub fn export_eval_report(id: String) -> Result<EvalReportExportResult, String> {
+    let path = eval_result_path(&id)?;
+    let json = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Could not read saved eval {id}: {e}"))?;
+    let result: EvalResult =
+        serde_json::from_str(&json).map_err(|e| format!("Could not parse saved eval {id}: {e}"))?;
+    let reports_dir = home_eval_reports_dir();
+    std::fs::create_dir_all(&reports_dir).map_err(|e| e.to_string())?;
+    let prompt_label = sanitize_report_file_component(&result.prompt);
+    let report_path = reports_dir.join(format!(
+        "{}-{}-{}.md",
+        result.created_at,
+        sanitize_report_file_component(&result.id),
+        prompt_label
+    ));
+    std::fs::write(&report_path, format_eval_report_markdown(&result))
+        .map_err(|e| format!("Could not write eval report: {e}"))?;
+    Ok(EvalReportExportResult {
+        report_path: report_path.to_string_lossy().into_owned(),
+        message: "Eval report exported.".to_string(),
+    })
 }
 
 /// Reveal the generated eval artifacts folder in Finder, creating it if needed.
@@ -4453,6 +4486,226 @@ fn home_evals_dir() -> PathBuf {
     PathBuf::from(home).join(".xolotl-code").join("evals")
 }
 
+fn home_eval_reports_dir() -> PathBuf {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join("Documents")
+        .join("Xolotl Code")
+        .join("Eval Reports")
+}
+
+fn sanitize_report_file_component(raw: &str) -> String {
+    let mut out = String::new();
+    let mut previous_dash = false;
+    for ch in raw.chars() {
+        let next = if ch.is_ascii_alphanumeric() {
+            previous_dash = false;
+            Some(ch.to_ascii_lowercase())
+        } else if ch == '-' || ch == '_' {
+            previous_dash = false;
+            Some(ch)
+        } else if ch.is_whitespace() || matches!(ch, '/' | '\\' | ':' | '.' | ',' | ';') {
+            if previous_dash || out.is_empty() {
+                None
+            } else {
+                previous_dash = true;
+                Some('-')
+            }
+        } else {
+            None
+        };
+        if let Some(ch) = next {
+            out.push(ch);
+        }
+        if out.len() >= 72 {
+            break;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "eval-report".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn table_cell(value: &str) -> String {
+    value.replace('|', "\\|").replace('\n', " ")
+}
+
+fn code_fence_for(content: &str) -> String {
+    let mut max_run = 0usize;
+    let mut current = 0usize;
+    for ch in content.chars() {
+        if ch == '`' {
+            current += 1;
+            max_run = max_run.max(current);
+        } else {
+            current = 0;
+        }
+    }
+    "`".repeat(3usize.max(max_run + 1))
+}
+
+fn markdown_code_block(language: &str, content: &str) -> String {
+    let fence = code_fence_for(content);
+    format!("{fence}{language}\n{content}\n{fence}\n")
+}
+
+fn human_score_average(scores: &HumanScores) -> f32 {
+    (scores.accuracy
+        + scores.helpfulness
+        + scores.quality
+        + scores.creativity
+        + scores.design
+        + scores.aesthetics
+        + scores.ai_slop
+        + scores.brevity)
+        / 8.0
+}
+
+fn optional_score(value: Option<f32>) -> String {
+    value
+        .map(|score| format!("{score:.1}"))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_score(value: Option<f32>) -> String {
+    value
+        .map(|score| format!("{score:.1}"))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_eval_report_markdown(result: &EvalResult) -> String {
+    let mut out = String::new();
+    let mode = if result.is_goal_eval {
+        "Goal Eval"
+    } else if result.suite_id.is_some() {
+        "Eval Suite"
+    } else {
+        "Single Prompt"
+    };
+    let _ = writeln!(out, "# Xolotl Code Eval Report\n");
+    let _ = writeln!(out, "- Eval ID: `{}`", result.id);
+    let _ = writeln!(out, "- Created: {}", result.created_at);
+    let _ = writeln!(out, "- Mode: {mode}");
+    if let Some(suite_id) = &result.suite_id {
+        let _ = writeln!(out, "- Suite: `{suite_id}`");
+    }
+    if let Some(suite_run_id) = &result.suite_run_id {
+        let _ = writeln!(out, "- Suite Run: `{suite_run_id}`");
+    }
+    let _ = writeln!(out, "- Models: {}\n", result.models.join(", "));
+
+    let _ = writeln!(out, "## Prompt\n");
+    out.push_str(&markdown_code_block("text", &result.prompt));
+    out.push('\n');
+
+    let _ = writeln!(out, "## Score Summary\n");
+    let _ = writeln!(
+        out,
+        "| Model | Human Avg | Manual | Judge Avg | Auto Slop | Brevity | Tokens | Duration |"
+    );
+    let _ = writeln!(
+        out,
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+    );
+    for model in &result.models {
+        let model_result = result.results.iter().find(|item| item.model == *model);
+        let human = result.human_scores.get(model).map(human_score_average);
+        let manual = result
+            .manual_reviews
+            .get(model)
+            .and_then(|review| review.score);
+        let judge = result
+            .judge
+            .as_ref()
+            .and_then(|judge| judge.scores.get(model))
+            .map(human_score_average);
+        let auto = result.auto_scores.get(model);
+        let tokens = model_result
+            .map(|item| format!("{}", item.input_tokens + item.output_tokens))
+            .unwrap_or_else(|| "-".to_string());
+        let duration = model_result
+            .map(|item| format!("{} ms", item.duration_ms))
+            .unwrap_or_else(|| "-".to_string());
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} | {} | {} | {} |",
+            table_cell(model),
+            format_score(human),
+            optional_score(manual),
+            format_score(judge),
+            format_score(auto.map(|score| score.ai_slop_score)),
+            format_score(auto.map(|score| score.brevity_score)),
+            tokens,
+            duration
+        );
+    }
+
+    let _ = writeln!(out, "\n## Model Results\n");
+    for item in &result.results {
+        let _ = writeln!(out, "### {}\n", item.model);
+        let _ = writeln!(out, "- Input tokens: {}", item.input_tokens);
+        let _ = writeln!(out, "- Output tokens: {}", item.output_tokens);
+        let _ = writeln!(out, "- Duration: {} ms", item.duration_ms);
+        if let Some(error) = &item.error {
+            let _ = writeln!(out, "- Error: {error}");
+        }
+        if let Some(metrics) = result
+            .reliability_metrics
+            .as_ref()
+            .and_then(|metrics| metrics.get(&item.model))
+        {
+            let cost = if metrics.cost_known {
+                format!("${:.6}", metrics.cost_usd)
+            } else {
+                "unknown".to_string()
+            };
+            let _ = writeln!(
+                out,
+                "- Reliability: {:.2} tok/s, cost {}, token count error {:.2}%",
+                metrics.tokens_per_sec,
+                cost,
+                metrics.token_count_error * 100.0
+            );
+        }
+        if let Some(review) = result.manual_reviews.get(&item.model) {
+            let _ = writeln!(out, "- Manual score: {}", optional_score(review.score));
+            if !review.notes.trim().is_empty() {
+                let _ = writeln!(out, "- Manual notes: {}", review.notes.trim());
+            }
+        }
+        if let Some(judge) = &result.judge {
+            if let Some(rationale) = judge.rationale.get(&item.model) {
+                let _ = writeln!(out, "- Judge rationale: {rationale}");
+            }
+        }
+        if let Some(goal_grade) = result.goal_grades.get(&item.model) {
+            let _ = writeln!(out, "- Goal grade summary: {}", goal_grade.summary);
+        }
+        let _ = writeln!(out, "\n#### Output\n");
+        out.push_str(&markdown_code_block("text", &item.content));
+        out.push('\n');
+    }
+
+    if !result.reasoning_traces.is_empty() {
+        let _ = writeln!(out, "## Reasoning Traces\n");
+        for (model, trace) in &result.reasoning_traces {
+            if trace.trim().is_empty() {
+                continue;
+            }
+            let _ = writeln!(out, "### {}\n", model);
+            out.push_str(&markdown_code_block("text", trace));
+            out.push('\n');
+        }
+    }
+
+    out
+}
+
 fn home_profiles_dir() -> PathBuf {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
@@ -5841,6 +6094,76 @@ mod config_tests {
         assert!(safe_artifact_file_name("..\\secret.txt").is_err());
         assert!(safe_artifact_file_name("../secret.txt").is_err());
         assert!(safe_artifact_file_name("bad:name.py").is_err());
+    }
+
+    #[test]
+    fn eval_report_file_component_is_finder_safe() {
+        assert_eq!(
+            sanitize_report_file_component("Preview: ../Secret Eval.md"),
+            "preview-secret-eval-md"
+        );
+        assert_eq!(sanitize_report_file_component("!!!"), "eval-report");
+    }
+
+    #[test]
+    fn eval_report_markdown_contains_scores_and_model_outputs() {
+        let mut human_scores = HashMap::new();
+        human_scores.insert(
+            "model-a".to_string(),
+            HumanScores {
+                accuracy: 8.0,
+                helpfulness: 8.0,
+                quality: 8.0,
+                creativity: 8.0,
+                design: 8.0,
+                aesthetics: 8.0,
+                ai_slop: 8.0,
+                brevity: 8.0,
+            },
+        );
+        let mut manual_reviews = HashMap::new();
+        manual_reviews.insert(
+            "model-a".to_string(),
+            ManualReview {
+                score: Some(9.0),
+                notes: "Strong Mac-native handoff.".to_string(),
+                updated_at: 1_700_000_100,
+            },
+        );
+        let result = EvalResult {
+            id: "eval-1".to_string(),
+            prompt: "Compare Mac export flows".to_string(),
+            models: vec!["model-a".to_string()],
+            results: vec![ModelEvalResult {
+                model: "model-a".to_string(),
+                content: "Use Finder-visible reports.".to_string(),
+                input_tokens: 10,
+                output_tokens: 20,
+                duration_ms: 300,
+                error: None,
+            }],
+            human_scores,
+            manual_reviews,
+            auto_scores: HashMap::new(),
+            judge: None,
+            reasoning_traces: HashMap::new(),
+            goal_grades: HashMap::new(),
+            is_goal_eval: false,
+            goal: None,
+            suite_id: None,
+            suite_run_id: None,
+            suite_prompt_id: None,
+            reliability_metrics: None,
+            created_at: 1_700_000_000,
+        };
+
+        let markdown = format_eval_report_markdown(&result);
+
+        assert!(markdown.contains("# Xolotl Code Eval Report"));
+        assert!(markdown.contains("Compare Mac export flows"));
+        assert!(markdown.contains("| model-a | 8.0 | 9.0 |"));
+        assert!(markdown.contains("Strong Mac-native handoff."));
+        assert!(markdown.contains("Use Finder-visible reports."));
     }
 
     #[test]

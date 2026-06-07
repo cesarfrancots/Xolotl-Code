@@ -4,7 +4,7 @@ import {
   FlaskConical, Play, RotateCcw, ChevronDown, ChevronUp, Save,
   Eye, EyeOff, Trophy, History, ListChecks, Gavel, Trash2,
   Target, AlertTriangle, Activity, ShieldCheck, ScanSearch, Gauge,
-  CheckCircle2, CircleDot, Code2, Copy, ExternalLink, FileText, FolderOpen, MonitorPlay,
+  CheckCircle2, CircleDot, Code2, Copy, ExternalLink, FileDown, FileText, FolderOpen, MonitorPlay,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
@@ -33,7 +33,7 @@ import {
   OPEN_EVAL_FROM_NOTIFICATION_EVENT,
   consumePendingEvalNotificationId,
 } from "../../hooks/useMacNotificationRoutes";
-import { copyTextToClipboard, openPathInExternalEditor } from "../../lib/pathActions";
+import { copyTextToClipboard, openPathInExternalEditor, revealPathInFinder } from "../../lib/pathActions";
 
 const ReliabilityDashboard = lazy(() => import("./ReliabilityDashboard"));
 
@@ -741,6 +741,7 @@ function EvalInlineStatus({
   className = "",
   onDismiss,
   dismissLabel = "Dismiss eval status",
+  children,
 }: {
   tone: "ok" | "error";
   message: string;
@@ -748,6 +749,7 @@ function EvalInlineStatus({
   className?: string;
   onDismiss?: () => void;
   dismissLabel?: string;
+  children?: ReactNode;
 }) {
   const Icon = tone === "error" ? AlertTriangle : CheckCircle2;
   const classes = tone === "error"
@@ -763,6 +765,7 @@ function EvalInlineStatus({
       <div className="min-w-0 flex-1">
         <div className="font-medium">{message}</div>
         {hint && <div className="mt-0.5 break-words leading-relaxed text-[oklch(0.67_0.045_45)]">{hint}</div>}
+        {children}
       </div>
       {onDismiss && (
         <button
@@ -1649,9 +1652,26 @@ function BenchmarkLeaderboardPanel() {
   );
 }
 
+type EvalHistoryActionMessage = {
+  tone: "ok" | "error";
+  message: string;
+  hint?: string;
+  reportPath?: string;
+};
+
+function evalReportExportRecoveryHint(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error ?? "");
+  return `Check that the saved eval still exists and that Xolotl Code can write to Documents/Xolotl Code/Eval Reports.${detail ? ` ${detail}` : ""}`;
+}
+
+function evalReportRevealRecoveryHint(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error ?? "");
+  return `Check that the exported eval report still exists and that macOS has allowed Xolotl Code to access it.${detail ? ` ${detail}` : ""}`;
+}
+
 function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
   const [items, setItems] = useState<EvalMeta[]>([]);
-  const [actionMessage, setActionMessage] = useState<{ tone: "ok" | "error"; message: string; hint?: string } | null>(null);
+  const [actionMessage, setActionMessage] = useState<EvalHistoryActionMessage | null>(null);
   const refresh = useCallback(() => {
     commands.listEvals().then(setItems).catch(console.error);
   }, []);
@@ -1683,6 +1703,64 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
             hint: finderRevealRecoveryHint("eval-artifacts", result.error),
           }
     );
+  }
+
+  async function exportEvalReport(id: string) {
+    setActionMessage(null);
+    const result = await commands.exportEvalReport(id);
+    setActionMessage(
+      result.status === "ok"
+        ? {
+            tone: "ok",
+            message: result.data.message,
+            hint: result.data.report_path,
+            reportPath: result.data.report_path,
+          }
+        : {
+            tone: "error",
+            message: "Export eval report failed.",
+            hint: evalReportExportRecoveryHint(result.error),
+          }
+    );
+  }
+
+  async function revealExportedReport(path: string) {
+    try {
+      await revealPathInFinder(path);
+      setActionMessage({
+        tone: "ok",
+        message: "Eval report revealed in Finder.",
+        hint: path,
+        reportPath: path,
+      });
+    } catch (error) {
+      setActionMessage({
+        tone: "error",
+        message: "Reveal exported eval report failed.",
+        hint: evalReportRevealRecoveryHint(error),
+        reportPath: path,
+      });
+    }
+  }
+
+  async function copyExportedReportPath(path: string) {
+    try {
+      await copyTextToClipboard(path);
+      setActionMessage({
+        tone: "ok",
+        message: "Eval report path copied.",
+        hint: path,
+        reportPath: path,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error ?? "");
+      setActionMessage({
+        tone: "error",
+        message: "Copy eval report path failed.",
+        hint: `Check macOS clipboard access, then try copying the report path again.${detail ? ` ${detail}` : ""}`,
+        reportPath: path,
+      });
+    }
   }
 
   async function del(id: string) {
@@ -1722,7 +1800,30 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
           className="mb-1"
           onDismiss={() => setActionMessage(null)}
           dismissLabel="Dismiss eval handoff status"
-        />
+        >
+          {actionMessage.reportPath && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1">
+              <button
+                type="button"
+                onClick={() => void revealExportedReport(actionMessage.reportPath!)}
+                className="inline-flex h-6 items-center gap-1 rounded border border-[oklch(0.32_0.030_155)] px-1.5 text-[10px] text-[oklch(0.76_0.060_155)] hover:bg-[oklch(0.18_0.018_155)]"
+                aria-label="Reveal exported eval report in Finder"
+              >
+                <FolderOpen className="h-3 w-3" />
+                Reveal
+              </button>
+              <button
+                type="button"
+                onClick={() => void copyExportedReportPath(actionMessage.reportPath!)}
+                className="inline-flex h-6 items-center gap-1 rounded border border-[oklch(0.32_0.030_155)] px-1.5 text-[10px] text-[oklch(0.76_0.060_155)] hover:bg-[oklch(0.18_0.018_155)]"
+                aria-label="Copy exported eval report path"
+              >
+                <Copy className="h-3 w-3" />
+                Copy Path
+              </button>
+            </div>
+          )}
+        </EvalInlineStatus>
       )}
       {items.map((m) => {
         const reviewBadge = evalReviewModeBadge({
@@ -1756,6 +1857,15 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
                 )}
                 <span>{new Date(m.created_at * 1000).toLocaleString()}</span>
               </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => void exportEvalReport(m.id)}
+              className="opacity-0 group-hover:opacity-100 text-[oklch(0.45_0_0)] transition-opacity hover:text-[oklch(0.78_0.040_190)] focus:opacity-100"
+              title="Export Markdown eval report"
+              aria-label="Export eval report"
+            >
+              <FileDown className="w-3 h-3" />
             </button>
             <button
               type="button"

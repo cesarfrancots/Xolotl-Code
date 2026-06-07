@@ -50,6 +50,8 @@ export const commands = {
 	deleteEval: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_eval", { id })),
 	/**  Reveal a persisted eval result JSON file in Finder. */
 	revealEvalResultInFinder: (id: string) => typedError<null, string>(__TAURI_INVOKE("reveal_eval_result_in_finder", { id })),
+	/**  Export a persisted eval result as a Finder-visible Markdown report. */
+	exportEvalReport: (id: string) => typedError<EvalReportExportResult, string>(__TAURI_INVOKE("export_eval_report", { id })),
 	/**  Reveal the generated eval artifacts folder in Finder, creating it if needed. */
 	revealEvalArtifactsInFinder: () => typedError<null, string>(__TAURI_INVOKE("reveal_eval_artifacts_in_finder")),
 	/**
@@ -593,6 +595,11 @@ export type EvalMeta = {
 	manual_review_count?: number,
 	suite_id?: string | null,
 	suite_run_id?: string | null,
+};
+
+export type EvalReportExportResult = {
+	report_path: string,
+	message: string,
 };
 
 export type EvalResult = EvalResult_Serialize | EvalResult_Deserialize;

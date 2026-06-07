@@ -1364,6 +1364,13 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       if (!evalResult) throw "Preview eval not found";
       return JSON.stringify(evalResult);
     }
+    case "export_eval_report": {
+      const id = isRecord(args) && typeof args.id === "string" ? args.id : "preview-eval";
+      return {
+        report_path: `preview://eval-reports/${id}.md`,
+        message: "Preview eval report exported.",
+      };
+    }
     case "load_civ_session":
       return JSON.stringify(previewCivSession);
     case "create_civ_session": {

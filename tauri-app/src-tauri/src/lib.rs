@@ -19,23 +19,23 @@ use crate::civilization::{
 use crate::commands::{
     add_project, browse_directory, build_hint_proposals, build_reliability_profiles,
     cancel_chat_turn, chat_turn, cleanup_eval_processes, convert_pdf, delete_eval, delete_session,
-    get_agent_worktree_path, get_api_key_status, get_mac_productivity_settings, get_worktree_diff,
-    launch_swarm, launch_team, list_agents, list_eval_suites, list_evals, list_hint_proposals,
-    list_models, list_projects, list_prompt_commands, list_reliability_profiles, list_sessions,
-    load_eval, load_session, merge_worktrees, migrate_api_key_to_keychain,
-    open_path_in_external_editor, pick_directory, quick_look_path, remove_project,
-    respond_to_permission, reveal_eval_artifacts_in_finder, reveal_eval_result_in_finder,
-    reveal_in_finder, run_agent_turn, run_eval_suite, run_goal_grade, run_llm_judge,
-    save_human_scores, save_manual_reviews, save_session, set_api_key, set_external_editor,
-    set_mac_global_hotkey_settings, set_mac_notification_settings, set_mac_status_item_settings,
-    smoke_test, spawn_agent, start_eval, start_eval_artifact, start_goal_eval, stop_agent,
-    test_api_connection, test_permission_prompt, touch_project, AutoScores, ChatMessage, DirChild,
-    DirListing, EvalArtifactFileInput, EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta,
-    EvalResult, EvalSuite, FileDiff, GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores,
-    JudgeScores, MacGlobalHotkeySettings, MacNotificationSettings, MacProductivitySettings,
-    MacStatusItemSettings, ManualReview, ModelEvalResult, ProfileBuildResult, Project,
-    PromptCommand, ProposalBuildResult, ReasoningFlag, ReliabilityMetrics, RoleConfig, SessionMeta,
-    SuitePrompt,
+    export_eval_report, get_agent_worktree_path, get_api_key_status, get_mac_productivity_settings,
+    get_worktree_diff, launch_swarm, launch_team, list_agents, list_eval_suites, list_evals,
+    list_hint_proposals, list_models, list_projects, list_prompt_commands,
+    list_reliability_profiles, list_sessions, load_eval, load_session, merge_worktrees,
+    migrate_api_key_to_keychain, open_path_in_external_editor, pick_directory, quick_look_path,
+    remove_project, respond_to_permission, reveal_eval_artifacts_in_finder,
+    reveal_eval_result_in_finder, reveal_in_finder, run_agent_turn, run_eval_suite, run_goal_grade,
+    run_llm_judge, save_human_scores, save_manual_reviews, save_session, set_api_key,
+    set_external_editor, set_mac_global_hotkey_settings, set_mac_notification_settings,
+    set_mac_status_item_settings, smoke_test, spawn_agent, start_eval, start_eval_artifact,
+    start_goal_eval, stop_agent, test_api_connection, test_permission_prompt, touch_project,
+    AutoScores, ChatMessage, DirChild, DirListing, EvalArtifactFileInput, EvalArtifactLaunchResult,
+    EvalArtifactRequest, EvalMeta, EvalReportExportResult, EvalResult, EvalSuite, FileDiff,
+    GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores, JudgeScores, MacGlobalHotkeySettings,
+    MacNotificationSettings, MacProductivitySettings, MacStatusItemSettings, ManualReview,
+    ModelEvalResult, ProfileBuildResult, Project, PromptCommand, ProposalBuildResult,
+    ReasoningFlag, ReliabilityMetrics, RoleConfig, SessionMeta, SuitePrompt,
 };
 use crate::permission_prompter::{PendingPrompts, PermissionDecision};
 use crate::skills_mcp::{
@@ -126,6 +126,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             load_eval,
             delete_eval,
             reveal_eval_result_in_finder,
+            export_eval_report,
             reveal_eval_artifacts_in_finder,
             save_human_scores,
             save_manual_reviews,
@@ -220,6 +221,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<EvalArtifactFileInput>()
         .typ::<EvalArtifactRequest>()
         .typ::<EvalArtifactLaunchResult>()
+        .typ::<EvalReportExportResult>()
         .typ::<SkillManifest>()
         .typ::<McpServerConfig>()
         .typ::<McpTestResult>()

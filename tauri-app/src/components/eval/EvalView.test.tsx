@@ -16,6 +16,13 @@ const commandMocks = vi.hoisted(() => ({
   deleteEval: vi.fn<() => Promise<CommandResult<null>>>(() => Promise.resolve({ status: "ok", data: null })),
   cleanupEvalProcesses: vi.fn<() => Promise<number>>(() => Promise.resolve(0)),
   revealEvalResultInFinder: vi.fn<() => Promise<CommandResult<null>>>(() => Promise.resolve({ status: "ok", data: null })),
+  exportEvalReport: vi.fn<(id: string) => Promise<CommandResult<{ report_path: string; message: string }>>>((_id) => Promise.resolve({
+    status: "ok" as const,
+    data: {
+      report_path: "/Users/cesar/Documents/Xolotl Code/Eval Reports/1700000000-eval-1.md",
+      message: "Eval report exported.",
+    },
+  })),
   revealEvalArtifactsInFinder: vi.fn<() => Promise<CommandResult<null>>>(() => Promise.resolve({ status: "ok", data: null })),
   startEvalArtifact: vi.fn<() => Promise<CommandResult<{ artifact_dir: string; entry_path: string; message: string }>>>(() => Promise.resolve({
     status: "ok" as const,
@@ -31,6 +38,7 @@ const commandMocks = vi.hoisted(() => ({
 const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn<(text: string) => Promise<void>>((_text) => Promise.resolve()),
   openPathInExternalEditor: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
+  revealPathInFinder: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -44,6 +52,7 @@ vi.mock("../../bindings", () => ({
 vi.mock("../../lib/pathActions", () => ({
   copyTextToClipboard: pathActionMocks.copyTextToClipboard,
   openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
+  revealPathInFinder: pathActionMocks.revealPathInFinder,
 }));
 
 const savedEvalMeta: EvalMeta = {
@@ -146,6 +155,7 @@ describe("EvalView Mac Finder handoffs", () => {
     commandMocks.loadEval.mockResolvedValue({ status: "ok", data: JSON.stringify(savedEvalResult) });
     pathActionMocks.copyTextToClipboard.mockResolvedValue(undefined);
     pathActionMocks.openPathInExternalEditor.mockResolvedValue(undefined);
+    pathActionMocks.revealPathInFinder.mockResolvedValue(undefined);
   });
 
   it("shows recovery guidance when revealing a saved eval fails", async () => {
@@ -180,6 +190,44 @@ describe("EvalView Mac Finder handoffs", () => {
     expect(await screen.findByText("Reveal Eval Artifacts in Finder failed.")).toBeTruthy();
     expect(screen.getByText(/can create and open the eval artifacts folder/)).toBeTruthy();
     expect(screen.getByText(/operation not permitted/)).toBeTruthy();
+  });
+
+  it("exports a saved eval report and copies the report path", async () => {
+    seedCompletedEval();
+    const user = userEvent.setup();
+
+    render(<EvalView />);
+    await user.click(screen.getByRole("button", { name: /History/ }));
+    await user.click(await screen.findByLabelText("Export eval report"));
+
+    await waitFor(() => {
+      expect(commandMocks.exportEvalReport).toHaveBeenCalledWith("eval-1");
+    });
+    expect(await screen.findByText("Eval report exported.")).toBeTruthy();
+    expect(screen.getByText("/Users/cesar/Documents/Xolotl Code/Eval Reports/1700000000-eval-1.md")).toBeTruthy();
+
+    await user.click(screen.getByLabelText("Copy exported eval report path"));
+    await waitFor(() => {
+      expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl Code/Eval Reports/1700000000-eval-1.md");
+    });
+    expect(await screen.findByText("Eval report path copied.")).toBeTruthy();
+  });
+
+  it("shows recovery guidance when exporting a saved eval report fails", async () => {
+    seedCompletedEval();
+    commandMocks.exportEvalReport.mockResolvedValueOnce({
+      status: "error",
+      error: "permission denied",
+    });
+    const user = userEvent.setup();
+
+    render(<EvalView />);
+    await user.click(screen.getByRole("button", { name: /History/ }));
+    await user.click(await screen.findByLabelText("Export eval report"));
+
+    expect(await screen.findByText("Export eval report failed.")).toBeTruthy();
+    expect(screen.getByText(/Documents\/Xolotl Code\/Eval Reports/)).toBeTruthy();
+    expect(screen.getByText(/permission denied/)).toBeTruthy();
   });
 
   it("shows recovery guidance when revealing a generated artifact folder fails", async () => {

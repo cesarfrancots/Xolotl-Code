@@ -35,6 +35,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Terminal cwd metadata can reveal its folder in Finder and copy the POSIX cwd path.
 - Terminal cwd Finder/copy actions show inline success or recovery feedback instead of failing silently.
 - Eval history can reveal saved eval JSON files and the generated eval artifacts folder in Finder.
+- Eval history can export saved evals as Markdown reports to `~/Documents/Xolotl Code/Eval Reports` with reveal/copy follow-up actions.
 - Launched eval outcome artifacts can reveal their generated artifact folder in Finder, copy its POSIX path, and open it in the preferred external editor.
 - Expanded agent output can reveal the active agent worktree in Finder, copy its POSIX path, and open it in the preferred external editor.
 - Packaged launch-path smoke coverage is available through `npm run smoke:mac:launch-path`.
@@ -366,7 +367,7 @@ Deliverables:
   - Complete end-to-end manual QA for drag/drop, Open With, and file-url launch using real folders with spaces and package directories.
   - Consider an AppKit shim only for features Tauri cannot expose cleanly and only after the maintenance cost is clear.
 - Add Mac-friendly import/export surfaces:
-  - Export eval artifacts and generated reports to Finder-visible locations with reveal/copy actions. Done for launched eval artifact folders; persisted report export remains follow-up work.
+  - Export eval artifacts and generated reports to Finder-visible locations with reveal/copy actions. Done for launched eval artifact folders and persisted Markdown eval reports.
   - Keep file writes explicit and avoid surprise background exports.
 
 Acceptance:
