@@ -4,7 +4,7 @@ import { errorDetail, notifyMacAppStatus } from "../lib/macAppStatus";
 import { useAgentStore, type AgentRecord } from "../stores/agentStore";
 import { type ActiveEval, useEvalStore } from "../stores/evalStore";
 import { projectDisplayName, useProjectStore } from "../stores/projectStore";
-import { MAC_PRODUCTIVITY_SETTINGS_CHANGED_EVENT } from "./useMacGlobalHotkey";
+import { MAC_PRODUCTIVITY_SETTINGS_CHANGED_EVENT } from "../lib/macProductivitySettings";
 
 const RUNNING_AGENT_STATES = new Set<AgentState>(["Planning", "Executing"]);
 
@@ -29,15 +29,21 @@ const IDLE_EVAL_SUMMARY: MacStatusEvalSummary = {
 export function buildMacStatusEvalSummary(activeEval: ActiveEval | null): MacStatusEvalSummary {
   if (!activeEval) return IDLE_EVAL_SUMMARY;
 
-  const modelStates = Object.values(activeEval.modelStates);
-  return {
-    running_eval_models: modelStates.filter((model) => model.status === "running").length,
-    pending_eval_models: modelStates.filter((model) => model.status === "pending").length,
-    completed_eval_models: modelStates.filter((model) => model.status === "done").length,
-    failed_eval_models: modelStates.filter((model) => model.status === "error").length,
+  const summary: MacStatusEvalSummary = {
+    running_eval_models: 0,
+    pending_eval_models: 0,
+    completed_eval_models: 0,
+    failed_eval_models: 0,
     total_eval_models: activeEval.models.length,
     active_eval_complete: activeEval.complete,
   };
+  for (const model of Object.values(activeEval.modelStates)) {
+    if (model.status === "running") summary.running_eval_models += 1;
+    else if (model.status === "pending") summary.pending_eval_models += 1;
+    else if (model.status === "done") summary.completed_eval_models += 1;
+    else if (model.status === "error") summary.failed_eval_models += 1;
+  }
+  return summary;
 }
 
 function macStatusEvalSummaryKey(summary: MacStatusEvalSummary): string {
@@ -84,10 +90,17 @@ export function buildMacStatusItemState({
   const activeProject = activeProjectPath
     ? projects.find((project) => project.path === activeProjectPath)
     : null;
-  const runningAgents = agents.filter((agent) => RUNNING_AGENT_STATES.has(agent.state)).length;
-  const waitingAgents = agents.filter((agent) => agent.state === "Waiting").length;
-  const completedAgents = agents.filter((agent) => agent.state === "Done").length;
-  const failedAgents = agents.filter((agent) => agent.state === "Failed").length;
+  let runningAgents = 0;
+  let waitingAgents = 0;
+  let completedAgents = 0;
+  let failedAgents = 0;
+
+  for (const agent of agents) {
+    if (RUNNING_AGENT_STATES.has(agent.state)) runningAgents += 1;
+    else if (agent.state === "Waiting") waitingAgents += 1;
+    else if (agent.state === "Done") completedAgents += 1;
+    else if (agent.state === "Failed") failedAgents += 1;
+  }
 
   return {
     active_project_name: activeProject?.name ?? (activeProjectPath ? projectDisplayName(activeProjectPath) : null),

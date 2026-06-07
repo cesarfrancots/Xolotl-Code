@@ -1,10 +1,10 @@
 import { render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useMacGlobalHotkey } from "./useMacGlobalHotkey";
 import {
   MAC_PRODUCTIVITY_SETTINGS_CHANGED_EVENT,
   notifyMacProductivitySettingsChanged,
-  useMacGlobalHotkey,
-} from "./useMacGlobalHotkey";
+} from "../lib/macProductivitySettings";
 import type { MacProductivitySettings } from "../bindings";
 import { MAC_APP_STATUS_EVENT, type MacAppStatus } from "../lib/macAppStatus";
 

@@ -32,7 +32,7 @@ import {
   DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT,
   normalizeGlobalHotkeyShortcut,
   notifyMacProductivitySettingsChanged,
-} from "../../hooks/useMacGlobalHotkey";
+} from "../../lib/macProductivitySettings";
 import { useMacDialogDismissal } from "../../hooks/useMacDialogDismissal";
 import { formatMacShortcut } from "../../lib/macShortcuts";
 

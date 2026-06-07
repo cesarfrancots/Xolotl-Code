@@ -1,27 +1,12 @@
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { register, unregister, type ShortcutEvent } from "@tauri-apps/plugin-global-shortcut";
-import { commands, type MacGlobalHotkeySettings, type MacProductivitySettings } from "../bindings";
+import { commands, type MacProductivitySettings } from "../bindings";
 import { errorDetail, notifyMacAppStatus } from "../lib/macAppStatus";
-
-export const DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT = "CommandOrControl+Shift+Space";
-export const MAC_PRODUCTIVITY_SETTINGS_CHANGED_EVENT = "xolotl:mac-productivity-settings-changed";
-
-export function normalizeGlobalHotkeyShortcut(shortcut: string | null | undefined): string {
-  const trimmed = shortcut?.trim();
-  return trimmed || DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT;
-}
-
-export function effectiveGlobalHotkeySettings(settings: MacProductivitySettings): MacGlobalHotkeySettings {
-  return {
-    enabled: settings.global_hotkey?.enabled ?? false,
-    shortcut: normalizeGlobalHotkeyShortcut(settings.global_hotkey?.shortcut),
-  };
-}
-
-export function notifyMacProductivitySettingsChanged(settings: MacProductivitySettings) {
-  window.dispatchEvent(new CustomEvent(MAC_PRODUCTIVITY_SETTINGS_CHANGED_EVENT, { detail: settings }));
-}
+import {
+  effectiveGlobalHotkeySettings,
+  MAC_PRODUCTIVITY_SETTINGS_CHANGED_EVENT,
+} from "../lib/macProductivitySettings";
 
 export async function focusXolotlFromGlobalHotkey() {
   const currentWindow = getCurrentWindow();
