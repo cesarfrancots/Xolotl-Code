@@ -95,10 +95,12 @@ Plans:
   1. User sees seasons advance over turns and drift temperature, visibly affecting the world.
   2. Natural disasters (flood/drought/earthquake/eruption) trigger, are announced via a forecast, are logged, and physically reshape the terrain.
   3. Renewable resources (moss, kelp, wood, fiber, herbs) regrow over time while finite resources (ore, glowshards, amber, stone) stay depleted, creating observable sustained scarcity.
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: TBD
+- [ ] 03-01-PLAN.md — Pure seasons/temperature (advance_season) + renewable-only regrowth (regrow_resources) helpers + determinism/invariant tests (ENV-01, ENV-03)
+- [ ] 03-02-PLAN.md — Pure disaster helpers: seed-deterministic roll_forecast + bounded invariant-safe apply_disaster_to_tiles terrain reshape + tests (ENV-02)
+- [ ] 03-03-PLAN.md — tick_environment orchestrator (locked sequence + logging) inserted at advance_civ_turn turn-start + byte-determinism/back-compat integration tests (ENV-01/02/03)
 
 > **Implementation notes:** New `CivEnvironment` / `CivDisaster` in `civilization.rs`; `tick_environment`, `apply_disaster_effects` (reuse `place_resource_patch`, `floor_y_at`, `is_substrate`, `seabed_row_at`), `resource_regrowth`. Single-player game mechanics are duplicated in `civilization.rs` and `tauriBrowserFallback.ts` — keep both in lockstep where the change touches shared mechanics. Backend tests can't run on Windows — verify via `cargo check` + `cargo clippy` + `cargo test --no-run` (spec names `disaster_effects_are_bounded_and_mutate_world`, `seasons_cycle`, `regrowth_is_renewable_only`).
 
@@ -143,7 +145,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|-----------|----------------|--------|-----------|
 | 1. W9-lite — Multi-Model World Creation + Leaderboard | v2.0 | 0/4 | Planned | - |
 | 2. W8 — Renderer Multi-Civ Identity | v2.0 | 0/2 | Planned | - |
-| 3. W4 — Environment Engine | v2.0 | 0/TBD | Not started | - |
+| 3. W4 — Environment Engine | v2.0 | 0/3 | Planned | - |
 | 4. W6 — Combat & Diplomacy | v2.0 | 0/TBD | Not started | - |
 | 5. W5 — Genetics Depth & Selection | v2.0 | 0/TBD | Not started | - |
 | 1-6 (v1.0) | v1.0 | 33/33 | Complete | 2026-06-06 |
