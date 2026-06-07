@@ -19,18 +19,6 @@ import { errorDetail, MAC_APP_STATUS_EVENT, type MacAppStatus } from "./lib/macA
 import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
 import {
-  copyPathAutomationHandoff,
-  copyPathContextHandoff,
-  copyProjectAutomationHandoff,
-  copyProjectContextHandoff,
-  copyTextToClipboard,
-  copyXolotlCodeOpenShellCommand,
-  copyXolotlCodeOpenUrl,
-  openPathInExternalEditor,
-  openPathInExternalTerminal,
-  revealPathInFinder,
-} from "./lib/pathActions";
-import {
   dispatchNativeMenuAction,
   listenForNativeMenuActions,
   nativeMenuActionFromPayload,
@@ -40,10 +28,12 @@ import {
   type NativeMenuAction,
   type NativeRecentProjectMenuPayload,
 } from "./lib/nativeMenu";
+import type { PathContextHandoffOptions } from "./lib/pathActions";
 
 const loadEvalView = () => import("./components/eval/EvalView");
 const loadCivilizationView = () => import("./components/civilization/CivilizationView");
 const loadChatPane = () => import("./components/chat/ChatPane");
+const loadPathActions = () => import("./lib/pathActions");
 
 const LazyChatPane = lazy(async () => {
   const module = await loadChatPane();
@@ -84,6 +74,56 @@ const STATUS_AGENT_STATE_PRIORITY: AgentRecord["state"][] = [
   "Done",
   "Idle",
 ];
+
+async function copyTextToClipboard(text: string) {
+  const module = await loadPathActions();
+  await module.copyTextToClipboard(text);
+}
+
+async function copyXolotlCodeOpenUrl(path: string) {
+  const module = await loadPathActions();
+  await module.copyXolotlCodeOpenUrl(path);
+}
+
+async function copyXolotlCodeOpenShellCommand(path: string) {
+  const module = await loadPathActions();
+  await module.copyXolotlCodeOpenShellCommand(path);
+}
+
+async function copyProjectContextHandoff(path: string, name?: string | null) {
+  const module = await loadPathActions();
+  await module.copyProjectContextHandoff(path, name);
+}
+
+async function copyProjectAutomationHandoff(path: string, name?: string | null) {
+  const module = await loadPathActions();
+  await module.copyProjectAutomationHandoff(path, name);
+}
+
+async function copyPathContextHandoff(path: string, options: PathContextHandoffOptions = {}) {
+  const module = await loadPathActions();
+  await module.copyPathContextHandoff(path, options);
+}
+
+async function copyPathAutomationHandoff(path: string, options: PathContextHandoffOptions = {}) {
+  const module = await loadPathActions();
+  await module.copyPathAutomationHandoff(path, options);
+}
+
+async function revealPathInFinder(path: string) {
+  const module = await loadPathActions();
+  await module.revealPathInFinder(path);
+}
+
+async function openPathInExternalEditor(path: string) {
+  const module = await loadPathActions();
+  await module.openPathInExternalEditor(path);
+}
+
+async function openPathInExternalTerminal(path: string) {
+  const module = await loadPathActions();
+  await module.openPathInExternalTerminal(path);
+}
 
 function isCompactShell() {
   return typeof window.matchMedia === "function" && window.matchMedia(COMPACT_SHELL_QUERY).matches;
