@@ -43,12 +43,13 @@ import {
 } from "../../lib/pathActions";
 import { openTerminalAtPath } from "../../lib/terminalActions";
 import { useMacDialogDismissal } from "../../hooks/useMacDialogDismissal";
+import { SEED_COMPOSER_PROMPT_EVENT } from "./commandPaletteEvents";
 
 type CommandAction = () => void | Promise<void>;
 type CommandKind = "slash" | "shortcut" | "file" | "action";
 type PaletteStatusTone = "working" | "ok" | "error";
 
-export const SEED_COMPOSER_PROMPT_EVENT = "xolotl:seed-composer-prompt";
+export { SEED_COMPOSER_PROMPT_EVENT };
 const MAX_CLIPBOARD_PROMPT_CHARS = 24_000;
 export type ClipboardPromptMode = "chat" | "explain";
 

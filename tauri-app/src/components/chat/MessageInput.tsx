@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { lazy, Suspense, useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { ArrowUp, Check, ChevronDown, Command as CommandIcon, FileText, Gauge, Paperclip, ShieldCheck, X } from "lucide-react";
-import { CommandsPalette, SEED_COMPOSER_PROMPT_EVENT } from "./CommandsPalette";
+import { SEED_COMPOSER_PROMPT_EVENT } from "./commandPaletteEvents";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "../ui/button";
 import {
@@ -63,6 +63,11 @@ const PROVIDER_OF: Record<string, string> = {
 };
 const PROVIDER_ORDER = ["Anthropic", "AWS Bedrock", "Moonshot", "Kimi For Coding", "MiniMax", "DeepSeek", "Other"];
 const EFFORTS: ReasoningEffort[] = ["low", "medium", "high", "max"];
+
+const LazyCommandsPalette = lazy(async () => {
+  const module = await import("./CommandsPalette");
+  return { default: module.CommandsPalette };
+});
 
 function isStandaloneGreeting(text: string): boolean {
   return /^(hi|hello|hey|yo|hiya|howdy|good morning|good afternoon|good evening)[!. ]*$/i.test(
@@ -781,13 +786,17 @@ export function MessageInput() {
           </Command>
         </PopoverContent>
       </Popover>
-      <CommandsPalette
-        open={commandsOpen}
-        onOpenChange={setCommandsOpen}
-        onUsePrompt={seedWorkflowPrompt}
-        customCommands={customCommands}
-        enableGlobalShortcut={false}
-      />
+      {commandsOpen && (
+        <Suspense fallback={null}>
+          <LazyCommandsPalette
+            open={commandsOpen}
+            onOpenChange={setCommandsOpen}
+            onUsePrompt={seedWorkflowPrompt}
+            customCommands={customCommands}
+            enableGlobalShortcut={false}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

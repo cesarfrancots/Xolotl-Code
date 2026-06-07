@@ -20,13 +20,17 @@ import { SessionItem } from "./SessionItem";
 import { ProjectsSection } from "./ProjectsSection";
 import { DirectoryBrowser } from "./DirectoryBrowser";
 import { commands } from "../../bindings";
-import { CommandsPalette } from "../chat/CommandsPalette";
 import { listenForNativeMenuActions } from "../../lib/nativeMenu";
 import { formatMacShortcut, shortcutTitle } from "../../lib/macShortcuts";
 
 const LazySettingsDialog = lazy(async () => {
   const module = await import("../settings/SettingsDialog");
   return { default: module.SettingsDialog };
+});
+
+const LazyCommandsPalette = lazy(async () => {
+  const module = await import("../chat/CommandsPalette");
+  return { default: module.CommandsPalette };
 });
 
 /**
@@ -277,7 +281,11 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
           )}
         </div>
       </aside>
-      <CommandsPalette open={commandsOpen} onOpenChange={setCommandsOpen} />
+      {commandsOpen && (
+        <Suspense fallback={null}>
+          <LazyCommandsPalette open={commandsOpen} onOpenChange={setCommandsOpen} />
+        </Suspense>
+      )}
     </>
   );
 }
