@@ -132,6 +132,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByLabelText("Open recent project Xolotl in editor")).toBeTruthy();
     expect(screen.getByLabelText("Open recent project Xolotl in external terminal")).toBeTruthy();
     expect(screen.getByLabelText("Copy context prompt for recent project Xolotl")).toBeTruthy();
+    expect(screen.getByLabelText("Copy Shortcuts JSON for recent project Xolotl")).toBeTruthy();
   });
 
   it("renders file-browser commands for the current folder and visible entries", () => {
@@ -150,12 +151,15 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Browse Parent Folder")).toBeTruthy();
     expect(screen.getByText("Back to Project Root")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Browse Recent Folder: examples" })).toBeTruthy();
+    expect(screen.getByLabelText("Copy Shortcuts JSON for recent folder examples")).toBeTruthy();
     expect(screen.queryByText("Browse Recent Folder: src")).toBeNull();
     expect(screen.queryByText("Browse Recent Folder: Other")).toBeNull();
     expect(screen.getByRole("button", { name: "Clear Recent File Browser Folders" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Folder: src" })).toBeTruthy();
     expect(screen.getByLabelText("Open src in editor")).toBeTruthy();
+    expect(screen.getByLabelText("Copy Shortcuts JSON for src")).toBeTruthy();
     expect(screen.getByLabelText("Open README.md in editor")).toBeTruthy();
+    expect(screen.getByLabelText("Copy Shortcuts JSON for README.md")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Quick Look File: README.md" })).toBeTruthy();
     expect(screen.getByText("PDF")).toBeTruthy();
     expect(screen.queryByText(".env")).toBeNull();
@@ -247,6 +251,14 @@ describe("CommandsPalette", () => {
     fireEvent.click(screen.getByLabelText("Copy context prompt for recent project Xolotl"));
     await waitFor(() => {
       expect(pathActionMocks.copyProjectContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl",
+        "Xolotl",
+      );
+    });
+
+    fireEvent.click(screen.getByLabelText("Copy Shortcuts JSON for recent project Xolotl"));
+    await waitFor(() => {
+      expect(pathActionMocks.copyProjectAutomationHandoff).toHaveBeenCalledWith(
         "/Users/cesar/Documents/Xolotl",
         "Xolotl",
       );
@@ -473,9 +485,25 @@ describe("CommandsPalette", () => {
       );
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "Copy Shortcuts JSON for src" }));
+    await waitFor(() => {
+      expect(pathActionMocks.copyPathAutomationHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/docs/src",
+        { label: "src", kind: "Folder", relativePath: "docs/src" },
+      );
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "Copy context prompt for README.md" }));
     await waitFor(() => {
       expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/docs/README.md",
+        { label: "README.md", kind: "File", relativePath: "docs/README.md" },
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Shortcuts JSON for README.md" }));
+    await waitFor(() => {
+      expect(pathActionMocks.copyPathAutomationHandoff).toHaveBeenCalledWith(
         "/Users/cesar/Documents/Xolotl/docs/README.md",
         { label: "README.md", kind: "File", relativePath: "docs/README.md" },
       );
@@ -555,6 +583,14 @@ describe("CommandsPalette", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy context prompt for recent folder examples" }));
     await waitFor(() => {
       expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/examples",
+        { label: "examples", kind: "Folder", relativePath: "examples" },
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Shortcuts JSON for recent folder examples" }));
+    await waitFor(() => {
+      expect(pathActionMocks.copyPathAutomationHandoff).toHaveBeenCalledWith(
         "/Users/cesar/Documents/Xolotl/examples",
         { label: "examples", kind: "Folder", relativePath: "examples" },
       );

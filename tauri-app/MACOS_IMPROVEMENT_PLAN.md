@@ -19,8 +19,8 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Main window uses macOS overlay titlebar chrome with hidden title text, explicit traffic-light positioning, custom drag regions, and safe spacing when the left rail is collapsed.
 - Sidebar projects and file browser use compact Mac navigator rows, count badges, consistent utility icon buttons, and tighter Finder-style metadata labels.
 - Shortcut hints use macOS symbols across workbench, terminal, sidebar footer, composer command button, and command palette rows.
-- Command palette includes native-menu actions, active-project Finder/terminal/path/context/Shortcuts JSON actions, recent project entries with compact Mac editor/terminal/copy handoffs, and terminal actions with Mac shortcut chips.
-- Command palette includes a File Browser section for current-folder reveal/copy/context/refresh/navigation and visible file/folder row actions.
+- Command palette includes native-menu actions, active-project Finder/terminal/path/context/Shortcuts JSON actions, recent project entries with compact Mac editor/terminal/copy/Shortcuts JSON handoffs, and terminal actions with Mac shortcut chips.
+- Command palette includes a File Browser section for current-folder reveal/copy/context/Shortcuts JSON/refresh/navigation plus recent-folder and visible file/folder row actions.
 - Command palette keeps Mac handoff failures visible with recovery guidance for Finder, editor, Quick Look, and clipboard actions.
 - Mac command routing uses a shared command model for global keydown handling, native-menu action normalization, and command-palette action rows.
 - File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
@@ -30,7 +30,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - The macOS bundle registers `xolotl-code://open?path=...` project links for Shortcuts, Raycast, Alfred, and shell automation.
 - Project rows and the command palette can copy `xolotl-code://open?path=...` links for saved projects, current folders, and visible file-browser entries.
 - Project rows and the command palette can copy Terminal-safe `open 'xolotl-code://...'` commands for saved/active projects, current folders, and visible file-browser entries.
-- Project rows, file browser current folders/rows, and the command palette can copy prompt-ready context blocks and Shortcuts JSON payloads with POSIX paths, relative paths where useful, and `xolotl-code://` links for saved/active projects, current folders, and visible file-browser entries.
+- Project rows, file browser current folders/rows, and the command palette can copy prompt-ready context blocks and Shortcuts JSON payloads with POSIX paths, relative paths where useful, and `xolotl-code://` links for saved/active/recent projects, current/recent folders, and visible file-browser entries.
 - Saved project rows can reveal their target in Finder and copy Mac automation handoffs directly from the sidebar.
 - File browser entries can reveal their target in Finder.
 - File browser current folders and entries can copy POSIX paths, project-relative paths where useful, and prompt-ready context prompts.
@@ -69,7 +69,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - App-level Mac recovery status surfaces native menu, notification routing, app reopen routing, global hotkey, productivity settings, and menu bar status item runtime failures without replacing the active workspace.
 - Command palette includes clipboard-aware actions to seed a chat from the current text clipboard or ask for an explanation of the clipboard snippet.
 - Command palette tracks recent file-browser folders within the active project and offers quick browse, terminal/editor/Finder, POSIX path, Xolotl link, shell-open command, context handoff, Shortcuts JSON handoff, and clear-recent actions.
-- Command palette, File > Active Project, and the optional menu bar status item can copy Shortcuts/Raycast-friendly JSON payloads for the active project; the command palette can also copy a current-folder JSON payload.
+- Command palette, File > Active Project, and the optional menu bar status item can copy Shortcuts/Raycast-friendly JSON payloads for the active project; the command palette can also copy JSON payloads for recent projects, current/recent folders, and visible file-browser entries.
 - The last workbench tab is restored on reopen when the URL does not explicitly request a tab, while direct `?tab=` links still take priority.
 - The last active project is revalidated and restored on reopen when Finder/Open With/URL launch paths are absent; stale or inaccessible folders clear the active scope with Mac recovery guidance.
 - Settings and the command palette share a tighter macOS utility-dialog surface and close with `Cmd+W` before underlying app shortcuts see the event.

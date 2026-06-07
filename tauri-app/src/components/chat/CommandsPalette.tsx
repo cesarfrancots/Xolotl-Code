@@ -270,6 +270,13 @@ export function CommandsPalette({
             icon: ClipboardList,
             run: () => runMacHandoff("Copy project context", () => copyProjectContextHandoff(project.path, project.name), "clipboard"),
           },
+          {
+            id: "copy-automation-json",
+            label: `Copy Shortcuts JSON for recent project ${project.name}`,
+            title: "Copy Shortcuts JSON",
+            icon: ClipboardList,
+            run: () => runMacHandoff("Copy Shortcuts JSON", () => copyProjectAutomationHandoff(project.path, project.name), "clipboard"),
+          },
         ],
       })),
     ];
@@ -378,6 +385,13 @@ export function CommandsPalette({
               icon: ClipboardList,
               run: () => runMacHandoff("Copy folder context", () => copyPathContextHandoff(folderPath, { label: folderName, kind: "Folder", relativePath }), "clipboard"),
             },
+            {
+              id: "copy-automation-json",
+              label: `Copy Shortcuts JSON for recent folder ${folderName}`,
+              title: "Copy Shortcuts JSON",
+              icon: ClipboardList,
+              run: () => runMacHandoff("Copy Shortcuts JSON", () => copyPathAutomationHandoff(folderPath, { label: folderName, kind: "Folder", relativePath }), "clipboard"),
+            },
           ],
         };
       }),
@@ -465,6 +479,13 @@ export function CommandsPalette({
               title: "Copy context prompt",
               icon: ClipboardList,
               run: () => runMacHandoff("Copy context prompt", () => copyPathContextHandoff(child.path, { label: child.name, kind: child.is_dir ? "Folder" : "File", relativePath }), "clipboard"),
+            },
+            {
+              id: "copy-automation-json",
+              label: `Copy Shortcuts JSON for ${child.name}`,
+              title: "Copy Shortcuts JSON",
+              icon: ClipboardList,
+              run: () => runMacHandoff("Copy Shortcuts JSON", () => copyPathAutomationHandoff(child.path, { label: child.name, kind: child.is_dir ? "Folder" : "File", relativePath }), "clipboard"),
             },
             {
               id: "copy-relative",
