@@ -3186,5 +3186,29 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
         y: livePlayer?.tile_y ?? entity.y,
       };
     }),
+    civs: (snapshot.civs ?? []).map((c) => ({
+      id: c.id,
+      name: c.name,
+      model: c.model,
+      color: c.color,
+      alive: c.alive,
+      population: c.population,
+      era: c.era,
+      score: c.score,
+      controller: c.controller ?? null,
+      resources: c.resources,
+    })),
+    leaderboard: [...(snapshot.civs ?? [])]
+      .sort((a, b) => (b.score.total ?? 0) - (a.score.total ?? 0))
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        model: c.model,
+        color: c.color,
+        alive: c.alive,
+        score: c.score,
+        controller: c.controller ?? null,
+      })),
+    environment: snapshot.environment,
   });
 }
