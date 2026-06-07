@@ -884,7 +884,6 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
         };
         apply_model_decision(&mut snapshot, civ_id, &decision, reasoning);
     }
-
     // Resolve each civ's environment, then collapse any that ran out of axolotls.
     for civ_id in &turn_order {
         resolve_environment(&mut snapshot, civ_id);
@@ -5194,6 +5193,255 @@ fn round1(value: f32) -> f32 {
     (value * 10.0).round() / 10.0
 }
 
+// --- Combat engine: pure, seed-deterministic helpers (W6 / WAR-02, WAR-03) ---
+//
+// All combat math is replay-stable: it reads only snapshot state, removes axolotl
+// ENTITIES for casualties (the population counter is a mirror re-synced in
+// `run_life_cycle`, civilization.rs:2897), drains/credits resources via `consume`
+// (clamped >=0), and selects victims by sorted entity id. The combat pass that
+// drives these (in `advance_civ_turn`) seeds one rng with the distinct combat salt
+// `0xC0FF_EE01` and resolves attacks in attacker-sorted order — see `resolve_combat`.
+
+/// Per-attack ceiling on the fraction of either side's living axolotls that can die
+/// in a single strike. A hard cap (plus the >=1-survivor clamp in `bounded_loss`)
+/// guarantees no instant wipeout — a civ can only fall through attrition + the
+/// existing `should_collapse` gate (T-04-02).
+const CASUALTY_CAP: f32 = 0.34;
+/// Strength ratio above which a raid is a DECISIVE win (plunder + region seize).
+const WIN_THRESHOLD: f32 = 1.3;
+/// Fraction of a held resource a decisive raid plunders (bounded + conserved).
+const PLUNDER_FRAC: f32 = 0.20;
+
+/// Deterministic combat strength of `civ_id`. Monotonic in population, the `tools`
+/// resource, tech count, and owned-territory count. THE Phase-5 seam: the genetic
+/// `strength` gene term plugs in HERE and nowhere else. Returns 0.0 for an unknown
+/// civ. `f64` intermediates dodge clippy `cast_precision_loss`; the final `as f32`
+/// passes through `round1` for replay-clean floats.
+fn civ_strength(snapshot: &CivSessionSnapshot, civ_id: &str) -> f32 {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return 0.0;
+    };
+    let c = &snapshot.civs[ci];
+    let pop = f64::from(c.population);
+    let tools = f64::from(*c.resources.get("tools").unwrap_or(&0));
+    let tech = c.techs.len() as f64;
+    let owned = snapshot
+        .world
+        .regions
+        .iter()
+        .filter(|r| r.owner.as_deref() == Some(civ_id))
+        .count() as f64;
+    // Phase-5 SEAM: add a `genes.strength` term to this sum here only.
+    round1((pop * 1.0 + tools * 0.2 + tech * 1.5 + owned * 2.0) as f32)
+}
+
+/// Living (non-egg) axolotl entities of `civ_id`. Eggs survive a raid — only living
+/// axolotls fight and fall.
+fn living_axolotl_count(snapshot: &CivSessionSnapshot, civ_id: &str) -> u32 {
+    civ_entities(snapshot, civ_id)
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg")
+        .count() as u32
+}
+
+/// Remove up to `n` living axolotl entities of `civ_id`, returning the count killed.
+/// Casualties are entity removals (NOT a `population` decrement — the counter is a
+/// mirror, civilization.rs:2897); the population re-syncs from the survivors in the
+/// next `run_life_cycle`, which is why the combat pass MUST run before
+/// `resolve_environment`. Victims are chosen by sorted entity id for replay
+/// determinism (mirrors the elder-death retain at civilization.rs:2778).
+fn kill_axolotls(snapshot: &mut CivSessionSnapshot, civ_id: &str, n: u32) -> u32 {
+    if n == 0 {
+        return 0;
+    }
+    let mut victims: Vec<String> = snapshot
+        .world
+        .entities
+        .iter()
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg" && e.civ_id.as_deref() == Some(civ_id))
+        .map(|e| e.id.clone())
+        .collect();
+    victims.sort();
+    victims.truncate(n as usize);
+    let killed = victims.len() as u32;
+    if killed > 0 {
+        snapshot.world.entities.retain(|e| !victims.contains(&e.id));
+    }
+    killed
+}
+
+/// Convert a casualty `frac` of `civ_id`'s living axolotls into a count that ALWAYS
+/// leaves at least one survivor (so a single attack can never reach 0 — T-04-02).
+/// `frac` is pre-clamped to `CASUALTY_CAP` by the caller; this clamps the resulting
+/// count to `living - 1`.
+fn bounded_loss(snapshot: &CivSessionSnapshot, civ_id: &str, frac: f32) -> u32 {
+    let living = living_axolotl_count(snapshot, civ_id);
+    if living <= 1 {
+        return 0;
+    }
+    let count = (f64::from(living) * f64::from(frac.clamp(0.0, CASUALTY_CAP))) as u32;
+    count.min(living.saturating_sub(1))
+}
+
+/// Plunder a BOUNDED, CONSERVED share of `defender`'s resources to `attacker` on a
+/// decisive win. For each plundered key the take is `floor(have * PLUNDER_FRAC)`,
+/// drained from the defender via `consume` (clamps >=0) and credited verbatim to the
+/// attacker — so the attacker's gain == the defender's loss and nothing goes negative
+/// (T-04-04). Borrow discipline mirrors `apply_trade`: read the defender's holdings
+/// into copied scalars FIRST, then mutate one civ's map fully, then the other's.
+fn plunder(snapshot: &mut CivSessionSnapshot, attacker: &str, defender: &str) {
+    let Some(ai) = civ_index(snapshot, attacker) else {
+        return;
+    };
+    let Some(di) = civ_index(snapshot, defender) else {
+        return;
+    };
+    if ai == di {
+        return;
+    }
+    // Read phase: copy (key, take) pairs from the defender's holdings, sorted by key
+    // for a deterministic plunder order (no HashMap iteration leaking into state).
+    let mut takes: Vec<(String, i32)> = snapshot.civs[di]
+        .resources
+        .iter()
+        .filter_map(|(key, &have)| {
+            let take = (f64::from(have) * f64::from(PLUNDER_FRAC)) as i32;
+            if take > 0 {
+                Some((key.clone(), take))
+            } else {
+                None
+            }
+        })
+        .collect();
+    takes.sort();
+    // Write phase: drain the defender, then credit the attacker the same amounts.
+    for (key, take) in &takes {
+        consume(&mut snapshot.civs[di].resources, key, *take);
+    }
+    for (key, take) in &takes {
+        *snapshot.civs[ai].resources.entry(key.clone()).or_insert(0) += *take;
+    }
+}
+
+/// Seize ONE of `defender`'s regions for `attacker` on a decisive win (Open Q2:
+/// auto-seize, no extra action field). Prefers a PERIPHERAL region — the defender's
+/// `home_region` is dropped from the candidate set when it owns more than one — so a
+/// raid bites the frontier first. A cornered civ that owns only its home region can
+/// still lose it (territory is fully contestable). Region ids are sorted for
+/// deterministic selection.
+fn seize_region(snapshot: &mut CivSessionSnapshot, attacker: &str, defender: &str) {
+    let home = civ_index(snapshot, defender)
+        .map(|di| snapshot.civs[di].home_region.clone())
+        .unwrap_or_default();
+    let mut owned: Vec<String> = snapshot
+        .world
+        .regions
+        .iter()
+        .filter(|r| r.owner.as_deref() == Some(defender))
+        .map(|r| r.id.clone())
+        .collect();
+    owned.sort();
+    if owned.len() > 1 {
+        owned.retain(|id| id != &home);
+    }
+    if let Some(region_id) = owned.into_iter().next() {
+        if let Some(region) = snapshot
+            .world
+            .regions
+            .iter_mut()
+            .find(|r| r.id == region_id)
+        {
+            region.owner = Some(attacker.to_string());
+        }
+    }
+}
+
+/// Resolve a single deterministic attack of `attacker` against `defender`, returning
+/// whether it was a DECISIVE win. WAR-02 + WAR-03. Invariants (all tested):
+/// - **Ally gate (WAR-03, unilateral):** if the attacker's own stance toward the
+///   defender is `ally`, the attack is a logged no-op — no casualties, plunder, or
+///   flip — and the function returns false. This is the chosen UNILATERAL rule.
+/// - **Determinism:** outcome derives only from `civ_strength` and the seeded `rng`
+///   (a `seed^turn^0xC0FF_EE01` stream threaded by the caller). No clock/uuid.
+/// - **Bounded casualties:** both sides lose entities via `kill_axolotls`, capped at
+///   `CASUALTY_CAP` and always leaving >=1 survivor (no instant wipeout, T-04-02).
+/// - **Conserved plunder + region seize** only on a decisive win.
+///
+/// A missing/collapsed civ on either side is a guarded no-op (returns false, T-04-01).
+fn resolve_attack(
+    snapshot: &mut CivSessionSnapshot,
+    attacker: &str,
+    defender: &str,
+    rng: &mut u32,
+) -> bool {
+    let Some(ai) = civ_index(snapshot, attacker) else {
+        return false;
+    };
+    if civ_index(snapshot, defender).is_none() || attacker == defender {
+        return false;
+    }
+    // Ally gate (WAR-03, UNILATERAL): the attacker refuses to strike a civ it has
+    // itself flagged `ally`. Logged no-op; no mutation of either side's state.
+    let allied = snapshot.civs[ai]
+        .diplomacy
+        .get(defender)
+        .map(String::as_str)
+        == Some("ally");
+    if allied {
+        push_log(
+            snapshot,
+            "combat",
+            &format!(
+                "{} refuses to attack an ally",
+                civ_label(snapshot, attacker)
+            ),
+            &format!(
+                "{} holds an alliance with {} and will not raid it.",
+                civ_label(snapshot, attacker),
+                civ_label(snapshot, defender)
+            ),
+        );
+        return false;
+    }
+
+    let a = civ_strength(snapshot, attacker);
+    // Defender home-territory bonus: a defender fighting on home soil is sturdier.
+    let home_bonus = civ_index(snapshot, defender)
+        .map(|di| {
+            let home = snapshot.civs[di].home_region.clone();
+            let holds_home = snapshot
+                .world
+                .regions
+                .iter()
+                .any(|r| r.id == home && r.owner.as_deref() == Some(defender));
+            if holds_home {
+                2.0
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
+    let d = civ_strength(snapshot, defender) + home_bonus;
+    let roll = rand_range(rng, 0.85, 1.15);
+    let ratio = (a * roll) / d.max(1.0);
+
+    // Bounded casualties on BOTH sides, scaled by the strength ratio.
+    let def_loss = bounded_loss(snapshot, defender, (ratio * 0.10).min(CASUALTY_CAP));
+    let atk_loss = bounded_loss(
+        snapshot,
+        attacker,
+        (0.06 / ratio.max(0.01)).min(CASUALTY_CAP),
+    );
+    kill_axolotls(snapshot, defender, def_loss);
+    kill_axolotls(snapshot, attacker, atk_loss);
+
+    let win = ratio > WIN_THRESHOLD;
+    if win {
+        plunder(snapshot, attacker, defender);
+        seize_region(snapshot, attacker, defender);
+    }
+    win
+}
+
 // --- Environment engine: pure, seed-deterministic helpers (W4) ---
 //
 // These leaf helpers are wired into the turn loop by the Wave-3 orchestrator
@@ -7845,5 +8093,310 @@ mod tests {
         let a = civ_id_for(0);
         let err = apply_trade(&mut s, &a, &a, "food", 10, "stone", 5).unwrap_err();
         assert!(err.contains("self"), "got: {err}");
+    }
+
+    // --- WAR-02 / WAR-03 combat tests (04-02) ---
+    //
+    // multi_civ_snapshot only seeds axolotl ENTITIES for civ-1; the cloned civ-2
+    // struct has a population counter but no entities. `give_civ_axolotls` pushes
+    // adult axolotl entities tagged with a civ id so the DEFENDER can lose entities.
+
+    fn give_civ_axolotls(s: &mut CivSessionSnapshot, civ_id: &str, n: u32) {
+        for i in 0..n {
+            s.world.entities.push(CivEntity {
+                id: format!("axo-{civ_id}-test-{i}"),
+                kind: "axolotl".to_string(),
+                name: format!("Test Axolotl {i}"),
+                x: 10 + i,
+                y: 20,
+                health: 80.0,
+                mood: 70.0,
+                role: "worker".to_string(),
+                civ_id: Some(civ_id.to_string()),
+                stage: "adult".to_string(),
+                sex: if i % 2 == 0 { "f" } else { "m" }.to_string(),
+                age: 10,
+                ..Default::default()
+            });
+        }
+    }
+
+    #[test]
+    fn civ_strength_monotonic() {
+        let base = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(0);
+        let ci = civ_index(&base, &cid).unwrap();
+        let s0 = civ_strength(&base, &cid);
+        // Deterministic: same input -> same f32.
+        assert_eq!(s0, civ_strength(&base, &cid));
+
+        // Population up -> strength up.
+        let mut s_pop = base.clone();
+        s_pop.civs[ci].population += 5;
+        assert!(
+            civ_strength(&s_pop, &cid) > s0,
+            "more population must raise strength"
+        );
+
+        // Tools up -> strength up.
+        let mut s_tools = base.clone();
+        *s_tools.civs[ci]
+            .resources
+            .entry("tools".to_string())
+            .or_insert(0) += 50;
+        assert!(
+            civ_strength(&s_tools, &cid) > s0,
+            "more tools must raise strength"
+        );
+
+        // A new tech -> strength up.
+        let mut s_tech = base.clone();
+        s_tech.civs[ci].techs.push("a_brand_new_tech".to_string());
+        assert!(
+            civ_strength(&s_tech, &cid) > s0,
+            "an added tech must raise strength"
+        );
+
+        // An owned region -> strength up.
+        let mut s_owned = base.clone();
+        if let Some(region) = s_owned.world.regions.iter_mut().find(|r| r.owner.is_none()) {
+            region.owner = Some(cid.clone());
+        }
+        assert!(
+            civ_strength(&s_owned, &cid) > s0,
+            "an owned region must raise strength"
+        );
+    }
+
+    #[test]
+    fn resolve_attack_is_deterministic() {
+        let mut base = multi_civ_snapshot(2024, 2);
+        base.turn = 5;
+        give_civ_axolotls(&mut base, &civ_id_for(1), 8);
+        let mut a = base.clone();
+        let mut b = base.clone();
+        let mut ra = (a.seed ^ a.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        let mut rb = (b.seed ^ b.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        let oa = resolve_attack(&mut a, &civ_id_for(0), &civ_id_for(1), &mut ra);
+        let ob = resolve_attack(&mut b, &civ_id_for(0), &civ_id_for(1), &mut rb);
+        assert_eq!(oa, ob, "outcome must be identical for a fixed (seed, turn)");
+        assert_eq!(
+            serde_json::to_string(&a.civs).unwrap(),
+            serde_json::to_string(&b.civs).unwrap(),
+            "civs JSON must be byte-identical across clones"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "entity casualties must be byte-identical across clones"
+        );
+    }
+
+    #[test]
+    fn combat_casualties_remove_entities() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 3;
+        // civ-1 is the defender (it has founder axolotl entities). Make the attacker
+        // (civ-2) far stronger so the defender takes losses.
+        let attacker = civ_id_for(1);
+        let defender = civ_id_for(0);
+        let ai = civ_index(&s, &attacker).unwrap();
+        s.civs[ai].population += 40;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 200;
+        let before = living_axolotl_count(&s, &defender);
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        let after_entities = living_axolotl_count(&s, &defender);
+        assert!(
+            after_entities < before,
+            "the defender must lose living axolotl entities ({before} -> {after_entities})"
+        );
+        // The population mirror re-syncs from surviving entities in resolve_environment.
+        resolve_environment(&mut s, &defender);
+        let di = civ_index(&s, &defender).unwrap();
+        assert_eq!(
+            s.civs[di].population, after_entities,
+            "population mirror must reflect the reduced entity count, not the pre-attack number"
+        );
+    }
+
+    #[test]
+    fn attack_no_instant_wipeout() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 7;
+        // A 1-population defender vs a vastly stronger attacker.
+        let attacker = civ_id_for(0); // has founder entities + we boost it
+        let defender = civ_id_for(1);
+        let ai = civ_index(&s, &attacker).unwrap();
+        s.civs[ai].population += 100;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 500;
+        give_civ_axolotls(&mut s, &defender, 1); // exactly one living defender
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        assert!(
+            living_axolotl_count(&s, &defender) >= 1,
+            "a single attack must never reduce a defender to 0 living axolotls"
+        );
+    }
+
+    #[test]
+    fn plunder_is_bounded_and_conserved() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 2;
+        let attacker = civ_id_for(0); // founder entities; boosted to force a decisive win
+        let defender = civ_id_for(1);
+        let ai = civ_index(&s, &attacker).unwrap();
+        let di = civ_index(&s, &defender).unwrap();
+        s.civs[ai].population += 200;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 1000;
+        give_civ_axolotls(&mut s, &defender, 6);
+        // Known defender holdings to track conservation.
+        let def_food0 = s.civs[di].resources.get("food").copied().unwrap_or(0);
+        let atk_food0 = s.civs[ai].resources.get("food").copied().unwrap_or(0);
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        let win = resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        assert!(win, "the overwhelming attacker must score a decisive win");
+        let def_food1 = s.civs[di].resources.get("food").copied().unwrap_or(0);
+        let atk_food1 = s.civs[ai].resources.get("food").copied().unwrap_or(0);
+        // Conservation: attacker's food gain == defender's food loss.
+        assert_eq!(
+            atk_food1 - atk_food0,
+            def_food0 - def_food1,
+            "attacker gain must equal defender loss (conserved)"
+        );
+        // Bounded: at most PLUNDER_FRAC of the original holding was taken.
+        let taken = def_food0 - def_food1;
+        assert!(
+            taken <= (def_food0 as f32 * PLUNDER_FRAC).ceil() as i32,
+            "plunder must be bounded by the cap fraction (took {taken} of {def_food0})"
+        );
+        // No negative resources anywhere.
+        assert!(s.civs[ai].resources.values().all(|&v| v >= 0));
+        assert!(s.civs[di].resources.values().all(|&v| v >= 0));
+    }
+
+    #[test]
+    fn attack_no_negative_resources() {
+        // A defender with tiny holdings raided decisively must never go negative.
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 4;
+        let attacker = civ_id_for(0);
+        let defender = civ_id_for(1);
+        let ai = civ_index(&s, &attacker).unwrap();
+        let di = civ_index(&s, &defender).unwrap();
+        s.civs[ai].population += 200;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 1000;
+        // Drain the defender to near-empty.
+        for v in s.civs[di].resources.values_mut() {
+            *v = 1;
+        }
+        give_civ_axolotls(&mut s, &defender, 6);
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        assert!(
+            s.civs[di].resources.values().all(|&v| v >= 0),
+            "defender resources must never go negative after a raid"
+        );
+        assert!(s.civs[ai].resources.values().all(|&v| v >= 0));
+    }
+
+    #[test]
+    fn raid_transfers_owner() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 6;
+        let attacker = civ_id_for(0);
+        let defender = civ_id_for(1);
+        let ai = civ_index(&s, &attacker).unwrap();
+        s.civs[ai].population += 200;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 1000;
+        give_civ_axolotls(&mut s, &defender, 6);
+        // Give the defender its home region plus a peripheral region (>1 owned).
+        let home = s.civs[civ_index(&s, &defender).unwrap()]
+            .home_region
+            .clone();
+        let mut peripheral = String::new();
+        for region in &mut s.world.regions {
+            if region.id == home {
+                region.owner = Some(defender.clone());
+            } else if region.owner.is_none() && peripheral.is_empty() {
+                region.owner = Some(defender.clone());
+                peripheral = region.id.clone();
+            }
+        }
+        assert!(!peripheral.is_empty(), "test needs a peripheral region");
+        let owned_before = s
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.as_deref() == Some(defender.as_str()))
+            .count();
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        let win = resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        assert!(win, "decisive win required to seize a region");
+        let owned_after = s
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.as_deref() == Some(defender.as_str()))
+            .count();
+        assert_eq!(
+            owned_after,
+            owned_before - 1,
+            "exactly one region must flip"
+        );
+        // The peripheral (non-home) region was taken; the home was spared (it owned >1).
+        let peripheral_owner = s
+            .world
+            .regions
+            .iter()
+            .find(|r| r.id == peripheral)
+            .and_then(|r| r.owner.clone());
+        assert_eq!(
+            peripheral_owner.as_deref(),
+            Some(attacker.as_str()),
+            "the peripheral region must flip to the attacker"
+        );
+        let home_owner = s
+            .world
+            .regions
+            .iter()
+            .find(|r| r.id == home)
+            .and_then(|r| r.owner.clone());
+        assert_eq!(
+            home_owner.as_deref(),
+            Some(defender.as_str()),
+            "the defender's home region is preferentially spared"
+        );
+    }
+
+    #[test]
+    fn allies_do_not_fight() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 8;
+        let attacker = civ_id_for(0);
+        let defender = civ_id_for(1);
+        let ai = civ_index(&s, &attacker).unwrap();
+        s.civs[ai].population += 200;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 1000;
+        give_civ_axolotls(&mut s, &defender, 6);
+        // UNILATERAL rule: the attacker flags the defender as an ally.
+        set_stance(&mut s, &attacker, &defender, "ally");
+        let before = serde_json::to_string(&s.civs).unwrap();
+        let before_entities = serde_json::to_string(&s.world.entities).unwrap();
+        let logs_before = s.log.len();
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        let win = resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        assert!(!win, "an attack on an ally is never a win");
+        assert_eq!(
+            serde_json::to_string(&s.civs).unwrap(),
+            before,
+            "no casualties, plunder, or flip when attacking an ally"
+        );
+        assert_eq!(
+            serde_json::to_string(&s.world.entities).unwrap(),
+            before_entities,
+            "no entity removal when attacking an ally"
+        );
+        assert!(s.log.len() > logs_before, "the ally refusal must be logged");
     }
 }
