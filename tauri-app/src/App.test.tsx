@@ -121,6 +121,26 @@ describe("App tab navigation", () => {
     expect(window.location.search).toBe("");
   });
 
+  it("marks the active workbench segment and exposes Mac shortcut hints", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const chat = screen.getByRole("button", { name: "Chat" });
+    const evalTab = screen.getByRole("button", { name: "Eval" });
+    const civ = screen.getByRole("button", { name: "Civ" });
+
+    expect(chat.getAttribute("aria-pressed")).toBe("true");
+    expect(evalTab.getAttribute("aria-pressed")).toBe("false");
+    expect(chat.getAttribute("title")).toBe("Chat (Cmd+1)");
+    expect(evalTab.getAttribute("title")).toBe("Eval (Cmd+2)");
+    expect(civ.getAttribute("title")).toBe("Civ (Cmd+3)");
+
+    await user.click(evalTab);
+
+    expect(chat.getAttribute("aria-pressed")).toBe("false");
+    expect(evalTab.getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("supports Mac command-number shortcuts for workspace tabs", async () => {
     render(<App />);
 

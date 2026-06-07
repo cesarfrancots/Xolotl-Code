@@ -254,8 +254,8 @@ export default function App() {
       <SessionSidebar forceCollapsed={compactShell} />
       <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         {!showAgentView && (
-          <div className="flex-none flex items-center gap-3 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]/94 px-3 h-12 shadow-[0_1px_0_oklch(1_0_0_/_0.025)]">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="xolotl-workbench-bar">
+            <div className="xolotl-workbench-brand" data-tauri-drag-region>
               <div className="xolotl-mark flex-none" aria-hidden="true" />
               <div className="min-w-0">
                 <div className="text-[13px] font-semibold leading-none text-[oklch(0.92_0.015_230)]">xolotl</div>
@@ -265,12 +265,14 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <div className="ml-auto flex items-center gap-1 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.10_0.004_250)] p-1">
+            <div className="xolotl-toolbar-drag-fill" data-tauri-drag-region />
+            <div className="xolotl-segmented-control" aria-label="Workbench view">
               <PillTab
                 active={centerTab === "chat"}
                 onClick={() => selectCenterTab("chat")}
                 icon={<MessagesSquare className="w-3.5 h-3.5" />}
                 label="Chat"
+                shortcut="Cmd+1"
               />
               <PillTab
                 active={centerTab === "eval"}
@@ -278,6 +280,7 @@ export default function App() {
                 onPreload={loadEvalView}
                 icon={<TestTubeDiagonal className="w-3.5 h-3.5" />}
                 label="Eval"
+                shortcut="Cmd+2"
               />
               <PillTab
                 active={centerTab === "civ"}
@@ -285,6 +288,7 @@ export default function App() {
                 onPreload={loadCivilizationView}
                 icon={<Sprout className="w-3.5 h-3.5" />}
                 label="Civ"
+                shortcut="Cmd+3"
               />
             </div>
             <button
@@ -294,10 +298,10 @@ export default function App() {
               aria-label="Toggle terminal panel"
               aria-pressed={terminalPanelOpen}
               className={[
-                "flex items-center justify-center h-8 w-8 rounded-md border transition-all",
+                "xolotl-toolbar-icon-button",
                 terminalPanelOpen
-                  ? "border-[oklch(0.42_0.025_195)] bg-[oklch(0.14_0.010_205)] text-[oklch(0.74_0.045_195)]"
-                  : "border-[oklch(0.24_0.010_235)] bg-[oklch(0.10_0.004_250)] text-[oklch(0.54_0.012_235)] hover:text-[oklch(0.82_0.015_220)] hover:bg-[oklch(0.16_0.006_245)]",
+                  ? "xolotl-toolbar-icon-button-active"
+                  : "",
               ].join(" ")}
             >
               <TerminalIcon className="w-4 h-4" />
@@ -378,25 +382,24 @@ function CivLoading() {
 }
 
 function PillTab({
-  active, onClick, onPreload, icon, label,
+  active, onClick, onPreload, icon, label, shortcut,
 }: {
   active: boolean;
   onClick: () => void;
   onPreload?: () => void;
   icon: React.ReactNode;
   label: string;
+  shortcut: string;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       onFocus={onPreload}
       onMouseEnter={onPreload}
-      className={[
-        "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all",
-        active
-          ? "bg-[oklch(0.14_0.010_205)] text-[oklch(0.74_0.045_195)] shadow-[inset_0_0_0_1px_oklch(0.42_0.025_195)]"
-          : "text-[oklch(0.54_0.012_235)] hover:text-[oklch(0.82_0.015_220)] hover:bg-[oklch(0.16_0.006_245)]",
-      ].join(" ")}
+      aria-pressed={active}
+      title={`${label} (${shortcut})`}
+      className={["xolotl-segment-tab", active ? "xolotl-segment-tab-active" : ""].join(" ")}
     >
       {icon}
       {label}

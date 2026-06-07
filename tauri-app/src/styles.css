@@ -99,6 +99,124 @@ button {
     linear-gradient(90deg, oklch(0.70 0.035 190 / 0.018), transparent 42%);
 }
 
+.xolotl-workbench-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  min-width: 0;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid oklch(0.205 0.008 240);
+  background:
+    linear-gradient(180deg, oklch(0.132 0.004 245 / 0.96), oklch(0.104 0.003 250 / 0.97));
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.028),
+    0 1px 0 oklch(0 0 0 / 0.20);
+  backdrop-filter: blur(14px);
+}
+
+.xolotl-workbench-brand {
+  display: flex;
+  min-width: 132px;
+  max-width: 220px;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.xolotl-toolbar-drag-fill {
+  min-width: 8px;
+  flex: 1 1 0%;
+  align-self: stretch;
+}
+
+.xolotl-segmented-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 2px;
+  border: 1px solid oklch(0.235 0.010 235);
+  border-radius: 8px;
+  background: oklch(0.088 0.003 250 / 0.92);
+  box-shadow: inset 0 1px 1px oklch(0 0 0 / 0.20);
+}
+
+.xolotl-segment-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 68px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: oklch(0.58 0.012 235);
+  font-size: 12px;
+  font-weight: 520;
+  line-height: 1;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.xolotl-segment-tab:hover {
+  color: oklch(0.84 0.014 220);
+  background: oklch(0.145 0.006 245);
+}
+
+.xolotl-segment-tab:focus-visible,
+.xolotl-toolbar-icon-button:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 1px oklch(0.62 0.05 195),
+    0 0 0 4px oklch(0.62 0.05 195 / 0.16);
+}
+
+.xolotl-segment-tab-active {
+  color: oklch(0.86 0.028 205);
+  background: oklch(0.162 0.012 210);
+  box-shadow:
+    inset 0 0 0 1px oklch(0.43 0.026 195),
+    0 1px 0 oklch(1 0 0 / 0.035);
+}
+
+.xolotl-toolbar-icon-button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  border: 1px solid oklch(0.235 0.010 235);
+  border-radius: 8px;
+  color: oklch(0.55 0.012 235);
+  background: oklch(0.088 0.003 250 / 0.92);
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.xolotl-toolbar-icon-button:hover {
+  color: oklch(0.84 0.014 220);
+  border-color: oklch(0.30 0.014 225);
+  background: oklch(0.145 0.006 245);
+}
+
+.xolotl-toolbar-icon-button-active {
+  color: oklch(0.82 0.040 195);
+  border-color: oklch(0.42 0.025 195);
+  background: oklch(0.156 0.012 210);
+}
+
+@media (max-width: 620px) {
+  .xolotl-workbench-brand {
+    min-width: 92px;
+  }
+
+  .xolotl-segment-tab {
+    min-width: 44px;
+    padding: 0 8px;
+  }
+}
+
 .xolotl-mark {
   position: relative;
   width: 24px;

@@ -12,6 +12,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Embedded terminal opens reliably and focuses when the dock becomes visible.
 - Native macOS menu and Cmd shortcuts are wired and smoke-tested.
 - File > New Chat, workbench tab shortcuts, command palette, and terminal toggle route through the native menu bridge.
+- Workbench toolbar uses a quieter macOS utility style with a focused segmented control and explicit active states.
 - File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
 - Directory paths passed at app launch are imported into the project store and activated on startup.
 - macOS open/reopen events are handled: file URLs from Finder/Open With are normalized into project-open requests, and Dock/app reopen focuses the main window.
@@ -72,9 +73,9 @@ Deliverables:
   - Move repeated command affordances toward icon buttons with tooltips where the action is familiar.
   - Keep cards reserved for repeated items, dialogs, and framed tools; avoid nested cards.
 - Workbench navigation:
-  - Convert center workbench switching into a tighter segmented-control pattern.
+  - Convert center workbench switching into a tighter segmented-control pattern. Done for the main Chat/Eval/Civ toolbar.
   - Add visible focus rings and predictable Tab order for sidebar, chat, eval, civ, terminal, and agent panels.
-  - Use Mac shortcut labels consistently in menus, buttons, tooltips, and command palette rows.
+  - Use Mac shortcut labels consistently in menus, buttons, tooltips, and command palette rows. In progress: main toolbar exposes shortcut hints through titles/ARIA without adding visual clutter.
 - Accessibility:
   - Verify reduced motion and high-contrast behavior.
   - Avoid text clipping in compact sidebars, titlebar-safe areas, and terminal tabs.
@@ -82,7 +83,7 @@ Deliverables:
 
 Implementation order:
 
-1. Restyle the app header and workbench tabs without changing layout ownership.
+1. Restyle the app header and workbench tabs without changing layout ownership. Done for the first toolbar pass.
 2. Add titlebar/drag-region support behind a small Tauri config and CSS pass.
 3. Tighten sidebar list density, selected states, and project/file browser labels.
 4. Add shortcut labels/tooltips to command-bearing controls.
@@ -284,8 +285,7 @@ This is the near-term order for this branch.
    - Finder/Open With end-to-end smoke harness for packaged app file-url open events.
    - Optional AppKit Dock menu shim only if the benefit is worth the native-maintenance cost.
 2. Start Phase 2 Mac UI pass:
-   - Header/titlebar-safe layout.
-   - Segmented workbench tabs.
+   - Titlebar-safe layout and deeper drag-region validation.
    - Sidebar, project, and file browser density pass.
    - Shortcut labels and tooltips.
 3. Add Phase 2.5 keyboard parity:
