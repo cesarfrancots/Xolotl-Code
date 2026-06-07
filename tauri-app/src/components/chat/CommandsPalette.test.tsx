@@ -11,6 +11,9 @@ const pathActionMocks = vi.hoisted(() => ({
   readTextFromClipboard: vi.fn(() => Promise.resolve("const answer = 42;")),
   revealPathInFinder: vi.fn(() => Promise.resolve()),
 }));
+const terminalActionMocks = vi.hoisted(() => ({
+  openTerminalAtPath: vi.fn(),
+}));
 
 vi.mock("../../lib/pathActions", async () => {
   const actual = await vi.importActual<typeof import("../../lib/pathActions")>("../../lib/pathActions");
@@ -23,6 +26,8 @@ vi.mock("../../lib/pathActions", async () => {
     revealPathInFinder: pathActionMocks.revealPathInFinder,
   };
 });
+
+vi.mock("../../lib/terminalActions", () => terminalActionMocks);
 
 const projectStoreActions = {
   browse: useProjectStore.getState().browse,
@@ -103,6 +108,7 @@ describe("CommandsPalette", () => {
 
     expect(screen.getByText("File Browser")).toBeTruthy();
     expect(screen.getByText("Reveal Current Folder in Finder")).toBeTruthy();
+    expect(screen.getByText("New Terminal in Current Folder")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Relative Path")).toBeTruthy();
     expect(screen.getByText("Browse Parent Folder")).toBeTruthy();
     expect(screen.getByText("Back to Project Root")).toBeTruthy();
@@ -170,11 +176,27 @@ describe("CommandsPalette", () => {
     expect(browse).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/src");
     expect(onOpenChange).toHaveBeenCalledWith(false);
 
+    fireEvent.click(screen.getByRole("button", { name: "New terminal in src" }));
+    expect(terminalActionMocks.openTerminalAtPath).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl/docs/src",
+      "src",
+    );
+
     fireEvent.click(screen.getByRole("button", { name: "Copy relative path for src" }));
     expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("docs/src");
 
     fireEvent.click(screen.getByRole("button", { name: "Quick Look File: README.md" }));
     expect(pathActionMocks.quickLookPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/README.md");
+  });
+
+  it("opens a terminal from the current file browser folder", () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New Terminal in Current Folder" }));
+
+    expect(terminalActionMocks.openTerminalAtPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("seeds clipboard prompts through the composer callback", async () => {

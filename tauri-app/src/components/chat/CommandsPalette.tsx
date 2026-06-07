@@ -26,6 +26,7 @@ import { MAC_COMMANDS, type MacCommandId, type MacCommandSpec } from "../../lib/
 import { formatMacShortcut } from "../../lib/macShortcuts";
 import { dispatchNativeMenuAction, type NativeMenuAction } from "../../lib/nativeMenu";
 import { copyTextToClipboard, openPathInExternalEditor, quickLookPath, readTextFromClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { openTerminalAtPath } from "../../lib/terminalActions";
 
 type CommandAction = () => void | Promise<void>;
 type CommandKind = "slash" | "shortcut" | "file" | "action";
@@ -156,6 +157,7 @@ export function CommandsPalette({
     const fileBrowserCommands: PaletteCommand[] = activeProjectPath && currentBrowserPath ? [
       { id: "browser-reveal-current", kind: "file", label: "Reveal Current Folder in Finder", syntax: "Folder", description: macPathLabel(currentBrowserPath), icon: ExternalLink, run: () => { void revealPathInFinder(currentBrowserPath); onOpenChange(false); } },
       { id: "browser-copy-current", kind: "file", label: "Copy Current Folder Path", syntax: "Path", description: macPathLabel(currentBrowserPath), icon: Copy, run: () => { void copyTextToClipboard(currentBrowserPath); onOpenChange(false); } },
+      { id: "browser-terminal-current", kind: "file", label: "New Terminal in Current Folder", syntax: "Terminal", description: macPathLabel(currentBrowserPath), icon: TerminalSquare, run: () => { openTerminalAtPath(currentBrowserPath); onOpenChange(false); } },
       ...(currentBrowserPath !== activeProjectPath ? [
         { id: "browser-copy-current-relative", kind: "file" as const, label: "Copy Current Folder Relative Path", syntax: "Relative", description: relativePathFromRoot(currentBrowserPath, activeProjectPath), icon: CornerDownRight, run: () => { void copyTextToClipboard(relativePathFromRoot(currentBrowserPath, activeProjectPath)); onOpenChange(false); } },
       ] : []),
@@ -183,6 +185,13 @@ export function CommandsPalette({
             onOpenChange(false);
           },
           secondaryActions: [
+            ...(child.is_dir ? [{
+              id: "terminal",
+              label: `New terminal in ${child.name}`,
+              title: "New Terminal Here",
+              icon: TerminalSquare,
+              run: () => { openTerminalAtPath(child.path, child.name); onOpenChange(false); },
+            }] : []),
             {
               id: "reveal",
               label: `Reveal ${child.name} in Finder`,

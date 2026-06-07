@@ -13,12 +13,14 @@ import {
   Loader2,
   Package,
   RefreshCw,
+  TerminalSquare,
   Wand2,
 } from "lucide-react";
 import { commands } from "../../bindings";
 import { useProjectStore, projectDisplayName } from "../../stores/projectStore";
 import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "../../lib/fileBrowser";
 import { copyTextToClipboard, quickLookPath, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { openTerminalAtPath } from "../../lib/terminalActions";
 
 /**
  * Lightweight file browser for the active project. Folders are navigable;
@@ -95,6 +97,15 @@ export function DirectoryBrowser() {
           className="xolotl-sidebar-icon-button"
         >
           <Copy className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          title="New Terminal Here"
+          aria-label="New terminal in current folder"
+          onClick={() => openTerminalAtPath(currentPath, here || "Terminal")}
+          className="xolotl-sidebar-icon-button"
+        >
+          <TerminalSquare className="h-3 w-3" />
         </button>
         <button
           type="button"
@@ -188,7 +199,7 @@ export function DirectoryBrowser() {
                         <span className="min-w-0 flex-1 truncate">{child.name}</span>
                         <EntryBadges badges={badges} />
                       </button>
-                      <PathActionButtons path={child.path} root={activePath} label={child.name} />
+                      <PathActionButtons path={child.path} root={activePath} label={child.name} canOpenTerminal />
                     </div>
                   ) : (
                     <div
@@ -240,10 +251,36 @@ export function DirectoryBrowser() {
   );
 }
 
-function PathActionButtons({ path, root, label, canQuickLook = false }: { path: string; root: string; label: string; canQuickLook?: boolean }) {
+function PathActionButtons({
+  path,
+  root,
+  label,
+  canOpenTerminal = false,
+  canQuickLook = false,
+}: {
+  path: string;
+  root: string;
+  label: string;
+  canOpenTerminal?: boolean;
+  canQuickLook?: boolean;
+}) {
   const relativePath = relativePathFromRoot(path, root);
   return (
     <span className="flex flex-none items-center gap-0.5">
+      {canOpenTerminal && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            openTerminalAtPath(path, label);
+          }}
+          title="New Terminal Here"
+          aria-label={`New terminal in ${label}`}
+          className="xolotl-row-action-button"
+        >
+          <TerminalSquare className="h-3 w-3" />
+        </button>
+      )}
       {canQuickLook && (
         <button
           type="button"

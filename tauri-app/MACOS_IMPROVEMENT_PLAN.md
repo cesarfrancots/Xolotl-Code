@@ -25,6 +25,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Saved project rows and file browser entries can reveal their target in Finder.
 - File browser entries can copy POSIX paths and project-relative paths.
 - File browser entries can preview files with macOS Quick Look from row actions and the command palette.
+- File browser folders can open embedded terminals at the current folder or selected child folder, matching Finder-style "New Terminal Here" workflow.
 - Terminal cwd metadata can reveal its folder in Finder and copy the POSIX cwd path.
 - Eval history can reveal saved eval JSON files and the generated eval artifacts folder in Finder.
 - Launched eval outcome artifacts can reveal their generated artifact folder in Finder.
@@ -125,7 +126,7 @@ Deliverables:
 - Command palette:
   - Show Mac symbols for shortcuts where useful: Cmd, Shift, Option, Control. Done for the first palette shortcut-chip pass.
   - Add project-aware commands for Open Recent, Reveal in Finder, New Terminal Here, and Copy Path. Done for active project and recent project rows.
-  - Add file-browser commands for current folder navigation, Finder reveal, Quick Look, and visible row copy/path actions. Done for the current listing and non-hidden visible entries.
+  - Add file-browser commands for current folder navigation, Finder reveal, Quick Look, New Terminal Here, and visible row copy/path actions. Done for the current listing and non-hidden visible entries.
   - Keep action names short and scan-friendly.
 - Keyboard model:
   - Preserve existing web-friendly shortcuts where they do not conflict.
@@ -179,6 +180,7 @@ Deliverables:
 
 - Improve shell detection for zsh, bash, fish, and user login shell. Done for explicit shell, `$SHELL`, macOS login shell, and platform fallback resolution.
 - Start terminals in the active project directory by default. Done for newly created terminal tabs.
+- Start terminals from file-browser folders on demand. Done for current folder and visible child folders.
 - Add Mac-specific terminal shortcuts:
   - Cmd+T: new terminal tab. Done via native Terminal menu and dock fallback.
   - Cmd+W: close active terminal tab. Done via native Terminal menu and dock fallback.
@@ -319,7 +321,7 @@ This is the near-term order for this branch.
    - Optional AppKit Dock menu shim only if the benefit is worth the native-maintenance cost.
 2. Start Phase 2 Mac UI pass:
 3. Add Phase 2.5 keyboard parity:
-   - Additional file-browser row commands in the command palette. Done for current-folder, Quick Look, and visible-entry commands.
+   - Additional file-browser row commands in the command palette. Done for current-folder, Quick Look, New Terminal Here, and visible-entry commands.
    - Tests for menu, palette, and keydown routing. Done for shared command actions, palette native rows, global shortcuts, and terminal-scoped shortcuts.
 4. Expand Phase 6 productivity features:
    - Notifications with click-through routing. Done for backend route metadata and macOS app-reopen routing; direct action payload support remains dependent on Tauri desktop notification support.

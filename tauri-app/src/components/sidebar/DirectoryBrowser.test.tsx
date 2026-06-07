@@ -4,6 +4,10 @@ import { DirectoryBrowser } from "./DirectoryBrowser";
 import { copyTextToClipboard, quickLookPath, revealPathInFinder } from "../../lib/pathActions";
 import { useProjectStore } from "../../stores/projectStore";
 
+const terminalActionMocks = vi.hoisted(() => ({
+  openTerminalAtPath: vi.fn(),
+}));
+
 vi.mock("../../lib/pathActions", async () => {
   const actual = await vi.importActual<typeof import("../../lib/pathActions")>("../../lib/pathActions");
   return {
@@ -13,6 +17,8 @@ vi.mock("../../lib/pathActions", async () => {
     revealPathInFinder: vi.fn(() => Promise.resolve()),
   };
 });
+
+vi.mock("../../lib/terminalActions", () => terminalActionMocks);
 
 describe("DirectoryBrowser", () => {
   beforeEach(() => {
@@ -82,5 +88,17 @@ describe("DirectoryBrowser", () => {
 
     fireEvent.click(screen.getByLabelText("Quick Look README.md"));
     expect(quickLookPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/README.md");
+
+    fireEvent.click(screen.getByLabelText("New terminal in current folder"));
+    expect(terminalActionMocks.openTerminalAtPath).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl",
+      "Xolotl",
+    );
+
+    fireEvent.click(screen.getByLabelText("New terminal in src"));
+    expect(terminalActionMocks.openTerminalAtPath).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl/src",
+      "src",
+    );
   });
 });
