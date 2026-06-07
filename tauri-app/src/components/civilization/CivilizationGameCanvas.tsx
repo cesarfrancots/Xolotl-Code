@@ -990,7 +990,16 @@ class CivPhaserScene extends Phaser.Scene {
   private applyCivTint(axo: AxoSprite, entity: CivEntity) {
     const info = this.civColorById.get(entity.civ_id ?? "");
     const wanted = civTintFor(info, GREY_TINT);
-    if (wanted == null) return; // wild fauna — leave the morph default untouched
+    if (wanted == null) {
+      // Wild fauna / map miss. If a civ tint was previously applied (owned->wild
+      // transition), clear it so the sprite returns to its default morph tint
+      // rather than keeping the old civ's colour forever (MED-02).
+      if (axo.appliedTint !== undefined) {
+        axo.body.clearTint();
+        axo.appliedTint = undefined;
+      }
+      return;
+    }
     if (axo.appliedTint === wanted) return;
     axo.body.setTint(wanted);
     axo.appliedTint = wanted;
