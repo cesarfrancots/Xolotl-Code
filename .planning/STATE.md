@@ -2,15 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Living World & Economy
-status: roadmap_complete
-last_updated: "2026-06-07T00:00:00.000Z"
-last_activity: 2026-06-07
+status: planning
+last_updated: "2026-06-07T16:08:14.704Z"
+last_activity: 2026-06-07 — v2.1 ROADMAP created (6 phases, 22/22 reqs mapped, reset numbering, v2.0 collapsed)
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
-  percent: 0
 ---
 
 # State: xolotl
@@ -90,7 +89,7 @@ Last activity: 2026-06-07 — v2.1 ROADMAP created (6 phases, 22/22 reqs mapped,
 - **Last action:** Milestone v2.1 "Living World & Economy" ROADMAP created — 6 phases (reset numbering), 22/22 requirements mapped (0 orphans, 0 duplicates), 2-5 goal-backward success criteria per phase with SUMMARY exit gates folded in. v2.0 collapsed into an archived `<details>` block (detail lives in `.planning/milestones/v2.0-ROADMAP.md`); milestones list now reads ✅ v1.0, ✅ v2.0, 🚧 v2.1. Phase 5 flagged NEEDS RESEARCH. REQUIREMENTS.md traceability statuses updated.
 - **Next action:** `/gsd-discuss-phase 1` (or `/gsd-plan-phase 1`) for **Phase 1 — Human Takeover (Possession)**: add `control_mode` field + the `advance_civ_turn` LLM-bypass branch + bridge parity (`civPilotControls.possess` + text-state). Exit gate: a unit test proving 0 model calls for a possessed civ while post-loop world passes still run.
 - **Last updated:** 2026-06-07
-- **Resume file:** .planning/ROADMAP.md
+- **Resume file:** .planning/phases/01-human-takeover-possession/01-CONTEXT.md
 
 ---
 *State initialized: 2026-05-07; milestone v2.1 started 2026-06-07*
