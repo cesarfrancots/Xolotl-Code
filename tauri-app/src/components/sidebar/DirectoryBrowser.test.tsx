@@ -1,7 +1,15 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DirectoryBrowser } from "./DirectoryBrowser";
-import { copyPathContextHandoff, copyTextToClipboard, openPathInExternalEditor, openPathInExternalTerminal, quickLookPath, revealPathInFinder } from "../../lib/pathActions";
+import {
+  copyPathAutomationHandoff,
+  copyPathContextHandoff,
+  copyTextToClipboard,
+  openPathInExternalEditor,
+  openPathInExternalTerminal,
+  quickLookPath,
+  revealPathInFinder,
+} from "../../lib/pathActions";
 import { useProjectStore } from "../../stores/projectStore";
 
 const terminalActionMocks = vi.hoisted(() => ({
@@ -12,6 +20,7 @@ vi.mock("../../lib/pathActions", async () => {
   const actual = await vi.importActual<typeof import("../../lib/pathActions")>("../../lib/pathActions");
   return {
     ...actual,
+    copyPathAutomationHandoff: vi.fn(() => Promise.resolve()),
     copyPathContextHandoff: vi.fn(() => Promise.resolve()),
     copyTextToClipboard: vi.fn(() => Promise.resolve()),
     openPathInExternalEditor: vi.fn(() => Promise.resolve()),
@@ -93,6 +102,12 @@ describe("DirectoryBrowser", () => {
       { label: "README.md", kind: "File", relativePath: "README.md" },
     );
 
+    fireEvent.click(screen.getByLabelText("Copy Shortcuts JSON for README.md"));
+    expect(copyPathAutomationHandoff).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl/README.md",
+      { label: "README.md", kind: "File", relativePath: "README.md" },
+    );
+
     fireEvent.click(screen.getByLabelText("Reveal src in Finder"));
     expect(revealPathInFinder).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/src");
 
@@ -102,8 +117,20 @@ describe("DirectoryBrowser", () => {
       { label: "src", kind: "Folder", relativePath: "src" },
     );
 
+    fireEvent.click(screen.getByLabelText("Copy Shortcuts JSON for src"));
+    expect(copyPathAutomationHandoff).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl/src",
+      { label: "src", kind: "Folder", relativePath: "src" },
+    );
+
     fireEvent.click(screen.getByLabelText("Copy current folder context prompt"));
     expect(copyPathContextHandoff).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl",
+      { label: "Xolotl", kind: "Folder", relativePath: "." },
+    );
+
+    fireEvent.click(screen.getByLabelText("Copy current folder Shortcuts JSON"));
+    expect(copyPathAutomationHandoff).toHaveBeenCalledWith(
       "/Users/cesar/Documents/Xolotl",
       { label: "Xolotl", kind: "Folder", relativePath: "." },
     );

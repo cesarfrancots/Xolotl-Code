@@ -3,7 +3,16 @@ import { ClipboardList, Code2, Copy, ExternalLink, Folder, FolderPlus, Link2, Te
 import { useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
 import { macFileAccessRecovery } from "../../lib/macFileRecovery";
-import { copyProjectContextHandoff, copyTextToClipboard, copyXolotlCodeOpenShellCommand, copyXolotlCodeOpenUrl, openPathInExternalEditor, openPathInExternalTerminal, revealPathInFinder } from "../../lib/pathActions";
+import {
+  copyProjectAutomationHandoff,
+  copyProjectContextHandoff,
+  copyTextToClipboard,
+  copyXolotlCodeOpenShellCommand,
+  copyXolotlCodeOpenUrl,
+  openPathInExternalEditor,
+  openPathInExternalTerminal,
+  revealPathInFinder,
+} from "../../lib/pathActions";
 import {
   SidebarHandoffStatus,
   sidebarHandoffRecoveryHint,
@@ -226,6 +235,24 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     }}
                     title="Copy context prompt"
                     aria-label={`Copy context prompt for ${project.name}`}
+                    className="xolotl-row-action-button"
+                  >
+                    <ClipboardList className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void runHandoff(
+                        `Copy Shortcuts JSON for ${project.name}`,
+                        () => copyProjectAutomationHandoff(project.path, project.name),
+                        `Shortcuts JSON copied for ${project.name}.`,
+                        "clipboard",
+                        "path",
+                      );
+                    }}
+                    title="Copy Shortcuts JSON"
+                    aria-label={`Copy Shortcuts JSON for ${project.name}`}
                     className="xolotl-row-action-button"
                   >
                     <ClipboardList className="h-3 w-3" />

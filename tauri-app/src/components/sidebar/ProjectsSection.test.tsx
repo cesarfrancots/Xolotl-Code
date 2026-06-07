@@ -1,13 +1,23 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectsSection } from "./ProjectsSection";
-import { copyProjectContextHandoff, copyTextToClipboard, copyXolotlCodeOpenShellCommand, copyXolotlCodeOpenUrl, openPathInExternalEditor, openPathInExternalTerminal, revealPathInFinder } from "../../lib/pathActions";
+import {
+  copyProjectAutomationHandoff,
+  copyProjectContextHandoff,
+  copyTextToClipboard,
+  copyXolotlCodeOpenShellCommand,
+  copyXolotlCodeOpenUrl,
+  openPathInExternalEditor,
+  openPathInExternalTerminal,
+  revealPathInFinder,
+} from "../../lib/pathActions";
 import { useProjectStore } from "../../stores/projectStore";
 
 vi.mock("../../lib/pathActions", async () => {
   const actual = await vi.importActual<typeof import("../../lib/pathActions")>("../../lib/pathActions");
   return {
     ...actual,
+    copyProjectAutomationHandoff: vi.fn(() => Promise.resolve()),
     copyProjectContextHandoff: vi.fn(() => Promise.resolve()),
     copyTextToClipboard: vi.fn(() => Promise.resolve()),
     copyXolotlCodeOpenShellCommand: vi.fn(() => Promise.resolve()),
@@ -61,6 +71,13 @@ describe("ProjectsSection", () => {
 
     fireEvent.click(screen.getByLabelText("Copy context prompt for Xolotl"));
     expect(copyProjectContextHandoff).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl",
+      "Xolotl",
+    );
+    expect(onOpenProject).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByLabelText("Copy Shortcuts JSON for Xolotl"));
+    expect(copyProjectAutomationHandoff).toHaveBeenCalledWith(
       "/Users/cesar/Documents/Xolotl",
       "Xolotl",
     );

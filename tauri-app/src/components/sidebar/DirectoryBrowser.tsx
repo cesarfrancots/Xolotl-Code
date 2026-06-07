@@ -22,7 +22,16 @@ import { commands } from "../../bindings";
 import { useProjectStore, projectDisplayName } from "../../stores/projectStore";
 import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "../../lib/fileBrowser";
 import { macFileAccessRecovery } from "../../lib/macFileRecovery";
-import { copyPathContextHandoff, copyTextToClipboard, openPathInExternalEditor, openPathInExternalTerminal, quickLookPath, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import {
+  copyPathAutomationHandoff,
+  copyPathContextHandoff,
+  copyTextToClipboard,
+  openPathInExternalEditor,
+  openPathInExternalTerminal,
+  quickLookPath,
+  relativePathFromRoot,
+  revealPathInFinder,
+} from "../../lib/pathActions";
 import { openTerminalAtPath } from "../../lib/terminalActions";
 import {
   SidebarHandoffStatus,
@@ -155,6 +164,25 @@ export function DirectoryBrowser() {
               relativePath: relativePathFromRoot(currentPath, activePath),
             }),
             "Current folder context prompt copied.",
+            "clipboard",
+            "path",
+          )}
+          className="xolotl-sidebar-icon-button"
+        >
+          <ClipboardList className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          title="Copy Shortcuts JSON"
+          aria-label="Copy current folder Shortcuts JSON"
+          onClick={() => void runHandoff(
+            "Copy current folder Shortcuts JSON",
+            () => copyPathAutomationHandoff(currentPath, {
+              label: here || undefined,
+              kind: "Folder",
+              relativePath: relativePathFromRoot(currentPath, activePath),
+            }),
+            "Current folder Shortcuts JSON copied.",
             "clipboard",
             "path",
           )}
@@ -533,6 +561,24 @@ function PathActionButtons({
         }}
         title="Copy context prompt"
         aria-label={`Copy context prompt for ${label}`}
+        className="xolotl-row-action-button"
+      >
+        <ClipboardList className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          void runRowHandoff(
+            `Copy Shortcuts JSON for ${label}`,
+            () => copyPathAutomationHandoff(path, { label, kind: contextKind, relativePath }),
+            `Shortcuts JSON copied for ${label}.`,
+            "clipboard",
+            "path",
+          );
+        }}
+        title="Copy Shortcuts JSON"
+        aria-label={`Copy Shortcuts JSON for ${label}`}
         className="xolotl-row-action-button"
       >
         <ClipboardList className="h-3 w-3" />
