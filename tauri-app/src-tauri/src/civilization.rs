@@ -5087,6 +5087,54 @@ fn roll_forecast(seed: u32, turn: u32, env: &CivEnvironment, world_width: u32) -
     })
 }
 
+/// Pure: physically reshape `tiles` around the disaster epicenter, in place and
+/// boundedly. `flood`/`quake`/`landslide` convert sub-surface substrate to
+/// water/deepwater (mirrors the mining terraform rules); terrain-neutral kinds
+/// (`storm`/`drought`/`cold_snap`/`predator_incursion`) leave tiles untouched —
+/// their effect is a `CivModifier`/one-shot at fire time, not a terrain change.
+///
+/// Invariants (asserted by the determinism/bounds tests, threat T-03-05):
+/// tile count unchanged (mutate in place, never push/remove); `x ∈ [0, width)`;
+/// `y ∈ [WATER_SURFACE_Y, WORLD_HEIGHT)`; never converts a tile at/above the
+/// seabed surface (keeps the colony floor buildable, can't soft-brick a colony).
+#[allow(dead_code)]
+fn apply_disaster_to_tiles(tiles: &mut [CivTile], dis: &CivDisaster, width: u32) {
+    // Terrain-only for the physical-reshape kinds; the rest are civ-effect/announce.
+    if !matches!(dis.kind.as_str(), "flood" | "quake" | "landslide") {
+        return;
+    }
+    let cx = dis.epicenter_x.clamp(1, width.saturating_sub(2).max(1));
+    let r = dis.radius.min(DISASTER_RADIUS_MAX);
+    let lo = cx.saturating_sub(r);
+    let hi = (cx + r).min(width.saturating_sub(1));
+    for x in lo..=hi {
+        // Seabed surface for this column (inline `seabed_row_at` over the slice —
+        // the helper takes `&CivWorld`, but here we only have a tile slice).
+        let surface = tiles
+            .iter()
+            .filter(|t| t.x == x && is_substrate(&t.terrain))
+            .map(|t| t.y)
+            .min()
+            .unwrap_or(WORLD_HEIGHT - 2);
+        // How deep to reshape this column — bounded, never the whole column.
+        let depth = match dis.kind.as_str() {
+            "flood" => 2,  // raise water over the top 1-2 sub-surface rows
+            _ => 1,        // quake/landslide carve a single sub-surface void
+        };
+        // Only convert BELOW surface+1 (Pitfall 2: keep the surface solid/buildable).
+        let start = (surface + 2).max(WATER_SURFACE_Y);
+        for ty in start..start.saturating_add(depth).min(WORLD_HEIGHT) {
+            if let Some(t) = tiles.iter_mut().find(|t| t.x == x && t.y == ty) {
+                if is_substrate(&t.terrain) && ty > surface + 1 && ty >= WATER_SURFACE_Y {
+                    t.terrain = if ty >= DEEP_WATER_Y { "deepwater" } else { "water" }.to_string();
+                    t.resource = None;
+                    t.amount = 0;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
