@@ -30,6 +30,7 @@ const expectedDocumentContentTypes = [
   "public.plain-text",
   "public.json",
 ];
+const expectedUrlScheme = "xolotl-code";
 
 const failures = [];
 const warnings = [];
@@ -132,6 +133,13 @@ if (existsSync(appPath)) {
     }
     if (documentTypes) {
       notes.push("Finder/Open With document types are registered");
+    }
+
+    const urlTypes = optionalPlistValue(infoPlist, "CFBundleURLTypes");
+    check(Boolean(urlTypes), "CFBundleURLTypes is missing; xolotl-code URL scheme is not packaged.");
+    check(urlTypes.includes(expectedUrlScheme), `CFBundleURLTypes does not include ${expectedUrlScheme}.`);
+    if (urlTypes) {
+      notes.push("xolotl-code URL scheme is registered");
     }
   }
 

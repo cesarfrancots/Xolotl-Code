@@ -60,11 +60,15 @@ const processNeedles = [
 const projectFromPath = mkdtempSync(join(tempRoot, "Project From Open Path "));
 const projectFromUrl = mkdtempSync(join(tempRoot, "Project From File URL "));
 const projectFromFile = mkdtempSync(join(tempRoot, "Project From Opened File "));
+const projectFromScheme = mkdtempSync(join(tempRoot, "Project From URL Scheme "));
 const openedFile = join(projectFromFile, "README.md");
 writeFileSync(openedFile, "# Opened from Finder\n", "utf8");
+const schemeFile = join(projectFromScheme, "main.ts");
+writeFileSync(schemeFile, "console.log('opened from xolotl-code scheme');\n", "utf8");
 const canonicalPathProject = realpathSync(projectFromPath);
 const canonicalUrlProject = realpathSync(projectFromUrl);
 const canonicalFileProject = realpathSync(projectFromFile);
+const canonicalSchemeProject = realpathSync(projectFromScheme);
 
 function sleep(ms) {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
@@ -176,9 +180,20 @@ try {
   openApp(["-g", "-a", tempAppBundle, "-u", pathToFileURL(openedFile).href]);
   await waitForProjects([canonicalPathProject, canonicalUrlProject, canonicalFileProject]);
 
+  const schemeUrl = new URL("xolotl-code://open");
+  schemeUrl.searchParams.set("path", schemeFile);
+  openApp(["-g", "-a", tempAppBundle, "-u", schemeUrl.href]);
+  await waitForProjects([
+    canonicalPathProject,
+    canonicalUrlProject,
+    canonicalFileProject,
+    canonicalSchemeProject,
+  ]);
+
   console.log(`open project smoke ok: ${canonicalPathProject}`);
   console.log(`open file-url smoke ok: ${canonicalUrlProject}`);
   console.log(`open document-url smoke ok: ${openedFile} -> ${canonicalFileProject}`);
+  console.log(`open xolotl-code-url smoke ok: ${schemeUrl.href} -> ${canonicalSchemeProject}`);
 } finally {
   await terminateApp();
   if (!keepTemp) {

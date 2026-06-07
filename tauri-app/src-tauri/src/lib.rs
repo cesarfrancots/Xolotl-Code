@@ -60,6 +60,7 @@ mod terminal;
 const MENU_EVENT: &str = "xolotl://menu";
 const PROJECT_OPEN_EVENT: &str = "xolotl://open-project";
 const APP_REOPEN_EVENT: &str = "xolotl://app-reopen";
+const APP_URL_SCHEME: &str = "xolotl-code";
 const STATUS_ITEM_ID: &str = "xolotl-status-item";
 const STATUS_PROJECT_ID: &str = "xolotl:status-project";
 const STATUS_AGENTS_ID: &str = "xolotl:status-agents";
@@ -384,11 +385,21 @@ fn dedupe_project_paths(paths: impl IntoIterator<Item = String>) -> Vec<String> 
 }
 
 fn project_path_from_open_url(url: &tauri::Url) -> Option<String> {
-    if url.scheme() != "file" {
-        return None;
+    if url.scheme() == "file" {
+        let path = url.to_file_path().ok()?;
+        return canonical_project_path_from_input_path(path);
     }
-    let path = url.to_file_path().ok()?;
-    canonical_project_path_from_input_path(path)
+    if url.scheme() == APP_URL_SCHEME {
+        let host = url.host_str()?;
+        if host != "open" && host != "project" {
+            return None;
+        }
+        let path = url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "path").then_some(value.into_owned()))?;
+        return canonical_project_path_from_input_path(PathBuf::from(path));
+    }
+    None
 }
 
 fn project_paths_from_open_urls(urls: Vec<tauri::Url>) -> Vec<String> {
@@ -1003,6 +1014,34 @@ mod tests {
     }
 
     #[test]
+    fn project_paths_from_open_urls_accepts_xolotl_code_url_scheme() {
+        let root =
+            std::env::temp_dir().join(format!("xolotl-open-link-url-{}", std::process::id()));
+        let project = root.join("Project From Shortcut");
+        let file = project.join("src").join("main.ts");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(project.join(".git")).expect("project marker should be created");
+        std::fs::create_dir_all(file.parent().expect("file should have parent"))
+            .expect("project test dir should be created");
+        std::fs::write(&file, "console.log('xolotl');").expect("project file should be written");
+
+        let url = tauri::Url::parse_with_params(
+            "xolotl-code://open",
+            &[("path", file.to_string_lossy().as_ref())],
+        )
+        .expect("xolotl-code url should parse");
+        let paths = project_paths_from_open_urls(vec![url]);
+
+        let expected = std::fs::canonicalize(&project)
+            .expect("project root should canonicalize")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(paths, vec![expected]);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn project_paths_from_open_urls_rejects_non_file_urls_and_missing_paths() {
         let root =
             std::env::temp_dir().join(format!("xolotl-open-url-reject-{}", std::process::id()));
@@ -1012,6 +1051,9 @@ mod tests {
 
         let urls = vec![
             tauri::Url::parse("https://example.com/project").expect("https url should parse"),
+            tauri::Url::parse("xolotl-code://unknown?path=/tmp/project")
+                .expect("unknown xolotl url should parse"),
+            tauri::Url::parse("xolotl-code://open").expect("missing path xolotl url should parse"),
             tauri::Url::from_file_path(&missing).expect("missing file url should be created"),
         ];
 

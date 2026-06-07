@@ -23,6 +23,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Directory paths passed at app launch are imported into the project store and activated on startup.
 - macOS open/reopen events are handled: folder URLs from Finder/Open With activate directly, document file URLs activate their containing folder, and Dock/app reopen focuses the main window.
 - The macOS bundle registers Finder/Open With document types for project folders plus common source/text documents.
+- The macOS bundle registers `xolotl-code://open?path=...` project links for Shortcuts, Raycast, Alfred, and shell automation.
 - Saved project rows and file browser entries can reveal their target in Finder.
 - File browser entries can copy POSIX paths and project-relative paths.
 - File browser entries can preview files with macOS Quick Look from row actions and the command palette.
@@ -152,6 +153,7 @@ Deliverables:
 - Open project folders from command-line launch arguments. Done for existing directory arguments passed to the app.
 - Open project folders from Finder. Done for Tauri window drops, macOS `RunEvent::Opened` file URLs, Info.plist document registration, and packaged Launch Services/Open With smoke coverage.
 - Open source/text files from Finder by activating the containing folder as a project. Done for macOS `RunEvent::Opened` file URLs and packaged Open With smoke coverage.
+- Open projects from `xolotl-code://open?path=...` deep links. Done for macOS URL scheme registration, native open-event parsing, and packaged smoke coverage.
 - Add a Recent Projects menu that mirrors the project store. Done for File > Open Recent with menu refresh after project changes.
 - Add Dock menu shortcuts for New Chat, Open Folder, and recent projects if Tauri/AppKit support is practical. Evaluated against local Tauri 2.11 API: Dock visibility is exposed, but Dock menu construction is not; revisit only if an AppKit-specific shim is worth carrying.
 - Support drag-and-drop of folders onto the app window to open a project. Done for Tauri window drops; still needs end-to-end Finder smoke coverage with a real project folder.
@@ -246,6 +248,7 @@ Deliverables:
   - Explain selected code. Done for the current text clipboard.
   - Start chat with clipboard snippet. Done for the current text clipboard.
 - Evaluate macOS Services or Shortcuts integration after core workflows are stable.
+  - First pass done with `xolotl-code://open?path=...` deep links for Shortcuts, Raycast, Alfred, and shell automation.
 
 Acceptance:
 
