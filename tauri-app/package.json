@@ -14,6 +14,8 @@
     "build:mac:universal": "tauri build --target universal-apple-darwin --bundles app",
     "build:mac:universal:dmg": "npm run build:mac:universal && MAC_DMG_ARCH=universal npm run package:mac:dmg",
     "package:mac:dmg": "node scripts/package-mac-dmg.mjs",
+    "release:mac:preflight": "node scripts/check-mac-release.mjs",
+    "release:mac:universal:preflight": "MAC_RELEASE_EXPECT_UNIVERSAL=1 MAC_DMG_ARCH=universal node scripts/check-mac-release.mjs",
     "smoke:mac:launch-path": "node scripts/smoke-mac-launch-path.mjs",
     "smoke:mac:open-project": "node scripts/smoke-mac-open-project.mjs",
     "open:mac": "open 'src-tauri/target/release/bundle/macos/Xolotl Code.app'",

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -9,9 +9,13 @@ const projectRoot = resolve(import.meta.dirname, "..");
 const packageJson = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8"));
 const version = packageJson.version ?? "0.0.0";
 const arch = process.env.MAC_DMG_ARCH ?? (process.arch === "arm64" ? "aarch64" : process.arch);
-const bundleRoot = join(projectRoot, "src-tauri", "target", "release", "bundle");
-const appPath = join(bundleRoot, "macos", appBundle);
-const dmgDir = join(bundleRoot, "dmg");
+const releaseBundleRoot = join(projectRoot, "src-tauri", "target", "release", "bundle");
+const appBundleRoot = arch === "universal"
+  ? join(projectRoot, "src-tauri", "target", "universal-apple-darwin", "release", "bundle")
+  : releaseBundleRoot;
+const appPathOverride = process.env.MAC_APP_BUNDLE_PATH ?? process.env.MAC_DMG_APP_PATH;
+const appPath = resolve(appPathOverride ?? join(appBundleRoot, "macos", appBundle));
+const dmgDir = join(releaseBundleRoot, "dmg");
 const outputPath = resolve(
   process.argv[2] ?? join(dmgDir, `${appName}_${version}_${arch}.dmg`)
 );
@@ -26,6 +30,10 @@ function run(command, args) {
 
 if (process.platform !== "darwin") {
   throw new Error("macOS DMG packaging must run on macOS.");
+}
+
+if (!existsSync(appPath)) {
+  throw new Error(`App bundle not found: ${appPath}. Run npm run build:mac before packaging.`);
 }
 
 const staging = mkdtempSync(join(tmpdir(), "xolotl-dmg-"));

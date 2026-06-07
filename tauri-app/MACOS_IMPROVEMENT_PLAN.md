@@ -47,6 +47,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
 - macOS Settings include an opt-in menu bar status item with active project and agent-state summary plus quick access to common commands.
 - The Mac UI respects system reduced-motion and higher-contrast preferences, with a fallback keyboard focus ring for custom workbench controls.
+- Mac release preflight checks are available through `npm run release:mac:preflight` and the release checklist is tracked in `MACOS_RELEASE_CHECKLIST.md`.
 
 ## Phase 1 - Native Mac Shell
 
@@ -259,7 +260,7 @@ Implementation order:
 
 ## Phase 7 - Distribution, Signing, and Update Path
 
-Status: planned.
+Status: in progress.
 
 Deliverables:
 
@@ -267,10 +268,10 @@ Deliverables:
 - Developer ID code signing.
 - Notarization workflow.
 - DMG layout polish:
-  - App icon.
-  - Applications shortcut.
-  - Clear volume name.
-- Versioned release checklist.
+  - App icon. Done for preflight verification against the packaged app.
+  - Applications shortcut. Done for preflight verification by mounting the DMG.
+  - Clear volume name. Done through the DMG packaging script volume name and preflight mount checks.
+- Versioned release checklist. Done in `MACOS_RELEASE_CHECKLIST.md` for the first distribution pass.
 - Investigate Tauri updater support after signing is stable.
 
 Acceptance:
@@ -278,6 +279,12 @@ Acceptance:
 - A clean Mac can install and launch the app without Gatekeeper workarounds.
 - DMG and `.app` artifacts are reproducible from documented commands.
 - Release checklist states required environment variables and certificates.
+
+Implementation notes:
+
+- `npm run release:mac:preflight` verifies the built app/DMG identity, icon, architecture, DMG contents, and optional signing/notarization gates.
+- `npm run release:mac:universal:preflight` requires a universal app binary via `MAC_RELEASE_EXPECT_UNIVERSAL=1` and defaults to the universal Tauri app bundle path.
+- Strict release validation can require Developer ID signing and notarization by setting `MAC_RELEASE_REQUIRE_SIGNING=1` and `MAC_RELEASE_REQUIRE_NOTARIZATION=1`.
 
 ## Phase 8 - QA Matrix
 
@@ -317,6 +324,6 @@ This is the near-term order for this branch.
    - Optional global hotkey. Done for the first opt-in implementation.
    - Optional status/menu bar helper. Done for the first opt-in implementation with active project, agent summary, command palette, terminal, settings, and project-opening actions.
 5. Harden distribution:
-   - Universal build path.
-   - Signing and notarization checklist.
-   - DMG polish and clean-machine install smoke.
+   - Universal build path. Build and package scripts now select the universal app bundle when `MAC_DMG_ARCH=universal`; preflight has a universal architecture gate.
+   - Signing and notarization checklist. Done for the first release checklist and strict preflight flags.
+   - DMG polish and clean-machine install smoke. Preflight now verifies app/icon/Applications link; clean-machine manual install remains in the checklist.
