@@ -17,8 +17,6 @@ import { useChatStore } from "../../stores/chatStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useProjectStore } from "../../stores/projectStore";
 import { SessionItem } from "./SessionItem";
-import { ProjectsSection } from "./ProjectsSection";
-import { DirectoryBrowser } from "./DirectoryBrowser";
 import { commands } from "../../bindings";
 import { listenForNativeMenuActions } from "../../lib/nativeMenu";
 import { formatMacShortcut, shortcutTitle } from "../../lib/macShortcuts";
@@ -31,6 +29,16 @@ const LazySettingsDialog = lazy(async () => {
 const LazyCommandsPalette = lazy(async () => {
   const module = await import("../chat/CommandsPalette");
   return { default: module.CommandsPalette };
+});
+
+const LazyProjectsSection = lazy(async () => {
+  const module = await import("./ProjectsSection");
+  return { default: module.ProjectsSection };
+});
+
+const LazyDirectoryBrowser = lazy(async () => {
+  const module = await import("./DirectoryBrowser");
+  return { default: module.DirectoryBrowser };
 });
 
 /**
@@ -188,12 +196,16 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
 
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
               <div className="flex-none border-b border-[oklch(0.20_0.006_245)]/60">
-                <ProjectsSection onOpenProject={handleOpenProject} />
+                <Suspense fallback={<SidebarSectionLoading title="Projects" />}>
+                  <LazyProjectsSection onOpenProject={handleOpenProject} />
+                </Suspense>
               </div>
 
               {activeProjectPath && (
                 <div className="flex-none border-b border-[oklch(0.20_0.006_245)]/60">
-                  <DirectoryBrowser />
+                  <Suspense fallback={<SidebarSectionLoading title="Files" />}>
+                    <LazyDirectoryBrowser />
+                  </Suspense>
                 </div>
               )}
 
@@ -293,6 +305,17 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
 function projectName(path: string): string {
   const parts = path.replace(/[\\/]+$/, "").split(/[\\/]/);
   return parts[parts.length - 1] || path;
+}
+
+function SidebarSectionLoading({ title }: { title: string }) {
+  return (
+    <div className="flex flex-col">
+      <div className="xolotl-sidebar-section-header">
+        <span className="xolotl-sidebar-section-title">{title}</span>
+        <span className="text-[10px] text-[oklch(0.46_0.010_225)]">Loading...</span>
+      </div>
+    </div>
+  );
 }
 
 interface CollapsedRailProps {
