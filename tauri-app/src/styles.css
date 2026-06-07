@@ -418,6 +418,57 @@ button {
   scrollbar-color: oklch(0.30 0.012 235) transparent;
 }
 
+.xolotl-terminal-panel {
+  background: oklch(0.085 0.004 250);
+}
+
+.xolotl-terminal-toolbar {
+  border-bottom: 1px solid oklch(0.20 0.008 240);
+  background: oklch(0.10 0.004 248);
+}
+
+.xolotl-terminal-tablist {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.30 0.012 235) transparent;
+}
+
+.xolotl-terminal-tab {
+  width: clamp(104px, 15vw, 178px);
+  min-width: 104px;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+}
+
+.xolotl-terminal-tab[data-active="true"] {
+  border-color: oklch(0.40 0.025 195);
+}
+
+.xolotl-terminal-tab[data-exited="true"] .xolotl-terminal-tab-title {
+  color: oklch(0.62 0.055 45);
+}
+
+.xolotl-terminal-tab-title {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.xolotl-terminal-tab-close {
+  opacity: 0;
+}
+
+.xolotl-terminal-tab:hover .xolotl-terminal-tab-close,
+.xolotl-terminal-tab:focus-within .xolotl-terminal-tab-close,
+.xolotl-terminal-tab[data-active="true"] .xolotl-terminal-tab-close {
+  opacity: 1;
+}
+
 .xolotl-palette-row-action {
   display: grid;
   height: 26px;

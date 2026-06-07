@@ -269,3 +269,34 @@ it("supports Mac terminal dock shortcuts for tabs", () => {
   expect(useTerminalStore.getState().tabs).toHaveLength(2);
   expect(useTerminalStore.getState().tabs.some((tab) => tab.key === firstKey)).toBe(true);
 });
+
+it("uses stable Mac tab strip classes and supports tablist arrow navigation", () => {
+  render(<TerminalPanel />);
+  const dock = screen.getByRole("region", { name: "Terminal dock" });
+
+  fireEvent.keyDown(dock, { key: "t", metaKey: true });
+  fireEvent.keyDown(dock, { key: "t", metaKey: true });
+
+  const tablist = screen.getByRole("tablist", { name: "Terminal tabs" });
+  expect(tablist.classList.contains("xolotl-terminal-tablist")).toBe(true);
+
+  const tabs = screen.getAllByRole("tab");
+  expect(tabs).toHaveLength(3);
+  for (const tab of tabs) {
+    expect(tab.classList.contains("xolotl-terminal-tab")).toBe(true);
+  }
+  expect(tabs[2].getAttribute("data-active")).toBe("true");
+  expect(screen.getAllByLabelText(/Close Terminal/)[2].classList.contains("xolotl-terminal-tab-close")).toBe(true);
+
+  fireEvent.keyDown(tabs[2], { key: "ArrowLeft" });
+  expect(useTerminalStore.getState().activeKey).toBe(useTerminalStore.getState().tabs[1].key);
+
+  fireEvent.keyDown(tabs[1], { key: "Home" });
+  expect(useTerminalStore.getState().activeKey).toBe(useTerminalStore.getState().tabs[0].key);
+
+  fireEvent.keyDown(tabs[0], { key: "End" });
+  expect(useTerminalStore.getState().activeKey).toBe(useTerminalStore.getState().tabs[2].key);
+
+  fireEvent.keyDown(tabs[2], { key: "ArrowRight" });
+  expect(useTerminalStore.getState().activeKey).toBe(useTerminalStore.getState().tabs[0].key);
+});

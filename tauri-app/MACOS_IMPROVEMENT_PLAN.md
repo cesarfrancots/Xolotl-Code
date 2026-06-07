@@ -43,6 +43,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Packaged Launch Services/Open With smoke coverage is available through `npm run smoke:mac:open-project`.
 - Terminal tab commands are available from a native Terminal menu.
 - Terminal tabs capture the active project directory when they are created.
+- Terminal tabs use stable Mac-style compact sizing, active/focus close affordances, and Arrow/Home/End tablist navigation.
 - Finder-style folder drops on the app window can activate projects.
 - Sidebar project paths use Mac-style `~` home labels.
 - File browser entries include hidden, alias, and package metadata.
@@ -108,6 +109,7 @@ Deliverables:
   - Move repeated command affordances toward icon buttons with tooltips where the action is familiar.
   - Keep cards reserved for repeated items, dialogs, and framed tools; avoid nested cards.
   - Tighten sidebar project/file-browser density while preserving Finder actions. Done for the first project and file-browser row pass.
+  - Keep terminal tabs stable at compact widths with predictable overflow and visible active/focus affordances. Done for the first tab-strip pass.
 - Workbench navigation:
   - Convert center workbench switching into a tighter segmented-control pattern. Done for the main Chat/Eval/Civ toolbar.
   - Add visible focus rings and predictable Tab order for sidebar, chat, eval, civ, terminal, and agent panels. Done for the first global fallback focus-ring pass across custom controls.
@@ -207,6 +209,8 @@ Deliverables:
   - Current shell. Done in the active terminal profile strip.
   - Current working directory. Done with Mac-style `~` labels.
   - Environment source. Done with shell resolution source metadata.
+- Improve terminal tab-strip ergonomics:
+  - Stable compact tab widths, active/focus close affordances, horizontal overflow, and Arrow/Home/End keyboard navigation. Done.
 - Investigate native pseudo-terminal behavior for long-running agent tasks and process cleanup on app quit. Done for backend-owned terminal PTYs and tracked eval child processes; autonomous agent executor child tracking remains a follow-up if the CLI runner is kept long term.
 
 Acceptance:
@@ -350,7 +354,7 @@ Deliverables:
   - Evaluate system accent-color usage only where it improves recognizability and does not create a one-color UI.
 - Improve compact-window behavior:
   - Verify traffic-light spacing, collapsed sidebar controls, terminal tabs, and command palette at narrow widths.
-  - Prevent titlebar and toolbar actions from wrapping into unusable states.
+  - Prevent titlebar and toolbar actions from wrapping into unusable states. Done for the first terminal tab strip overflow pass.
 
 Acceptance:
 
@@ -486,6 +490,7 @@ This is the near-term order for this branch.
 2. Start Phase 2 Mac UI pass:
    - Audit the current app shell at desktop and compact MacBook widths.
    - Tighten Settings, command palette, terminal tabs, and result surfaces to match the existing Mac-style sidebar/workbench direction. Done for the first Settings and command-palette dialog pass.
+   - Terminal tabs now have a first compact Mac tab-strip pass with stable sizing and keyboard navigation.
    - Add browser screenshots and focused tests for any layout-affecting changes.
 3. Add Phase 2.5 keyboard parity:
    - Additional file-browser row commands in the command palette. Done for current-folder, Quick Look, New Terminal Here, and visible-entry commands.
