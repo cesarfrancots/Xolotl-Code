@@ -19,7 +19,7 @@ missing_panics_doc = "allow"
 missing_errors_doc = "allow"
 
 [workspace.dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["codec", "io"] }
 futures = "0.3"
 async-trait = "0.1"
