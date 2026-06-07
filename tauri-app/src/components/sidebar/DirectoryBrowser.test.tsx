@@ -100,6 +100,12 @@ describe("DirectoryBrowser", () => {
       { label: "src", kind: "Folder", relativePath: "src" },
     );
 
+    fireEvent.click(screen.getByLabelText("Copy current folder context prompt"));
+    expect(copyPathContextHandoff).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl",
+      { label: "Xolotl", kind: "Folder", relativePath: "." },
+    );
+
     fireEvent.click(screen.getByLabelText("Quick Look README.md"));
     expect(quickLookPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/README.md");
 

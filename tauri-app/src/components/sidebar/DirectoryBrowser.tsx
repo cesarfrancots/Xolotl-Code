@@ -143,6 +143,25 @@ export function DirectoryBrowser() {
         </button>
         <button
           type="button"
+          title="Copy context prompt"
+          aria-label="Copy current folder context prompt"
+          onClick={() => void runHandoff(
+            "Copy current folder context prompt",
+            () => copyPathContextHandoff(currentPath, {
+              label: here || undefined,
+              kind: "Folder",
+              relativePath: relativePathFromRoot(currentPath, activePath),
+            }),
+            "Current folder context prompt copied.",
+            "clipboard",
+            "path",
+          )}
+          className="xolotl-sidebar-icon-button"
+        >
+          <ClipboardList className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
           title="New Terminal Here"
           aria-label="New terminal in current folder"
           onClick={() => openTerminalAtPath(currentPath, here || "Terminal")}
