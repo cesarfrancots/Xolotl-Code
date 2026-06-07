@@ -3,13 +3,27 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { persistCenterTab } from "./lib/appNavigation";
+import { MAC_APP_STATUS_EVENT } from "./lib/macAppStatus";
 import { NATIVE_MENU_EVENT } from "./lib/nativeMenu";
 import { useProjectStore } from "./stores/projectStore";
 import { useTerminalStore } from "./stores/terminalStore";
 import { useUiStore } from "./stores/uiStore";
 
+const tauriEventMocks = vi.hoisted(() => ({
+  listen: vi.fn((_eventName: string, _handler?: unknown) => Promise.resolve(() => {})),
+}));
+
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(() => Promise.resolve(() => {})),
+  listen: tauriEventMocks.listen,
+}));
+
+vi.mock("./hooks/useMacGlobalHotkey", () => ({
+  MAC_PRODUCTIVITY_SETTINGS_CHANGED_EVENT: "xolotl:mac-productivity-settings-changed",
+  useMacGlobalHotkey: () => undefined,
+}));
+
+vi.mock("./hooks/useMacStatusItem", () => ({
+  useMacStatusItem: () => undefined,
 }));
 
 vi.mock("./components/sidebar/SessionSidebar", () => ({
@@ -83,6 +97,7 @@ describe("App tab navigation", () => {
     });
     useTerminalStore.setState({ tabs: [], activeKey: null });
     useProjectStore.setState({ activeProjectPath: null, projects: [], listing: null });
+    tauriEventMocks.listen.mockImplementation((_eventName: string, _handler?: unknown) => Promise.resolve(() => {}));
   });
 
   it("keeps the app shell constrained to the visible viewport", () => {
@@ -231,6 +246,38 @@ describe("App tab navigation", () => {
     } finally {
       window.removeEventListener(NATIVE_MENU_EVENT, onAction);
     }
+  });
+
+  it("shows and dismisses app-level Mac status events", async () => {
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(MAC_APP_STATUS_EVENT, {
+      detail: {
+        tone: "error",
+        message: "Global hotkey registration failed.",
+        hint: "Pick a different shortcut.",
+      },
+    }));
+
+    expect(await screen.findByText("Global hotkey registration failed.")).toBeTruthy();
+    expect(screen.getByText("Pick a different shortcut.")).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText("Dismiss Mac app status"));
+
+    expect(screen.queryByText("Global hotkey registration failed.")).toBeNull();
+  });
+
+  it("shows recovery when the native menu bridge listener fails", async () => {
+    tauriEventMocks.listen.mockImplementation((eventName: string) => {
+      if (eventName === "xolotl://menu") return Promise.reject(new Error("listener denied"));
+      return Promise.resolve(() => {});
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Native menu bridge unavailable.")).toBeTruthy();
+    expect(screen.getByText(/Restart Xolotl Code if menu commands stop responding/)).toBeTruthy();
+    expect(screen.getByText(/listener denied/)).toBeTruthy();
   });
 
   it("returns to chat for the native new chat action", async () => {

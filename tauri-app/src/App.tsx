@@ -15,8 +15,9 @@ import { useMacGlobalHotkey } from "./hooks/useMacGlobalHotkey";
 import { useMacNotificationRoutes } from "./hooks/useMacNotificationRoutes";
 import { useMacStatusItem } from "./hooks/useMacStatusItem";
 import { useProjectOpenEvents } from "./hooks/useProjectOpenEvents";
-import { Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves, X } from "lucide-react";
 import { centerTabFromSearch, initialCenterTabFromSearch, persistCenterTab, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
+import { errorDetail, MAC_APP_STATUS_EVENT, type MacAppStatus } from "./lib/macAppStatus";
 import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
 import {
@@ -54,6 +55,7 @@ function isCompactShell() {
 export default function App() {
   const [centerTab, setCenterTab] = useState<CenterTab>(() => initialCenterTabFromSearch(window.location.search));
   const [compactShell, setCompactShell] = useState(isCompactShell);
+  const [macAppStatus, setMacAppStatus] = useState<MacAppStatus | null>(null);
   const expandedAgentId = useAgentStore((s) => s.expandedAgentId);
   const mergeCheckpointGroupId = useAgentStore((s) => s.mergeCheckpointGroupId);
   const showAgentView = expandedAgentId || mergeCheckpointGroupId;
@@ -148,6 +150,14 @@ export default function App() {
   useEffect(() => listenForNativeMenuActions(handleNativeMenuAction), [handleNativeMenuAction]);
 
   useEffect(() => {
+    const onMacAppStatus = (event: Event) => {
+      setMacAppStatus((event as CustomEvent<MacAppStatus>).detail);
+    };
+    window.addEventListener(MAC_APP_STATUS_EVENT, onMacAppStatus);
+    return () => window.removeEventListener(MAC_APP_STATUS_EVENT, onMacAppStatus);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     let unlisten: UnlistenFn | null = null;
 
@@ -160,7 +170,13 @@ export default function App() {
         else unlisten = fn;
       })
       .catch((err) => {
+        if (cancelled) return;
         console.error("native menu listener failed:", err);
+        setMacAppStatus({
+          tone: "error",
+          message: "Native menu bridge unavailable.",
+          hint: `Restart Xolotl Code if menu commands stop responding. Keyboard shortcuts inside the app still work. ${errorDetail(err)}`,
+        });
       });
 
     return () => {
@@ -291,6 +307,9 @@ export default function App() {
             {renderCenter()}
           </div>
         </WorkspaceErrorBoundary>
+        {macAppStatus && (
+          <MacAppStatusBanner status={macAppStatus} onDismiss={() => setMacAppStatus(null)} />
+        )}
         {terminalDockMounted && (
           <Suspense fallback={null}>
             <LazyTerminalDock />
@@ -298,6 +317,40 @@ export default function App() {
         )}
       </div>
       <AgentPanel forceCollapsed={compactShell} />
+    </div>
+  );
+}
+
+function MacAppStatusBanner({
+  status,
+  onDismiss,
+}: {
+  status: MacAppStatus;
+  onDismiss: () => void;
+}) {
+  const Icon = status.tone === "error" ? AlertTriangle : CheckCircle2;
+  const classes = status.tone === "error"
+    ? "border-[oklch(0.34_0.055_25)] bg-[oklch(0.145_0.018_25)] text-[oklch(0.78_0.090_25)]"
+    : "border-[oklch(0.32_0.045_155)] bg-[oklch(0.145_0.018_155)] text-[oklch(0.74_0.080_155)]";
+
+  return (
+    <div
+      role={status.tone === "error" ? "alert" : "status"}
+      className={`flex flex-none items-start gap-2 border-t px-3 py-2 text-xs ${classes}`}
+    >
+      <Icon className="mt-0.5 h-3.5 w-3.5 flex-none" />
+      <div className="min-w-0 flex-1">
+        <div className="font-medium">{status.message}</div>
+        {status.hint && <div className="mt-0.5 break-words leading-relaxed text-[oklch(0.67_0.045_45)]">{status.hint}</div>}
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="flex-none rounded px-1 text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.18_0.008_245)] hover:text-[oklch(0.86_0.016_220)]"
+        aria-label="Dismiss Mac app status"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }

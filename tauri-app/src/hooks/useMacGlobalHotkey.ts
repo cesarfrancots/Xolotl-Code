@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { register, unregister, type ShortcutEvent } from "@tauri-apps/plugin-global-shortcut";
 import { commands, type MacGlobalHotkeySettings, type MacProductivitySettings } from "../bindings";
+import { errorDetail, notifyMacAppStatus } from "../lib/macAppStatus";
 
 export const DEFAULT_MAC_GLOBAL_HOTKEY_SHORTCUT = "CommandOrControl+Shift+Space";
 export const MAC_PRODUCTIVITY_SETTINGS_CHANGED_EVENT = "xolotl:mac-productivity-settings-changed";
@@ -56,6 +57,11 @@ export function useMacGlobalHotkey() {
           if (event.state !== "Pressed") return;
           void focusXolotlFromGlobalHotkey().catch((err) => {
             console.error("global hotkey focus failed:", err);
+            notifyMacAppStatus({
+              tone: "error",
+              message: "Global hotkey could not focus Xolotl Code.",
+              hint: `Use the Dock or Cmd+Tab to bring the app forward, then check macOS permissions if this repeats. ${errorDetail(err)}`,
+            });
           });
         });
         if (disposed || run !== generation) {
@@ -65,12 +71,22 @@ export function useMacGlobalHotkey() {
         }
       } catch (err) {
         console.error("global hotkey registration failed:", err);
+        notifyMacAppStatus({
+          tone: "error",
+          message: "Global hotkey registration failed.",
+          hint: `Pick a different shortcut in Settings, or disable the global hotkey if another Mac app owns it. ${errorDetail(err)}`,
+        });
       }
     };
 
     const loadSettings = () => {
       void commands.getMacProductivitySettings().then(applySettings).catch((err) => {
         console.warn("global hotkey settings load failed:", err);
+        notifyMacAppStatus({
+          tone: "error",
+          message: "Mac productivity settings could not load.",
+          hint: `Open Settings and save the Mac productivity options again. ${errorDetail(err)}`,
+        });
       });
     };
 

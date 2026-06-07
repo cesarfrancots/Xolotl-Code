@@ -6,6 +6,7 @@ import {
   useMacGlobalHotkey,
 } from "./useMacGlobalHotkey";
 import type { MacProductivitySettings } from "../bindings";
+import { MAC_APP_STATUS_EVENT, type MacAppStatus } from "../lib/macAppStatus";
 
 const commandMocks = vi.hoisted(() => ({
   getMacProductivitySettings: vi.fn(),
@@ -112,5 +113,55 @@ describe("useMacGlobalHotkey", () => {
     });
 
     unmount();
+  });
+
+  it("emits recovery status when global hotkey registration fails", async () => {
+    const statuses: MacAppStatus[] = [];
+    const onStatus = (event: Event) => statuses.push((event as CustomEvent<MacAppStatus>).detail);
+    window.addEventListener(MAC_APP_STATUS_EVENT, onStatus);
+    commandMocks.getMacProductivitySettings.mockResolvedValue(settings(true, "CommandOrControl+Option+X"));
+    shortcutMocks.register.mockRejectedValueOnce(new Error("shortcut already owned"));
+
+    try {
+      render(<HotkeyHarness />);
+
+      await waitFor(() => {
+        expect(statuses[0]?.message).toBe("Global hotkey registration failed.");
+      });
+      expect(statuses[0]?.hint).toContain("Pick a different shortcut");
+      expect(statuses[0]?.hint).toContain("shortcut already owned");
+    } finally {
+      window.removeEventListener(MAC_APP_STATUS_EVENT, onStatus);
+    }
+  });
+
+  it("emits recovery status when a pressed global hotkey cannot focus the app", async () => {
+    const statuses: MacAppStatus[] = [];
+    const onStatus = (event: Event) => statuses.push((event as CustomEvent<MacAppStatus>).detail);
+    window.addEventListener(MAC_APP_STATUS_EVENT, onStatus);
+    commandMocks.getMacProductivitySettings.mockResolvedValue(settings(true, "CommandOrControl+Option+X"));
+    windowMocks.setFocus.mockRejectedValueOnce(new Error("focus denied"));
+
+    try {
+      render(<HotkeyHarness />);
+
+      await waitFor(() => {
+        expect(shortcutMocks.register).toHaveBeenCalledWith(
+          "CommandOrControl+Option+X",
+          expect.any(Function),
+        );
+      });
+
+      const handler = shortcutMocks.register.mock.calls[0][1];
+      handler({ shortcut: "CommandOrControl+Option+X", id: 1, state: "Pressed" });
+
+      await waitFor(() => {
+        expect(statuses[0]?.message).toBe("Global hotkey could not focus Xolotl Code.");
+      });
+      expect(statuses[0]?.hint).toContain("Cmd+Tab");
+      expect(statuses[0]?.hint).toContain("focus denied");
+    } finally {
+      window.removeEventListener(MAC_APP_STATUS_EVENT, onStatus);
+    }
   });
 });
