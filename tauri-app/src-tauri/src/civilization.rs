@@ -908,7 +908,6 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
     // so casualties (entity removals) land before run_life_cycle re-syncs the
     // population mirror this same turn (WAR-02).
     resolve_combat(&mut snapshot, &mut attacks);
-
     // Resolve each civ's environment, then collapse any that ran out of axolotls.
     for civ_id in &turn_order {
         resolve_environment(&mut snapshot, civ_id);
@@ -5515,6 +5514,72 @@ fn resolve_combat(snapshot: &mut CivSessionSnapshot, attacks: &mut [(String, Str
     }
 }
 
+// --- Predator engine: wild fauna spawned by `predator_incursion` (W6 / WAR-04) ---
+//
+// Predators are the only net-new concept in Phase 4: net-new wild `CivEntity`s
+// (`kind == "predator"`, `civ_id == None`) spawned when Phase 3's
+// `predator_incursion` forecast fires (`tick_environment`), then driven each turn by
+// the predator world pass `step_predators` (called from `advance_civ_turn` AFTER
+// `resolve_combat` and BEFORE `resolve_environment`, so predator casualties — entity
+// removals, never a `population` decrement — land before the population mirror
+// re-syncs). Defense reuses the combat seam `civ_strength`: a strong civ takes less
+// damage and culls more predators (culled predators drop food). Everything is
+// replay-stable: ids are `format!("predator-{turn}-{n}")` (no uuid/clock) and both
+// passes seed one rng with the distinct predator salt `0xBADD_CA75`.
+
+/// Distinct predator RNG salt (vs combat `0xC0FF_EE01`, civ_turn_order `0x51ED_2701`,
+/// env-season `0xE05A_F107`) so predator rolls stay uncorrelated with the other passes.
+const PREDATOR_SALT: u32 = 0xBADD_CA75;
+
+/// Spawn `count` net-new wild predator entities near the colony nearest the disaster
+/// `epicenter_x`. WAR-04. Called from `tick_environment`'s `predator_incursion` fire
+/// branch. Predators are `civ_id == None` wild fauna with deterministic
+/// `predator-{turn}-{n}` ids (no uuid/clock) and `age == 0` (the lifespan counter).
+/// Placement jitter is drawn from `rng` (the predator-salt stream) and clamped to the
+/// world bounds. A no-op if no living civ exists (nothing to hunt).
+fn spawn_predators(snapshot: &mut CivSessionSnapshot, epicenter_x: u32, count: u32, rng: &mut u32) {
+    // Nearest living colony centre to the epicenter (deterministic: min by |dx|, then
+    // by civ id so ties break stably).
+    let mut centers: Vec<(String, (u32, u32))> = snapshot
+        .civs
+        .iter()
+        .filter(|c| c.alive)
+        .map(|c| (c.id.clone(), colony_center(snapshot, &c.id)))
+        .collect();
+    centers.sort_by(|a, b| {
+        let da = (i64::from(a.1 .0) - i64::from(epicenter_x)).unsigned_abs();
+        let db = (i64::from(b.1 .0) - i64::from(epicenter_x)).unsigned_abs();
+        da.cmp(&db).then_with(|| a.0.cmp(&b.0))
+    });
+    let Some((_, (cx, cy))) = centers.into_iter().next() else {
+        return; // no living civ → nothing to hunt
+    };
+    let turn = snapshot.turn;
+    let width = snapshot.world.width;
+    let height = snapshot.world.height;
+    let mut spawned = Vec::new();
+    for n in 0..count {
+        let jitter_x = rand_range(rng, -3.0, 3.0) as i64;
+        let jitter_y = rand_range(rng, -2.0, 2.0) as i64;
+        let px = (i64::from(cx) + jitter_x).clamp(0, i64::from(width) - 1) as u32;
+        let py = (i64::from(cy) + jitter_y).clamp(0, i64::from(height) - 1) as u32;
+        spawned.push(CivEntity {
+            id: format!("predator-{turn}-{n}"),
+            kind: "predator".to_string(),
+            role: "predator".to_string(),
+            name: "Wild predator".to_string(),
+            x: px,
+            y: py,
+            health: 1.0,
+            civ_id: None,
+            stage: "adult".to_string(),
+            age: 0,
+            ..Default::default()
+        });
+    }
+    snapshot.world.entities.extend(spawned);
+}
+
 // --- Environment engine: pure, seed-deterministic helpers (W4) ---
 //
 // These leaf helpers are wired into the turn loop by the Wave-3 orchestrator
@@ -5805,6 +5870,19 @@ fn tick_environment(snapshot: &mut CivSessionSnapshot) {
                     forecast.kind, forecast.epicenter_x, forecast.radius, forecast.intensity
                 ),
             );
+            // WAR-04: a fired predator_incursion ALSO spawns net-new wild predator
+            // entities near the threatened colony (the quarrel_pressure modifier above
+            // is KEPT — predators are the physical threat, morale pressure the ambient
+            // dread; RESEARCH Open Q3). Self-contained predator-salt rng + format! ids
+            // preserve this tick's byte-determinism (no uuid/clock; T-04-03).
+            if forecast.kind == "predator_incursion" {
+                let mut prng =
+                    (snapshot.seed ^ snapshot.turn.wrapping_mul(0x9E37_79B9) ^ PREDATOR_SALT)
+                        .max(1);
+                let count = 1 + (forecast.intensity.clamp(0.0, 2.0) as u32); // 1-3 predators
+                let epicenter_x = forecast.epicenter_x;
+                spawn_predators(snapshot, epicenter_x, count, &mut prng);
+            }
             snapshot.environment.disasters.push(forecast);
         } else {
             // Not due yet — keep counting down in the forecast slot.
@@ -8582,6 +8660,93 @@ mod tests {
         assert_eq!(
             s.civs[di].population, after_entities,
             "population mirror (re-synced after combat) must reflect the casualties"
+        );
+    }
+
+    // --- WAR-04 wild predators (spawn_predators + step_predators) tests (04-03) ---
+
+    /// Count the wild predator entities currently in the world.
+    fn predator_count(s: &CivSessionSnapshot) -> usize {
+        s.world
+            .entities
+            .iter()
+            .filter(|e| e.kind == "predator" && e.civ_id.is_none())
+            .count()
+    }
+
+    #[test]
+    fn predator_incursion_spawns_predators() {
+        // A fired predator_incursion forecast spawns >=1 wild predator entity
+        // (kind=="predator", civ_id==None) with the deterministic predator-{turn}-{n}
+        // id, while STILL pushing the quarrel_pressure modifier (Open Q3).
+        let mut s = multi_civ_snapshot(2024, 2);
+        give_civ_axolotls(&mut s, &civ_id_for(0), 6);
+        s.environment.forecast = Some(pending_forecast("predator_incursion", 1));
+        s.turn = 3;
+        let before = predator_count(&s);
+        tick_environment(&mut s);
+        let after = predator_count(&s);
+        assert!(
+            after > before,
+            "a fired predator_incursion must spawn net-new predator entities ({before} -> {after})"
+        );
+        // Every spawned predator is wild (civ_id None) with a deterministic id.
+        let preds: Vec<&CivEntity> = s
+            .world
+            .entities
+            .iter()
+            .filter(|e| e.kind == "predator")
+            .collect();
+        assert!(
+            preds.iter().all(|p| p.civ_id.is_none()),
+            "predators must be wild fauna (civ_id == None)"
+        );
+        assert!(
+            preds.iter().all(|p| p.id.starts_with("predator-3-")),
+            "predator ids must follow predator-{{turn}}-{{n}} (deterministic, no uuid/clock)"
+        );
+        // Open Q3: the quarrel_pressure morale modifier still fires alongside the predators.
+        assert!(
+            s.modifiers.iter().any(|m| m.kind == "quarrel_pressure"),
+            "the existing quarrel_pressure modifier must STILL fire with predators (Open Q3)"
+        );
+    }
+
+    #[test]
+    fn predator_spawn_is_deterministic() {
+        // Firing predator_incursion at the same (seed, turn) on two clones yields
+        // byte-identical world.entities (predator ids + positions identical).
+        let mut base = multi_civ_snapshot(2024, 2);
+        give_civ_axolotls(&mut base, &civ_id_for(0), 6);
+        base.environment.forecast = Some(pending_forecast("predator_incursion", 1));
+        base.turn = 4;
+        let mut a = base.clone();
+        let mut b = base.clone();
+        tick_environment(&mut a);
+        tick_environment(&mut b);
+        assert!(
+            predator_count(&a) > 0,
+            "the test must actually spawn predators"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "predator spawn must be byte-identical across clones at a fixed (seed, turn)"
+        );
+    }
+
+    #[test]
+    fn non_predator_disaster_spawns_no_predators() {
+        // A non-predator disaster (drought) must NOT spawn any predator entities.
+        let mut s = multi_civ_snapshot(2024, 2);
+        give_civ_axolotls(&mut s, &civ_id_for(0), 6);
+        s.environment.forecast = Some(pending_forecast("drought", 1));
+        s.turn = 3;
+        tick_environment(&mut s);
+        assert_eq!(
+            predator_count(&s),
+            0,
+            "a non-predator disaster must not spawn predators"
         );
     }
 }
