@@ -164,8 +164,15 @@ if (existsSync(appPath)) {
     check(verify.status === 0, `codesign verification failed: ${verify.stderr.trim()}`);
     check(hasDeveloperId && hasTeamIdentifier, "App is not signed with a Developer ID Application identity.");
   } else {
-    warn(verify.status === 0, `codesign verification did not pass: ${verify.stderr.trim()}`);
-    warn(hasDeveloperId && hasTeamIdentifier, isAdHoc ? "App is ad-hoc signed; Developer ID signing is not required for this preflight." : "Developer ID signature is not present.");
+    if (verify.status !== 0) {
+      warnings.push(`codesign verification did not pass: ${verify.stderr.trim()}`);
+    } else if (hasDeveloperId && hasTeamIdentifier) {
+      notes.push("Developer ID code signature is valid");
+    } else if (isAdHoc) {
+      notes.push("Ad-hoc code signature is valid for local preflight");
+    } else {
+      warnings.push("Developer ID signature is not present.");
+    }
   }
 
   if (requireNotarization) {
