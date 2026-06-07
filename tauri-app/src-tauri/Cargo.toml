@@ -32,7 +32,6 @@ tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 # Plugins (TAU-05)
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
-tauri-plugin-fs = "2"
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-window-state = "2"
 # HTTP client for AI API streaming

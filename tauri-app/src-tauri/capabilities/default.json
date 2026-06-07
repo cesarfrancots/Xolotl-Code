@@ -9,14 +9,6 @@
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "dialog:default",
-    {
-      "identifier": "fs:default",
-      "allow": [
-        { "path": "$APPDATA/**" },
-        { "path": "$APPCONFIG/**" },
-        { "path": "$HOME/.xolotl-code/**" }
-      ]
-    },
     "notification:default"
   ]
 }
