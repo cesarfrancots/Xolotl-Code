@@ -908,6 +908,13 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
     // so casualties (entity removals) land before run_life_cycle re-syncs the
     // population mirror this same turn (WAR-02).
     resolve_combat(&mut snapshot, &mut attacks);
+
+    // PREDATOR WORLD PASS — runs AFTER combat and BEFORE resolve_environment (WAR-04),
+    // so predator hunt casualties (entity removals) also land before the population
+    // mirror re-syncs. Order: decision loop → resolve_combat → step_predators →
+    // resolve_environment. Uses its own predator salt (uncorrelated with combat).
+    step_predators(&mut snapshot);
+
     // Resolve each civ's environment, then collapse any that ran out of axolotls.
     for civ_id in &turn_order {
         resolve_environment(&mut snapshot, civ_id);
@@ -5580,6 +5587,208 @@ fn spawn_predators(snapshot: &mut CivSessionSnapshot, epicenter_x: u32, count: u
     snapshot.world.entities.extend(spawned);
 }
 
+/// Predator lifespan in turns. Tied to `disaster_duration("predator_incursion")` (3)
+/// plus slack so a spawned wave hunts for a few turns before expiring (T-04-03).
+const PREDATOR_LIFESPAN: u32 = 5;
+/// Squared distance within which a predator is "in range" of a colony and attacks
+/// (and within which a civ's defenders can cull it). ~6 tiles.
+const PREDATOR_RANGE2: u64 = 36;
+/// Food a defending civ gains when it culls a predator (a small, fixed, bounded
+/// credit — conserved-style, can never go negative; T-04-11).
+const PREDATOR_FOOD_DROP: i32 = 3;
+
+/// Per-predator hunt/defense intents collected in the read phase of `step_predators`,
+/// applied (entity removals + food credits) in the write phase to respect the borrow
+/// checker (no aliasing `world.entities` while iterating).
+struct PredatorOutcome {
+    /// New predator positions after moving toward the nearest colony, keyed by id.
+    moves: Vec<(String, u32, u32)>,
+    /// Per-civ axolotl kills to apply (civ_id -> kills), bounded later by `kill_axolotls`.
+    kills: HashMap<String, u32>,
+    /// Per-civ food credits from culled predators (civ_id -> food).
+    food: HashMap<String, i32>,
+    /// Predator ids to remove (culled by defense OR expired by lifespan).
+    dead: Vec<String>,
+    /// Surviving predator ids whose age must be incremented this step.
+    aged: Vec<String>,
+}
+
+/// The post-decision PREDATOR WORLD PASS (WAR-04). One deterministic step: each
+/// predator (processed in stable id-sorted order) moves toward the nearest living
+/// colony; if in range it hunts (kills bounded axolotl entities, reduced by the civ's
+/// `civ_strength` defense) and may be culled by that civ's defenders (a strong civ
+/// culls more); culled predators drop food; predators at `age >= PREDATOR_LIFESPAN`
+/// expire. Casualties REMOVE axolotl entities (never a `population` decrement — the
+/// counter is a mirror) and the pass runs BEFORE `resolve_environment`, so losses land
+/// before the mirror re-syncs. Seeds one rng with the distinct predator salt; reads all
+/// state into local Vecs/maps FIRST, then applies mutations, to avoid aliasing
+/// `world.entities` while iterating (borrow discipline mirrors `plunder`).
+fn step_predators(snapshot: &mut CivSessionSnapshot) {
+    let mut rng = (snapshot.seed ^ snapshot.turn.wrapping_mul(0x9E37_79B9) ^ PREDATOR_SALT).max(1);
+
+    // --- Read phase: collect predators (stable id-sorted) + living colony centres. ---
+    let mut predators: Vec<(String, u32, u32, u32)> = snapshot
+        .world
+        .entities
+        .iter()
+        .filter(|e| e.kind == "predator" && e.civ_id.is_none())
+        .map(|e| (e.id.clone(), e.x, e.y, e.age))
+        .collect();
+    predators.sort();
+    if predators.is_empty() {
+        return;
+    }
+    let centers: Vec<(String, u32, u32, f32)> = snapshot
+        .civs
+        .iter()
+        .filter(|c| c.alive)
+        .map(|c| {
+            let (cx, cy) = colony_center(snapshot, &c.id);
+            (c.id.clone(), cx, cy, civ_strength(snapshot, &c.id))
+        })
+        .collect();
+
+    let mut outcome = PredatorOutcome {
+        moves: Vec::new(),
+        kills: HashMap::new(),
+        food: HashMap::new(),
+        dead: Vec::new(),
+        aged: Vec::new(),
+    };
+
+    for (pid, px, py, page) in &predators {
+        // Expire by lifespan first — an expired predator does not hunt this step.
+        if *page >= PREDATOR_LIFESPAN {
+            outcome.dead.push(pid.clone());
+            continue;
+        }
+        // Nearest living colony (deterministic: min dist2, then by civ id).
+        let Some((cid, cx, cy, strength)) = centers
+            .iter()
+            .min_by(|a, b| {
+                dist2(*px, *py, a.1, a.2)
+                    .cmp(&dist2(*px, *py, b.1, b.2))
+                    .then_with(|| a.0.cmp(&b.0))
+            })
+            .cloned()
+        else {
+            // No living civ to hunt — just age the predator.
+            outcome.aged.push(pid.clone());
+            continue;
+        };
+
+        // Move one step toward the colony centre (clamped to bounds).
+        let nx = step_toward(*px, cx);
+        let ny = step_toward(*py, cy);
+        outcome.moves.push((pid.clone(), nx, ny));
+
+        // In range? Use the post-move position so a predator that just arrived bites.
+        let in_range = dist2(nx, ny, cx, cy) <= PREDATOR_RANGE2;
+        let mut culled = false;
+        if in_range {
+            // Hunt: base damage 1, reduced to 0 once the civ is strong enough (defense).
+            // strength 0 → full damage; scales down to 0 by ~strength 20.
+            let defense = (strength / 20.0).clamp(0.0, 1.0);
+            let damage = if rand_f(&mut rng) >= defense { 1 } else { 0 };
+            if damage > 0 {
+                *outcome.kills.entry(cid.clone()).or_insert(0) += damage;
+            }
+            // Defense cull: stronger civs cull more often. cull chance scales with strength.
+            let cull_chance = (strength / 30.0).clamp(0.0, 0.9);
+            if rand_f(&mut rng) < cull_chance {
+                culled = true;
+                outcome.dead.push(pid.clone());
+                *outcome.food.entry(cid.clone()).or_insert(0) += PREDATOR_FOOD_DROP;
+            }
+        }
+        if !culled {
+            outcome.aged.push(pid.clone());
+        }
+    }
+
+    // --- Write phase: apply moves, then kills (bounded), then culls/expiry + food. ---
+    if !outcome.moves.is_empty() {
+        let move_map: HashMap<&str, (u32, u32)> = outcome
+            .moves
+            .iter()
+            .map(|(id, x, y)| (id.as_str(), (*x, *y)))
+            .collect();
+        for e in &mut snapshot.world.entities {
+            if let Some(&(nx, ny)) = move_map.get(e.id.as_str()) {
+                e.x = nx;
+                e.y = ny;
+            }
+        }
+    }
+
+    let mut hunted_any = false;
+    let mut civ_kills: Vec<(String, u32)> = outcome.kills.into_iter().collect();
+    civ_kills.sort();
+    for (cid, want) in &civ_kills {
+        // Bounded: never remove a civ's last living axolotl (leave >=1).
+        let living = living_axolotl_count(snapshot, cid);
+        let allowed = (*want).min(living.saturating_sub(1));
+        let killed = kill_axolotls(snapshot, cid, allowed);
+        if killed > 0 {
+            hunted_any = true;
+        }
+    }
+
+    // Age survivors (those not removed this step).
+    if !outcome.aged.is_empty() {
+        let age_set: std::collections::HashSet<&str> =
+            outcome.aged.iter().map(String::as_str).collect();
+        for e in &mut snapshot.world.entities {
+            if e.kind == "predator" && age_set.contains(e.id.as_str()) {
+                e.age = e.age.saturating_add(1);
+            }
+        }
+    }
+
+    // Credit culled-predator food drops (a credit can never go negative).
+    let mut food_credits: Vec<(String, i32)> = outcome.food.into_iter().collect();
+    food_credits.sort();
+    let culled_any = !outcome.dead.is_empty();
+    for (cid, food) in &food_credits {
+        if let Some(ci) = civ_index(snapshot, cid) {
+            *snapshot.civs[ci]
+                .resources
+                .entry("food".to_string())
+                .or_insert(0) += *food;
+        }
+    }
+
+    // Remove culled + expired predators in one retain.
+    if !outcome.dead.is_empty() {
+        let dead: std::collections::HashSet<&str> =
+            outcome.dead.iter().map(String::as_str).collect();
+        snapshot
+            .world
+            .entities
+            .retain(|e| !(e.kind == "predator" && dead.contains(e.id.as_str())));
+    }
+
+    if hunted_any || culled_any {
+        push_log(
+            snapshot,
+            "predator",
+            "Wild predators on the prowl",
+            "Predators hunted the colonies; defenders fought back and drove some off.",
+        );
+    }
+}
+
+/// Move one tile from `from` toward `to` (saturating, clamp-free since both are valid
+/// world coords). Used to advance predators toward a colony centre each step.
+fn step_toward(from: u32, to: u32) -> u32 {
+    use std::cmp::Ordering;
+    match from.cmp(&to) {
+        Ordering::Less => from + 1,
+        Ordering::Greater => from - 1,
+        Ordering::Equal => from,
+    }
+}
+
 // --- Environment engine: pure, seed-deterministic helpers (W4) ---
 //
 // These leaf helpers are wired into the turn loop by the Wave-3 orchestrator
@@ -8674,6 +8883,27 @@ mod tests {
             .count()
     }
 
+    /// Push `n` wild predator entities adjacent to `civ_id`'s colony centre (for the
+    /// step_predators tests — bypasses the forecast-fire spawn path).
+    fn give_predators_near(s: &mut CivSessionSnapshot, civ_id: &str, n: u32) {
+        let (cx, cy) = colony_center(s, civ_id);
+        for i in 0..n {
+            s.world.entities.push(CivEntity {
+                id: format!("predator-test-{i}"),
+                kind: "predator".to_string(),
+                role: "predator".to_string(),
+                name: "Wild predator".to_string(),
+                x: cx,
+                y: cy,
+                health: 1.0,
+                civ_id: None,
+                stage: "adult".to_string(),
+                age: 0,
+                ..Default::default()
+            });
+        }
+    }
+
     #[test]
     fn predator_incursion_spawns_predators() {
         // A fired predator_incursion forecast spawns >=1 wild predator entity
@@ -8747,6 +8977,207 @@ mod tests {
             predator_count(&s),
             0,
             "a non-predator disaster must not spawn predators"
+        );
+    }
+
+    #[test]
+    fn step_predators_hunt_and_expire() {
+        // Predators near a colony reduce its living axolotls (hunt); the loss is
+        // reflected in the population mirror after resolve_environment; predators at
+        // age >= lifespan are removed and survivors' age is incremented.
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 5;
+        let defender = civ_id_for(0);
+        give_civ_axolotls(&mut s, &defender, 12);
+        // A young hunting wave + one already at its lifespan (must expire this step).
+        give_predators_near(&mut s, &defender, 4);
+        s.world.entities.push(CivEntity {
+            id: "predator-old".to_string(),
+            kind: "predator".to_string(),
+            role: "predator".to_string(),
+            name: "Wild predator".to_string(),
+            x: colony_center(&s, &defender).0,
+            y: colony_center(&s, &defender).1,
+            health: 1.0,
+            civ_id: None,
+            stage: "adult".to_string(),
+            age: PREDATOR_LIFESPAN, // already expired
+            ..Default::default()
+        });
+        let axos_before = living_axolotl_count(&s, &defender);
+        let preds_before = predator_count(&s);
+        step_predators(&mut s);
+        let axos_after = living_axolotl_count(&s, &defender);
+        assert!(
+            axos_after < axos_before,
+            "predators must reduce the colony's living axolotls ({axos_before} -> {axos_after})"
+        );
+        // The expired predator is gone; some young hunters may have been culled too.
+        assert!(
+            !s.world.entities.iter().any(|e| e.id == "predator-old"),
+            "a predator at age >= lifespan must be removed (expired)"
+        );
+        assert!(
+            predator_count(&s) < preds_before,
+            "at least the expired predator must be removed"
+        );
+        // Any surviving young predator had its age incremented (0 -> 1).
+        assert!(
+            s.world
+                .entities
+                .iter()
+                .filter(|e| e.kind == "predator")
+                .all(|p| p.age >= 1),
+            "surviving predators must have aged this step"
+        );
+        // The mirror reflects the hunt after resolve_environment.
+        resolve_environment(&mut s, &defender);
+        let di = civ_index(&s, &defender).unwrap();
+        assert_eq!(
+            s.civs[di].population,
+            living_axolotl_count(&s, &defender),
+            "the population mirror must reflect the predator hunt losses"
+        );
+    }
+
+    #[test]
+    fn strength_defends_against_predators() {
+        // A strong civ loses fewer axolotls AND culls more predators than a weak civ
+        // facing the same predator count at the same (seed, turn).
+        fn run(strong: bool) -> (u32, usize) {
+            let mut s = multi_civ_snapshot(2024, 2);
+            s.turn = 6;
+            let cid = civ_id_for(0);
+            give_civ_axolotls(&mut s, &cid, 20);
+            if strong {
+                let ci = civ_index(&s, &cid).unwrap();
+                s.civs[ci].population += 200;
+                *s.civs[ci].resources.entry("tools".to_string()).or_insert(0) += 1000;
+                s.civs[ci].techs.push("def_tech_a".to_string());
+                s.civs[ci].techs.push("def_tech_b".to_string());
+            }
+            give_predators_near(&mut s, &cid, 6);
+            let axos_before = living_axolotl_count(&s, &cid);
+            let preds_before = predator_count(&s);
+            step_predators(&mut s);
+            let lost = axos_before - living_axolotl_count(&s, &cid);
+            let culled = preds_before - predator_count(&s);
+            (lost, culled)
+        }
+        let (weak_lost, weak_culled) = run(false);
+        let (strong_lost, strong_culled) = run(true);
+        assert!(
+            strong_lost <= weak_lost,
+            "a strong civ must lose no more axolotls than a weak one ({strong_lost} vs {weak_lost})"
+        );
+        assert!(
+            strong_culled >= weak_culled,
+            "a strong civ must cull at least as many predators as a weak one ({strong_culled} vs {weak_culled})"
+        );
+        // The defense must be MEANINGFUL: strong does strictly better on at least one axis.
+        assert!(
+            strong_lost < weak_lost || strong_culled > weak_culled,
+            "civ_strength must measurably help (fewer losses or more culls)"
+        );
+    }
+
+    #[test]
+    fn culled_predator_drops_food() {
+        // When step_predators culls a predator via defense, the defending civ's "food"
+        // resource increases (bounded, conserved-style credit).
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 6;
+        let cid = civ_id_for(0);
+        give_civ_axolotls(&mut s, &cid, 20);
+        // Strong civ → high cull chance.
+        let ci = civ_index(&s, &cid).unwrap();
+        s.civs[ci].population += 300;
+        *s.civs[ci].resources.entry("tools".to_string()).or_insert(0) += 1500;
+        let food_before = s.civs[ci].resources.get("food").copied().unwrap_or(0);
+        give_predators_near(&mut s, &cid, 6);
+        let preds_before = predator_count(&s);
+        step_predators(&mut s);
+        let culled = preds_before - predator_count(&s);
+        assert!(culled > 0, "a strong civ must cull at least one predator");
+        let ci = civ_index(&s, &cid).unwrap();
+        let food_after = s.civs[ci].resources.get("food").copied().unwrap_or(0);
+        assert_eq!(
+            food_after - food_before,
+            culled as i32 * PREDATOR_FOOD_DROP,
+            "each culled predator must drop exactly PREDATOR_FOOD_DROP food"
+        );
+        assert!(
+            s.civs[civ_index(&s, &cid).unwrap()]
+                .resources
+                .values()
+                .all(|&v| v >= 0),
+            "food credit must never make a resource negative"
+        );
+    }
+
+    #[test]
+    fn step_predators_is_deterministic() {
+        // step_predators on two clones at the same (seed, turn) yields byte-identical
+        // world.entities + civ resources.
+        let mut base = multi_civ_snapshot(2024, 2);
+        base.turn = 7;
+        let cid = civ_id_for(0);
+        give_civ_axolotls(&mut base, &cid, 16);
+        give_predators_near(&mut base, &cid, 5);
+        let mut a = base.clone();
+        let mut b = base.clone();
+        step_predators(&mut a);
+        step_predators(&mut b);
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "predator pass entities must be byte-identical across clones"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.civs).unwrap(),
+            serde_json::to_string(&b.civs).unwrap(),
+            "predator pass civ resources must be byte-identical across clones"
+        );
+    }
+
+    #[test]
+    fn step_predators_no_instant_wipeout() {
+        // step_predators must never reduce a civ to 0 living axolotls in one step
+        // (same bounded discipline as combat — leave >=1).
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 5;
+        let cid = civ_id_for(0);
+        give_civ_axolotls(&mut s, &cid, 2); // very small colony
+        give_predators_near(&mut s, &cid, 20); // overwhelming swarm
+        step_predators(&mut s);
+        assert!(
+            living_axolotl_count(&s, &cid) >= 1,
+            "a single predator step must never reduce a colony to 0 living axolotls"
+        );
+    }
+
+    #[test]
+    fn step_predators_runs_in_advance_turn_window() {
+        // Sanity: step_predators is a real world pass that reduces a colony's living
+        // axolotls and the mirror reflects it after resolve_environment (mirrors the
+        // advance_civ_turn ordering: ... -> step_predators -> resolve_environment).
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 4;
+        let cid = civ_id_for(0);
+        give_civ_axolotls(&mut s, &cid, 14);
+        give_predators_near(&mut s, &cid, 5);
+        let before = living_axolotl_count(&s, &cid);
+        step_predators(&mut s);
+        let after = living_axolotl_count(&s, &cid);
+        resolve_environment(&mut s, &cid);
+        let di = civ_index(&s, &cid).unwrap();
+        assert!(
+            after < before,
+            "predators must hunt before the mirror re-syncs"
+        );
+        assert_eq!(
+            s.civs[di].population, after,
+            "the mirror (re-synced after the predator pass) must equal the survivor count"
         );
     }
 }
