@@ -19,6 +19,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - File browser entries include hidden, alias, and package metadata.
 - Provider API keys saved from the Mac app use macOS Keychain, with env-var and legacy config-file fallback.
 - Settings show whether each provider key comes from Keychain, an environment variable, or the legacy config file.
+- Legacy config-file provider keys can be moved into Keychain from Settings after a one-time confirmation.
 
 ## Phase 1 - Native Mac Shell
 
@@ -120,13 +121,13 @@ Status: in progress.
 Deliverables:
 
 - Move API keys from local app storage into macOS Keychain or a Tauri-backed secure storage layer. Done for keys saved from the Mac app; env vars still override saved keys and `~/.xolotl-code/config.json` remains a legacy fallback.
-- Add migration from existing stored keys with a clear one-time confirmation.
+- Add migration from existing stored keys with a clear one-time confirmation. Done for per-provider legacy config-file keys.
 - Add settings UI for key storage status:
   - Stored in Keychain. Done.
   - Loaded from environment variable. Done.
   - Loaded from legacy config file. Done.
   - Missing. Done.
-  - Needs migration.
+  - Needs migration. Done for legacy config-file keys.
 - Review filesystem permissions and user prompts for project access.
 - Add better error recovery when macOS denies file or notification permissions.
 
@@ -134,7 +135,7 @@ Acceptance:
 
 - API keys are not stored in plain browser local storage.
 - Failed Keychain reads produce actionable settings UI, not silent chat failures.
-- Existing users can migrate without reconfiguring every model provider manually.
+- Existing users can migrate without reconfiguring every model provider manually. Done for provider keys already present in the legacy config file.
 
 ## Phase 6 - Mac Productivity Features
 

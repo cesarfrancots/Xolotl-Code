@@ -91,6 +91,11 @@ export const commands = {
 	/**  Returns which providers have an API key configured and where it came from. */
 	getApiKeyStatus: () => __TAURI_INVOKE<{ [key in string]: ApiKeyProviderStatus }>("get_api_key_status"),
 	/**
+	 *  Move one legacy config-file API key into macOS Keychain without exposing it
+	 *  to the frontend. Available on macOS only.
+	 */
+	migrateApiKeyToKeychain: (provider: string) => typedError<ApiKeyProviderStatus, string>(__TAURI_INVOKE("migrate_api_key_to_keychain", { provider })),
+	/**
 	 *  Save an API key for a provider. Pass an empty string to clear the key.
 	 *  On macOS app-saved keys are stored in Keychain; other config.json fields
 	 *  are still preserved for CLI-written settings.

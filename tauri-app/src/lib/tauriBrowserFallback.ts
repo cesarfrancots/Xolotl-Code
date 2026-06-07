@@ -1258,6 +1258,8 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
           { configured: false, source: "none" },
         ])
       );
+    case "migrate_api_key_to_keychain":
+      throw "Preview mode does not migrate keys to macOS Keychain.";
     case "load_session":
     case "save_session":
     case "delete_session":

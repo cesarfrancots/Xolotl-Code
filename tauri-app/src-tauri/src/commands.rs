@@ -2743,6 +2743,21 @@ fn clear_api_key_from_storage(env_var: &str, config: &mut ConfigMap) -> Result<(
     }
 }
 
+fn migrate_config_api_key_with_writer<F>(
+    env_var: &str,
+    config: &mut ConfigMap,
+    write_secure: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&str, &str) -> Result<(), String>,
+{
+    let legacy_key = config_get(config, env_var)
+        .ok_or_else(|| format!("No legacy config-file key found for {env_var}."))?;
+    write_secure(env_var, &legacy_key)?;
+    config.remove(env_var);
+    Ok(())
+}
+
 /// Returns which providers have an API key configured and where it came from.
 #[tauri::command]
 #[specta::specta]
@@ -2764,6 +2779,33 @@ pub fn get_api_key_status() -> HashMap<String, ApiKeyProviderStatus> {
         );
     }
     status
+}
+
+/// Move one legacy config-file API key into macOS Keychain without exposing it
+/// to the frontend. Available on macOS only.
+#[tauri::command]
+#[specta::specta]
+pub fn migrate_api_key_to_keychain(provider: String) -> Result<ApiKeyProviderStatus, String> {
+    let env_var =
+        provider_env_var(&provider).ok_or_else(|| format!("Unknown provider: {provider}"))?;
+    let mut config = load_config();
+
+    #[cfg(target_os = "macos")]
+    {
+        migrate_config_api_key_with_writer(env_var, &mut config, macos_keychain_set)?;
+        save_config(&config)?;
+        Ok(ApiKeyProviderStatus {
+            configured: true,
+            source: ApiKeyStorageSource::MacosKeychain.as_str().to_string(),
+        })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = config;
+        let _ = env_var;
+        Err("macOS Keychain migration is only available on macOS.".to_string())
+    }
 }
 
 /// Save an API key for a provider. Pass an empty string to clear the key.
@@ -4741,6 +4783,50 @@ mod config_tests {
         assert_eq!(source, ApiKeyStorageSource::ConfigFile);
         assert!(!is_provider_api_key_env_var("BEDROCK_REGION"));
         assert!(is_provider_api_key_env_var("BEDROCK_API_KEY"));
+    }
+
+    #[test]
+    fn config_key_migration_writes_secure_copy_then_removes_legacy_key() {
+        let mut cfg = make_legacy_cli_config();
+        let env_var = provider_env_var("kimi").unwrap();
+        let mut secure_write: Option<(String, String)> = None;
+
+        migrate_config_api_key_with_writer(env_var, &mut cfg, |account, key| {
+            secure_write = Some((account.to_string(), key.to_string()));
+            Ok(())
+        })
+        .expect("legacy key should migrate");
+
+        assert_eq!(
+            secure_write,
+            Some(("KIMI_API_KEY".to_string(), "kimi-xxx".to_string()))
+        );
+        assert_eq!(config_get(&cfg, "KIMI_API_KEY"), None);
+        assert_eq!(
+            config_get(&cfg, "KIMI_CODING_BASE_URL"),
+            Some("https://api.kimi.com/coding/v1".into())
+        );
+        assert_eq!(
+            config_get(&cfg, "ANTHROPIC_API_KEY"),
+            Some("ant-xxx".to_string())
+        );
+    }
+
+    #[test]
+    fn config_key_migration_keeps_legacy_key_when_secure_write_fails() {
+        let mut cfg = make_legacy_cli_config();
+        let env_var = provider_env_var("deepseek").unwrap();
+
+        let err = migrate_config_api_key_with_writer(env_var, &mut cfg, |_account, _key| {
+            Err("simulated keychain denial".to_string())
+        })
+        .expect_err("failed secure write should abort migration");
+
+        assert_eq!(err, "simulated keychain denial");
+        assert_eq!(
+            config_get(&cfg, "DEEPSEEK_API_KEY"),
+            Some("deepseek-xxx".into())
+        );
     }
 
     #[test]

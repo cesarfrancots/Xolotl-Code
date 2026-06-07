@@ -102,6 +102,7 @@ type TestState = "idle" | "testing" | "ok" | "error";
 interface ProviderState {
   key: string;
   saving: boolean;
+  migrating: boolean;
   testState: TestState;
   testMessage: string;
   showKey: boolean;
@@ -114,7 +115,7 @@ const EMPTY_API_KEY_STATUS: ApiKeyProviderStatus = {
 
 function makeInitialState(): Record<string, ProviderState> {
   return Object.fromEntries(
-    PROVIDERS.map((p) => [p.id, { key: "", saving: false, testState: "idle" as TestState, testMessage: "", showKey: false }])
+    PROVIDERS.map((p) => [p.id, { key: "", saving: false, migrating: false, testState: "idle" as TestState, testMessage: "", showKey: false }])
   );
 }
 
@@ -129,6 +130,12 @@ function providerStatusLabel(source: string): string | null {
     default:
       return null;
   }
+}
+
+function confirmKeychainMigration(provider: ProviderConfig): boolean {
+  return window.confirm(
+    `Move the ${provider.label} key from ~/.xolotl-code/config.json to macOS Keychain? The plaintext config entry is removed after the Keychain write succeeds.`
+  );
 }
 
 function ProvidersPanel({ open }: { open: boolean }) {
@@ -188,6 +195,28 @@ function ProvidersPanel({ open }: { open: boolean }) {
     updateProvider(provider, { saving: false });
   }
 
+  async function handleMigrate(provider: ProviderConfig) {
+    if (!confirmKeychainMigration(provider)) return;
+
+    updateProvider(provider.id, { migrating: true, testState: "idle", testMessage: "" });
+    const result = await commands.migrateApiKeyToKeychain(provider.id);
+    if (result.status === "ok") {
+      setStatus((prev) => ({ ...prev, [provider.id]: result.data }));
+      await refreshStatus();
+      updateProvider(provider.id, {
+        migrating: false,
+        testState: "ok",
+        testMessage: "Moved to macOS Keychain.",
+      });
+    } else {
+      updateProvider(provider.id, {
+        migrating: false,
+        testState: "error",
+        testMessage: result.error,
+      });
+    }
+  }
+
   const configuredCount = PROVIDERS.filter((provider) => status[provider.id]?.configured).length;
   const hasAnyProvider = configuredCount > 0;
   const primaryReady = Boolean(
@@ -231,6 +260,7 @@ function ProvidersPanel({ open }: { open: boolean }) {
         const providerStatus = status[provider.id] ?? EMPTY_API_KEY_STATUS;
         const isSet = providerStatus.configured;
         const sourceLabel = providerStatusLabel(providerStatus.source);
+        const needsMigration = providerStatus.source === "config_file";
         return (
           <div key={provider.id} className="flex flex-col gap-2 rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)] px-3 py-3">
             <div className="flex items-start justify-between gap-3">
@@ -249,6 +279,15 @@ function ProvidersPanel({ open }: { open: boolean }) {
                 <span className="flex-none rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] px-2 py-0.5 text-xs text-[oklch(0.50_0.010_225)]">Not set</span>
               )}
             </div>
+            {needsMigration && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[oklch(0.34_0.035_70)] bg-[oklch(0.145_0.014_70)]/45 px-2.5 py-2 text-xs text-[oklch(0.70_0.055_70)]">
+                <span>Legacy config key can be moved to Keychain.</span>
+                <Button size="sm" variant="outline" disabled={ps.migrating || ps.saving} onClick={() => void handleMigrate(provider)} className="h-7 gap-1 text-xs">
+                  {ps.migrating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                  Move to Keychain
+                </Button>
+              </div>
+            )}
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Input
