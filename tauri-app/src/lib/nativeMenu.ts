@@ -19,6 +19,7 @@ const MENU_ACTION_BY_ID = {
   "xolotl:status-open-active-project-terminal": "status-open-active-project-terminal",
   "xolotl:status-copy-active-project-link": "status-copy-active-project-link",
   "xolotl:status-copy-active-project-shell-open": "status-copy-active-project-shell-open",
+  "xolotl:copy-active-project-path": "copy-active-project-path",
   "xolotl:copy-active-project-context": "copy-active-project-context",
 } as const;
 

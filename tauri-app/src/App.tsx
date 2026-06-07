@@ -22,6 +22,7 @@ import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
 import {
   copyProjectContextHandoff,
+  copyTextToClipboard,
   copyXolotlCodeOpenShellCommand,
   copyXolotlCodeOpenUrl,
   openPathInExternalEditor,
@@ -115,6 +116,7 @@ export default function App() {
     successMessage: string,
     failureMessage: string,
     recoveryHint: string,
+    options: { includeProjectName?: boolean } = {},
   ) => {
     const projectState = useProjectStore.getState();
     const activeProjectPath = projectState.activeProjectPath;
@@ -128,7 +130,9 @@ export default function App() {
     }
     const activeProjectName = projectState.projects.find((project) => project.path === activeProjectPath)?.name ?? null;
 
-    void (activeProjectName ? action(activeProjectPath, activeProjectName) : action(activeProjectPath))
+    const includeProjectName = options.includeProjectName && activeProjectName;
+
+    void (includeProjectName ? action(activeProjectPath, activeProjectName) : action(activeProjectPath))
       .then(() => {
         setMacAppStatus({ tone: "ok", message: successMessage });
       })
@@ -216,12 +220,22 @@ export default function App() {
       );
       return;
     }
+    if (action === "copy-active-project-path") {
+      runActiveProjectHandoff(
+        copyTextToClipboard,
+        "Active project POSIX path copied.",
+        "Copy active project POSIX path failed.",
+        "Check clipboard permissions and try again.",
+      );
+      return;
+    }
     if (action === "copy-active-project-context") {
       runActiveProjectHandoff(
         copyProjectContextHandoff,
         "Active project context prompt copied.",
         "Copy active project context prompt failed.",
         "Check clipboard permissions and try again.",
+        { includeProjectName: true },
       );
       return;
     }

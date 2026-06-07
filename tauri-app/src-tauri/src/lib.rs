@@ -71,6 +71,7 @@ const STATUS_OPEN_ACTIVE_PROJECT_EDITOR: &str = "xolotl:status-open-active-proje
 const STATUS_OPEN_ACTIVE_PROJECT_TERMINAL: &str = "xolotl:status-open-active-project-terminal";
 const STATUS_COPY_ACTIVE_PROJECT_LINK: &str = "xolotl:status-copy-active-project-link";
 const STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN: &str = "xolotl:status-copy-active-project-shell-open";
+const MENU_COPY_ACTIVE_PROJECT_PATH: &str = "xolotl:copy-active-project-path";
 const MENU_COPY_ACTIVE_PROJECT_CONTEXT: &str = "xolotl:copy-active-project-context";
 const MENU_FOCUS_WINDOW: &str = "xolotl:focus-window";
 const MENU_NEW_CHAT: &str = "xolotl:new-chat";
@@ -357,6 +358,8 @@ fn build_active_project_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<ta
         "Open in External Terminal",
     )
     .build(app)?;
+    let copy_path =
+        MenuItemBuilder::with_id(MENU_COPY_ACTIVE_PROJECT_PATH, "Copy POSIX Path").build(app)?;
     let copy_link =
         MenuItemBuilder::with_id(STATUS_COPY_ACTIVE_PROJECT_LINK, "Copy Xolotl Link").build(app)?;
     let copy_shell = MenuItemBuilder::with_id(
@@ -373,6 +376,7 @@ fn build_active_project_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<ta
         .item(&editor)
         .item(&terminal)
         .separator()
+        .item(&copy_path)
         .item(&copy_link)
         .item(&copy_shell)
         .item(&copy_context)
@@ -931,6 +935,8 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
         Some(STATUS_COPY_ACTIVE_PROJECT_LINK)
     } else if id == STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN {
         Some(STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN)
+    } else if id == MENU_COPY_ACTIVE_PROJECT_PATH {
+        Some(MENU_COPY_ACTIVE_PROJECT_PATH)
     } else if id == MENU_COPY_ACTIVE_PROJECT_CONTEXT {
         Some(MENU_COPY_ACTIVE_PROJECT_CONTEXT)
     } else {
@@ -1139,6 +1145,10 @@ mod tests {
                 STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN
             )),
             Some(STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(MENU_COPY_ACTIVE_PROJECT_PATH)),
+            Some(MENU_COPY_ACTIVE_PROJECT_PATH)
         );
         assert_eq!(
             menu_action_for_id(&tauri::menu::MenuId::new(MENU_COPY_ACTIVE_PROJECT_CONTEXT)),
