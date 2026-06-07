@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Civ Simulation
 status: executing
-last_updated: "2026-06-07T00:08:25.946Z"
-last_activity: 2026-06-07 -- Phase 01 planning complete
+last_updated: "2026-06-07T00:52:55.946Z"
+last_activity: 2026-06-07 -- Plan 01-01 complete (recovered after crash); Wave 1 done
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 5
 ---
 
 # State: xolotl
@@ -24,16 +24,16 @@ progress:
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** v2.0 Civ Simulation — roadmap created (5 phases, sim-first). Ready to plan Phase 1 (W9-lite: multi-model world creation + leaderboard + harness arena).
+- **Current Focus:** Phase 01 — w9-lite-multi-model-world-creation-leaderboard
 
 ## Current Position
 
-Phase: 1 of 5 (W9-lite — Multi-Model World Creation + Leaderboard)
-Plan: — (not yet planned)
-Status: Ready to execute
-Last activity: 2026-06-07 -- Phase 01 planning complete
+Phase: 01 (w9-lite-multi-model-world-creation-leaderboard) — EXECUTING
+Plan: 2 of 4 (Wave 2 next: plans 02 + 03 in parallel)
+Status: Executing Phase 01 — Wave 1 (Plan 01-01) complete & committed (500635f)
+Last activity: 2026-06-07 -- Plan 01-01 complete (recovered after crash)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 25% (1/4 plans)
 
 ## Performance Metrics
 
@@ -81,10 +81,10 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-- **Last action:** v2.0 ROADMAP.md created — 5 phases (sim-first), 17/17 requirements mapped, v1.0 collapsed to a milestone section.
-- **Next action:** Plan Phase 1 with `/gsd-plan-phase 1`.
-- **Last updated:** 2026-06-06
-- **Resume file:** .planning/phases/01-w9-lite-multi-model-world-creation-leaderboard/01-CONTEXT.md
+- **Last action:** Plan 01-01 (Wave 1 backend foundation) completed and committed (`500635f`) after recovering from a mid-execution PC crash — code was complete but uncommitted; crash-induced build-cache corruption cleared via `cargo clean`. Verified: cargo test --no-run (0), clippy (only pre-existing baseline lints), tsc (0).
+- **Next action:** Execute Wave 2 — Plans 01-02 (creation card + selectedCivId) and 01-03 (additive render_game_to_text) run in parallel (both depend on Plan 01 only), then Wave 3 = Plan 01-04 (leaderboard + observer).
+- **Last updated:** 2026-06-07
+- **Resume file:** .planning/phases/01-w9-lite-multi-model-world-creation-leaderboard/01-01-SUMMARY.md
 
 ---
 *State initialized: 2026-05-07; milestone v2.0 started 2026-06-06*
