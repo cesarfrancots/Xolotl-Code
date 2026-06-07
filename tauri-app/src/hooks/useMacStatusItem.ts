@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { commands, type AgentState, type MacStatusItemState, type Project } from "../bindings";
+import { errorDetail, notifyMacAppStatus } from "../lib/macAppStatus";
 import { useAgentStore, type AgentRecord } from "../stores/agentStore";
 import { projectDisplayName, useProjectStore } from "../stores/projectStore";
 import { MAC_PRODUCTIVITY_SETTINGS_CHANGED_EVENT } from "./useMacGlobalHotkey";
@@ -43,10 +44,23 @@ export function useMacStatusItem() {
   useEffect(() => {
     let cancelled = false;
 
-    const updateStatusItem = () => {
-      void commands.updateMacStatusItem(statusState).catch((err) => {
-        if (!cancelled) console.warn("mac status item update failed:", err);
+    const showUpdateFailure = (err: unknown) => {
+      if (cancelled) return;
+      console.warn("mac status item update failed:", err);
+      notifyMacAppStatus({
+        tone: "error",
+        message: "Menu bar status item could not update.",
+        hint: `Open Settings and turn the menu bar status item off and on again, or restart Xolotl Code. ${errorDetail(err)}`,
       });
+    };
+
+    const updateStatusItem = () => {
+      void commands
+        .updateMacStatusItem(statusState)
+        .then((result) => {
+          if (result.status === "error") showUpdateFailure(result.error);
+        })
+        .catch(showUpdateFailure);
     };
 
     updateStatusItem();
