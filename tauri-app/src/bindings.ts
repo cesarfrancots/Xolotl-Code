@@ -298,6 +298,16 @@ export type CivDecisionAction = {
 	direction?: string | null,
 	policy?: string | null,
 	event_id?: string | null,
+	/**  Target civ id (attack/diplomacy/trade) or target region id (claim). */
+	target?: string | null,
+	/**  Diplomacy stance for diplomacy/set_stance: "ally|trade|neutral|hostile". */
+	stance?: string | null,
+	/**  trade: the resource wanted in return (the give-resource reuses `resource`). */
+	receive?: string | null,
+	/**  trade: amount of `resource` to give. */
+	amount?: number | null,
+	/**  trade: amount of `receive` to get back. */
+	receive_amount?: number | null,
 };
 
 export type CivDisaster = {
