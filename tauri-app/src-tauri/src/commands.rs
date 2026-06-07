@@ -2437,6 +2437,7 @@ const CHAT_SYSTEM_PROMPT: &str = "You are xolotl, a concise coding assistant. Fo
 pub struct ApiKeyProviderStatus {
     pub configured: bool,
     pub source: String,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2444,6 +2445,7 @@ enum ApiKeyStorageSource {
     Environment,
     MacosKeychain,
     ConfigFile,
+    MacosKeychainError,
     None,
 }
 
@@ -2453,9 +2455,17 @@ impl ApiKeyStorageSource {
             Self::Environment => "environment",
             Self::MacosKeychain => "macos_keychain",
             Self::ConfigFile => "config_file",
+            Self::MacosKeychainError => "macos_keychain_error",
             Self::None => "none",
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ApiKeyResolution {
+    key: Option<String>,
+    source: ApiKeyStorageSource,
+    keychain_error: Option<String>,
 }
 
 fn supports_anthropic_adaptive_thinking(model: &str) -> bool {
@@ -2549,54 +2559,130 @@ fn env_api_key(env_var: &str) -> Option<String> {
 fn resolve_api_key_from_sources(
     env_var: &str,
     env_value: Option<String>,
-    keychain_value: Option<String>,
+    keychain_result: Result<Option<String>, String>,
     config: &ConfigMap,
-) -> (Option<String>, ApiKeyStorageSource) {
+) -> ApiKeyResolution {
     if let Some(key) = normalize_optional_api_key(env_value) {
-        return (Some(key), ApiKeyStorageSource::Environment);
+        return ApiKeyResolution {
+            key: Some(key),
+            source: ApiKeyStorageSource::Environment,
+            keychain_error: None,
+        };
     }
 
     if is_provider_api_key_env_var(env_var) {
-        if let Some(key) = normalize_optional_api_key(keychain_value) {
-            return (Some(key), ApiKeyStorageSource::MacosKeychain);
+        match keychain_result {
+            Ok(Some(key)) => {
+                if let Some(key) = normalize_optional_api_key(Some(key)) {
+                    return ApiKeyResolution {
+                        key: Some(key),
+                        source: ApiKeyStorageSource::MacosKeychain,
+                        keychain_error: None,
+                    };
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                if let Some(key) = config_get(config, env_var) {
+                    return ApiKeyResolution {
+                        key: Some(key),
+                        source: ApiKeyStorageSource::ConfigFile,
+                        keychain_error: Some(error),
+                    };
+                }
+                return ApiKeyResolution {
+                    key: None,
+                    source: ApiKeyStorageSource::MacosKeychainError,
+                    keychain_error: Some(error),
+                };
+            }
         }
     }
 
     if let Some(key) = config_get(config, env_var) {
-        return (Some(key), ApiKeyStorageSource::ConfigFile);
+        return ApiKeyResolution {
+            key: Some(key),
+            source: ApiKeyStorageSource::ConfigFile,
+            keychain_error: None,
+        };
     }
 
-    (None, ApiKeyStorageSource::None)
+    ApiKeyResolution {
+        key: None,
+        source: ApiKeyStorageSource::None,
+        keychain_error: None,
+    }
 }
 
-fn keychain_api_key(env_var: &str) -> Option<String> {
+fn keychain_api_key(env_var: &str) -> Result<Option<String>, String> {
     if !is_provider_api_key_env_var(env_var) {
-        return None;
+        return Ok(None);
     }
-    macos_keychain_get(env_var).ok().flatten()
+    macos_keychain_get(env_var)
 }
 
-fn resolve_api_key_with_source(
-    env_var: &str,
-    config: &ConfigMap,
-) -> (Option<String>, ApiKeyStorageSource) {
+fn resolve_api_key_with_source(env_var: &str, config: &ConfigMap) -> ApiKeyResolution {
     let env_value = env_api_key(env_var);
     if env_value.is_some() {
-        return resolve_api_key_from_sources(env_var, env_value, None, config);
+        return resolve_api_key_from_sources(env_var, env_value, Ok(None), config);
     }
     resolve_api_key_from_sources(env_var, None, keychain_api_key(env_var), config)
 }
 
 /// Resolve a key: env var first, then macOS Keychain, then config file.
 fn resolve_api_key(env_var: &str, config: &ConfigMap) -> Option<String> {
-    resolve_api_key_with_source(env_var, config).0
+    resolve_api_key_with_source(env_var, config).key
+}
+
+fn format_keychain_read_error(env_var: &str, error: &str) -> String {
+    format!(
+        "{env_var} could not be read from macOS Keychain: {error}. Open Settings, unlock Keychain if prompted, then re-save or migrate the provider key."
+    )
+}
+
+fn resolve_required_api_key(
+    env_var: &str,
+    config: &ConfigMap,
+    missing_message: &str,
+) -> Result<String, String> {
+    let resolution = resolve_api_key_with_source(env_var, config);
+    if let Some(key) = resolution.key {
+        return Ok(key);
+    }
+    if let Some(error) = resolution.keychain_error {
+        return Err(format_keychain_read_error(env_var, &error));
+    }
+    Err(missing_message.to_string())
+}
+
+fn resolve_required_api_key_any(
+    env_vars: &[&str],
+    config: &ConfigMap,
+    missing_message: &str,
+) -> Result<String, String> {
+    let mut keychain_errors = Vec::new();
+    for env_var in env_vars {
+        let resolution = resolve_api_key_with_source(env_var, config);
+        if let Some(key) = resolution.key {
+            return Ok(key);
+        }
+        if let Some(error) = resolution.keychain_error {
+            keychain_errors.push(format_keychain_read_error(env_var, &error));
+        }
+    }
+    if keychain_errors.is_empty() {
+        Err(missing_message.to_string())
+    } else {
+        Err(keychain_errors.join(" "))
+    }
 }
 
 fn api_key_provider_status(env_var: &str, config: &ConfigMap) -> ApiKeyProviderStatus {
-    let (key, source) = resolve_api_key_with_source(env_var, config);
+    let resolution = resolve_api_key_with_source(env_var, config);
     ApiKeyProviderStatus {
-        configured: key.is_some(),
-        source: source.as_str().to_string(),
+        configured: resolution.key.is_some(),
+        source: resolution.source.as_str().to_string(),
+        error: resolution.keychain_error,
     }
 }
 
@@ -2797,6 +2883,7 @@ pub fn migrate_api_key_to_keychain(provider: String) -> Result<ApiKeyProviderSta
         Ok(ApiKeyProviderStatus {
             configured: true,
             source: ApiKeyStorageSource::MacosKeychain.as_str().to_string(),
+            error: None,
         })
     }
 
@@ -2835,8 +2922,11 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
 
     match provider.as_str() {
         "anthropic" => {
-            let key = resolve_api_key("ANTHROPIC_API_KEY", &config)
-                .ok_or_else(|| "Anthropic API key not set".to_string())?;
+            let key = resolve_required_api_key(
+                "ANTHROPIC_API_KEY",
+                &config,
+                "Anthropic API key not set",
+            )?;
             let resp = client
                 .post("https://api.anthropic.com/v1/messages")
                 .header("x-api-key", &key)
@@ -2858,8 +2948,7 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
             }
         }
         "kimi" => {
-            let key = resolve_api_key("KIMI_API_KEY", &config)
-                .ok_or_else(|| "Kimi API key not set".to_string())?;
+            let key = resolve_required_api_key("KIMI_API_KEY", &config, "Kimi API key not set")?;
             let resp = client
                 .post("https://api.moonshot.cn/v1/chat/completions")
                 .header("Authorization", format!("Bearer {key}"))
@@ -2880,9 +2969,11 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
             }
         }
         "kimi_coding" => {
-            let key = resolve_api_key("KIMI_CODING_API_KEY", &config)
-                .or_else(|| resolve_api_key("KIMI_API_KEY", &config))
-                .ok_or_else(|| "Kimi Coding API key not set".to_string())?;
+            let key = resolve_required_api_key_any(
+                &["KIMI_CODING_API_KEY", "KIMI_API_KEY"],
+                &config,
+                "Kimi Coding API key not set",
+            )?;
             let resp = client
                 .post("https://api.kimi.com/coding/v1/chat/completions")
                 .header("Authorization", format!("Bearer {key}"))
@@ -2908,8 +2999,8 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
             }
         }
         "minimax" => {
-            let key = resolve_api_key("MINIMAX_API_KEY", &config)
-                .ok_or_else(|| "MiniMax API key not set".to_string())?;
+            let key =
+                resolve_required_api_key("MINIMAX_API_KEY", &config, "MiniMax API key not set")?;
             let resp = client
                 .post(format!("{MINIMAX_OPENAI_BASE_URL}/chat/completions"))
                 .header("Authorization", format!("Bearer {key}"))
@@ -2930,8 +3021,8 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
             }
         }
         "deepseek" => {
-            let key = resolve_api_key("DEEPSEEK_API_KEY", &config)
-                .ok_or_else(|| "DeepSeek API key not set".to_string())?;
+            let key =
+                resolve_required_api_key("DEEPSEEK_API_KEY", &config, "DeepSeek API key not set")?;
             let resp = client
                 .post(format!("{DEEPSEEK_OPENAI_BASE_URL}/chat/completions"))
                 .header("Authorization", format!("Bearer {key}"))
@@ -2953,8 +3044,8 @@ pub async fn test_api_connection(provider: String) -> Result<String, String> {
             }
         }
         "bedrock" => {
-            let key = resolve_api_key("BEDROCK_API_KEY", &config)
-                .ok_or_else(|| "BEDROCK_API_KEY not set".to_string())?;
+            let key =
+                resolve_required_api_key("BEDROCK_API_KEY", &config, "BEDROCK_API_KEY not set")?;
             let region = resolve_api_key("BEDROCK_REGION", &config)
                 .unwrap_or_else(|| "us-east-1".to_string());
             // Hit the cheap haiku model on Bedrock as a probe.
@@ -3675,8 +3766,11 @@ async fn call_bedrock_invoke(
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
 ) -> Result<TokenUsage, String> {
     let config = load_config();
-    let api_key = resolve_api_key("BEDROCK_API_KEY", &config)
-        .ok_or_else(|| "BEDROCK_API_KEY not set. Configure it in Settings.".to_string())?;
+    let api_key = resolve_required_api_key(
+        "BEDROCK_API_KEY",
+        &config,
+        "BEDROCK_API_KEY not set. Configure it in Settings.",
+    )?;
     let region =
         resolve_api_key("BEDROCK_REGION", &config).unwrap_or_else(|| "us-east-1".to_string());
 
@@ -4003,9 +4097,11 @@ async fn call_model_streaming_with_options(
         call_anthropic_streaming(model, messages, event_tx, options).await
     } else if model.starts_with("kimi-coding") {
         let config = load_config();
-        let api_key = resolve_api_key("KIMI_CODING_API_KEY", &config)
-            .or_else(|| resolve_api_key("KIMI_API_KEY", &config))
-            .ok_or_else(|| "KIMI_CODING_API_KEY not set. Configure it in Settings.".to_string())?;
+        let api_key = resolve_required_api_key_any(
+            &["KIMI_CODING_API_KEY", "KIMI_API_KEY"],
+            &config,
+            "KIMI_CODING_API_KEY not set. Configure it in Settings.",
+        )?;
         call_openai_compat_streaming(
             "https://api.kimi.com/coding/v1",
             &api_key,
@@ -4017,8 +4113,11 @@ async fn call_model_streaming_with_options(
         .await
     } else if model.starts_with("kimi") {
         let config = load_config();
-        let api_key = resolve_api_key("KIMI_API_KEY", &config)
-            .ok_or_else(|| "KIMI_API_KEY not set. Configure it in Settings.".to_string())?;
+        let api_key = resolve_required_api_key(
+            "KIMI_API_KEY",
+            &config,
+            "KIMI_API_KEY not set. Configure it in Settings.",
+        )?;
         call_openai_compat_streaming(
             "https://api.moonshot.cn/v1",
             &api_key,
@@ -4030,8 +4129,11 @@ async fn call_model_streaming_with_options(
         .await
     } else if model.starts_with("minimax") {
         let config = load_config();
-        let api_key = resolve_api_key("MINIMAX_API_KEY", &config)
-            .ok_or_else(|| "MINIMAX_API_KEY not set. Configure it in Settings.".to_string())?;
+        let api_key = resolve_required_api_key(
+            "MINIMAX_API_KEY",
+            &config,
+            "MINIMAX_API_KEY not set. Configure it in Settings.",
+        )?;
         call_openai_compat_streaming(
             MINIMAX_OPENAI_BASE_URL,
             &api_key,
@@ -4043,8 +4145,11 @@ async fn call_model_streaming_with_options(
         .await
     } else if model.starts_with("deepseek") {
         let config = load_config();
-        let api_key = resolve_api_key("DEEPSEEK_API_KEY", &config)
-            .ok_or_else(|| "DEEPSEEK_API_KEY not set. Configure it in Settings.".to_string())?;
+        let api_key = resolve_required_api_key(
+            "DEEPSEEK_API_KEY",
+            &config,
+            "DEEPSEEK_API_KEY not set. Configure it in Settings.",
+        )?;
         let api_model = match model {
             "deepseek-v4-flash" | "deepseek-v4-pro" | "deepseek-chat" | "deepseek-reasoner" => {
                 model
@@ -4073,8 +4178,11 @@ async fn call_anthropic_streaming(
     options: ModelCallOptions,
 ) -> Result<TokenUsage, String> {
     let config = load_config();
-    let api_key = resolve_api_key("ANTHROPIC_API_KEY", &config)
-        .ok_or_else(|| "ANTHROPIC_API_KEY not set. Configure it in Settings.".to_string())?;
+    let api_key = resolve_required_api_key(
+        "ANTHROPIC_API_KEY",
+        &config,
+        "ANTHROPIC_API_KEY not set. Configure it in Settings.",
+    )?;
 
     let client = reqwest::Client::new();
 
@@ -4741,27 +4849,30 @@ mod config_tests {
             serde_json::Value::String("file-kimi".into()),
         );
 
-        let (key, source) = resolve_api_key_from_sources(
+        let resolution = resolve_api_key_from_sources(
             "KIMI_API_KEY",
             Some(" env-kimi ".into()),
-            Some("keychain-kimi".into()),
+            Ok(Some("keychain-kimi".into())),
             &cfg,
         );
-        assert_eq!(key, Some("env-kimi".into()));
-        assert_eq!(source, ApiKeyStorageSource::Environment);
+        assert_eq!(resolution.key, Some("env-kimi".into()));
+        assert_eq!(resolution.source, ApiKeyStorageSource::Environment);
+        assert_eq!(resolution.keychain_error, None);
 
-        let (key, source) = resolve_api_key_from_sources(
+        let resolution = resolve_api_key_from_sources(
             "KIMI_API_KEY",
             None,
-            Some(" keychain-kimi ".into()),
+            Ok(Some(" keychain-kimi ".into())),
             &cfg,
         );
-        assert_eq!(key, Some("keychain-kimi".into()));
-        assert_eq!(source, ApiKeyStorageSource::MacosKeychain);
+        assert_eq!(resolution.key, Some("keychain-kimi".into()));
+        assert_eq!(resolution.source, ApiKeyStorageSource::MacosKeychain);
+        assert_eq!(resolution.keychain_error, None);
 
-        let (key, source) = resolve_api_key_from_sources("KIMI_API_KEY", None, None, &cfg);
-        assert_eq!(key, Some("file-kimi".into()));
-        assert_eq!(source, ApiKeyStorageSource::ConfigFile);
+        let resolution = resolve_api_key_from_sources("KIMI_API_KEY", None, Ok(None), &cfg);
+        assert_eq!(resolution.key, Some("file-kimi".into()));
+        assert_eq!(resolution.source, ApiKeyStorageSource::ConfigFile);
+        assert_eq!(resolution.keychain_error, None);
     }
 
     #[test]
@@ -4772,17 +4883,61 @@ mod config_tests {
             serde_json::Value::String("us-west-2".into()),
         );
 
-        let (key, source) = resolve_api_key_from_sources(
+        let resolution = resolve_api_key_from_sources(
             "BEDROCK_REGION",
             None,
-            Some("should-not-use-keychain".into()),
+            Err("should-not-use-keychain".into()),
             &cfg,
         );
 
-        assert_eq!(key, Some("us-west-2".into()));
-        assert_eq!(source, ApiKeyStorageSource::ConfigFile);
+        assert_eq!(resolution.key, Some("us-west-2".into()));
+        assert_eq!(resolution.source, ApiKeyStorageSource::ConfigFile);
+        assert_eq!(resolution.keychain_error, None);
         assert!(!is_provider_api_key_env_var("BEDROCK_REGION"));
         assert!(is_provider_api_key_env_var("BEDROCK_API_KEY"));
+    }
+
+    #[test]
+    fn api_key_resolution_reports_keychain_error_without_silently_marking_missing() {
+        let cfg = ConfigMap::new();
+        let resolution = resolve_api_key_from_sources(
+            "KIMI_API_KEY",
+            None,
+            Err("interaction not allowed".into()),
+            &cfg,
+        );
+
+        assert_eq!(resolution.key, None);
+        assert_eq!(resolution.source, ApiKeyStorageSource::MacosKeychainError);
+        assert_eq!(
+            resolution.keychain_error,
+            Some("interaction not allowed".into())
+        );
+    }
+
+    #[test]
+    fn api_key_status_keeps_config_fallback_visible_when_keychain_read_fails() {
+        let mut cfg = ConfigMap::new();
+        cfg.insert(
+            "KIMI_API_KEY".into(),
+            serde_json::Value::String("file-kimi".into()),
+        );
+
+        let resolution =
+            resolve_api_key_from_sources("KIMI_API_KEY", None, Err("keychain locked".into()), &cfg);
+
+        assert_eq!(resolution.key, Some("file-kimi".into()));
+        assert_eq!(resolution.source, ApiKeyStorageSource::ConfigFile);
+        assert_eq!(resolution.keychain_error, Some("keychain locked".into()));
+    }
+
+    #[test]
+    fn keychain_read_error_message_is_actionable() {
+        let message = format_keychain_read_error("KIMI_API_KEY", "interaction not allowed");
+
+        assert!(message.contains("KIMI_API_KEY could not be read from macOS Keychain"));
+        assert!(message.contains("Open Settings"));
+        assert!(message.contains("re-save or migrate"));
     }
 
     #[test]

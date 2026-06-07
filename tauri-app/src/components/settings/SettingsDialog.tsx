@@ -111,6 +111,7 @@ interface ProviderState {
 const EMPTY_API_KEY_STATUS: ApiKeyProviderStatus = {
   configured: false,
   source: "none",
+  error: null,
 };
 
 function makeInitialState(): Record<string, ProviderState> {
@@ -127,9 +128,17 @@ function providerStatusLabel(source: string): string | null {
       return "Keychain";
     case "config_file":
       return "Config file";
+    case "macos_keychain_error":
+      return "Keychain error";
     default:
       return null;
   }
+}
+
+function providerStatusTone(status: ApiKeyProviderStatus): "ok" | "error" | "empty" {
+  if (status.error) return "error";
+  if (status.configured) return "ok";
+  return "empty";
 }
 
 function confirmKeychainMigration(provider: ProviderConfig): boolean {
@@ -261,6 +270,7 @@ function ProvidersPanel({ open }: { open: boolean }) {
         const isSet = providerStatus.configured;
         const sourceLabel = providerStatusLabel(providerStatus.source);
         const needsMigration = providerStatus.source === "config_file";
+        const statusTone = providerStatusTone(providerStatus);
         return (
           <div key={provider.id} className="flex flex-col gap-2 rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)] px-3 py-3">
             <div className="flex items-start justify-between gap-3">
@@ -271,14 +281,26 @@ function ProvidersPanel({ open }: { open: boolean }) {
                   <span>{provider.models}</span>
                 </div>
               </div>
-              {isSet ? (
+              {statusTone === "ok" ? (
                 <span className="flex flex-none items-center gap-1 rounded border border-[oklch(0.32_0.045_155)] bg-[oklch(0.15_0.018_155)] px-2 py-0.5 text-xs text-[oklch(0.72_0.085_155)]">
                   <CheckCircle className="h-3 w-3" /> {sourceLabel ?? "Configured"}
+                </span>
+              ) : statusTone === "error" ? (
+                <span className="flex flex-none items-center gap-1 rounded border border-[oklch(0.34_0.055_25)] bg-[oklch(0.15_0.018_25)] px-2 py-0.5 text-xs text-[oklch(0.72_0.095_25)]">
+                  <XCircle className="h-3 w-3" /> Keychain error
                 </span>
               ) : (
                 <span className="flex-none rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] px-2 py-0.5 text-xs text-[oklch(0.50_0.010_225)]">Not set</span>
               )}
             </div>
+            {providerStatus.error && (
+              <div className="rounded-md border border-[oklch(0.34_0.055_25)] bg-[oklch(0.145_0.018_25)]/55 px-2.5 py-2 text-xs leading-relaxed text-[oklch(0.73_0.085_25)]">
+                <div className="flex items-start gap-1.5">
+                  <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{providerStatus.error}</span>
+                </div>
+              </div>
+            )}
             {needsMigration && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[oklch(0.34_0.035_70)] bg-[oklch(0.145_0.014_70)]/45 px-2.5 py-2 text-xs text-[oklch(0.70_0.055_70)]">
                 <span>Legacy config key can be moved to Keychain.</span>

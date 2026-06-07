@@ -1255,7 +1255,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
       return Object.fromEntries(
         PREVIEW_PROVIDERS.map((provider) => [
           provider,
-          { configured: false, source: "none" },
+          { configured: false, source: "none", error: null },
         ])
       );
     case "migrate_api_key_to_keychain":

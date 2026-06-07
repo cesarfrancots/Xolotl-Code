@@ -235,6 +235,7 @@ export type AgentState = "Idle" | "Planning" | "Executing" |
 export type ApiKeyProviderStatus = {
 	configured: boolean,
 	source: string,
+	error: string | null,
 };
 
 /**  Mechanical scores derived from response text (no LLM involved). */

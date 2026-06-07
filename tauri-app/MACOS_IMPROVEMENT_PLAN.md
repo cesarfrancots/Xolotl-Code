@@ -20,6 +20,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Provider API keys saved from the Mac app use macOS Keychain, with env-var and legacy config-file fallback.
 - Settings show whether each provider key comes from Keychain, an environment variable, or the legacy config file.
 - Legacy config-file provider keys can be moved into Keychain from Settings after a one-time confirmation.
+- Keychain read failures surface in Settings with recovery text instead of looking like missing provider keys.
 
 ## Phase 1 - Native Mac Shell
 
@@ -129,12 +130,12 @@ Deliverables:
   - Missing. Done.
   - Needs migration. Done for legacy config-file keys.
 - Review filesystem permissions and user prompts for project access.
-- Add better error recovery when macOS denies file or notification permissions.
+- Add better error recovery when macOS denies file or notification permissions. Done for provider Keychain read failures; file and notification permission recovery still needs follow-up.
 
 Acceptance:
 
 - API keys are not stored in plain browser local storage.
-- Failed Keychain reads produce actionable settings UI, not silent chat failures.
+- Failed Keychain reads produce actionable settings UI, not silent chat failures. Done for provider keys.
 - Existing users can migrate without reconfiguring every model provider manually. Done for provider keys already present in the legacy config file.
 
 ## Phase 6 - Mac Productivity Features
