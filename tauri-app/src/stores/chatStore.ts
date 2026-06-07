@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { TokenUsage } from "../bindings";
+import { readStorageItem, writeStorageItem } from "../lib/browserStorage";
 
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
@@ -233,9 +234,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   streamingReasoning: "",
   isStreaming: false,
   currentTurnId: null,
-  model: localStorage.getItem("xolotl-selected-model") ?? DEFAULT_MODEL,
+  model: readStorageItem("xolotl-selected-model") ?? DEFAULT_MODEL,
   reasoningEffort:
-    (localStorage.getItem("xolotl-reasoning-effort") as ReasoningEffort | null) ?? "high",
+    (readStorageItem("xolotl-reasoning-effort") as ReasoningEffort | null) ?? "high",
   sessionUsage: EMPTY_USAGE,
   alwaysAllowedTools: new Set(),
 
@@ -389,12 +390,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     })),
 
   setModel: (model) => {
-    localStorage.setItem("xolotl-selected-model", model);
+    writeStorageItem("xolotl-selected-model", model);
     set({ model });
   },
 
   setReasoningEffort: (effort) => {
-    localStorage.setItem("xolotl-reasoning-effort", effort);
+    writeStorageItem("xolotl-reasoning-effort", effort);
     set({ reasoningEffort: effort });
   },
 

@@ -1,24 +1,17 @@
 import { create } from "zustand";
 import { commands } from "../bindings";
 import type { DirListing, Project } from "../bindings";
+import { readStorageItem, removeStorageItem, writeStorageItem } from "../lib/browserStorage";
 
 const ACTIVE_KEY = "xolotl-active-project";
 
 function readActive(): string | null {
-  try {
-    return localStorage.getItem(ACTIVE_KEY);
-  } catch {
-    return null;
-  }
+  return readStorageItem(ACTIVE_KEY);
 }
 
 function persistActive(path: string | null) {
-  try {
-    if (path) localStorage.setItem(ACTIVE_KEY, path);
-    else localStorage.removeItem(ACTIVE_KEY);
-  } catch {
-    /* localStorage unavailable (e.g. preview mode) — non-fatal */
-  }
+  if (path) writeStorageItem(ACTIVE_KEY, path);
+  else removeStorageItem(ACTIVE_KEY);
 }
 
 export interface ProjectState {

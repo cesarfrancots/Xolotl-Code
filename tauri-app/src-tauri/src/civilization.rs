@@ -1135,7 +1135,9 @@ fn seed_underground_veins(
             } else if d < 18 {
                 11
             } else {
-                18
+                // The deep band spans far more rows than the shallow band, so
+                // it needs a much lower per-row seed chance to stay rarer.
+                64
             };
             if next_rng(rng).is_multiple_of(gate)
                 && idx < tiles.len()
@@ -5589,6 +5591,7 @@ mod tests {
             tile.amount = 5;
         }
         let before = *s.civs[0].resources.get("ore").unwrap_or(&0);
+        s.civs[0].techs.push("stone_tools".to_string());
         // 8 workers would gather 24, but the block only holds 5.
         gather(&mut s, &cid, &gather_action("ore", 8));
         let after = *s.civs[0].resources.get("ore").unwrap_or(&0);

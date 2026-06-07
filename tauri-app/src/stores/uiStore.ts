@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { getPersistStorage } from "../lib/browserStorage";
 
 interface UiState {
   sessionsCollapsed: boolean;
@@ -49,6 +50,9 @@ export const useUiStore = create<UiState>()(
           ),
         }),
     }),
-    { name: "xolotl-ui-state" }
+    {
+      name: "xolotl-ui-state",
+      storage: createJSONStorage(getPersistStorage),
+    }
   )
 );
