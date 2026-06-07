@@ -5016,6 +5016,77 @@ fn regrow_resources(tiles: &mut [CivTile], season: &str, temperature: f32) {
     }
 }
 
+/// Forecast lead window: a rolled disaster fires this many turns AFTER it is
+/// announced (CONTEXT "forecast-then-fire", 2-3 turns).
+#[allow(dead_code)]
+const DISASTER_FORECAST_LEAD: (u32, u32) = (1, 3);
+/// Cap on disaster blast radius (RESEARCH Pitfall 2: a runaway radius could strip
+/// the whole seabed and soft-brick a colony).
+#[allow(dead_code)]
+const DISASTER_RADIUS_MAX: u32 = 8;
+/// Unique env-forecast RNG salt (distinct from `civ_turn_order`'s `0x51ED_2701`
+/// AND 03-01's `ENV_SEASON_SALT`) so the disaster stream never aliases.
+#[allow(dead_code)]
+const ENV_FORECAST_SALT: u32 = 0xD15A_57E2;
+
+/// Season-weighted disaster eligibility. `flood`/`quake` reshape terrain
+/// (`apply_disaster_to_tiles`); `drought`/`cold_snap` reuse the existing
+/// `resolve_environment` modifier arms; `storm`/`predator_incursion` are
+/// announce/one-shot (no new `CivModifier` kind without a matching arm — Pitfall 5).
+#[allow(dead_code)]
+fn disaster_kinds_for(season: &str, temperature: f32) -> &'static [&'static str] {
+    match season {
+        "winter" => &["cold_snap", "storm", "quake"],
+        "summer" => {
+            if temperature >= 22.0 {
+                &["drought", "flood", "storm", "quake"]
+            } else {
+                &["flood", "storm", "quake"]
+            }
+        }
+        "spring" => &["flood", "storm", "predator_incursion"],
+        _ => &["storm", "quake", "drought"], // autumn (and any unknown season)
+    }
+}
+
+/// Pure: deterministically decide whether (and what) the NEXT disaster is, given
+/// `(seed, turn)` and the current env. The returned `CivDisaster.remaining_turns`
+/// is the FORECAST LEAD countdown (turns until it fires) — NOT its active
+/// duration; the caller (`tick_environment`, Wave 3) stores it in `env.forecast`,
+/// decrements it each turn, and resets it to the active duration when it fires.
+/// id/kind/epicenter/radius/intensity all derive from `(seed, turn)` so the whole
+/// roll is replayable — no uuid, no wall-clock (threat T-03-04).
+#[allow(dead_code)]
+fn roll_forecast(seed: u32, turn: u32, env: &CivEnvironment, world_width: u32) -> Option<CivDisaster> {
+    let mut rng = (seed ^ turn.wrapping_mul(0x9E37_79B9) ^ ENV_FORECAST_SALT).max(1);
+    // Base chance, modestly higher in the harsh seasons (CONTEXT weighting).
+    let p = rand_f(&mut rng);
+    let chance = match env.season.as_str() {
+        "winter" | "summer" => 0.30,
+        _ => 0.20,
+    };
+    if p >= chance {
+        return None;
+    }
+    let kinds = disaster_kinds_for(&env.season, env.temperature);
+    let kind = kinds[(next_rng(&mut rng) as usize) % kinds.len()];
+    let max_x = world_width.saturating_sub(2).max(1);
+    let epicenter_x = (1 + (next_rng(&mut rng) % max_x)).clamp(1, max_x);
+    let radius = (1 + (next_rng(&mut rng) % DISASTER_RADIUS_MAX)).clamp(1, DISASTER_RADIUS_MAX);
+    let intensity = round1(rand_range(&mut rng, 0.5, 3.0)).clamp(0.1, 3.0);
+    let lead = (DISASTER_FORECAST_LEAD.0
+        + (next_rng(&mut rng) % (DISASTER_FORECAST_LEAD.1 - DISASTER_FORECAST_LEAD.0 + 1)))
+        .clamp(DISASTER_FORECAST_LEAD.0, DISASTER_FORECAST_LEAD.1);
+    Some(CivDisaster {
+        id: format!("dis-{turn}-{kind}"), // seed/turn-derived → replayable, NOT uuid
+        kind: kind.to_string(),
+        epicenter_x,
+        radius,
+        intensity,
+        remaining_turns: lead, // forecast lead countdown (Open Q3 convention)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6423,9 +6494,13 @@ mod tests {
     fn roll_forecast_id_is_seed_derived() {
         // Threat T-03-04: id is `dis-{turn}-{kind}` — no uuid, no wall-clock.
         let dis = first_forecast("winter", 4.0, WORLD_WIDTH);
-        assert_eq!(dis.id, format!("dis-{}-{}", forecast_turn_for("winter", 4.0, WORLD_WIDTH), dis.kind));
+        let turn = forecast_turn_for("winter", 4.0, WORLD_WIDTH);
+        // id is exactly the seed/turn-derived `dis-{turn}-{kind}` — fully replayable.
+        assert_eq!(dis.id, format!("dis-{}-{}", turn, dis.kind));
         assert!(dis.id.starts_with("dis-"), "id must be seed/turn-derived");
-        assert!(!dis.id.contains('-') || dis.id.matches('-').count() >= 2);
+        // A uuid id would be 36 chars of hex/dashes; a wall-clock id would carry a
+        // 10+ digit unix-second run. The derived id carries neither.
+        assert!(dis.id.len() < 30, "id must not be a uuid");
     }
 
     /// Companion to `roll_forecast_id_is_seed_derived`: the turn the first forecast lands on.
