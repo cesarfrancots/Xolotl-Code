@@ -48,6 +48,13 @@ function promoteRecentBrowserFolder(path: string, current: string[]): string[] {
   ].slice(0, MAX_RECENT_BROWSER_FOLDERS);
 }
 
+function pathIsWithinRoot(path: string, root: string): boolean {
+  const cleanPath = normalizeFolderPath(path);
+  const cleanRoot = normalizeFolderPath(root);
+  if (cleanRoot === "/") return cleanPath.startsWith("/");
+  return cleanPath === cleanRoot || cleanPath.startsWith(`${cleanRoot}/`);
+}
+
 function refreshNativeMenu() {
   void commands.refreshNativeMenu().catch(() => undefined);
 }
@@ -77,6 +84,7 @@ export interface ProjectState {
   setActiveProject: (path: string | null) => void;
   browse: (path: string) => Promise<void>;
   refreshBrowse: () => Promise<void>;
+  clearRecentBrowserFolders: (root?: string | null) => void;
   setProjectError: (error: string | null) => void;
   clearProjectError: () => void;
   clearBrowseError: () => void;
@@ -197,6 +205,15 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
   refreshBrowse: async () => {
     const current = get().listing?.path ?? get().activeProjectPath;
     if (current) await get().browse(current);
+  },
+
+  clearRecentBrowserFolders: (root) => {
+    const current = get().recentBrowserFolders;
+    const recentBrowserFolders = root
+      ? current.filter((folder) => !pathIsWithinRoot(folder, root))
+      : [];
+    persistRecentBrowserFolders(recentBrowserFolders);
+    set({ recentBrowserFolders });
   },
 
   setProjectError: (error) => set({ error }),

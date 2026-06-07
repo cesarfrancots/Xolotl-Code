@@ -41,6 +41,7 @@ vi.mock("../../lib/terminalActions", () => terminalActionMocks);
 
 const projectStoreActions = {
   browse: useProjectStore.getState().browse,
+  clearRecentBrowserFolders: useProjectStore.getState().clearRecentBrowserFolders,
   refreshBrowse: useProjectStore.getState().refreshBrowse,
   setActiveProject: useProjectStore.getState().setActiveProject,
 };
@@ -145,6 +146,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByRole("button", { name: "Browse Recent Folder: examples" })).toBeTruthy();
     expect(screen.queryByText("Browse Recent Folder: src")).toBeNull();
     expect(screen.queryByText("Browse Recent Folder: Other")).toBeNull();
+    expect(screen.getByRole("button", { name: "Clear Recent File Browser Folders" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Folder: src" })).toBeTruthy();
     expect(screen.getByLabelText("Open src in editor")).toBeTruthy();
     expect(screen.getByLabelText("Open README.md in editor")).toBeTruthy();
@@ -493,6 +495,18 @@ describe("CommandsPalette", () => {
         { label: "examples", kind: "Folder", relativePath: "examples" },
       );
     });
+  });
+
+  it("clears recent file-browser folders for the active project from the palette", () => {
+    const clearRecentBrowserFolders = vi.fn();
+    const onOpenChange = vi.fn();
+    useProjectStore.setState({ clearRecentBrowserFolders });
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear Recent File Browser Folders" }));
+
+    expect(clearRecentBrowserFolders).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("shows recovery guidance when Quick Look fails", async () => {

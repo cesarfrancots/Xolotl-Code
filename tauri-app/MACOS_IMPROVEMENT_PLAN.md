@@ -64,7 +64,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Mac productivity notifications emit route metadata and Dock/app reopen can route back to the related Chat, Eval, or Agent view; eval ids are preserved while the lazy Eval view mounts.
 - App-level Mac recovery status surfaces native menu, notification routing, app reopen routing, global hotkey, productivity settings, and menu bar status item runtime failures without replacing the active workspace.
 - Command palette includes clipboard-aware actions to seed a chat from the current text clipboard or ask for an explanation of the clipboard snippet.
-- Command palette tracks recent file-browser folders within the active project and offers quick browse, terminal, editor, Finder, and context handoff actions.
+- Command palette tracks recent file-browser folders within the active project and offers quick browse, terminal, editor, Finder, context handoff, and clear-recent actions.
 - The last workbench tab is restored on reopen when the URL does not explicitly request a tab, while direct `?tab=` links still take priority.
 - The last active project is revalidated and restored on reopen when Finder/Open With/URL launch paths are absent; stale or inaccessible folders clear the active scope with Mac recovery guidance.
 - Settings and the command palette share a tighter macOS utility-dialog surface and close with `Cmd+W` before underlying app shortcuts see the event.
@@ -414,7 +414,7 @@ Deliverables:
   - Revisit direct notification action payloads if the Tauri notification layer exposes reliable click metadata.
 - Add recent-work affordances:
   - Recent projects stay in the native menu and command palette. Done for command-palette recent rows with compact Mac handoff actions.
-  - Consider recent files/folders only if it does not clutter the command palette. Done for a capped, active-project-only recent file-browser folder section with compact handoff actions.
+  - Consider recent files/folders only if it does not clutter the command palette. Done for a capped, active-project-only recent file-browser folder section with compact handoff actions and active-project cleanup.
 
 Acceptance:
 

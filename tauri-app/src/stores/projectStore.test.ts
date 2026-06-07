@@ -120,6 +120,35 @@ describe("projectStore project errors", () => {
     expect(useProjectStore.getState().browseError).toBe("Operation not permitted");
   });
 
+  it("clears recent file-browser folders for one Mac project without dropping other projects", () => {
+    useProjectStore.setState({
+      recentBrowserFolders: [
+        "/Users/cesar/Documents/Xolotl/docs",
+        "/Users/cesar/Documents/Xolotl/examples",
+        "/Users/cesar/Documents/Pivot app/src",
+      ],
+    });
+
+    useProjectStore.getState().clearRecentBrowserFolders("/Users/cesar/Documents/Xolotl");
+
+    expect(useProjectStore.getState().recentBrowserFolders).toEqual([
+      "/Users/cesar/Documents/Pivot app/src",
+    ]);
+  });
+
+  it("clears all recent file-browser folders when no project root is provided", () => {
+    useProjectStore.setState({
+      recentBrowserFolders: [
+        "/Users/cesar/Documents/Xolotl/docs",
+        "/Users/cesar/Documents/Pivot app/src",
+      ],
+    });
+
+    useProjectStore.getState().clearRecentBrowserFolders();
+
+    expect(useProjectStore.getState().recentBrowserFolders).toEqual([]);
+  });
+
   it("restores and canonicalizes the last active project on Mac reopen", async () => {
     useProjectStore.setState({
       activeProjectPath: "/Users/cesar/Documents/Xolotl Link",

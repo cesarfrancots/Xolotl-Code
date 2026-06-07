@@ -5,6 +5,7 @@ import {
   DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen, Archive, Gauge,
   MessageSquare, TerminalSquare, TestTubeDiagonal, Sprout, Settings, FolderPlus, ExternalLink, Copy,
   AlertCircle, CheckCircle, Clipboard, Code2, CornerDownRight, CornerLeftUp, Eye, Folder, Link2, RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
@@ -99,6 +100,7 @@ export function CommandsPalette({
   const recentBrowserFolders = useProjectStore((s) => s.recentBrowserFolders);
   const browse = useProjectStore((s) => s.browse);
   const refreshBrowse = useProjectStore((s) => s.refreshBrowse);
+  const clearRecentBrowserFolders = useProjectStore((s) => s.clearRecentBrowserFolders);
   const setActiveProject = useProjectStore((s) => s.setActiveProject);
   useMacDialogDismissal(open, onOpenChange);
 
@@ -335,6 +337,18 @@ export function CommandsPalette({
           ],
         };
       }),
+      ...(recentFolders.length > 0 ? [{
+        id: "browser-clear-recent-folders",
+        kind: "file" as const,
+        label: "Clear Recent File Browser Folders",
+        syntax: "Recent",
+        description: "Remove saved recent folders for the active project.",
+        icon: Trash2,
+        run: () => {
+          clearRecentBrowserFolders(activeProjectPath);
+          onOpenChange(false);
+        },
+      }] : []),
       ...visibleChildren.map((child) => {
         const relativePath = relativePathFromRoot(child.path, activeProjectPath);
         const badges = directoryChildBadges(child);
@@ -466,7 +480,7 @@ export function CommandsPalette({
       { id: "skills", kind: "action", label: "Manage skills & MCP", description: "Settings: Skills & MCP. Discovers skills from ~/.xolotl-code/skills/.", icon: Settings2 },
       { id: "files", kind: "action", label: "Attach a file", description: "Paperclip in the chat composer, or drag-drop. Supports 40+ text file types.", icon: FileText },
     ];
-  }, [activeProjectPath, browse, customCommands, listing, onOpenChange, onUsePrompt, projects, recentBrowserFolders, refreshBrowse, setActiveProject]);
+  }, [activeProjectPath, browse, clearRecentBrowserFolders, customCommands, listing, onOpenChange, onUsePrompt, projects, recentBrowserFolders, refreshBrowse, setActiveProject]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
