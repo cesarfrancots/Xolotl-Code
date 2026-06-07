@@ -6705,4 +6705,183 @@ mod tests {
             "apply_disaster must be byte-deterministic"
         );
     }
+
+    // --- ENV-01/02/03: tick_environment orchestrator (Wave-3 / 03-03 Task 1) ---
+
+    /// Build a forecast sitting in `env.forecast` with a given lead countdown.
+    fn pending_forecast(kind: &str, remaining_turns: u32) -> CivDisaster {
+        CivDisaster {
+            id: format!("dis-1-{kind}"),
+            kind: kind.into(),
+            epicenter_x: 30,
+            radius: 3,
+            intensity: 2.0,
+            remaining_turns,
+        }
+    }
+
+    #[test]
+    fn tick_environment_advances_season() {
+        // tick_environment drifts the season counter/temperature and, on a wrap,
+        // logs a "season" entry. Start one tick before the wrap (turn_of_season 7).
+        let mut snapshot = test_snapshot("env-season", "Season", "mock-model", 42, 1);
+        snapshot.environment.turn_of_season = 7; // 7 + 1 == SEASON_LEN → wrap
+        snapshot.environment.season = "spring".to_string();
+        let before_temp = snapshot.environment.temperature;
+        snapshot.turn = 1;
+        tick_environment(&mut snapshot);
+        assert_eq!(snapshot.environment.season, "summer", "season must wrap");
+        assert_eq!(snapshot.environment.turn_of_season, 0, "counter resets on wrap");
+        assert_ne!(
+            snapshot.environment.temperature, before_temp,
+            "temperature must drift"
+        );
+        assert!(
+            snapshot.log.iter().any(|e| e.kind == "season"),
+            "a season change must be logged"
+        );
+    }
+
+    #[test]
+    fn tick_environment_forecast_then_fire() {
+        // A forecast with remaining_turns==1 fires this tick (moves into disasters[],
+        // remaining_turns reset to its active duration); one with ==3 only decrements.
+        let mut snapshot = test_snapshot("env-fire", "Fire", "mock-model", 42, 1);
+        snapshot.environment.forecast = Some(pending_forecast("flood", 1));
+        snapshot.turn = 1;
+        tick_environment(&mut snapshot);
+        assert!(
+            snapshot.environment.disasters.iter().any(|d| d.kind == "flood"),
+            "a due forecast must fire into disasters[]"
+        );
+        let fired = snapshot
+            .environment
+            .disasters
+            .iter()
+            .find(|d| d.kind == "flood")
+            .unwrap();
+        assert!(
+            fired.remaining_turns >= 1,
+            "fired disaster's remaining_turns must be reset to its active duration (> 0)"
+        );
+
+        // A non-due forecast (lead 3) only decrements and stays in env.forecast.
+        let mut later = test_snapshot("env-pending", "Pending", "mock-model", 999, 1);
+        later.environment.forecast = Some(pending_forecast("flood", 3));
+        later.turn = 1;
+        tick_environment(&mut later);
+        // It is NOT in disasters[] yet...
+        assert!(
+            !later.environment.disasters.iter().any(|d| d.kind == "flood"),
+            "a non-due forecast must not fire yet"
+        );
+        // ...and a forecast (the decremented original or a freshly rolled one) is still pending.
+        assert!(
+            later.environment.forecast.is_some(),
+            "a non-due forecast must remain pending"
+        );
+    }
+
+    #[test]
+    fn tick_environment_disaster_logged() {
+        // After a fire, a "disaster" log entry exists.
+        let mut snapshot = test_snapshot("env-log", "Log", "mock-model", 42, 1);
+        snapshot.environment.forecast = Some(pending_forecast("flood", 1));
+        snapshot.turn = 1;
+        tick_environment(&mut snapshot);
+        assert!(
+            snapshot.log.iter().any(|e| e.kind == "disaster"),
+            "a fired disaster must be logged with kind 'disaster'"
+        );
+        // A turn that rolls a forecast logs a "forecast" announcement. Sweep turns
+        // on a calm snapshot until one rolls (the roll is seed/turn-deterministic).
+        let mut calm = test_snapshot("env-forecast-log", "Forecast", "mock-model", 4242, 1);
+        let mut saw_forecast_log = false;
+        for t in 1..=64u32 {
+            calm.turn = t;
+            tick_environment(&mut calm);
+            if calm.log.iter().any(|e| e.kind == "forecast") {
+                saw_forecast_log = true;
+                break;
+            }
+        }
+        assert!(saw_forecast_log, "a rolled forecast must be logged with kind 'forecast'");
+    }
+
+    #[test]
+    fn tick_environment_disaster_expiry() {
+        // An active disaster with remaining_turns==1 is removed after a tick and an
+        // expiry "disaster" log entry is emitted.
+        let mut snapshot = test_snapshot("env-expiry", "Expiry", "mock-model", 42, 1);
+        snapshot.environment.forecast = None;
+        snapshot.environment.disasters = vec![CivDisaster {
+            id: "dis-0-storm".into(),
+            kind: "storm".into(),
+            epicenter_x: 30,
+            radius: 2,
+            intensity: 1.0,
+            remaining_turns: 1,
+        }];
+        let log_before = snapshot.log.len();
+        snapshot.turn = 1;
+        tick_environment(&mut snapshot);
+        assert!(
+            !snapshot.environment.disasters.iter().any(|d| d.id == "dis-0-storm"),
+            "a disaster at remaining_turns 0 must be retired"
+        );
+        assert!(
+            snapshot.log.len() > log_before
+                && snapshot.log.iter().any(|e| e.kind == "disaster"),
+            "disaster expiry must be logged"
+        );
+    }
+
+    #[test]
+    fn tick_environment_fired_disaster_pushes_reused_modifier() {
+        // A fired drought pushes a reused "drought" CivModifier (existing
+        // resolve_environment arm applies it); a fired cold_snap pushes "cold_snap".
+        for (kind, modifier_kind) in [("drought", "drought"), ("cold_snap", "cold_snap")] {
+            let mut snapshot = test_snapshot("env-mod", "Mod", "mock-model", 42, 1);
+            snapshot.environment.forecast = Some(pending_forecast(kind, 1));
+            snapshot.turn = 1;
+            tick_environment(&mut snapshot);
+            assert!(
+                snapshot.modifiers.iter().any(|m| m.kind == modifier_kind),
+                "a fired {kind} must push a reused '{modifier_kind}' modifier"
+            );
+        }
+        // A flood (terrain-only) must NOT push an unknown modifier kind (Pitfall 5).
+        let mut flood = test_snapshot("env-flood-mod", "Flood", "mock-model", 42, 1);
+        flood.environment.forecast = Some(pending_forecast("flood", 1));
+        flood.turn = 1;
+        tick_environment(&mut flood);
+        assert!(
+            !flood.modifiers.iter().any(|m| m.kind == "flood"),
+            "a flood must not introduce an unknown 'flood' modifier kind"
+        );
+    }
+
+    #[test]
+    fn tick_environment_regrowth_runs_in_tick() {
+        // A renewable tile below cap gains amount after a summer tick; an ore tile
+        // is unchanged (finite stays depleted).
+        let mut snapshot = test_snapshot("env-regrow", "Regrow", "mock-model", 42, 1);
+        // Force a warm, regrowth-friendly season for the tick.
+        snapshot.environment.season = "summer".to_string();
+        snapshot.environment.turn_of_season = 0;
+        snapshot.environment.temperature = 24.0;
+        // Seed a known renewable + finite tile by overwriting two existing tiles.
+        snapshot.world.tiles[0] = renewable_tile("moss", 5);
+        snapshot.world.tiles[1] = finite_tile("ore", 3);
+        snapshot.turn = 1;
+        tick_environment(&mut snapshot);
+        assert!(
+            snapshot.world.tiles[0].amount > 5,
+            "a renewable tile below cap must regrow during the tick"
+        );
+        assert_eq!(
+            snapshot.world.tiles[1].amount, 3,
+            "a finite ore tile must never regrow"
+        );
+    }
 }
