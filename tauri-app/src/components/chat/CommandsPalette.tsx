@@ -4,6 +4,7 @@ import {
   Hash, Keyboard, Paperclip, FlaskConical, GitBranch, Users, FileText, Settings2,
   DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen, Archive, Gauge,
   MessageSquare, TerminalSquare, TestTubeDiagonal, Sprout, Settings, FolderPlus, ExternalLink, Copy,
+  CornerDownRight, CornerLeftUp, File as FileIcon, Folder, RefreshCw,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
@@ -20,13 +21,21 @@ import {
   type SlashCommandId,
 } from "../../lib/chatCommands";
 import { calcTurnCost, formatCostBar } from "../../lib/cost";
-import { macPathLabel } from "../../lib/fileBrowser";
+import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "../../lib/fileBrowser";
 import { formatMacShortcut } from "../../lib/macShortcuts";
 import { dispatchNativeMenuAction, type NativeMenuAction } from "../../lib/nativeMenu";
-import { copyTextToClipboard, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 
 type CommandAction = () => void | Promise<void>;
-type CommandKind = "slash" | "shortcut" | "action";
+type CommandKind = "slash" | "shortcut" | "file" | "action";
+
+interface PaletteSecondaryAction {
+  id: string;
+  label: string;
+  title?: string;
+  icon: React.ComponentType<{ className?: string }>;
+  run: CommandAction;
+}
 
 interface PaletteCommand {
   id: string;
@@ -39,6 +48,7 @@ interface PaletteCommand {
   description: string;
   icon: React.ComponentType<{ className?: string }>;
   run?: CommandAction;
+  secondaryActions?: PaletteSecondaryAction[];
 }
 
 export function CommandsPalette({
@@ -53,6 +63,9 @@ export function CommandsPalette({
   const [query, setQuery] = useState("");
   const activeProjectPath = useProjectStore((s) => s.activeProjectPath);
   const projects = useProjectStore((s) => s.projects);
+  const listing = useProjectStore((s) => s.listing);
+  const browse = useProjectStore((s) => s.browse);
+  const refreshBrowse = useProjectStore((s) => s.refreshBrowse);
   const setActiveProject = useProjectStore((s) => s.setActiveProject);
 
   // Global Cmd+K / Ctrl+K binding.
@@ -109,6 +122,64 @@ export function CommandsPalette({
       })),
     ];
 
+    const currentBrowserPath = listing?.path ?? activeProjectPath;
+    const visibleChildren = listing ? visibleDirectoryChildren(listing.children, false).slice(0, 8) : [];
+    const fileBrowserCommands: PaletteCommand[] = activeProjectPath && currentBrowserPath ? [
+      { id: "browser-reveal-current", kind: "file", label: "Reveal Current Folder in Finder", syntax: "Folder", description: macPathLabel(currentBrowserPath), icon: ExternalLink, run: () => { void revealPathInFinder(currentBrowserPath); onOpenChange(false); } },
+      { id: "browser-copy-current", kind: "file", label: "Copy Current Folder Path", syntax: "Path", description: macPathLabel(currentBrowserPath), icon: Copy, run: () => { void copyTextToClipboard(currentBrowserPath); onOpenChange(false); } },
+      ...(currentBrowserPath !== activeProjectPath ? [
+        { id: "browser-copy-current-relative", kind: "file" as const, label: "Copy Current Folder Relative Path", syntax: "Relative", description: relativePathFromRoot(currentBrowserPath, activeProjectPath), icon: CornerDownRight, run: () => { void copyTextToClipboard(relativePathFromRoot(currentBrowserPath, activeProjectPath)); onOpenChange(false); } },
+      ] : []),
+      { id: "browser-refresh", kind: "file", label: "Refresh File Browser", syntax: "Files", description: macPathLabel(currentBrowserPath), icon: RefreshCw, run: () => { void refreshBrowse(); onOpenChange(false); } },
+      ...(listing?.parent ? [
+        { id: "browser-parent", kind: "file" as const, label: "Browse Parent Folder", syntax: "Up", description: macPathLabel(listing.parent), icon: CornerLeftUp, run: () => { void browse(listing.parent!); onOpenChange(false); } },
+      ] : []),
+      ...(currentBrowserPath !== activeProjectPath ? [
+        { id: "browser-project-root", kind: "file" as const, label: "Back to Project Root", syntax: "Root", description: macPathLabel(activeProjectPath), icon: CornerDownRight, run: () => { void browse(activeProjectPath); onOpenChange(false); } },
+      ] : []),
+      ...visibleChildren.map((child) => {
+        const relativePath = relativePathFromRoot(child.path, activeProjectPath);
+        const badges = directoryChildBadges(child);
+        const syntax = [child.is_dir ? "Folder" : child.is_pdf ? "PDF" : "File", ...badges].join(" · ");
+        return {
+          id: `browser-entry-${child.path}`,
+          kind: "file" as const,
+          label: `${child.is_dir ? "Open Folder" : "Reveal File"}: ${child.name}`,
+          syntax,
+          description: relativePath,
+          icon: child.is_dir ? Folder : FileIcon,
+          run: () => {
+            if (child.is_dir) void browse(child.path);
+            else void revealPathInFinder(child.path);
+            onOpenChange(false);
+          },
+          secondaryActions: [
+            ...(child.is_dir ? [{
+              id: "reveal",
+              label: `Reveal ${child.name} in Finder`,
+              title: "Reveal in Finder",
+              icon: ExternalLink,
+              run: () => { void revealPathInFinder(child.path); onOpenChange(false); },
+            }] : []),
+            {
+              id: "copy-posix",
+              label: `Copy POSIX path for ${child.name}`,
+              title: "Copy POSIX path",
+              icon: Copy,
+              run: () => { void copyTextToClipboard(child.path); onOpenChange(false); },
+            },
+            {
+              id: "copy-relative",
+              label: `Copy relative path for ${child.name}`,
+              title: "Copy relative path",
+              icon: CornerDownRight,
+              run: () => { void copyTextToClipboard(relativePath); onOpenChange(false); },
+            },
+          ],
+        };
+      }),
+    ] : [];
+
     return [
       ...slashCommandItems.map((item) => ({
         id: item.id,
@@ -143,6 +214,7 @@ export function CommandsPalette({
 
       ...nativeCommands,
       ...projectCommands,
+      ...fileBrowserCommands,
 
       // Workflows point users at features they may not know exist.
       { id: "agents", kind: "action", label: "Spawn an agent", description: "Right sidebar: plus button. Agents work in isolated git worktrees.", icon: GitBranch },
@@ -151,7 +223,7 @@ export function CommandsPalette({
       { id: "skills", kind: "action", label: "Manage skills & MCP", description: "Settings: Skills & MCP. Discovers skills from ~/.xolotl-code/skills/.", icon: Settings2 },
       { id: "files", kind: "action", label: "Attach a file", description: "Paperclip in the chat composer, or drag-drop. Supports 40+ text file types.", icon: FileText },
     ];
-  }, [activeProjectPath, customCommands, onOpenChange, onUsePrompt, projects, setActiveProject]);
+  }, [activeProjectPath, browse, customCommands, listing, onOpenChange, onUsePrompt, projects, refreshBrowse, setActiveProject]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -166,7 +238,7 @@ export function CommandsPalette({
   }, [cmds, query]);
 
   const grouped = useMemo(() => {
-    const g: Record<CommandKind, PaletteCommand[]> = { slash: [], shortcut: [], action: [] };
+    const g: Record<CommandKind, PaletteCommand[]> = { slash: [], shortcut: [], file: [], action: [] };
     for (const c of filtered) g[c.kind].push(c);
     return g;
   }, [filtered]);
@@ -195,6 +267,7 @@ export function CommandsPalette({
         <div className="max-h-[60vh] overflow-y-auto">
           <Section title="Slash Commands" icon={Hash} items={grouped.slash} />
           <Section title="Keyboard Shortcuts" icon={Keyboard} items={grouped.shortcut} />
+          <Section title="File Browser" icon={FolderOpen} items={grouped.file} />
           <Section title="Actions & Workflows" icon={GitBranch} items={grouped.action} />
           {filtered.length === 0 && (
             <div className="px-4 py-12 text-center text-sm text-[oklch(0.50_0_0)]">
@@ -383,35 +456,64 @@ function Section({
           const Cmd = c.icon;
           const interactive = !!c.run;
           return (
-            <button
+            <div
               key={c.id}
-              onClick={() => { void c.run?.(); }}
-              disabled={!interactive}
               className={[
-                "flex items-start gap-3 px-4 py-2 text-left transition-colors",
+                "flex items-stretch gap-1 px-3 py-1 transition-colors",
                 interactive
                   ? "hover:bg-[oklch(0.16_0.006_245)] cursor-pointer"
                   : "cursor-default",
               ].join(" ")}
             >
-              <Cmd className="w-4 h-4 mt-0.5 text-[oklch(0.62_0.035_190)] flex-none" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-[oklch(0.90_0_0)]">{c.label}</span>
-                  {c.syntax && (
-                    <code className="xolotl-command-chip">
-                      {c.syntax}
-                    </code>
-                  )}
-                  {c.shortcut && (
-                    <kbd className="xolotl-keycap" title={c.shortcut}>
-                      {formatMacShortcut(c.shortcut)}
-                    </kbd>
-                  )}
+              <button
+                type="button"
+                onClick={() => { void c.run?.(); }}
+                disabled={!interactive}
+                aria-label={c.label}
+                className={[
+                  "flex min-w-0 flex-1 items-start gap-3 rounded-md px-1 py-1 text-left",
+                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.55_0.04_195)]",
+                  interactive ? "" : "cursor-default",
+                ].join(" ")}
+              >
+                <Cmd className="w-4 h-4 mt-0.5 text-[oklch(0.62_0.035_190)] flex-none" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-medium text-[oklch(0.90_0_0)]">{c.label}</span>
+                    {c.syntax && (
+                      <code className="xolotl-command-chip flex-none">
+                        {c.syntax}
+                      </code>
+                    )}
+                    {c.shortcut && (
+                      <kbd className="xolotl-keycap flex-none" title={c.shortcut}>
+                        {formatMacShortcut(c.shortcut)}
+                      </kbd>
+                    )}
+                  </div>
+                  <div className="truncate text-xs text-[oklch(0.55_0_0)] mt-0.5 leading-relaxed">{c.description}</div>
                 </div>
-                <div className="text-xs text-[oklch(0.55_0_0)] mt-0.5 leading-relaxed">{c.description}</div>
-              </div>
-            </button>
+              </button>
+              {c.secondaryActions && c.secondaryActions.length > 0 && (
+                <div className="flex flex-none items-center gap-0.5 pr-1">
+                  {c.secondaryActions.map((action) => {
+                    const Secondary = action.icon;
+                    return (
+                      <button
+                        key={action.id}
+                        type="button"
+                        aria-label={action.label}
+                        title={action.title ?? action.label}
+                        onClick={() => { void action.run(); }}
+                        className="xolotl-palette-row-action"
+                      >
+                        <Secondary className="h-3.5 w-3.5" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>

@@ -362,6 +362,26 @@ button {
   color: oklch(0.66 0.040 190);
 }
 
+.xolotl-palette-row-action {
+  display: grid;
+  height: 26px;
+  width: 26px;
+  place-items: center;
+  border-radius: 6px;
+  color: oklch(0.48 0.012 225);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.xolotl-palette-row-action:hover {
+  background: oklch(0.19 0.006 245);
+  color: oklch(0.76 0.035 195);
+}
+
+.xolotl-palette-row-action:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px oklch(0.55 0.04 195);
+}
+
 @media (hover: none) {
   .xolotl-row-action-button {
     opacity: 1;
