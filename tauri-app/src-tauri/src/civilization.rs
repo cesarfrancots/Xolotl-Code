@@ -6354,4 +6354,100 @@ mod tests {
             "the collapsed civ is skipped"
         );
     }
+
+    // --- ENV-02: roll_forecast determinism + season-weighting (03-02 Task 1) ---
+
+    fn env_for(season: &str, temperature: f32) -> CivEnvironment {
+        let mut env = CivEnvironment::new();
+        env.season = season.to_string();
+        env.temperature = temperature;
+        env
+    }
+
+    /// Find a (seed, turn) that actually rolls a disaster, so the bound/id tests
+    /// have a Some to inspect regardless of the base-chance gate.
+    fn first_forecast(season: &str, temperature: f32, width: u32) -> CivDisaster {
+        let env = env_for(season, temperature);
+        for turn in 0..256u32 {
+            if let Some(dis) = roll_forecast(1234, turn, &env, width) {
+                return dis;
+            }
+        }
+        panic!("expected at least one forecast within 256 turns");
+    }
+
+    #[test]
+    fn roll_forecast_is_deterministic() {
+        // Same (seed, turn, env, width) ⇒ identical Option<CivDisaster> (replay).
+        let env = env_for("winter", 4.0);
+        for turn in 0..16u32 {
+            let a = roll_forecast(777, turn, &env, WORLD_WIDTH);
+            let b = roll_forecast(777, turn, &env, WORLD_WIDTH);
+            assert_eq!(
+                serde_json::to_string(&a).unwrap(),
+                serde_json::to_string(&b).unwrap(),
+                "pure forecast roll must be byte-stable for replay (turn {turn})"
+            );
+        }
+    }
+
+    #[test]
+    fn roll_forecast_clamps_bounds() {
+        // Whatever the season, a Some forecast stays inside the world/param bounds.
+        for (season, temp) in [("winter", 4.0), ("summer", 24.0), ("spring", 14.0), ("autumn", 14.0)] {
+            let env = env_for(season, temp);
+            for turn in 0..256u32 {
+                if let Some(dis) = roll_forecast(4242, turn, &env, WORLD_WIDTH) {
+                    assert!(
+                        (1..=WORLD_WIDTH - 2).contains(&dis.epicenter_x),
+                        "epicenter_x {} out of [1, width-2]",
+                        dis.epicenter_x
+                    );
+                    assert!((1..=8).contains(&dis.radius), "radius {} out of [1, 8]", dis.radius);
+                    assert!(
+                        (0.1..=3.0).contains(&dis.intensity),
+                        "intensity {} out of [0.1, 3.0]",
+                        dis.intensity
+                    );
+                    assert!(
+                        (1..=3).contains(&dis.remaining_turns),
+                        "lead {} out of [1, 3]",
+                        dis.remaining_turns
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn roll_forecast_id_is_seed_derived() {
+        // Threat T-03-04: id is `dis-{turn}-{kind}` — no uuid, no wall-clock.
+        let dis = first_forecast("winter", 4.0, WORLD_WIDTH);
+        assert_eq!(dis.id, format!("dis-{}-{}", forecast_turn_for("winter", 4.0, WORLD_WIDTH), dis.kind));
+        assert!(dis.id.starts_with("dis-"), "id must be seed/turn-derived");
+        assert!(!dis.id.contains('-') || dis.id.matches('-').count() >= 2);
+    }
+
+    /// Companion to `roll_forecast_id_is_seed_derived`: the turn the first forecast lands on.
+    fn forecast_turn_for(season: &str, temperature: f32, width: u32) -> u32 {
+        let env = env_for(season, temperature);
+        for turn in 0..256u32 {
+            if roll_forecast(1234, turn, &env, width).is_some() {
+                return turn;
+            }
+        }
+        panic!("no forecast");
+    }
+
+    #[test]
+    fn disaster_kinds_are_season_weighted() {
+        // Winter eligibility includes a cold kind; hot summer includes a heat kind.
+        let winter = disaster_kinds_for("winter", 4.0);
+        assert!(winter.contains(&"cold_snap"), "winter must allow a cold disaster");
+        let summer = disaster_kinds_for("summer", 24.0);
+        assert!(summer.contains(&"drought"), "hot summer must allow a heat disaster");
+        // Below the heat threshold, summer drops the drought.
+        let cool_summer = disaster_kinds_for("summer", 18.0);
+        assert!(!cool_summer.contains(&"drought"), "cool summer must not roll drought");
+    }
 }
