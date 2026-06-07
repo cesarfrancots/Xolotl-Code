@@ -98,6 +98,7 @@ describe("CommandsPalette", () => {
   it("renders Mac shortcut symbols and project-aware commands", () => {
     render(<CommandsPalette open onOpenChange={vi.fn()} />);
 
+    expect(screen.getByRole("dialog").classList.contains("xolotl-command-palette")).toBe(true);
     expect(screen.getAllByText("⌘K").length).toBeGreaterThan(0);
     expect(screen.getByText("⌘N")).toBeTruthy();
     expect(screen.getByText("⌘T")).toBeTruthy();
@@ -386,6 +387,15 @@ describe("CommandsPalette", () => {
     fireEvent.keyDown(window, { key: "k", metaKey: true });
 
     expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("closes with Cmd+W while the palette is open", () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.keyDown(window, { key: "w", metaKey: true });
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
 

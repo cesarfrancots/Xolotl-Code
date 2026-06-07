@@ -59,6 +59,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Command palette includes clipboard-aware actions to seed a chat from the current text clipboard or ask for an explanation of the clipboard snippet.
 - The last workbench tab is restored on reopen when the URL does not explicitly request a tab, while direct `?tab=` links still take priority.
 - The last active project is revalidated and restored on reopen when Finder/Open With/URL launch paths are absent; stale or inaccessible folders clear the active scope with Mac recovery guidance.
+- Settings and the command palette share a tighter macOS utility-dialog surface and close with `Cmd+W` before underlying app shortcuts see the event.
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
 - macOS Settings include an opt-in menu bar status item with active project and agent-state summary plus quick access to common commands.
 - macOS Settings show compact status tiles and targeted recovery guidance for editor, global-hotkey, menu-bar, and notification states.
@@ -342,7 +343,7 @@ Deliverables:
 - Tune the app shell toward a native utility-app feel without reducing developer density:
   - Sidebar and file browser should read more like Finder/Xcode navigators.
   - Workbench controls should keep segmented-control behavior and clear pressed states.
-  - Dialogs and popovers should feel closer to macOS sheets/popovers with tighter spacing, lighter borders, and predictable keyboard dismissal.
+  - Dialogs and popovers should feel closer to macOS sheets/popovers with tighter spacing, lighter borders, and predictable keyboard dismissal. Done for the first shared Settings and command-palette pass.
 - Respect system appearance more deeply:
   - Audit light/dark transitions for contrast and separator clarity.
   - Use the existing high-contrast/reduced-motion hooks for any new motion or focus state.
@@ -484,7 +485,7 @@ This is the near-term order for this branch.
    - Optional AppKit Dock menu shim only if the benefit is worth the native-maintenance cost.
 2. Start Phase 2 Mac UI pass:
    - Audit the current app shell at desktop and compact MacBook widths.
-   - Tighten Settings, command palette, terminal tabs, and result surfaces to match the existing Mac-style sidebar/workbench direction.
+   - Tighten Settings, command palette, terminal tabs, and result surfaces to match the existing Mac-style sidebar/workbench direction. Done for the first Settings and command-palette dialog pass.
    - Add browser screenshots and focused tests for any layout-affecting changes.
 3. Add Phase 2.5 keyboard parity:
    - Additional file-browser row commands in the command palette. Done for current-folder, Quick Look, New Terminal Here, and visible-entry commands.

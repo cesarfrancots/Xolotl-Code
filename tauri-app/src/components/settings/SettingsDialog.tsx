@@ -32,6 +32,7 @@ import {
   normalizeGlobalHotkeyShortcut,
   notifyMacProductivitySettingsChanged,
 } from "../../hooks/useMacGlobalHotkey";
+import { useMacDialogDismissal } from "../../hooks/useMacDialogDismissal";
 import { formatMacShortcut } from "../../lib/macShortcuts";
 
 interface ProviderConfig {
@@ -60,11 +61,12 @@ export function SettingsDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [tab, setTab] = useState<Tab>("providers");
+  useMacDialogDismissal(open, onOpenChange);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-6xl gap-0 p-0 overflow-hidden rounded-md border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)] text-[oklch(0.90_0.015_220)] shadow-[0_28px_90px_oklch(0_0_0_/_0.36)]">
-        <DialogHeader className="px-5 py-4 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.118_0.004_245)]">
+      <DialogContent className="xolotl-mac-dialog xolotl-mac-settings-dialog w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0 sm:max-w-6xl">
+        <DialogHeader className="xolotl-mac-dialog-header px-5 py-4">
           <DialogTitle className="text-base text-[oklch(0.92_0.015_220)]">Settings</DialogTitle>
           <DialogDescription className="text-xs text-[oklch(0.58_0.012_225)]">
             Provider keys saved from the Mac app use Keychain. Environment variables still override saved keys.
@@ -72,14 +74,14 @@ export function SettingsDialog({
         </DialogHeader>
 
         {/* Tab bar */}
-        <div className="flex items-center gap-1 px-3 py-2 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.102_0.003_245)]">
+        <div className="xolotl-mac-dialog-tabbar flex items-center gap-1 px-3 py-2">
           <TabBtn active={tab === "providers"} onClick={() => setTab("providers")} icon={<Key className="w-3.5 h-3.5" />} label="Providers" />
           <TabBtn active={tab === "macos"} onClick={() => setTab("macos")} icon={<Monitor className="w-3.5 h-3.5" />} label="macOS" />
           <TabBtn active={tab === "skills"} onClick={() => setTab("skills")} icon={<FileCode className="w-3.5 h-3.5" />} label="Skills" />
           <TabBtn active={tab === "mcp"} onClick={() => setTab("mcp")} icon={<Plug className="w-3.5 h-3.5" />} label="MCP Servers" />
         </div>
 
-        <div className="max-h-[72vh] overflow-y-auto">
+        <div className="xolotl-mac-dialog-scroll max-h-[72vh] overflow-y-auto">
           {tab === "providers" && <ProvidersPanel open={open} />}
           {tab === "macos" && <MacPanel open={open} />}
           {tab === "skills" && <SkillsPanel open={open} />}

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsDialog } from "./SettingsDialog";
@@ -180,6 +180,17 @@ describe("SettingsDialog", () => {
     expect(screen.getByText("Menu Bar")).toBeTruthy();
     expect(screen.getByText("Hidden")).toBeTruthy();
     expect(screen.getByText("Granted")).toBeTruthy();
+  });
+
+  it("uses the shared Mac dialog surface and closes with Cmd+W", () => {
+    const onOpenChange = vi.fn();
+    render(<SettingsDialog open onOpenChange={onOpenChange} />);
+
+    expect(screen.getByRole("dialog").classList.contains("xolotl-mac-settings-dialog")).toBe(true);
+
+    fireEvent.keyDown(window, { key: "w", metaKey: true });
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("loads and saves the macOS external editor preference", async () => {

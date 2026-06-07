@@ -372,6 +372,52 @@ button {
   color: oklch(0.66 0.040 190);
 }
 
+.xolotl-mac-dialog {
+  border: 1px solid oklch(0.24 0.010 235);
+  border-radius: 10px;
+  color: oklch(0.90 0.015 220);
+  background:
+    linear-gradient(180deg, oklch(0.128 0.004 238 / 0.99), oklch(0.104 0.003 250 / 0.99));
+  box-shadow:
+    0 30px 90px oklch(0 0 0 / 0.38),
+    0 0 0 1px oklch(1 0 0 / 0.035) inset;
+}
+
+.xolotl-mac-dialog [data-slot="dialog-close"] {
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: oklch(0.50 0.012 225);
+}
+
+.xolotl-mac-dialog [data-slot="dialog-close"]:hover {
+  color: oklch(0.82 0.018 220);
+  background: oklch(0.17 0.006 245);
+}
+
+.xolotl-mac-dialog-header {
+  border-bottom: 1px solid oklch(0.225 0.008 240);
+  background: oklch(0.125 0.004 242 / 0.96);
+}
+
+.xolotl-mac-dialog-tabbar,
+.xolotl-command-palette-search,
+.xolotl-command-palette-footer {
+  border-bottom: 1px solid oklch(0.22 0.008 240);
+  background: oklch(0.106 0.003 245 / 0.94);
+}
+
+.xolotl-command-palette-footer {
+  border-top: 1px solid oklch(0.22 0.008 240);
+  border-bottom: 0;
+}
+
+.xolotl-mac-dialog-scroll {
+  scrollbar-color: oklch(0.30 0.012 235) transparent;
+}
+
 .xolotl-palette-row-action {
   display: grid;
   height: 26px;

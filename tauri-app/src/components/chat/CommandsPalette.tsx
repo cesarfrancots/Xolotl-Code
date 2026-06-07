@@ -27,6 +27,7 @@ import { formatMacShortcut } from "../../lib/macShortcuts";
 import { dispatchNativeMenuAction, type NativeMenuAction } from "../../lib/nativeMenu";
 import { copyProjectContextHandoff, copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, openPathInExternalTerminal, quickLookPath, readTextFromClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 import { openTerminalAtPath } from "../../lib/terminalActions";
+import { useMacDialogDismissal } from "../../hooks/useMacDialogDismissal";
 
 type CommandAction = () => void | Promise<void>;
 type CommandKind = "slash" | "shortcut" | "file" | "action";
@@ -98,6 +99,7 @@ export function CommandsPalette({
   const browse = useProjectStore((s) => s.browse);
   const refreshBrowse = useProjectStore((s) => s.refreshBrowse);
   const setActiveProject = useProjectStore((s) => s.setActiveProject);
+  useMacDialogDismissal(open, onOpenChange);
 
   // Global Cmd+K / Ctrl+K binding.
   useEffect(() => {
@@ -344,14 +346,14 @@ export function CommandsPalette({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl w-full overflow-hidden border-[oklch(0.22_0.008_240)] bg-[oklch(0.115_0.004_245)] p-0 text-[oklch(0.90_0.015_220)]">
+      <DialogContent className="xolotl-mac-dialog xolotl-command-palette w-full max-w-xl gap-0 overflow-hidden p-0">
         <DialogHeader className="sr-only">
           <DialogTitle>Commands & shortcuts</DialogTitle>
           <DialogDescription>Searchable list of every command and keyboard shortcut.</DialogDescription>
         </DialogHeader>
 
         {/* Search bar */}
-        <div className="flex items-center gap-2 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.105_0.004_245)] px-4 py-3">
+        <div className="xolotl-command-palette-search flex items-center gap-2 px-4 py-3">
           <Search className="w-4 h-4 text-[oklch(0.54_0.018_205)] flex-none" />
           <input
             autoFocus
@@ -365,7 +367,7 @@ export function CommandsPalette({
 
         {status && <PaletteStatusBanner status={status} onDismiss={() => setStatus(null)} />}
 
-        <div className="max-h-[60vh] overflow-y-auto">
+        <div className="xolotl-mac-dialog-scroll max-h-[60vh] overflow-y-auto">
           <Section title="Slash Commands" icon={Hash} items={grouped.slash} />
           <Section title="Keyboard Shortcuts" icon={Keyboard} items={grouped.shortcut} />
           <Section title="File Browser" icon={FolderOpen} items={grouped.file} />
@@ -377,7 +379,7 @@ export function CommandsPalette({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-[oklch(0.22_0.008_240)] bg-[oklch(0.105_0.004_245)] px-4 py-2 text-[11px] text-[oklch(0.48_0.012_230)]">
+        <div className="xolotl-command-palette-footer flex items-center justify-between px-4 py-2 text-[11px] text-[oklch(0.48_0.012_230)]">
           <span>Click a command to run it</span>
           <span><kbd className="xolotl-keycap">{formatMacShortcut("Cmd+K")}</kbd> to reopen</span>
         </div>
