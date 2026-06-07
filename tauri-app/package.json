@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
+    "dev": "node scripts/run-vite.mjs dev",
+    "build": "tsc && node scripts/run-vite.mjs build",
+    "preview": "node scripts/run-vite.mjs preview",
     "tauri": "tauri",
     "test": "node scripts/run-vitest.mjs",
     "build:mac": "tauri build --bundles app",
