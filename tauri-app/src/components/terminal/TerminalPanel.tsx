@@ -1,9 +1,10 @@
 import { useEffect, type KeyboardEvent } from "react";
-import { Plus, TerminalSquare, X } from "lucide-react";
+import { Copy, ExternalLink, Plus, TerminalSquare, X } from "lucide-react";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { useUiStore } from "../../stores/uiStore";
 import { projectDisplayName, useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
+import { copyTextToClipboard, revealPathInFinder } from "../../lib/pathActions";
 import { TerminalView } from "./TerminalView";
 
 /**
@@ -150,11 +151,35 @@ export function TerminalPanel() {
               </span>
             )}
             {activeTab.cwd && (
-              <span
-                className="max-w-[180px] truncate rounded border border-[oklch(0.22_0.010_235)] bg-[oklch(0.12_0.004_245)] px-1.5 py-0.5"
-                title={activeTab.cwd}
-              >
-                {macPathLabel(activeTab.cwd)}
+              <span className="flex min-w-0 items-center gap-0.5">
+                <span
+                  className="max-w-[180px] truncate rounded border border-[oklch(0.22_0.010_235)] bg-[oklch(0.12_0.004_245)] px-1.5 py-0.5"
+                  title={activeTab.cwd}
+                >
+                  {macPathLabel(activeTab.cwd)}
+                </span>
+                <button
+                  type="button"
+                  title="Reveal terminal cwd in Finder"
+                  aria-label="Reveal terminal cwd in Finder"
+                  onClick={() => {
+                    if (activeTab.cwd) void revealPathInFinder(activeTab.cwd).catch((err) => console.error("reveal terminal cwd failed:", err));
+                  }}
+                  className="grid h-5 w-5 place-items-center rounded text-[oklch(0.45_0.010_225)] hover:bg-[oklch(0.16_0.006_245)] hover:text-[oklch(0.78_0.040_195)]"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  title="Copy terminal cwd POSIX path"
+                  aria-label="Copy terminal cwd POSIX path"
+                  onClick={() => {
+                    if (activeTab.cwd) void copyTextToClipboard(activeTab.cwd);
+                  }}
+                  className="grid h-5 w-5 place-items-center rounded text-[oklch(0.45_0.010_225)] hover:bg-[oklch(0.16_0.006_245)] hover:text-[oklch(0.78_0.040_195)]"
+                >
+                  <Copy className="h-3 w-3" />
+                </button>
               </span>
             )}
             {activeTab.envSource && (

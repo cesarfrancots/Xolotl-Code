@@ -6,6 +6,11 @@ import { useTerminalStore } from "../../stores/terminalStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useProjectStore } from "../../stores/projectStore";
 
+const pathActionMocks = vi.hoisted(() => ({
+  copyTextToClipboard: vi.fn().mockResolvedValue(undefined),
+  revealPathInFinder: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Stub the xterm-backed view so the test never touches the real terminal.
 vi.mock("./TerminalView", () => ({
   TerminalView: ({ tabKey, visible, cwd }: { tabKey: string; visible: boolean; cwd: string | null }) => (
@@ -13,10 +18,13 @@ vi.mock("./TerminalView", () => ({
   ),
 }));
 
+vi.mock("../../lib/pathActions", () => pathActionMocks);
+
 beforeEach(() => {
   useTerminalStore.setState({ tabs: [], activeKey: null });
   useUiStore.setState({ terminalPanelOpen: true });
   useProjectStore.setState({ activeProjectPath: null, projects: [], listing: null });
+  vi.clearAllMocks();
 });
 
 it("auto-creates one terminal tab when opened empty", () => {
@@ -64,6 +72,28 @@ it("shows active terminal shell profile metadata after spawn", () => {
   expect(screen.getByText("zsh")).toBeTruthy();
   expect(screen.getByText("~/project-a")).toBeTruthy();
   expect(screen.getByText("Inherited app environment + $SHELL")).toBeTruthy();
+});
+
+it("offers Finder and copy actions for the active terminal cwd", async () => {
+  const user = userEvent.setup();
+  render(<TerminalPanel />);
+  const tab = useTerminalStore.getState().tabs[0];
+
+  act(() => {
+    useTerminalStore.getState().setBackendInfo(tab.key, {
+      id: "pty-1",
+      shell: "/bin/zsh",
+      shell_name: "zsh",
+      cwd: "/Users/cesar/project-a",
+      env_source: "Inherited app environment + $SHELL",
+    });
+  });
+
+  await user.click(screen.getByLabelText("Reveal terminal cwd in Finder"));
+  expect(pathActionMocks.revealPathInFinder).toHaveBeenCalledWith("/Users/cesar/project-a");
+
+  await user.click(screen.getByLabelText("Copy terminal cwd POSIX path"));
+  expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/project-a");
 });
 
 it("closes a tab when its close button is clicked", async () => {
