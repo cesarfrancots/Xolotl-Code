@@ -792,6 +792,11 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
         }),
     );
     snapshot.turn = next_turn;
+    // Advance the world's environment at TURN START so each civ observes the freshly
+    // drifted season/forecast and any fired disaster's reshape this same turn; a
+    // fired disaster's CivModifier rides the existing post-loop resolve_environment +
+    // tick_modifiers below.
+    tick_environment(&mut snapshot);
 
     // Each living civ decides and acts, in a deterministic per-turn shuffled order
     // so first-mover advantage on shared resources rotates fairly across civs.
@@ -4918,22 +4923,17 @@ fn round1(value: f32) -> f32 {
 // --- Environment engine: pure, seed-deterministic helpers (W4) ---
 //
 // These leaf helpers are wired into the turn loop by the Wave-3 orchestrator
-// (`tick_environment`, plan 03-03). Until then they are exercised only by the
-// unit tests below, so each carries `#[allow(dead_code)]` to keep the
-// non-test lib build clippy-clean; the attribute comes out when Wave 3 lands.
+// (`tick_environment`, plan 03-03), which runs them once per turn from
+// `advance_civ_turn`.
 
 /// Turns spent in a season before it wraps to the next one. Claude's discretion
 /// per CONTEXT (Seasons & Temperature).
-#[allow(dead_code)]
 const SEASON_LEN: u32 = 8;
-#[allow(dead_code)]
 const SEASONS: [&str; 4] = ["spring", "summer", "autumn", "winter"];
 /// Unique env-tick RNG salt (distinct from `civ_turn_order`'s `0x51ED_2701`).
-#[allow(dead_code)]
 const ENV_SEASON_SALT: u32 = 0xE05A_F107;
 
 /// Mild/cold/warm baseline the temperature drifts toward each season.
-#[allow(dead_code)]
 fn season_target_temp(season: &str) -> f32 {
     match season {
         "summer" => 24.0,
@@ -4948,7 +4948,6 @@ fn season_target_temp(season: &str) -> f32 {
 /// all randomness derives from `seed ^ turn ^ ENV_SEASON_SALT`, no SystemTime/uuid).
 /// The caller (`tick_environment`) assigns the returned fields and logs a season
 /// change. Returns `(season, turn_of_season, temperature, water_level)`.
-#[allow(dead_code)]
 fn advance_season(
     season: &str,
     turn_of_season: u32,
@@ -4985,7 +4984,6 @@ fn advance_season(
 /// single classifier rather than re-listing resources (so the two never drift).
 /// Coral is FINITE here (it is mined/depleted like a block), per the code's
 /// `is_finite_mineral`, despite CONTEXT prose listing it as an organic example.
-#[allow(dead_code)]
 fn is_renewable(resource: &str) -> bool {
     !is_finite_mineral(resource)
 }
@@ -4996,7 +4994,6 @@ fn is_renewable(resource: &str) -> bool {
 /// the tile count is invariant (threat T-03-02). A partially-mined finite tile
 /// still carries `resource: Some("ore")` and stays finite, so it is skipped;
 /// a fully-mined finite tile already has `resource: None` and is skipped too.
-#[allow(dead_code)]
 fn regrow_resources(tiles: &mut [CivTile], season: &str, temperature: f32) {
     let rate = match season {
         "spring" | "summer" => 2,
@@ -5018,22 +5015,18 @@ fn regrow_resources(tiles: &mut [CivTile], season: &str, temperature: f32) {
 
 /// Forecast lead window: a rolled disaster fires this many turns AFTER it is
 /// announced (CONTEXT "forecast-then-fire", 2-3 turns).
-#[allow(dead_code)]
 const DISASTER_FORECAST_LEAD: (u32, u32) = (1, 3);
 /// Cap on disaster blast radius (RESEARCH Pitfall 2: a runaway radius could strip
 /// the whole seabed and soft-brick a colony).
-#[allow(dead_code)]
 const DISASTER_RADIUS_MAX: u32 = 8;
 /// Unique env-forecast RNG salt (distinct from `civ_turn_order`'s `0x51ED_2701`
 /// AND 03-01's `ENV_SEASON_SALT`) so the disaster stream never aliases.
-#[allow(dead_code)]
 const ENV_FORECAST_SALT: u32 = 0xD15A_57E2;
 
 /// Season-weighted disaster eligibility. `flood`/`quake` reshape terrain
 /// (`apply_disaster_to_tiles`); `drought`/`cold_snap` reuse the existing
 /// `resolve_environment` modifier arms; `storm`/`predator_incursion` are
 /// announce/one-shot (no new `CivModifier` kind without a matching arm — Pitfall 5).
-#[allow(dead_code)]
 fn disaster_kinds_for(season: &str, temperature: f32) -> &'static [&'static str] {
     match season {
         "winter" => &["cold_snap", "storm", "quake"],
@@ -5056,7 +5049,6 @@ fn disaster_kinds_for(season: &str, temperature: f32) -> &'static [&'static str]
 /// decrements it each turn, and resets it to the active duration when it fires.
 /// id/kind/epicenter/radius/intensity all derive from `(seed, turn)` so the whole
 /// roll is replayable — no uuid, no wall-clock (threat T-03-04).
-#[allow(dead_code)]
 fn roll_forecast(seed: u32, turn: u32, env: &CivEnvironment, world_width: u32) -> Option<CivDisaster> {
     let mut rng = (seed ^ turn.wrapping_mul(0x9E37_79B9) ^ ENV_FORECAST_SALT).max(1);
     // Base chance, modestly higher in the harsh seasons (CONTEXT weighting).
@@ -5097,7 +5089,6 @@ fn roll_forecast(seed: u32, turn: u32, env: &CivEnvironment, world_width: u32) -
 /// tile count unchanged (mutate in place, never push/remove); `x ∈ [0, width)`;
 /// `y ∈ [WATER_SURFACE_Y, WORLD_HEIGHT)`; never converts a tile at/above the
 /// seabed surface (keeps the colony floor buildable, can't soft-brick a colony).
-#[allow(dead_code)]
 fn apply_disaster_to_tiles(tiles: &mut [CivTile], dis: &CivDisaster, width: u32) {
     // Terrain-only for the physical-reshape kinds; the rest are civ-effect/announce.
     if !matches!(dis.kind.as_str(), "flood" | "quake" | "landslide") {
@@ -5131,6 +5122,147 @@ fn apply_disaster_to_tiles(tiles: &mut [CivTile], dis: &CivDisaster, width: u32)
                     t.amount = 0;
                 }
             }
+        }
+    }
+}
+
+/// Active duration (turns a disaster lingers in `env.disasters` after it fires),
+/// per kind. Bounded so a fired disaster can never outlive a few turns.
+fn disaster_duration(kind: &str) -> u32 {
+    let raw = match kind {
+        "drought" | "cold_snap" => 5,
+        "flood" => 4,
+        "predator_incursion" => 3,
+        "quake" | "storm" => 2,
+        _ => 3,
+    };
+    raw.clamp(1, 12)
+}
+
+/// World-level per-turn environment step. Runs once at TURN START (after the turn
+/// increment, before the civ decision loop) so every civ observes the freshly
+/// advanced season/forecast and a fired disaster's reshape this same turn.
+///
+/// The sequence is LOCKED (CONTEXT "Integration & Determinism"): fire any due
+/// forecast (reshape terrain + push a reused `CivModifier` + log) → advance the
+/// season/temperature/water (log on wrap) → regrow renewable resources → tick the
+/// active disasters' countdowns and retire expired ones (log expiry) → roll/refresh
+/// the forecast (log announce). All randomness derives from `seed`+`turn` via the
+/// Wave-1/2 pure helpers; ids are `format!("dis-{turn}-{kind}")` — no uuid, no
+/// wall-clock — so the whole tick is byte-deterministic replay (threat T-03-08).
+fn tick_environment(snapshot: &mut CivSessionSnapshot) {
+    let width = snapshot.world.width;
+
+    // (a) Fire any DUE forecast. The forecast's `remaining_turns` is the lead
+    //     countdown while it sits in `env.forecast` (Open Q3 convention).
+    if let Some(mut forecast) = snapshot.environment.forecast.take() {
+        forecast.remaining_turns = forecast.remaining_turns.saturating_sub(1);
+        if forecast.remaining_turns == 0 {
+            // It fires this turn: reshape terrain, push the reused civ-effect
+            // modifier (only for kinds with an existing resolve_environment arm),
+            // log it, and move it into the active disasters with its active duration.
+            forecast.remaining_turns = disaster_duration(&forecast.kind);
+            apply_disaster_to_tiles(&mut snapshot.world.tiles, &forecast, width);
+            // Reuse an EXISTING CivModifier kind so resolve_environment applies it
+            // (Pitfall 5: never push an unknown kind — it would be a silent no-op).
+            let modifier_kind = match forecast.kind.as_str() {
+                "drought" => Some("drought"),
+                "cold_snap" => Some("cold_snap"),
+                _ => None, // flood/quake = terrain-only; storm/predator = announce/one-shot
+            };
+            if let Some(mk) = modifier_kind {
+                snapshot.modifiers.push(CivModifier {
+                    id: format!("dis-{}-{}", snapshot.turn, forecast.kind),
+                    kind: mk.to_string(),
+                    label: format!("Disaster: {mk}"),
+                    polarity: "debuff".to_string(),
+                    remaining_turns: forecast.remaining_turns,
+                    intensity: forecast.intensity,
+                });
+            }
+            push_log(
+                snapshot,
+                "disaster",
+                &format!("A {} struck", forecast.kind),
+                &format!(
+                    "A {} hit near column {} (radius {}, intensity {:.1}).",
+                    forecast.kind, forecast.epicenter_x, forecast.radius, forecast.intensity
+                ),
+            );
+            snapshot.environment.disasters.push(forecast);
+        } else {
+            // Not due yet — keep counting down in the forecast slot.
+            snapshot.environment.forecast = Some(forecast);
+        }
+    }
+
+    // (b) Advance season/temperature/water. Read the scalars into locals first so
+    //     the helper call doesn't alias `snapshot.environment` with later mutations.
+    let prev_season = snapshot.environment.season.clone();
+    let (season, turn_of_season, temperature, water_level) = advance_season(
+        &snapshot.environment.season,
+        snapshot.environment.turn_of_season,
+        snapshot.environment.temperature,
+        snapshot.environment.water_level,
+        snapshot.turn,
+        snapshot.seed,
+    );
+    snapshot.environment.season = season.clone();
+    snapshot.environment.turn_of_season = turn_of_season;
+    snapshot.environment.temperature = temperature;
+    snapshot.environment.water_level = water_level;
+    if season != prev_season {
+        push_log(
+            snapshot,
+            "season",
+            &format!("Season turned to {season}"),
+            &format!("The {prev_season} gives way to {season}; temperature settles near {temperature:.1}\u{b0}."),
+        );
+    }
+
+    // (c) Regrow renewable resources using the just-advanced season/temperature.
+    regrow_resources(&mut snapshot.world.tiles, &season, temperature);
+
+    // (d) Tick active disasters' countdowns and retire expired ones (mirror
+    //     tick_modifiers). Collect expiring ids BEFORE retain to avoid a borrow
+    //     conflict with push_log.
+    for disaster in snapshot.environment.disasters.iter_mut() {
+        disaster.remaining_turns = disaster.remaining_turns.saturating_sub(1);
+    }
+    let expired: Vec<(String, String)> = snapshot
+        .environment
+        .disasters
+        .iter()
+        .filter(|d| d.remaining_turns == 0)
+        .map(|d| (d.id.clone(), d.kind.clone()))
+        .collect();
+    snapshot
+        .environment
+        .disasters
+        .retain(|d| d.remaining_turns > 0);
+    for (_, kind) in &expired {
+        push_log(
+            snapshot,
+            "disaster",
+            &format!("The {kind} subsided"),
+            &format!("The {kind} has run its course and the world steadies."),
+        );
+    }
+
+    // (e) Roll/refresh the forecast if none is pending, announcing it ahead of time.
+    if snapshot.environment.forecast.is_none() {
+        if let Some(forecast) =
+            roll_forecast(snapshot.seed, snapshot.turn, &snapshot.environment, width)
+        {
+            let kind = forecast.kind.clone();
+            let lead = forecast.remaining_turns;
+            snapshot.environment.forecast = Some(forecast);
+            push_log(
+                snapshot,
+                "forecast",
+                &format!("A {kind} is forecast"),
+                &format!("Signs point to a {kind} in roughly {lead} turn(s); civilizations may prepare."),
+            );
         }
     }
 }
