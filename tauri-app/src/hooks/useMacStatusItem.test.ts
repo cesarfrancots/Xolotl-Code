@@ -70,7 +70,7 @@ describe("buildMacStatusItemState", () => {
     expect(buildMacStatusItemState({
       activeProjectPath: "/Users/cesar/Work/Xolotl Code",
       projects: [project("/Users/cesar/Work/Xolotl Code", "Xolotl Code")],
-      agents: [agent("Planning"), agent("Executing"), agent("Waiting"), agent("Done")],
+      agents: [agent("Planning"), agent("Executing"), agent("Waiting"), agent("Done"), agent("Failed")],
       evalSummary: {
         running_eval_models: 1,
         pending_eval_models: 1,
@@ -84,7 +84,9 @@ describe("buildMacStatusItemState", () => {
       active_project_path: "/Users/cesar/Work/Xolotl Code",
       running_agents: 2,
       waiting_agents: 1,
-      total_agents: 4,
+      completed_agents: 1,
+      failed_agents: 1,
+      total_agents: 5,
       running_eval_models: 1,
       pending_eval_models: 1,
       completed_eval_models: 2,

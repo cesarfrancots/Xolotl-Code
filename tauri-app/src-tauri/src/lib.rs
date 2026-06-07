@@ -100,6 +100,8 @@ pub struct MacStatusItemState {
     pub active_project_path: Option<String>,
     pub running_agents: u32,
     pub waiting_agents: u32,
+    pub completed_agents: u32,
+    pub failed_agents: u32,
     pub total_agents: u32,
     pub running_eval_models: u32,
     pub pending_eval_models: u32,
@@ -550,13 +552,34 @@ fn mac_status_project_label(state: &MacStatusItemState) -> String {
 }
 
 fn mac_status_agents_label(state: &MacStatusItemState) -> String {
-    match (state.running_agents, state.waiting_agents) {
-        (0, 0) => "Agents: Idle".into(),
-        (running, 0) => format!("Agents: {running} running"),
-        (0, waiting) => format!("Agents: {waiting} waiting"),
-        (running, waiting) => {
-            format!("Agents: {running} running, {waiting} waiting")
-        }
+    let counted_agents = state
+        .running_agents
+        .saturating_add(state.waiting_agents)
+        .saturating_add(state.completed_agents)
+        .saturating_add(state.failed_agents);
+    let idle_agents = state.total_agents.saturating_sub(counted_agents);
+    let mut parts = Vec::new();
+
+    if state.running_agents > 0 {
+        parts.push(format!("{} running", state.running_agents));
+    }
+    if state.waiting_agents > 0 {
+        parts.push(format!("{} waiting", state.waiting_agents));
+    }
+    if state.failed_agents > 0 {
+        parts.push(format!("{} failed", state.failed_agents));
+    }
+    if state.completed_agents > 0 {
+        parts.push(format!("{} done", state.completed_agents));
+    }
+    if idle_agents > 0 {
+        parts.push(format!("{idle_agents} idle"));
+    }
+
+    if parts.is_empty() {
+        "Agents: Idle".into()
+    } else {
+        format!("Agents: {}", parts.join(", "))
     }
 }
 
@@ -1109,6 +1132,8 @@ mod tests {
             active_project_path: Some("/Users/cesar/Documents/Xolotl".into()),
             running_agents: 2,
             waiting_agents: 1,
+            completed_agents: 1,
+            failed_agents: 0,
             total_agents: 4,
             running_eval_models: 1,
             pending_eval_models: 1,
@@ -1121,13 +1146,28 @@ mod tests {
         assert_eq!(mac_status_project_label(&active), "Project: Xolotl Code");
         assert_eq!(
             mac_status_agents_label(&active),
-            "Agents: 2 running, 1 waiting"
+            "Agents: 2 running, 1 waiting, 1 done"
         );
         assert_eq!(
             mac_status_eval_label(&active),
             "Eval: 1 running, 1 pending, 2/4 finished"
         );
         assert!(mac_status_item_has_active_project(&active));
+    }
+
+    #[test]
+    fn mac_status_agents_label_preserves_completed_and_failed_agent_state() {
+        let completed = MacStatusItemState {
+            completed_agents: 2,
+            failed_agents: 1,
+            total_agents: 4,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            mac_status_agents_label(&completed),
+            "Agents: 1 failed, 2 done, 1 idle"
+        );
     }
 
     #[test]

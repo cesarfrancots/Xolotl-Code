@@ -809,6 +809,8 @@ export type MacStatusItemState = {
 	active_project_path: string | null,
 	running_agents: number,
 	waiting_agents: number,
+	completed_agents: number,
+	failed_agents: number,
 	total_agents: number,
 	running_eval_models: number,
 	pending_eval_models: number,

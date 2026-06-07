@@ -86,12 +86,16 @@ export function buildMacStatusItemState({
     : null;
   const runningAgents = agents.filter((agent) => RUNNING_AGENT_STATES.has(agent.state)).length;
   const waitingAgents = agents.filter((agent) => agent.state === "Waiting").length;
+  const completedAgents = agents.filter((agent) => agent.state === "Done").length;
+  const failedAgents = agents.filter((agent) => agent.state === "Failed").length;
 
   return {
     active_project_name: activeProject?.name ?? (activeProjectPath ? projectDisplayName(activeProjectPath) : null),
     active_project_path: activeProjectPath,
     running_agents: runningAgents,
     waiting_agents: waitingAgents,
+    completed_agents: completedAgents,
+    failed_agents: failedAgents,
     total_agents: agents.length,
     ...evalSummary,
   };
