@@ -1193,7 +1193,7 @@ class CivPhaserScene extends Phaser.Scene {
     sh.clear();
     const view = this.cameras.main.worldView;
     for (const axo of this.axos.values()) {
-      const t = this.elapsed * (axo.isEgg ? 0.0025 : 0.004) + axo.phase;
+      const t = this.elapsed * (axo.isEgg ? 0.0018 : 0.0028) + axo.phase;
       const playerControlled = axo.id === this.possessedEntityId && !axo.isEgg;
       const act = playerControlled ? "player" : axo.activity;
       const hasTarget = !playerControlled && axo.targetX !== undefined && axo.targetY !== undefined;
@@ -1205,7 +1205,7 @@ class CivPhaserScene extends Phaser.Scene {
       let squashX = 1;
       let squashY = 1;
       let sway = 0;
-      let ease = 0.05;
+      let ease = 0.038;
 
       if (!axo.isEgg) {
         switch (act) {
@@ -1245,7 +1245,7 @@ class CivPhaserScene extends Phaser.Scene {
             break;
           }
           case "play": {
-            ease = 0.09;
+            ease = 0.07;
             wanderX = Math.sin(t * 1.7) * axo.wander * 2.4 + Math.sin(t * 3.3) * 1.5;
             wanderY = Math.cos(t * 2.1) * 3;
             bob = Math.sin(t * 2.4) * 2.4;
@@ -1253,7 +1253,7 @@ class CivPhaserScene extends Phaser.Scene {
             break;
           }
           case "explore": {
-            ease = 0.085;
+            ease = 0.065;
             bob = Math.sin(t * 1.4) * 1.6;
             if (Math.random() < 0.06 * dtN) this.spawnParticle(axo.renderX - axo.facing * 8, axo.renderY, -axo.facing * 0.3, -0.4, 0xcdeefe, true);
             break;
@@ -3072,8 +3072,11 @@ class CivPhaserScene extends Phaser.Scene {
       // clamped to maxZoom by its tiny 12-tile bounding box (MED-01).
       const b = this.colonies.length >= 2 ? colonyBounds(this.colonies, 6 * TILE_SIZE) : null;
       if (b && b.w > 0 && b.h > 0) {
-        // Multi-colony fit: frame the bounding box over all living colonies.
-        const fit = Math.min(cw / b.w, ch / b.h);
+        // Multi-colony fit: frame the bounding box over all living colonies, but
+        // never zoom out past a readable per-colony scale (cap the default opening
+        // view at ~88 visible tiles). Far-apart colonies may sit off-screen at the
+        // start; the explicit "frame all" button zooms out to show every colony.
+        const fit = Math.max(Math.min(cw / b.w, ch / b.h), cw / (88 * TILE_SIZE));
         cam.setZoom(Phaser.Math.Clamp(fit, this.minZoom, this.maxZoom));
         cam.centerOn(b.x + b.w / 2, b.y + b.h / 2);
       } else {
