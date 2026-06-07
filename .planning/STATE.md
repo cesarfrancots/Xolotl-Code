@@ -4,13 +4,13 @@ milestone: v2.0
 milestone_name: Civ Simulation
 status: executing
 last_updated: "2026-06-07T00:52:55.946Z"
-last_activity: 2026-06-07 -- Phase 01 COMPLETE & verified (recovered after crash; all 4 plans + verification + nyquist sign-off)
+last_activity: 2026-06-07 -- Phase 02 COMPLETE & verified (W8 renderer multi-civ identity; autonomous run)
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 20
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
+  percent: 40
 ---
 
 # State: xolotl
@@ -24,25 +24,26 @@ progress:
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** Phase 01 complete & verified. Next: plan Phase 2 (sim-first order: W9-lite ✅ → W8 → W4 → W6 → W5). `auto_advance` is off — awaiting go-ahead.
+- **Current Focus:** Autonomous run (auto_advance ON). Phases 01 ✅ + 02 ✅ done. Sim-first order: W9-lite ✅ → W8 ✅ → W4 (Phase 3, next) → W6 → W5.
 
 ## Current Position
 
-Phase: 01 (w9-lite-multi-model-world-creation-leaderboard) — ✅ COMPLETE & VERIFIED
-Plan: 4 of 4 done (all waves executed)
-Status: Phase 01 verified PASS (6/6 reqs, 214 tests green) + Nyquist signed off. Ready to plan Phase 2.
-Last activity: 2026-06-07 -- Phase 01 complete (recovered after PC crash mid-execution)
+Phase: 02 (w8-renderer-multi-civ-identity) — ✅ COMPLETE & VERIFIED
+Plan: 2 of 2 done (+ code-review fixes + Nyquist sign-off)
+Status: Phase 02 verified (REN-01/REN-02 logic PASS, 245 tests green, tsc 0; HIGH focusTarget bug found & fixed). human_needed items auto-resolved: manual GPU UAT deferred (needs live providers+WebView2); SC#3 chunked-terrain perf re-scoped to backlog (civs capped at 3). Nyquist signed off.
+Last activity: 2026-06-07 -- Phase 02 complete (autonomous)
+Next: Phase 3 (W4 — Environment Engine: seasons, disasters, resource regrowth) — ENV-01/02/03. Backend-heavy (civilization.rs turn loop) — cargo can't test on Windows, verify via cargo check/clippy/test --no-run + CI.
 
-Progress: [██████████] 100% of Phase 01 (4/4 plans) · milestone 20% (1/5 phases)
+Progress: [██████████] 100% of Phase 02 (2/2 plans) · milestone 40% (2/5 phases)
 
 ## Performance Metrics
 
 | Metric | Value |
 |--------|-------|
-| v2.0 phases completed | 1 / 5 |
+| v2.0 phases completed | 2 / 5 |
 | v2.0 requirements mapped | 17 / 17 |
-| v2.0 requirements completed | 6 / 17 (CIV-01/02/03, ARENA-01/02/03) |
-| Plans completed | 4 / 4 (Phase 01) |
+| v2.0 requirements completed | 8 / 17 (CIV-01/02/03, ARENA-01/02/03, REN-01/02) |
+| Plans completed | 6 / 6 (Phases 01-02) |
 | Active blockers | 0 |
 | v1.0 (shipped) | 6 phases / 33 plans / 40 reqs |
 
@@ -81,10 +82,10 @@ Progress: [██████████] 100% of Phase 01 (4/4 plans) · miles
 
 ## Session Continuity
 
-- **Last action:** Phase 01 fully completed after recovering from a mid-execution PC crash. Recovered Plan 01-01 (code was complete but uncommitted; cleared crash-induced build-cache corruption via `cargo clean`), then executed Plans 01-02/03/04 via sequential gsd-executor agents, ran goal-backward verification (PASS, 6/6 reqs) and the Nyquist audit (signed off, 0 gaps). Final gate: tsc 0, vitest 214/214, cargo test --no-run 0. 13 commits (`500635f`..closeout).
-- **Next action:** Plan Phase 2 with `/gsd-plan-phase 2` (next in sim-first order is W8). `auto_advance` is off — not started automatically; awaiting go-ahead. Optionally: manual UAT of the multi-civ flow (needs live providers + WebView2, see 01-VALIDATION.md Manual-Only table), or rebuild the desktop exe via `build.bat`.
+- **Last action:** Phase 02 (W8 Renderer Multi-Civ Identity) completed autonomously: full GSD pipeline — context → research → patterns → validation → 2 plans → plan-check (PASS) → execute (2 waves) → code-review (found+fixed a HIGH focusTarget bug + 4 MED) → verify → Nyquist sign-off. Per-civ tint (REN-01) + multi-colony camera/focusCiv (REN-02) shipped. Gate: tsc 0, vitest 245/245.
+- **Next action (autonomous, auto_advance ON):** Plan + execute Phase 3 (W4 — Environment Engine: ENV-01 seasons/temperature, ENV-02 disasters forecast+reshape terrain, ENV-03 renewable regrowth vs finite depletion). Backend-heavy: civilization.rs turn loop (tick_environment/apply_disaster_effects/resource_regrowth don't exist yet — see project_civ_game_goal memory). Windows: verify backend via cargo check/clippy/test --no-run (can't run cargo test); also keep tauriBrowserFallback.ts in lockstep if env mechanics are mirrored there.
 - **Last updated:** 2026-06-07
-- **Resume file:** .planning/phases/01-w9-lite-multi-model-world-creation-leaderboard/01-VERIFICATION.md
+- **Resume file:** .planning/phases/02-w8-renderer-multi-civ-identity/02-VERIFICATION.md
 
 ---
 *State initialized: 2026-05-07; milestone v2.0 started 2026-06-06*

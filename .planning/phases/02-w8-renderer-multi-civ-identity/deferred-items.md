@@ -52,3 +52,22 @@ NOT actioned now, with rationale (best-effort scope / surgical-changes rule).
 re-runs its focus effect on it (fixing #2), and a test can then assert the real
 six-method install once the signal exists (fixing #1) without exporting the
 scene class.
+
+## ROADMAP SC#3 — chunked `RenderTexture` terrain (accepted re-scope, backlog)
+
+**Source:** Phase 2 verification (`02-VERIFICATION.md`). The ROADMAP's Phase 2
+success criterion #3 implementation note suggested replacing per-tile `Image`
+baking (`bakeTerrain`) with chunked, worldView-culled `RenderTexture` terrain to
+guarantee no perf collapse at ~36k+ tiles. CONTEXT.md (and RESEARCH assumption
+A4) deliberately narrowed this to "informal stability at a 3-civ world, no FPS
+instrumentation," and neither plan carried the chunking rewrite.
+
+**Disposition: ACCEPTED re-scope (not a phase gap).** Civs are hard-capped at 1–3
+(Phase 1 `resolve_participants`), so the world stays bounded; the per-tile
+renderer is adequate at the milestone's actual scale. The chunked-terrain rewrite
+is a pure performance optimization for a scale this milestone does not reach.
+
+**Backlog (post-milestone perf):** if civ-count or world size is ever raised,
+implement chunked `RenderTexture` terrain with worldView culling in
+`CivilizationGameCanvas.tsx` (`bakeTerrain` ~744-753). Not scheduled in any v2.0
+phase (Phases 3/4/5 do not touch renderer perf).
