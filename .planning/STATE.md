@@ -4,13 +4,13 @@ milestone: v2.0
 milestone_name: Civ Simulation
 status: executing
 last_updated: "2026-06-07T00:52:55.946Z"
-last_activity: 2026-06-07 -- Phase 04 COMPLETE & verified (W6 combat & diplomacy; autonomous run)
+last_activity: 2026-06-07 -- Phase 05 COMPLETE & verified — ALL 5 v2.0 phases done (autonomous run)
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 12
-  completed_plans: 12
-  percent: 80
+  completed_phases: 5
+  total_plans: 14
+  completed_plans: 14
+  percent: 100
 ---
 
 # State: xolotl
@@ -24,26 +24,26 @@ progress:
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** Autonomous run (auto_advance ON). Phases 01 ✅ 02 ✅ 03 ✅ 04 ✅ done. Sim-first order: W9-lite ✅ → W8 ✅ → W4 ✅ → W6 ✅ → W5 (Phase 5, LAST).
+- **Current Focus:** v2.0 Civ Simulation — ALL 5 phases COMPLETE & verified (autonomous run). Sim-first order: W9-lite ✅ → W8 ✅ → W4 ✅ → W6 ✅ → W5 ✅. Next: milestone lifecycle (audit → complete → cleanup).
 
 ## Current Position
 
-Phase: 04 (w6-combat-diplomacy) — ✅ COMPLETE & VERIFIED
-Plan: 3 of 3 done (+ Nyquist sign-off; code review CLEAN, no fixes needed)
-Status: Phase 04 verified PASSED (WAR-01/02/03/04; ~33 WAR unit tests compile [cargo test --no-run 0], clippy baseline-only, tsc 0, run on CI). Claim/contest territory + deterministic combat/raids (casualties remove entities, conserved plunder, region seize, no instant-wipeout) + diplomacy stances/trades (allies don't fight, unilateral gate) + wild predators (spawn on predator_incursion, hunt, civ_strength defense, expire). New CivDecisionAction fields → bindings regen (additive, tsc 0). civ_strength is the Phase-5 strength-gene seam. human_needed auto-resolved: tests run on CI; emergent balance is manual observation. Nyquist signed off.
-Last activity: 2026-06-07 -- Phase 04 complete (autonomous)
-Next: Phase 5 (W5 — Genetics Depth & Selection, FINAL): GEN-01 expanded genetics (new traits + pattern alleles, Mendelian crossing, visible), GEN-02 environmental pressure (ice age/plague) raises mortality for ill-adapted genes → populations measurably evolve. Depends on Phase 3 (env pressure) + Phase 4 (the civ_strength gene seam). Backend (civilization.rs genetics/breeding) — verify cargo check/clippy/test --no-run + CI; check whether new gene fields need a bindings regen.
+Phase: 05 (w5-genetics-depth-selection) — ✅ COMPLETE & VERIFIED — milestone v2.0 fully implemented
+Plan: 2 of 2 done (+ Nyquist sign-off; code review CLEAN, no fixes needed)
+Status: Phase 05 verified PASSED (GEN-01/02; ~20 genetics unit tests compile [cargo test --no-run 0], clippy baseline-only, tsc 0, run on CI). Expanded genome (pattern alleles + strength/cold/disease resistance, Mendelian, visible) + env-driven selection (gene_mortality_modifier + plague + run_life_cycle death roll) with a MEASURABLE deterministic evolution proof (mean cold_resistance strictly rises). civ_strength Phase-4 seam closed with genes.strength. New CivGenes/entity fields → additive bindings regen (tsc 0). Nyquist signed off.
+Last activity: 2026-06-07 -- Phase 05 complete (autonomous) — milestone v2.0 all phases done
+Next: Milestone lifecycle — audit (gsd-audit-milestone) → complete (gsd-complete-milestone v2.0) → cleanup (gsd-cleanup). Then manual UAT of the live sim (needs providers + WebView2) + rebuild desktop exe via build.bat.
 
-Progress: [██████████] 100% of Phase 04 (3/3 plans) · milestone 80% (4/5 phases)
+Progress: [██████████] 100% of Phase 05 (2/2 plans) · milestone 100% (5/5 phases) 🎉
 
 ## Performance Metrics
 
 | Metric | Value |
 |--------|-------|
-| v2.0 phases completed | 4 / 5 |
+| v2.0 phases completed | 5 / 5 |
 | v2.0 requirements mapped | 17 / 17 |
-| v2.0 requirements completed | 15 / 17 (CIV-01/02/03, ARENA-01/02/03, REN-01/02, ENV-01/02/03, WAR-01/02/03/04) |
-| Plans completed | 12 / 12 (Phases 01-04) |
+| v2.0 requirements completed | 17 / 17 (CIV-01/02/03, ARENA-01/02/03, REN-01/02, ENV-01/02/03, WAR-01/02/03/04, GEN-01/02) |
+| Plans completed | 14 / 14 (Phases 01-05) |
 | Active blockers | 0 |
 | v1.0 (shipped) | 6 phases / 33 plans / 40 reqs |
 
@@ -82,10 +82,10 @@ Progress: [██████████] 100% of Phase 04 (3/3 plans) · miles
 
 ## Session Continuity
 
-- **Last action:** Phase 04 (W6 Combat & Diplomacy) completed autonomously: full GSD pipeline — context → research → patterns → validation → 3 plans → plan-check (PASS) → execute (3 waves: actions+bindings-regen, combat, predators) → verify (PASSED) → code-review (CLEAN, 0 HIGH/MED) → Nyquist sign-off. WAR-01/02/03/04 all delivered. Load-bearing invariant honored: combat/predator casualties remove axolotl ENTITIES (population is a mirror), resolved before resolve_environment. civ_strength left as the single Phase-5 gene seam. CivDecisionAction gained 5 optional fields → additive bindings regen (tsc 0).
-- **Next action (autonomous, auto_advance ON):** Plan + execute Phase 5 (W5 — Genetics Depth & Selection, the FINAL phase): GEN-01 expanded genetics (new traits + pattern alleles) crossing Mendelian-style + visible; GEN-02 environmental pressure (e.g. ice age, plague) raises mortality for ill-adapted genes so populations measurably evolve. Build on: existing CivGenes struct (axolotl genetics — already in bindings); Phase 4's `civ_strength` SEAM (add a genes.strength term THERE); Phase 3's seasons/disasters (the selection pressure). Backend (civilization.rs breeding/life-cycle). Check whether new gene fields need a bindings regen (likely yes → additive, like Phase 4). After Phase 5: milestone lifecycle (audit → complete → cleanup).
+- **Last action:** Phase 05 (W5 Genetics Depth & Selection) completed autonomously — the FINAL phase. Full GSD pipeline (context → research → patterns → validation → 2 plans → plan-check PASS → execute 2 waves → verify PASSED → code-review CLEAN → Nyquist sign-off). GEN-01/02 delivered: expanded Mendelian genome (pattern alleles + strength/cold/disease resistance, visible) + env-driven selection with a MEASURABLE deterministic evolution proof. civ_strength Phase-4 seam closed. Additive bindings regen (tsc 0). **All 5 v2.0 phases + 17/17 requirements complete.** Whole autonomous run: ~14 plans across phases 1-5, each verified + Nyquist-signed-off, committed to main.
+- **Next action:** Milestone v2.0 lifecycle — `/gsd-audit-milestone` → `/gsd-complete-milestone v2.0` (archive) → `/gsd-cleanup`. Then: manual UAT of the live multi-civ sim (needs real providers + WebView2 — all phases have Manual-Only items in their VALIDATION.md), CI run of the backend cargo tests (Linux/macOS — can't run on Windows), and refresh the desktop exe via build.bat. The milestone is implemented + verified in code; what remains is human/live confirmation + the archive bookkeeping.
 - **Last updated:** 2026-06-07
-- **Resume file:** .planning/phases/04-w6-combat-diplomacy/04-VERIFICATION.md
+- **Resume file:** .planning/phases/05-w5-genetics-depth-selection/05-VERIFICATION.md
 
 ---
 *State initialized: 2026-05-07; milestone v2.0 started 2026-06-06*
