@@ -109,7 +109,7 @@ export default function App() {
     terminal.setActive(terminal.tabs[nextIndex].key);
   }, []);
 
-  const runActiveProjectStatusHandoff = useCallback((
+  const runActiveProjectHandoff = useCallback((
     action: (path: string) => Promise<void>,
     successMessage: string,
     failureMessage: string,
@@ -120,7 +120,7 @@ export default function App() {
       setMacAppStatus({
         tone: "error",
         message: "No active project is available.",
-        hint: "Open a project before using menu bar project actions.",
+        hint: "Open a project before using active project actions.",
       });
       return;
     }
@@ -169,7 +169,7 @@ export default function App() {
       return;
     }
     if (action === "status-reveal-active-project") {
-      runActiveProjectStatusHandoff(
+      runActiveProjectHandoff(
         revealPathInFinder,
         "Active project revealed in Finder.",
         "Reveal active project in Finder failed.",
@@ -178,7 +178,7 @@ export default function App() {
       return;
     }
     if (action === "status-open-active-project-editor") {
-      runActiveProjectStatusHandoff(
+      runActiveProjectHandoff(
         openPathInExternalEditor,
         "Active project opened in the external editor.",
         "Open active project in external editor failed.",
@@ -187,7 +187,7 @@ export default function App() {
       return;
     }
     if (action === "status-open-active-project-terminal") {
-      runActiveProjectStatusHandoff(
+      runActiveProjectHandoff(
         openPathInExternalTerminal,
         "Active project opened in the external terminal.",
         "Open active project in external terminal failed.",
@@ -196,7 +196,7 @@ export default function App() {
       return;
     }
     if (action === "status-copy-active-project-link") {
-      runActiveProjectStatusHandoff(
+      runActiveProjectHandoff(
         copyXolotlCodeOpenUrl,
         "Active project Xolotl link copied.",
         "Copy active project Xolotl link failed.",
@@ -205,7 +205,7 @@ export default function App() {
       return;
     }
     if (action === "status-copy-active-project-shell-open") {
-      runActiveProjectStatusHandoff(
+      runActiveProjectHandoff(
         copyXolotlCodeOpenShellCommand,
         "Active project shell open command copied.",
         "Copy active project shell open command failed.",
@@ -226,7 +226,7 @@ export default function App() {
       void loadCivilizationView();
       selectCenterTab("civ");
     }
-  }, [addTerminalTab, closeActiveTerminalTab, runActiveProjectStatusHandoff, selectAdjacentTerminalTab, selectCenterTab]);
+  }, [addTerminalTab, closeActiveTerminalTab, runActiveProjectHandoff, selectAdjacentTerminalTab, selectCenterTab]);
 
   useEffect(() => listenForNativeMenuActions(handleNativeMenuAction), [handleNativeMenuAction]);
 

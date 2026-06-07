@@ -218,13 +218,13 @@ describe("App tab navigation", () => {
     expect(await screen.findByText("Active project shell open command copied.")).toBeTruthy();
   });
 
-  it("shows recovery when menu bar project actions have no active project", async () => {
+  it("shows recovery when native active project actions have no active project", async () => {
     render(<App />);
 
     fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "status-open-active-project-editor" }));
 
     expect(await screen.findByText("No active project is available.")).toBeTruthy();
-    expect(screen.getByText("Open a project before using menu bar project actions.")).toBeTruthy();
+    expect(screen.getByText("Open a project before using active project actions.")).toBeTruthy();
     expect(pathActionMocks.openPathInExternalEditor).not.toHaveBeenCalled();
   });
 

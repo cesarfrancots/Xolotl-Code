@@ -346,6 +346,34 @@ fn build_recent_projects_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<t
     builder.build()
 }
 
+fn build_active_project_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
+    let reveal =
+        MenuItemBuilder::with_id(STATUS_REVEAL_ACTIVE_PROJECT, "Reveal in Finder").build(app)?;
+    let editor =
+        MenuItemBuilder::with_id(STATUS_OPEN_ACTIVE_PROJECT_EDITOR, "Open in Editor").build(app)?;
+    let terminal = MenuItemBuilder::with_id(
+        STATUS_OPEN_ACTIVE_PROJECT_TERMINAL,
+        "Open in External Terminal",
+    )
+    .build(app)?;
+    let copy_link =
+        MenuItemBuilder::with_id(STATUS_COPY_ACTIVE_PROJECT_LINK, "Copy Xolotl Link").build(app)?;
+    let copy_shell = MenuItemBuilder::with_id(
+        STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN,
+        "Copy Shell Open Command",
+    )
+    .build(app)?;
+
+    SubmenuBuilder::new(app, "Active Project")
+        .item(&reveal)
+        .item(&editor)
+        .item(&terminal)
+        .separator()
+        .item(&copy_link)
+        .item(&copy_shell)
+        .build()
+}
+
 fn file_project_container(file: &Path) -> Option<PathBuf> {
     let fallback = file.parent()?.to_path_buf();
     for dir in fallback.ancestors() {
@@ -759,6 +787,7 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
     let open_folder = MenuItemBuilder::with_id(MENU_OPEN_FOLDER, "Open Folder...")
         .accelerator("CmdOrCtrl+KeyO")
         .build(app)?;
+    let active_project = build_active_project_menu(app)?;
     let recent_projects = build_recent_projects_menu(app)?;
     let commands = MenuItemBuilder::with_id(MENU_COMMANDS, "Command Palette...")
         .accelerator("CmdOrCtrl+KeyK")
@@ -807,6 +836,8 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(&new_chat)
         .item(&open_folder)
+        .separator()
+        .item(&active_project)
         .separator()
         .item(&recent_projects)
         .build()?;
