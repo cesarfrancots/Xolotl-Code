@@ -1085,16 +1085,24 @@ function SkillsPanel({ open }: { open: boolean }) {
 }
 
 function SkillPreview({ name, content, onClose }: { name: string; content: string; onClose: () => void }) {
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) onClose();
+  };
+  useMacDialogDismissal(true, handleOpenChange);
+
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-5xl gap-0 p-0 overflow-hidden rounded-md border-[oklch(0.22_0.008_240)] bg-[oklch(0.108_0.004_245)]">
-        <DialogHeader className="px-4 pt-3 pb-2 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.118_0.004_245)]">
+    <Dialog open onOpenChange={handleOpenChange}>
+      <DialogContent className="xolotl-mac-dialog w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0 sm:max-w-5xl">
+        <DialogHeader className="xolotl-mac-dialog-header px-5 py-4">
           <DialogTitle className="text-sm flex items-center gap-2">
             <FileCode className="w-4 h-4 text-[oklch(0.62_0.035_190)]" />
             {name} / SKILL.md
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Preview of the installed skill Markdown file.
+          </DialogDescription>
         </DialogHeader>
-        <pre className="px-4 py-3 text-xs font-mono leading-relaxed text-[oklch(0.84_0.012_220)] bg-[oklch(0.102_0.003_245)] max-h-[60vh] overflow-y-auto whitespace-pre-wrap">{content}</pre>
+        <pre className="xolotl-mac-dialog-scroll max-h-[66vh] overflow-y-auto whitespace-pre-wrap bg-[oklch(0.102_0.003_245)] px-5 py-4 font-mono text-xs leading-relaxed text-[oklch(0.84_0.012_220)]">{content}</pre>
       </DialogContent>
     </Dialog>
   );

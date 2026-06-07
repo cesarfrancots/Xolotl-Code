@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsDialog } from "./SettingsDialog";
@@ -37,6 +37,17 @@ const commandMocks = vi.hoisted(() => {
   return {
     macSettings,
     getApiKeyStatus: vi.fn(() => Promise.resolve({})),
+    listSkills: vi.fn(() => Promise.resolve([] as Array<{
+      name: string;
+      description: string;
+      path: string;
+      body_bytes: number;
+      allowed_tools?: string[];
+    }>)),
+    readSkill: vi.fn((_name: string) => Promise.resolve({
+      status: "ok" as const,
+      data: "# Test skill\n\nUse this during tests.",
+    })),
     getMacProductivitySettings: vi.fn(() => Promise.resolve(macSettings())),
     setExternalEditor: vi.fn((editor: string) => Promise.resolve({
       status: "ok" as const,
@@ -76,6 +87,8 @@ const notificationMocks = vi.hoisted(() => ({
 vi.mock("../../bindings", () => ({
   commands: {
     getApiKeyStatus: commandMocks.getApiKeyStatus,
+    listSkills: commandMocks.listSkills,
+    readSkill: commandMocks.readSkill,
     getMacProductivitySettings: commandMocks.getMacProductivitySettings,
     setExternalEditor: commandMocks.setExternalEditor,
     setExternalTerminal: commandMocks.setExternalTerminal,
@@ -107,6 +120,11 @@ vi.mock("../../lib/notificationActions", () => ({
 describe("SettingsDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    commandMocks.listSkills.mockResolvedValue([]);
+    commandMocks.readSkill.mockResolvedValue({
+      status: "ok",
+      data: "# Test skill\n\nUse this during tests.",
+    });
     notificationMocks.getNotificationPermissionState.mockResolvedValue("granted");
     notificationMocks.requestNotificationPermissionState.mockResolvedValue("granted");
   });
@@ -137,6 +155,35 @@ describe("SettingsDialog", () => {
     fireEvent.keyDown(window, { key: "w", metaKey: true });
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("previews skills in a nested Mac dialog that closes before Settings", async () => {
+    commandMocks.listSkills.mockResolvedValue([{
+      name: "test-skill",
+      description: "Test skill",
+      path: "/Users/cesar/.xolotl-code/skills/test-skill/SKILL.md",
+      body_bytes: 36,
+      allowed_tools: ["shell"],
+    }]);
+    const onOpenChange = vi.fn();
+    const user = userEvent.setup();
+    render(<SettingsDialog open onOpenChange={onOpenChange} />);
+
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+    await user.click(await screen.findByTitle("Preview SKILL.md"));
+
+    const previewDialog = await screen.findByRole("dialog", { name: "test-skill / SKILL.md" });
+    expect(previewDialog.classList.contains("xolotl-mac-dialog")).toBe(true);
+    expect(screen.getByRole("heading", { name: "test-skill / SKILL.md" })).toBeTruthy();
+    expect(screen.getByText(/Use this during tests/)).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "w", metaKey: true });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "test-skill / SKILL.md" })).toBeNull();
+    });
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
   it("loads and saves the macOS external editor preference", async () => {

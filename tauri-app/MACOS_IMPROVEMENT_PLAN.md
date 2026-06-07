@@ -72,7 +72,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Command palette, File > Active Project, and the optional menu bar status item can copy Shortcuts/Raycast-friendly JSON payloads for the active project; the command palette can also copy JSON payloads for recent projects, current/recent folders, and visible file-browser entries.
 - The last workbench tab is restored on reopen when the URL does not explicitly request a tab, while direct `?tab=` links still take priority.
 - The last active project is revalidated and restored on reopen when Finder/Open With/URL launch paths are absent; stale or inaccessible folders clear the active scope with Mac recovery guidance.
-- Settings, command palette, and agent task dialogs share a tighter macOS utility-dialog surface and close with `Cmd+W` before underlying app shortcuts see the event.
+- Settings, Settings skill previews, command palette, and agent task dialogs share a tighter macOS utility-dialog surface and close with `Cmd+W` before underlying app shortcuts see the event.
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
 - macOS Settings include an opt-in menu bar status item with active project, agent-state, and eval-model summary plus quick access to common commands.
 - The optional menu bar status item preserves running, waiting, done, failed, and idle agent counts instead of collapsing completed work back to idle.
@@ -368,7 +368,7 @@ Deliverables:
 - Tune the app shell toward a native utility-app feel without reducing developer density:
   - Sidebar and file browser should read more like Finder/Xcode navigators.
   - Workbench controls should keep segmented-control behavior and clear pressed states.
-  - Dialogs and popovers should feel closer to macOS sheets/popovers with tighter spacing, lighter borders, and predictable keyboard dismissal. Done for Settings, command palette, and agent task dialogs.
+  - Dialogs and popovers should feel closer to macOS sheets/popovers with tighter spacing, lighter borders, and predictable keyboard dismissal. Done for Settings, Settings skill previews, command palette, and agent task dialogs.
 - Respect system appearance more deeply:
   - Audit light/dark transitions for contrast and separator clarity.
   - Use the existing high-contrast/reduced-motion hooks for any new motion or focus state.
@@ -518,7 +518,7 @@ This is the near-term order for this branch.
    - Optional AppKit Dock menu shim only if the benefit is worth the native-maintenance cost.
 2. Start Phase 2 Mac UI pass:
    - Audit the current app shell at desktop and compact MacBook widths.
-   - Tighten Settings, command palette, terminal tabs, and result surfaces to match the existing Mac-style sidebar/workbench direction. Done for Settings, command palette, agent task dialogs, terminal tabs, and the first result-surface grouping passes.
+   - Tighten Settings, command palette, terminal tabs, and result surfaces to match the existing Mac-style sidebar/workbench direction. Done for Settings, Settings skill previews, command palette, agent task dialogs, terminal tabs, and the first result-surface grouping passes.
    - Terminal tabs now have a first compact Mac tab-strip pass with stable sizing and keyboard navigation.
    - Add browser screenshots and focused tests for any layout-affecting changes.
 3. Add Phase 2.5 keyboard parity:
