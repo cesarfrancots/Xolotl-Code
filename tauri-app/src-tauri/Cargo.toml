@@ -49,7 +49,7 @@ dev-tools = []
 [profile.release]
 codegen-units = 1
 lto = "thin"
-opt-level = "s"
+opt-level = "z"
 panic = "abort"
 strip = true
 

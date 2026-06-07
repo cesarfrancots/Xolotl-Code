@@ -437,7 +437,7 @@ describe("CommandsPalette", () => {
     });
   });
 
-  it("runs file-browser row actions from the palette", async () => {
+  it("runs file-browser folder row actions from the palette", async () => {
     const browse = vi.fn(() => Promise.resolve());
     const onOpenChange = vi.fn();
     useProjectStore.setState({ browse });
@@ -492,6 +492,11 @@ describe("CommandsPalette", () => {
         { label: "src", kind: "Folder", relativePath: "docs/src" },
       );
     });
+  });
+
+  it("runs file-browser file row actions from the palette", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy context prompt for README.md" }));
     await waitFor(() => {

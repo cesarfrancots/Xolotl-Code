@@ -53,7 +53,6 @@ export default defineConfig(async () => ({
             "@tauri-apps/api",
             "@tauri-apps/plugin-clipboard-manager",
             "@tauri-apps/plugin-notification",
-            "@tauri-apps/plugin-window-state",
           ],
         },
       },
