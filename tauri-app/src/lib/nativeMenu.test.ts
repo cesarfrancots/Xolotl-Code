@@ -13,6 +13,7 @@ describe("nativeMenuActionFromPayload", () => {
     expect(nativeMenuActionFromPayload("xolotl:status-open-active-project-terminal")).toBe("status-open-active-project-terminal");
     expect(nativeMenuActionFromPayload("xolotl:status-copy-active-project-link")).toBe("status-copy-active-project-link");
     expect(nativeMenuActionFromPayload("xolotl:status-copy-active-project-shell-open")).toBe("status-copy-active-project-shell-open");
+    expect(nativeMenuActionFromPayload("xolotl:new-active-project-terminal-tab")).toBe("new-active-project-terminal-tab");
     expect(nativeMenuActionFromPayload("xolotl:copy-active-project-path")).toBe("copy-active-project-path");
     expect(nativeMenuActionFromPayload("xolotl:copy-active-project-context")).toBe("copy-active-project-context");
   });

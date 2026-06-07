@@ -264,6 +264,20 @@ describe("App tab navigation", () => {
     expect(await screen.findByText("Active project POSIX path copied.")).toBeTruthy();
   });
 
+  it("opens an embedded terminal tab at the active project from native active project actions", async () => {
+    useProjectStore.setState({ activeProjectPath: "/Users/cesar/Documents/Xolotl" });
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "new-active-project-terminal-tab" }));
+
+    expect(await screen.findByText("Terminal dock")).toBeTruthy();
+    const tabs = useTerminalStore.getState().tabs;
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0].cwd).toBe("/Users/cesar/Documents/Xolotl");
+    expect(useTerminalStore.getState().activeKey).toBe(tabs[0].key);
+    expect(await screen.findByText("Embedded terminal opened at the active project.")).toBeTruthy();
+  });
+
   it("shows recovery when native active project actions have no active project", async () => {
     render(<App />);
 

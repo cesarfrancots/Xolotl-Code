@@ -79,6 +79,14 @@ export default function App() {
   useMacStatusItem();
   useProjectOpenEvents();
 
+  const showNoActiveProjectStatus = useCallback(() => {
+    setMacAppStatus({
+      tone: "error",
+      message: "No active project is available.",
+      hint: "Open a project before using active project actions.",
+    });
+  }, []);
+
   const selectCenterTab = useCallback((tab: CenterTab) => {
     setCenterTab(tab);
     const nextUrl = urlForCenterTab(window.location.href, tab);
@@ -93,6 +101,17 @@ export default function App() {
     useUiStore.getState().setTerminalPanelOpen(true);
     useTerminalStore.getState().addTab(undefined, useProjectStore.getState().activeProjectPath);
   }, []);
+
+  const addActiveProjectTerminalTab = useCallback(() => {
+    const activeProjectPath = useProjectStore.getState().activeProjectPath;
+    if (!activeProjectPath) {
+      showNoActiveProjectStatus();
+      return;
+    }
+    useUiStore.getState().setTerminalPanelOpen(true);
+    useTerminalStore.getState().addTab(undefined, activeProjectPath);
+    setMacAppStatus({ tone: "ok", message: "Embedded terminal opened at the active project." });
+  }, [showNoActiveProjectStatus]);
 
   const closeActiveTerminalTab = useCallback(() => {
     const terminal = useTerminalStore.getState();
@@ -121,11 +140,7 @@ export default function App() {
     const projectState = useProjectStore.getState();
     const activeProjectPath = projectState.activeProjectPath;
     if (!activeProjectPath) {
-      setMacAppStatus({
-        tone: "error",
-        message: "No active project is available.",
-        hint: "Open a project before using active project actions.",
-      });
+      showNoActiveProjectStatus();
       return;
     }
     const activeProjectName = projectState.projects.find((project) => project.path === activeProjectPath)?.name ?? null;
@@ -143,7 +158,7 @@ export default function App() {
           hint: `${recoveryHint} ${errorDetail(err)}`,
         });
       });
-  }, []);
+  }, [showNoActiveProjectStatus]);
 
   const handleNativeMenuAction = useCallback((action: NativeMenuAction) => {
     const now = performance.now();
@@ -202,6 +217,10 @@ export default function App() {
       );
       return;
     }
+    if (action === "new-active-project-terminal-tab") {
+      addActiveProjectTerminalTab();
+      return;
+    }
     if (action === "status-copy-active-project-link") {
       runActiveProjectHandoff(
         copyXolotlCodeOpenUrl,
@@ -252,7 +271,7 @@ export default function App() {
       void loadCivilizationView();
       selectCenterTab("civ");
     }
-  }, [addTerminalTab, closeActiveTerminalTab, runActiveProjectHandoff, selectAdjacentTerminalTab, selectCenterTab]);
+  }, [addActiveProjectTerminalTab, addTerminalTab, closeActiveTerminalTab, runActiveProjectHandoff, selectAdjacentTerminalTab, selectCenterTab]);
 
   useEffect(() => listenForNativeMenuActions(handleNativeMenuAction), [handleNativeMenuAction]);
 
