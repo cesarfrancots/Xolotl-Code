@@ -6525,4 +6525,136 @@ mod tests {
         let cool_summer = disaster_kinds_for("summer", 18.0);
         assert!(!cool_summer.contains(&"drought"), "cool summer must not roll drought");
     }
+
+    // --- ENV-02: apply_disaster_to_tiles bounded reshape + invariants (03-02 Task 2) ---
+
+    fn flood_at(epicenter_x: u32, radius: u32) -> CivDisaster {
+        CivDisaster {
+            id: "dis-1-flood".into(),
+            kind: "flood".into(),
+            epicenter_x,
+            radius,
+            intensity: 2.0,
+            remaining_turns: 4,
+        }
+    }
+
+    #[test]
+    fn apply_disaster_preserves_tile_count() {
+        let mut snapshot = test_snapshot("dis-count", "Count", "mock-model", 42, 1);
+        let before = snapshot.world.tiles.len();
+        let width = snapshot.world.width;
+        let dis = flood_at(width / 2, 3);
+        apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
+        assert_eq!(
+            snapshot.world.tiles.len(),
+            before,
+            "apply_disaster mutates in place — tile count is invariant"
+        );
+        assert_eq!(before, (width * WORLD_HEIGHT) as usize, "world stays width*height");
+    }
+
+    #[test]
+    fn flood_reshapes_terrain_to_water() {
+        // ENV-02 hard requirement: terrain is PHYSICALLY reshaped near the epicenter.
+        let mut snapshot = test_snapshot("dis-reshape", "Reshape", "mock-model", 42, 1);
+        let width = snapshot.world.width;
+        let cx = width / 2;
+        // Snapshot the sub-surface substrate tiles in the blast column band BEFORE.
+        let before: Vec<(u32, u32, String)> = snapshot
+            .world
+            .tiles
+            .iter()
+            .map(|t| (t.x, t.y, t.terrain.clone()))
+            .collect();
+        let dis = flood_at(cx, 3);
+        apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
+        let changed = snapshot
+            .world
+            .tiles
+            .iter()
+            .zip(before.iter())
+            .any(|(t, (_, _, terrain_before))| {
+                &t.terrain != terrain_before && matches!(t.terrain.as_str(), "water" | "deepwater")
+            });
+        assert!(changed, "flood must convert at least one sub-surface substrate tile to water");
+    }
+
+    #[test]
+    fn apply_disaster_never_touches_air_band() {
+        // No tile with y < WATER_SURFACE_Y may be modified (keep colony floor buildable).
+        let mut snapshot = test_snapshot("dis-air", "Air", "mock-model", 42, 1);
+        let width = snapshot.world.width;
+        let before: Vec<CivTile> = snapshot.world.tiles.clone();
+        let dis = flood_at(width / 2, 4);
+        apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
+        for (after, prior) in snapshot.world.tiles.iter().zip(before.iter()) {
+            if after.y < WATER_SURFACE_Y {
+                assert_eq!(
+                    serde_json::to_string(after).unwrap(),
+                    serde_json::to_string(prior).unwrap(),
+                    "air band (y < {WATER_SURFACE_Y}) must never be modified"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn apply_disaster_stays_in_bounds() {
+        // Edge epicenters must not panic and must not write outside the world.
+        for ex in [0u32, 1, 200, 250, 255] {
+            let mut snapshot = test_snapshot("dis-edge", "Edge", "mock-model", 42, 1);
+            let width = snapshot.world.width;
+            let dis = flood_at(ex.min(width.saturating_sub(1)), 8);
+            apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
+            for t in &snapshot.world.tiles {
+                assert!(t.x < width, "x {} escaped width {}", t.x, width);
+                assert!(t.y < WORLD_HEIGHT, "y {} escaped WORLD_HEIGHT", t.y);
+            }
+        }
+    }
+
+    #[test]
+    fn terrain_neutral_disaster_leaves_tiles_unchanged() {
+        // storm/drought/cold_snap/predator_incursion are civ-effect/announce — no reshape.
+        for kind in ["storm", "drought", "cold_snap", "predator_incursion"] {
+            let mut snapshot = test_snapshot("dis-neutral", "Neutral", "mock-model", 42, 1);
+            let width = snapshot.world.width;
+            let before = serde_json::to_string(&snapshot.world.tiles).unwrap();
+            let dis = CivDisaster {
+                id: format!("dis-1-{kind}"),
+                kind: kind.into(),
+                epicenter_x: width / 2,
+                radius: 4,
+                intensity: 2.0,
+                remaining_turns: 4,
+            };
+            apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
+            let after = serde_json::to_string(&snapshot.world.tiles).unwrap();
+            assert_eq!(before, after, "terrain-neutral kind '{kind}' must not reshape tiles");
+        }
+    }
+
+    #[test]
+    fn apply_disaster_is_deterministic() {
+        // Identical tile vecs + identical disaster ⇒ byte-identical result.
+        let a = test_snapshot("dis-det-a", "A", "mock-model", 42, 1);
+        let b = test_snapshot("dis-det-b", "B", "mock-model", 42, 1);
+        let width = a.world.width;
+        let mut ta = a.world.tiles.clone();
+        let mut tb = b.world.tiles.clone();
+        // Same starting tiles (same seed/world gen).
+        assert_eq!(
+            serde_json::to_string(&ta).unwrap(),
+            serde_json::to_string(&tb).unwrap()
+        );
+        let dis = flood_at(width / 2, 3);
+        apply_disaster_to_tiles(&mut ta, &dis, width);
+        apply_disaster_to_tiles(&mut tb, &dis, width);
+        assert_eq!(
+            serde_json::to_string(&ta).unwrap(),
+            serde_json::to_string(&tb).unwrap(),
+            "apply_disaster must be byte-deterministic"
+        );
+    }
 }
