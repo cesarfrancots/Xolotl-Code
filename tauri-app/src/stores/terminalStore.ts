@@ -7,10 +7,24 @@ export interface TerminalTab {
   /** Backend PTY id, assigned once `terminal_spawn` resolves. */
   backendId: string | null;
   title: string;
+  /** Resolved shell executable path once the backend PTY exists. */
+  shell: string | null;
+  /** Short shell display name, for example zsh, bash, fish, or PowerShell. */
+  shellName: string | null;
   /** Directory the shell was launched in. Null means app launch cwd. */
   cwd: string | null;
+  /** How the shell/environment profile was resolved. */
+  envSource: string | null;
   /** The shell process has exited (read-only scrollback remains). */
   exited: boolean;
+}
+
+interface TerminalBackendInfo {
+  id: string;
+  shell: string;
+  shell_name: string;
+  cwd: string;
+  env_source: string;
 }
 
 interface TerminalState {
@@ -18,7 +32,7 @@ interface TerminalState {
   activeKey: string | null;
   /** Create a new tab and make it active. Returns its key. */
   addTab: (title?: string, cwd?: string | null) => string;
-  setBackendId: (key: string, backendId: string) => void;
+  setBackendInfo: (key: string, info: TerminalBackendInfo) => void;
   markExited: (backendId: string) => void;
   closeTab: (key: string) => void;
   setActive: (key: string) => void;
@@ -44,15 +58,35 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     set((s) => ({
       tabs: [
         ...s.tabs,
-        { key, backendId: null, title: title ?? `Terminal ${nextTerminalNum}`, cwd, exited: false },
+        {
+          key,
+          backendId: null,
+          title: title ?? `Terminal ${nextTerminalNum}`,
+          shell: null,
+          shellName: null,
+          cwd,
+          envSource: null,
+          exited: false,
+        },
       ],
       activeKey: key,
     }));
     return key;
   },
-  setBackendId: (key, backendId) =>
+  setBackendInfo: (key, info) =>
     set((s) => ({
-      tabs: s.tabs.map((t) => (t.key === key ? { ...t, backendId } : t)),
+      tabs: s.tabs.map((t) => (
+        t.key === key
+          ? {
+            ...t,
+            backendId: info.id,
+            shell: info.shell,
+            shellName: info.shell_name,
+            cwd: info.cwd || t.cwd,
+            envSource: info.env_source,
+          }
+          : t
+      )),
     })),
   markExited: (backendId) =>
     set((s) => ({

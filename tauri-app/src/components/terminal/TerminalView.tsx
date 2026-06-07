@@ -166,7 +166,7 @@ export function TerminalView({
         return;
       }
       idRef.current = res.data.id;
-      useTerminalStore.getState().setBackendId(tabKey, res.data.id);
+      useTerminalStore.getState().setBackendInfo(tabKey, res.data);
       for (const p of pending) {
         if (p.id === res.data.id) term.write(decodeBase64(p.data));
       }

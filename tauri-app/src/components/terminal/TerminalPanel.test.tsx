@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TerminalPanel } from "./TerminalPanel";
 import { useTerminalStore } from "../../stores/terminalStore";
@@ -45,6 +45,25 @@ it("launches new terminal tabs in the active project directory", async () => {
   expect(tabs[0].cwd).toBe("/Users/cesar/project-a");
   expect(tabs[1].cwd).toBe("/Users/cesar/project-b");
   expect(screen.getByTestId(`view-${tabs[1].key}`).getAttribute("data-cwd")).toBe("/Users/cesar/project-b");
+});
+
+it("shows active terminal shell profile metadata after spawn", () => {
+  render(<TerminalPanel />);
+  const tab = useTerminalStore.getState().tabs[0];
+
+  act(() => {
+    useTerminalStore.getState().setBackendInfo(tab.key, {
+      id: "pty-1",
+      shell: "/bin/zsh",
+      shell_name: "zsh",
+      cwd: "/Users/cesar/project-a",
+      env_source: "Inherited app environment + $SHELL",
+    });
+  });
+
+  expect(screen.getByText("zsh")).toBeTruthy();
+  expect(screen.getByText("~/project-a")).toBeTruthy();
+  expect(screen.getByText("Inherited app environment + $SHELL")).toBeTruthy();
 });
 
 it("closes a tab when its close button is clicked", async () => {

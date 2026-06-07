@@ -952,7 +952,9 @@ export type SuitePrompt = {
 export type TerminalInfo = {
 	id: string,
 	shell: string,
+	shell_name: string,
 	cwd: string,
+	env_source: string,
 };
 
 export type TokenUsage = {

@@ -9,6 +9,8 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::path::Path;
+use std::process::Command as ProcessCommand;
 use std::sync::Mutex;
 
 use base64::Engine as _;
@@ -25,7 +27,9 @@ struct TerminalSession {
     /// Child shell process, retained so it can be killed.
     child: Box<dyn portable_pty::Child + Send + Sync>,
     shell: String,
+    shell_name: String,
     cwd: String,
+    env_source: String,
 }
 
 /// Tauri-managed registry of live terminals.
@@ -39,7 +43,9 @@ pub struct TerminalManager {
 pub struct TerminalInfo {
     pub id: String,
     pub shell: String,
+    pub shell_name: String,
     pub cwd: String,
+    pub env_source: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -54,13 +60,150 @@ struct TerminalExit {
     id: String,
 }
 
-/// Default interactive shell for the platform.
-fn default_shell() -> String {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShellPlatform {
+    Windows,
+    Macos,
+    Unix,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ShellProfile {
+    command: String,
+    shell_name: String,
+    shell_args: Vec<String>,
+    env_source: String,
+}
+
+fn current_shell_platform() -> ShellPlatform {
     if cfg!(windows) {
-        "powershell.exe".to_string()
+        ShellPlatform::Windows
+    } else if cfg!(target_os = "macos") {
+        ShellPlatform::Macos
     } else {
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+        ShellPlatform::Unix
     }
+}
+
+fn shell_display_name(command: &str) -> String {
+    let name = Path::new(command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command)
+        .trim();
+    if name.eq_ignore_ascii_case("powershell.exe") || name.eq_ignore_ascii_case("powershell") {
+        "PowerShell".to_string()
+    } else if name.eq_ignore_ascii_case("pwsh.exe") || name.eq_ignore_ascii_case("pwsh") {
+        "PowerShell".to_string()
+    } else if name.is_empty() {
+        command.to_string()
+    } else {
+        name.trim_end_matches(".exe").to_string()
+    }
+}
+
+fn macos_login_shell_args(shell_name: &str) -> Vec<String> {
+    if matches!(shell_name, "zsh" | "bash" | "fish") {
+        vec!["-l".to_string()]
+    } else {
+        Vec::new()
+    }
+}
+
+fn fallback_shell(platform: ShellPlatform) -> String {
+    match platform {
+        ShellPlatform::Windows => "powershell.exe".to_string(),
+        ShellPlatform::Macos => {
+            if Path::new("/bin/zsh").exists() {
+                "/bin/zsh".to_string()
+            } else {
+                "/bin/bash".to_string()
+            }
+        }
+        ShellPlatform::Unix => "/bin/bash".to_string(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn read_macos_login_shell() -> Option<String> {
+    let user = std::env::var("USER").ok()?;
+    let output = ProcessCommand::new("/usr/bin/dscl")
+        .args([".", "-read", &format!("/Users/{user}"), "UserShell"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout)
+        .ok()
+        .and_then(|stdout| stdout.split_whitespace().last().map(str::to_string))
+        .filter(|shell| !shell.trim().is_empty())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn read_macos_login_shell() -> Option<String> {
+    None
+}
+
+fn shell_profile_from_inputs(
+    requested: Option<String>,
+    env_shell: Option<String>,
+    login_shell: Option<String>,
+    platform: ShellPlatform,
+) -> ShellProfile {
+    if let Some(shell) = requested
+        .map(|shell| shell.trim().to_string())
+        .filter(|shell| !shell.is_empty())
+    {
+        return ShellProfile {
+            shell_name: shell_display_name(&shell),
+            command: shell,
+            shell_args: Vec::new(),
+            env_source: "Inherited app environment + requested shell".to_string(),
+        };
+    }
+
+    let (command, source) = if platform == ShellPlatform::Windows {
+        (fallback_shell(platform), "platform default")
+    } else if let Some(shell) = env_shell
+        .map(|shell| shell.trim().to_string())
+        .filter(|shell| !shell.is_empty())
+    {
+        (shell, "$SHELL")
+    } else if platform == ShellPlatform::Macos {
+        if let Some(shell) = login_shell
+            .map(|shell| shell.trim().to_string())
+            .filter(|shell| !shell.is_empty())
+        {
+            (shell, "macOS login shell")
+        } else {
+            (fallback_shell(platform), "platform default")
+        }
+    } else {
+        (fallback_shell(platform), "platform default")
+    };
+
+    let shell_name = shell_display_name(&command);
+    let shell_args = if platform == ShellPlatform::Macos {
+        macos_login_shell_args(&shell_name)
+    } else {
+        Vec::new()
+    };
+    ShellProfile {
+        command,
+        shell_name,
+        shell_args,
+        env_source: format!("Inherited app environment + {source}"),
+    }
+}
+
+fn resolve_shell_profile(shell: Option<String>) -> ShellProfile {
+    shell_profile_from_inputs(
+        shell,
+        std::env::var("SHELL").ok(),
+        read_macos_login_shell(),
+        current_shell_platform(),
+    )
 }
 
 impl TerminalManager {
@@ -73,9 +216,7 @@ impl TerminalManager {
         cols: u16,
         rows: u16,
     ) -> Result<TerminalInfo, String> {
-        let shell = shell
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(default_shell);
+        let shell_profile = resolve_shell_profile(shell);
         let pty = native_pty_system();
         let pair = pty
             .openpty(PtySize {
@@ -86,7 +227,10 @@ impl TerminalManager {
             })
             .map_err(|e| format!("openpty failed: {e}"))?;
 
-        let mut cmd = CommandBuilder::new(&shell);
+        let mut cmd = CommandBuilder::new(&shell_profile.command);
+        for arg in &shell_profile.shell_args {
+            cmd.arg(arg);
+        }
         let cwd_str = cwd
             .filter(|d| !d.trim().is_empty())
             .or_else(|| {
@@ -106,7 +250,7 @@ impl TerminalManager {
         let child = pair
             .slave
             .spawn_command(cmd)
-            .map_err(|e| format!("failed to spawn '{shell}': {e}"))?;
+            .map_err(|e| format!("failed to spawn '{}': {e}", shell_profile.command))?;
         // Drop the slave so the master sees EOF when the child exits.
         drop(pair.slave);
 
@@ -157,8 +301,10 @@ impl TerminalManager {
 
         let info = TerminalInfo {
             id: id.clone(),
-            shell: shell.clone(),
+            shell: shell_profile.command.clone(),
+            shell_name: shell_profile.shell_name.clone(),
             cwd: cwd_str.clone(),
+            env_source: shell_profile.env_source.clone(),
         };
         self.sessions.lock().map_err(|e| e.to_string())?.insert(
             id,
@@ -166,8 +312,10 @@ impl TerminalManager {
                 writer,
                 master: pair.master,
                 child,
-                shell,
+                shell: shell_profile.command,
+                shell_name: shell_profile.shell_name,
                 cwd: cwd_str,
+                env_source: shell_profile.env_source,
             },
         );
         Ok(info)
@@ -214,7 +362,9 @@ impl TerminalManager {
                     .map(|(id, s)| TerminalInfo {
                         id: id.clone(),
                         shell: s.shell.clone(),
+                        shell_name: s.shell_name.clone(),
                         cwd: s.cwd.clone(),
+                        env_source: s.env_source.clone(),
                     })
                     .collect()
             })
@@ -271,4 +421,80 @@ pub fn terminal_kill(manager: tauri::State<'_, TerminalManager>, id: String) -> 
 #[specta::specta]
 pub fn terminal_list(manager: tauri::State<'_, TerminalManager>) -> Vec<TerminalInfo> {
     manager.list()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_profile_uses_requested_shell_without_login_args() {
+        let profile = shell_profile_from_inputs(
+            Some("/opt/homebrew/bin/fish".to_string()),
+            Some("/bin/zsh".to_string()),
+            Some("/bin/bash".to_string()),
+            ShellPlatform::Macos,
+        );
+
+        assert_eq!(profile.command, "/opt/homebrew/bin/fish");
+        assert_eq!(profile.shell_name, "fish");
+        assert!(profile.shell_args.is_empty());
+        assert_eq!(
+            profile.env_source,
+            "Inherited app environment + requested shell"
+        );
+    }
+
+    #[test]
+    fn macos_shell_profile_prefers_shell_env_and_uses_login_shell_args() {
+        let profile = shell_profile_from_inputs(
+            None,
+            Some("/bin/zsh".to_string()),
+            Some("/bin/bash".to_string()),
+            ShellPlatform::Macos,
+        );
+
+        assert_eq!(profile.command, "/bin/zsh");
+        assert_eq!(profile.shell_name, "zsh");
+        assert_eq!(profile.shell_args, vec!["-l"]);
+        assert_eq!(profile.env_source, "Inherited app environment + $SHELL");
+    }
+
+    #[test]
+    fn macos_shell_profile_uses_login_shell_when_shell_env_is_missing() {
+        let profile = shell_profile_from_inputs(
+            None,
+            None,
+            Some("/opt/homebrew/bin/fish".to_string()),
+            ShellPlatform::Macos,
+        );
+
+        assert_eq!(profile.command, "/opt/homebrew/bin/fish");
+        assert_eq!(profile.shell_name, "fish");
+        assert_eq!(profile.shell_args, vec!["-l"]);
+        assert_eq!(
+            profile.env_source,
+            "Inherited app environment + macOS login shell"
+        );
+    }
+
+    #[test]
+    fn unix_shell_profile_uses_platform_fallback_without_login_args() {
+        let profile = shell_profile_from_inputs(None, None, None, ShellPlatform::Unix);
+
+        assert_eq!(profile.command, "/bin/bash");
+        assert_eq!(profile.shell_name, "bash");
+        assert!(profile.shell_args.is_empty());
+        assert_eq!(
+            profile.env_source,
+            "Inherited app environment + platform default"
+        );
+    }
+
+    #[test]
+    fn powershell_display_name_is_normalized() {
+        assert_eq!(shell_display_name("powershell.exe"), "PowerShell");
+        assert_eq!(shell_display_name("pwsh"), "PowerShell");
+        assert_eq!(shell_display_name("/bin/bash"), "bash");
+    }
 }

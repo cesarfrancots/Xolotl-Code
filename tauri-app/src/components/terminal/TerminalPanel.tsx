@@ -3,6 +3,7 @@ import { Plus, TerminalSquare, X } from "lucide-react";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { useUiStore } from "../../stores/uiStore";
 import { projectDisplayName, useProjectStore } from "../../stores/projectStore";
+import { macPathLabel } from "../../lib/fileBrowser";
 import { TerminalView } from "./TerminalView";
 
 /**
@@ -15,6 +16,7 @@ export function TerminalPanel() {
   const activeKey = useTerminalStore((s) => s.activeKey);
   const terminalPanelOpen = useUiStore((s) => s.terminalPanelOpen);
   const activeProjectPath = useProjectStore((s) => s.activeProjectPath);
+  const activeTab = tabs.find((tab) => tab.key === activeKey) ?? null;
 
   // Open with one terminal ready to go.
   useEffect(() => {
@@ -137,6 +139,34 @@ export function TerminalPanel() {
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
+        {activeTab && (activeTab.shellName || activeTab.cwd || activeTab.envSource) && (
+          <div className="ml-auto hidden min-w-0 items-center gap-1.5 text-[10px] text-[oklch(0.54_0.010_225)] lg:flex">
+            {activeTab.shellName && (
+              <span
+                className="max-w-[90px] truncate rounded border border-[oklch(0.22_0.010_235)] bg-[oklch(0.12_0.004_245)] px-1.5 py-0.5"
+                title={activeTab.shell ?? activeTab.shellName}
+              >
+                {activeTab.shellName}
+              </span>
+            )}
+            {activeTab.cwd && (
+              <span
+                className="max-w-[180px] truncate rounded border border-[oklch(0.22_0.010_235)] bg-[oklch(0.12_0.004_245)] px-1.5 py-0.5"
+                title={activeTab.cwd}
+              >
+                {macPathLabel(activeTab.cwd)}
+              </span>
+            )}
+            {activeTab.envSource && (
+              <span
+                className="max-w-[210px] truncate rounded border border-[oklch(0.22_0.010_235)] bg-[oklch(0.12_0.004_245)] px-1.5 py-0.5"
+                title={activeTab.envSource}
+              >
+                {activeTab.envSource}
+              </span>
+            )}
+          </div>
+        )}
       </div>
       <div className="relative flex-1 min-h-0">
         {tabs.map((tab) => (

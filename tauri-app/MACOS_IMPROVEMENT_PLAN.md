@@ -21,6 +21,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Settings show whether each provider key comes from Keychain, an environment variable, or the legacy config file.
 - Legacy config-file provider keys can be moved into Keychain from Settings after a one-time confirmation.
 - Keychain read failures surface in Settings with recovery text instead of looking like missing provider keys.
+- Terminal tabs resolve zsh/bash/fish-aware shell profiles and display shell, cwd, and environment source metadata.
 
 ## Phase 1 - Native Mac Shell
 
@@ -97,16 +98,16 @@ Status: in progress.
 
 Deliverables:
 
-- Improve shell detection for zsh, bash, fish, and user login shell.
+- Improve shell detection for zsh, bash, fish, and user login shell. Done for explicit shell, `$SHELL`, macOS login shell, and platform fallback resolution.
 - Start terminals in the active project directory by default. Done for newly created terminal tabs.
 - Add Mac-specific terminal shortcuts:
   - Cmd+T: new terminal tab. Done via native Terminal menu and dock fallback.
   - Cmd+W: close active terminal tab. Done via native Terminal menu and dock fallback.
   - Cmd+Shift+Left/Right: switch terminal tabs. Done via native Terminal menu and dock fallback.
 - Add terminal profile metadata:
-  - Current shell.
-  - Current working directory.
-  - Environment source.
+  - Current shell. Done in the active terminal profile strip.
+  - Current working directory. Done with Mac-style `~` labels.
+  - Environment source. Done with shell resolution source metadata.
 - Investigate native pseudo-terminal behavior for long-running agent tasks and process cleanup on app quit.
 
 Acceptance:
