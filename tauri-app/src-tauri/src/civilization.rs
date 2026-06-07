@@ -9819,11 +9819,11 @@ mod tests {
         // reflected in the population mirror after resolve_environment; predators at
         // age >= lifespan are removed and survivors' age is incremented.
         let mut s = multi_civ_snapshot(2024, 2);
-        s.turn = 5;
+        s.turn = 4;
         let defender = civ_id_for(0);
-        give_civ_axolotls(&mut s, &defender, 12);
+        give_civ_axolotls(&mut s, &defender, 14);
         // A young hunting wave + one already at its lifespan (must expire this step).
-        give_predators_near(&mut s, &defender, 4);
+        give_predators_near(&mut s, &defender, 5);
         s.world.entities.push(CivEntity {
             id: "predator-old".to_string(),
             kind: "predator".to_string(),

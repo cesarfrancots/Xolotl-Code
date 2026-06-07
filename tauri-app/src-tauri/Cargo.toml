@@ -27,8 +27,8 @@ uuid = { version = "1.6", features = ["v4"] }
 runtime = { path = "../../rust/crates/runtime" }
 # specta + tauri-specta (D-13) — pin exact rc version
 specta = { version = "=2.0.0-rc.25", features = [] }
-specta-typescript = "0.0.12"
-tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+specta-typescript = { version = "0.0.12", optional = true }
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 # Plugins (TAU-05)
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
@@ -44,7 +44,7 @@ base64 = "0.22"
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 default = ["custom-protocol"]
-dev-tools = []
+dev-tools = ["dep:specta-typescript", "tauri-specta/typescript"]
 
 [profile.release]
 codegen-units = 1

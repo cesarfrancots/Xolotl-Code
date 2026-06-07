@@ -6728,6 +6728,7 @@ mod config_tests {
         {
             std::process::Command::new("kill")
                 .args(["-0", &pid.to_string()])
+                .stderr(Stdio::null())
                 .status()
                 .map(|status| status.success())
                 .unwrap_or(false)

@@ -1,9 +1,8 @@
 //! Regenerate `tauri-app/src/bindings.ts` without launching the desktop app.
 //!
-//! `tauri dev` regenerates the bindings at startup, but on Windows the test
-//! harness can't load WebView2 (see CLAUDE.md gotcha #5), so this standalone
-//! binary is the headless way to refresh bindings after changing the IPC
-//! surface. It only runs the `tauri-specta` exporter — no window, no WebView2.
+//! The `dev-tools` feature enables the TypeScript exporter without launching
+//! the app. This is the headless way to refresh bindings after changing the IPC
+//! surface, and it avoids starting a WebView.
 //!
 //! Run from `tauri-app/src-tauri`:
 //!   cargo run --features dev-tools --example export_bindings

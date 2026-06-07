@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "dev-tools")]
 use specta_typescript::Typescript;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -143,10 +144,6 @@ pub(crate) struct MacStatusItemStateStore(Mutex<MacStatusItemState>);
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
-        // u64 timestamps (created_at, duration_ms) exceed TS number precision in
-        // theory; in practice these are unix-ms / millisecond durations that fit
-        // comfortably under Number.MAX_SAFE_INTEGER for centuries.
-        .dangerously_cast_bigints_to_number()
         .commands(collect_commands![
             smoke_test,
             spawn_agent,
@@ -1259,8 +1256,13 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
     }
 }
 
+#[cfg(feature = "dev-tools")]
 pub fn export_bindings(path: &str) {
     make_builder()
+        // u64 timestamps (created_at, duration_ms) exceed TS number precision in
+        // theory; in practice these are unix-ms / millisecond durations that fit
+        // comfortably under Number.MAX_SAFE_INTEGER for centuries.
+        .dangerously_cast_bigints_to_number()
         .export(Typescript::default(), path)
         .expect("Failed to export TypeScript bindings");
 }
@@ -1269,7 +1271,7 @@ pub fn export_bindings(path: &str) {
 pub fn run() {
     let builder = make_builder();
 
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, feature = "dev-tools"))]
     export_bindings("../src/bindings.ts");
 
     let cwd = std::env::current_dir().expect("cwd must be accessible");
@@ -1357,8 +1359,10 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "dev-tools")]
     use std::path::Path;
 
+    #[cfg(feature = "dev-tools")]
     #[test]
     fn generate_bindings_ts() {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
