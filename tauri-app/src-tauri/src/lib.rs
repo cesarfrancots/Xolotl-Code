@@ -644,6 +644,16 @@ fn build_mac_status_item_menu(
         "Open Active Project in External Terminal",
     )
     .build(app)?;
+    let new_active_project_terminal_tab = MenuItemBuilder::with_id(
+        MENU_NEW_ACTIVE_PROJECT_TERMINAL_TAB,
+        "New Embedded Terminal Here",
+    )
+    .build(app)?;
+    let copy_active_project_path = MenuItemBuilder::with_id(
+        MENU_COPY_ACTIVE_PROJECT_PATH,
+        "Copy Active Project POSIX Path",
+    )
+    .build(app)?;
     let copy_active_project_link = MenuItemBuilder::with_id(
         STATUS_COPY_ACTIVE_PROJECT_LINK,
         "Copy Active Project Xolotl Link",
@@ -652,6 +662,11 @@ fn build_mac_status_item_menu(
     let copy_active_project_shell_open = MenuItemBuilder::with_id(
         STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN,
         "Copy Shell Open Command",
+    )
+    .build(app)?;
+    let copy_active_project_context = MenuItemBuilder::with_id(
+        MENU_COPY_ACTIVE_PROJECT_CONTEXT,
+        "Copy Active Project Context Prompt",
     )
     .build(app)?;
     let open = MenuItemBuilder::with_id(MENU_FOCUS_WINDOW, "Open Xolotl Code").build(app)?;
@@ -674,9 +689,12 @@ fn build_mac_status_item_menu(
             .item(&reveal_active_project)
             .item(&open_active_project_editor)
             .item(&open_active_project_terminal)
+            .item(&new_active_project_terminal_tab)
             .separator()
+            .item(&copy_active_project_path)
             .item(&copy_active_project_link)
             .item(&copy_active_project_shell_open)
+            .item(&copy_active_project_context)
             .separator();
     }
 

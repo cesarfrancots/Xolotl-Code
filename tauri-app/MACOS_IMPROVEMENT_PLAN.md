@@ -66,8 +66,8 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Settings and the command palette share a tighter macOS utility-dialog surface and close with `Cmd+W` before underlying app shortcuts see the event.
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
 - macOS Settings include an opt-in menu bar status item with active project, agent-state, and eval-model summary plus quick access to common commands.
-- The optional menu bar status item can reveal the active project in Finder and hand it off to the configured external editor or external terminal.
-- The optional menu bar status item can copy the active project `xolotl-code://` link and Terminal-safe shell open command for Shortcuts, Raycast, Alfred, and shell automation.
+- The optional menu bar status item can reveal the active project in Finder and hand it off to the embedded terminal, configured external editor, or external terminal.
+- The optional menu bar status item can copy the active project POSIX path, `xolotl-code://` link, Terminal-safe shell open command, and prompt-ready context block for Shortcuts, Raycast, Alfred, and shell automation.
 - macOS Settings show compact status tiles and targeted recovery guidance for editor, global-hotkey, menu-bar, and notification states.
 - The Mac UI respects system reduced-motion and higher-contrast preferences, with a fallback keyboard focus ring for custom workbench controls.
 - Mac release preflight checks are available through `npm run release:mac:preflight` and the release checklist is tracked in `MACOS_RELEASE_CHECKLIST.md`.
@@ -450,7 +450,7 @@ Deliverables:
 - Improve the optional menu bar status item:
   - Show active project and running agent/eval summary. Done for active project, agent counts, and active eval model counts.
   - Add quick commands only when they are stable and already route through native command actions.
-  - Active-project Finder/editor/terminal handoff actions are available from the status item when a project is active.
+  - Active-project Finder/editor/terminal/copy/context handoff actions are available from the status item when a project is active.
   - Avoid turning the status menu into a second full app navigation tree.
 - Improve global hotkey behavior:
   - Detect registration failures and show recovery text in Settings. Done for frontend save failures with Mac-specific recovery guidance.
