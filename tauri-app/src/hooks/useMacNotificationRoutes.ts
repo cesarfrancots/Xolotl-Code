@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { CenterTab } from "../lib/appNavigation";
+import { errorDetail, notifyMacAppStatus } from "../lib/macAppStatus";
 import { useAgentStore } from "../stores/agentStore";
 
 export const MAC_PRODUCTIVITY_NOTIFICATION_EVENT = "xolotl://mac-productivity-notification";
@@ -144,7 +145,13 @@ export function useMacNotificationRoutes(selectCenterTab: SelectCenterTab) {
         else unlistenNotification = fn;
       })
       .catch((err) => {
+        if (cancelled) return;
         console.warn("mac notification route listener failed:", err);
+        notifyMacAppStatus({
+          tone: "error",
+          message: "Mac notification routing unavailable.",
+          hint: `Notifications may still appear, but opening them may not return to the related Xolotl view. Restart Xolotl Code if this repeats. ${errorDetail(err)}`,
+        });
       });
 
     listen<unknown>(MAC_APP_REOPEN_EVENT, () => {
@@ -155,7 +162,13 @@ export function useMacNotificationRoutes(selectCenterTab: SelectCenterTab) {
         else unlistenReopen = fn;
       })
       .catch((err) => {
+        if (cancelled) return;
         console.warn("mac app reopen listener failed:", err);
+        notifyMacAppStatus({
+          tone: "error",
+          message: "Mac app reopen routing unavailable.",
+          hint: `Dock and notification reopen events may not restore the latest Xolotl context. Restart Xolotl Code if this repeats. ${errorDetail(err)}`,
+        });
       });
 
     void import("@tauri-apps/plugin-notification")

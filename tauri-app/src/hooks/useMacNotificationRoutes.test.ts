@@ -1,16 +1,40 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
 import {
+  MAC_APP_REOPEN_EVENT,
+  MAC_PRODUCTIVITY_NOTIFICATION_EVENT,
   OPEN_EVAL_FROM_NOTIFICATION_EVENT,
   applyMacNotificationRoute,
   consumePendingEvalNotificationId,
   macNotificationRouteFromAction,
   macNotificationRouteFromPayload,
   storePendingEvalNotificationId,
+  useMacNotificationRoutes,
 } from "./useMacNotificationRoutes";
+import { MAC_APP_STATUS_EVENT, type MacAppStatus } from "../lib/macAppStatus";
 import { useAgentStore } from "../stores/agentStore";
+
+const tauriEventMocks = vi.hoisted(() => ({
+  listen: vi.fn((_eventName: string, _handler?: unknown) => Promise.resolve(() => {})),
+}));
+
+const notificationMocks = vi.hoisted(() => ({
+  onAction: vi.fn(() => Promise.resolve({ unregister: vi.fn() })),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: tauriEventMocks.listen,
+}));
+
+vi.mock("@tauri-apps/plugin-notification", () => ({
+  onAction: notificationMocks.onAction,
+}));
 
 describe("mac notification route helpers", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+    tauriEventMocks.listen.mockImplementation((_eventName: string, _handler?: unknown) => Promise.resolve(() => {}));
+    notificationMocks.onAction.mockResolvedValue({ unregister: vi.fn() });
     window.sessionStorage.clear();
     useAgentStore.setState({
       agents: [],
@@ -101,5 +125,63 @@ describe("mac notification route helpers", () => {
     expect(selectCenterTab).toHaveBeenCalledWith("chat");
     expect(useAgentStore.getState().expandedAgentId).toBeNull();
     expect(useAgentStore.getState().mergeCheckpointGroupId).toBeNull();
+  });
+});
+
+describe("useMacNotificationRoutes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tauriEventMocks.listen.mockImplementation((_eventName: string, _handler?: unknown) => Promise.resolve(() => {}));
+    notificationMocks.onAction.mockResolvedValue({ unregister: vi.fn() });
+  });
+
+  it("emits recovery status when notification route listener registration fails", async () => {
+    const statuses: MacAppStatus[] = [];
+    const onStatus = (event: Event) => statuses.push((event as CustomEvent<MacAppStatus>).detail);
+    window.addEventListener(MAC_APP_STATUS_EVENT, onStatus);
+    tauriEventMocks.listen.mockImplementation((eventName: string) => {
+      if (eventName === MAC_PRODUCTIVITY_NOTIFICATION_EVENT) {
+        return Promise.reject(new Error("notification listener denied"));
+      }
+      return Promise.resolve(() => {});
+    });
+
+    const { unmount } = renderHook(() => useMacNotificationRoutes(vi.fn()));
+
+    try {
+      await waitFor(() => {
+        expect(statuses[0]?.message).toBe("Mac notification routing unavailable.");
+      });
+      expect(statuses[0]?.hint).toContain("opening them may not return");
+      expect(statuses[0]?.hint).toContain("notification listener denied");
+    } finally {
+      unmount();
+      window.removeEventListener(MAC_APP_STATUS_EVENT, onStatus);
+    }
+  });
+
+  it("emits recovery status when app reopen listener registration fails", async () => {
+    const statuses: MacAppStatus[] = [];
+    const onStatus = (event: Event) => statuses.push((event as CustomEvent<MacAppStatus>).detail);
+    window.addEventListener(MAC_APP_STATUS_EVENT, onStatus);
+    tauriEventMocks.listen.mockImplementation((eventName: string) => {
+      if (eventName === MAC_APP_REOPEN_EVENT) {
+        return Promise.reject(new Error("reopen listener denied"));
+      }
+      return Promise.resolve(() => {});
+    });
+
+    const { unmount } = renderHook(() => useMacNotificationRoutes(vi.fn()));
+
+    try {
+      await waitFor(() => {
+        expect(statuses[0]?.message).toBe("Mac app reopen routing unavailable.");
+      });
+      expect(statuses[0]?.hint).toContain("restore the latest Xolotl context");
+      expect(statuses[0]?.hint).toContain("reopen listener denied");
+    } finally {
+      unmount();
+      window.removeEventListener(MAC_APP_STATUS_EVENT, onStatus);
+    }
   });
 });
