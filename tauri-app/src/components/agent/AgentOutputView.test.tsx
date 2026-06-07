@@ -14,6 +14,7 @@ const commandMocks = vi.hoisted(() => ({
 }));
 
 const pathActionMocks = vi.hoisted(() => ({
+  copyPathContextHandoff: vi.fn<(path: string, options?: unknown) => Promise<void>>((_path) => Promise.resolve()),
   copyTextToClipboard: vi.fn<(text: string) => Promise<void>>((_text) => Promise.resolve()),
   copyXolotlCodeOpenShellCommand: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   copyXolotlCodeOpenUrl: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
@@ -27,6 +28,7 @@ vi.mock("../../bindings", () => ({
 }));
 
 vi.mock("../../lib/pathActions", () => ({
+  copyPathContextHandoff: pathActionMocks.copyPathContextHandoff,
   copyTextToClipboard: pathActionMocks.copyTextToClipboard,
   copyXolotlCodeOpenShellCommand: pathActionMocks.copyXolotlCodeOpenShellCommand,
   copyXolotlCodeOpenUrl: pathActionMocks.copyXolotlCodeOpenUrl,
@@ -67,6 +69,7 @@ describe("AgentOutputView Mac worktree handoffs", () => {
       data: "/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-1",
     });
     pathActionMocks.copyTextToClipboard.mockResolvedValue(undefined);
+    pathActionMocks.copyPathContextHandoff.mockResolvedValue(undefined);
     pathActionMocks.copyXolotlCodeOpenShellCommand.mockResolvedValue(undefined);
     pathActionMocks.copyXolotlCodeOpenUrl.mockResolvedValue(undefined);
     pathActionMocks.openPathInExternalEditor.mockResolvedValue(undefined);
@@ -120,6 +123,23 @@ describe("AgentOutputView Mac worktree handoffs", () => {
       expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-1");
     });
     expect(await screen.findByText("Agent worktree shell open command copied.")).toBeTruthy();
+  });
+
+  it("copies the active agent worktree context prompt from the automation menu", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentOutputView agentId="agent-1" />);
+    await user.click(screen.getByLabelText("Agent worktree automation actions"));
+    await user.click(await screen.findByRole("menuitem", { name: "Copy agent worktree context prompt" }));
+
+    await waitFor(() => {
+      expect(commandMocks.getAgentWorktreePath).toHaveBeenCalledWith("agent-1");
+      expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-1",
+        { label: "Implement Mac handoffs", kind: "Agent worktree" },
+      );
+    });
+    expect(await screen.findByText("Agent worktree context prompt copied.")).toBeTruthy();
   });
 
   it("opens the active agent worktree in the external terminal", async () => {

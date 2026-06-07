@@ -22,6 +22,7 @@ import { errorDetail, MAC_APP_STATUS_EVENT, type MacAppStatus } from "./lib/macA
 import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
 import {
+  copyPathContextHandoff,
   copyProjectContextHandoff,
   copyTextToClipboard,
   copyXolotlCodeOpenShellCommand,
@@ -151,7 +152,7 @@ export default function App() {
   }, [showNoAgentStatus]);
 
   const runLatestAgentWorktreeHandoff = useCallback((
-    action: (path: string) => Promise<void>,
+    action: (path: string, agent: AgentRecord) => Promise<void>,
     successMessage: string,
     failureMessage: string,
     recoveryHint: string,
@@ -166,7 +167,7 @@ export default function App() {
     void commands.getAgentWorktreePath(latestAgent.id)
       .then(async (pathResult) => {
         if (pathResult.status === "error") throw new Error(pathResult.error);
-        await action(pathResult.data);
+        await action(pathResult.data, latestAgent);
         setMacAppStatus({ tone: "ok", message: successMessage });
       })
       .catch((err) => {
@@ -293,7 +294,7 @@ export default function App() {
     }
     if (action === "reveal-latest-agent-worktree") {
       runLatestAgentWorktreeHandoff(
-        revealPathInFinder,
+        (path) => revealPathInFinder(path),
         "Latest agent worktree revealed in Finder.",
         "Reveal latest agent worktree in Finder failed.",
         "Check that the latest agent still has a worktree and that macOS can access it.",
@@ -302,7 +303,7 @@ export default function App() {
     }
     if (action === "open-latest-agent-worktree-editor") {
       runLatestAgentWorktreeHandoff(
-        openPathInExternalEditor,
+        (path) => openPathInExternalEditor(path),
         "Latest agent worktree opened in the external editor.",
         "Open latest agent worktree in editor failed.",
         "Check that the latest agent still has a worktree, then check the preferred external editor in macOS Settings or choose an installed editor app.",
@@ -311,7 +312,7 @@ export default function App() {
     }
     if (action === "open-latest-agent-worktree-terminal") {
       runLatestAgentWorktreeHandoff(
-        openPathInExternalTerminal,
+        (path) => openPathInExternalTerminal(path),
         "Latest agent worktree opened in the external terminal.",
         "Open latest agent worktree in external terminal failed.",
         "Check that the latest agent still has a worktree, then check the preferred external terminal in macOS Settings or choose an installed terminal app.",
@@ -320,7 +321,7 @@ export default function App() {
     }
     if (action === "new-latest-agent-worktree-terminal-tab") {
       runLatestAgentWorktreeHandoff(
-        openEmbeddedTerminalAtPath,
+        (path) => openEmbeddedTerminalAtPath(path),
         "Embedded terminal opened at the latest agent worktree.",
         "Open latest agent worktree in embedded terminal failed.",
         "Check that the latest agent still has a worktree and that macOS can access it.",
@@ -329,7 +330,7 @@ export default function App() {
     }
     if (action === "copy-latest-agent-worktree-path") {
       runLatestAgentWorktreeHandoff(
-        copyTextToClipboard,
+        (path) => copyTextToClipboard(path),
         "Latest agent worktree POSIX path copied.",
         "Copy latest agent worktree POSIX path failed.",
         "Check that the latest agent still has a worktree, then check clipboard permissions and try again.",
@@ -338,7 +339,7 @@ export default function App() {
     }
     if (action === "copy-latest-agent-worktree-link") {
       runLatestAgentWorktreeHandoff(
-        copyXolotlCodeOpenUrl,
+        (path) => copyXolotlCodeOpenUrl(path),
         "Latest agent worktree Xolotl link copied.",
         "Copy latest agent worktree Xolotl link failed.",
         "Check that the latest agent still has a worktree, then check clipboard permissions and try again.",
@@ -347,9 +348,18 @@ export default function App() {
     }
     if (action === "copy-latest-agent-worktree-shell-open") {
       runLatestAgentWorktreeHandoff(
-        copyXolotlCodeOpenShellCommand,
+        (path) => copyXolotlCodeOpenShellCommand(path),
         "Latest agent worktree shell open command copied.",
         "Copy latest agent worktree shell open command failed.",
+        "Check that the latest agent still has a worktree, then check clipboard permissions and try again.",
+      );
+      return;
+    }
+    if (action === "copy-latest-agent-worktree-context") {
+      runLatestAgentWorktreeHandoff(
+        (path, agent) => copyPathContextHandoff(path, { label: agent.task, kind: "Agent worktree" }),
+        "Latest agent worktree context prompt copied.",
+        "Copy latest agent worktree context prompt failed.",
         "Check that the latest agent still has a worktree, then check clipboard permissions and try again.",
       );
       return;

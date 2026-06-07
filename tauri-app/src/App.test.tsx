@@ -22,6 +22,7 @@ const commandMocks = vi.hoisted(() => ({
   })),
 }));
 const pathActionMocks = vi.hoisted(() => ({
+  copyPathContextHandoff: vi.fn((_path: string, _options?: unknown) => Promise.resolve()),
   copyProjectContextHandoff: vi.fn((_path: string, _name?: string | null) => Promise.resolve()),
   copyTextToClipboard: vi.fn((_text: string) => Promise.resolve()),
   copyXolotlCodeOpenShellCommand: vi.fn((_path: string) => Promise.resolve()),
@@ -32,7 +33,7 @@ const pathActionMocks = vi.hoisted(() => ({
 }));
 const agentStoreMocks = vi.hoisted(() => {
   const state = {
-    agents: [] as Array<{ id: string; state: string }>,
+    agents: [] as Array<{ id: string; state: string; task?: string }>,
     expandedAgentId: null as string | null,
     mergeCheckpointGroupId: null as string | null,
     setExpandedAgent: vi.fn((id: string | null) => {
@@ -350,9 +351,9 @@ describe("App tab navigation", () => {
 
   it("opens the most relevant agent output from native menu actions", async () => {
     agentStoreMocks.state.agents = [
-      { id: "agent-done", state: "Done" },
-      { id: "agent-waiting", state: "Waiting" },
-      { id: "agent-executing", state: "Executing" },
+      { id: "agent-done", state: "Done", task: "Polish old Mac menu" },
+      { id: "agent-waiting", state: "Waiting", task: "Wait for Mac QA" },
+      { id: "agent-executing", state: "Executing", task: "Implement Mac handoffs" },
     ];
     render(<App />);
 
@@ -378,9 +379,9 @@ describe("App tab navigation", () => {
 
   it("runs latest agent worktree handoffs from native menu actions", async () => {
     agentStoreMocks.state.agents = [
-      { id: "agent-done", state: "Done" },
-      { id: "agent-waiting", state: "Waiting" },
-      { id: "agent-executing", state: "Executing" },
+      { id: "agent-done", state: "Done", task: "Polish old Mac menu" },
+      { id: "agent-waiting", state: "Waiting", task: "Wait for Mac QA" },
+      { id: "agent-executing", state: "Executing", task: "Implement Mac handoffs" },
     ];
     render(<App />);
 
@@ -407,6 +408,16 @@ describe("App tab navigation", () => {
       expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-executing");
     });
     expect(await screen.findByText("Latest agent worktree shell open command copied.")).toBeTruthy();
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "copy-latest-agent-worktree-context" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-executing",
+        { label: "Implement Mac handoffs", kind: "Agent worktree" },
+      );
+    });
+    expect(await screen.findByText("Latest agent worktree context prompt copied.")).toBeTruthy();
   });
 
   it("shows recovery when the latest agent worktree cannot be resolved", async () => {

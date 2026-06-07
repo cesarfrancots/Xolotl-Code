@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Code2, Copy, FolderOpen, Link2, MoreHorizontal, TerminalSquare, X } from "lucide-react";
+import { ClipboardList, Code2, Copy, FolderOpen, Link2, MoreHorizontal, TerminalSquare, X } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
 import { useAgentStore } from "../../stores/agentStore";
 import { AgentMessageList } from "./AgentMessageList";
 import { AgentStateBadge } from "./AgentStateBadge";
 import {
+  copyPathContextHandoff,
   copyTextToClipboard,
   copyXolotlCodeOpenShellCommand,
   copyXolotlCodeOpenUrl,
@@ -206,6 +207,18 @@ export function AgentOutputView({ agentId }: { agentId: string }) {
                   >
                     <TerminalSquare className="h-3.5 w-3.5" />
                     Copy agent worktree shell open command
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void runAgentWorktreeHandoff(
+                      "clipboard",
+                      (path) => copyPathContextHandoff(path, { label: record.task, kind: "Agent worktree" }),
+                      "Agent worktree context prompt copied.",
+                      "Copy agent worktree context prompt failed.",
+                    )}
+                    className="gap-2 text-xs"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    Copy agent worktree context prompt
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
