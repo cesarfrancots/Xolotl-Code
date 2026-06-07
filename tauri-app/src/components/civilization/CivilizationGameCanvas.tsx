@@ -529,7 +529,10 @@ class CivPhaserScene extends Phaser.Scene {
     this.syncEntities();
     this.recomputeColony();
     this.recomputeColonies();
-    this.prevLivingCount = this.colonies.filter((c) => c.alive).length;
+    // Seed the collapse baseline from the authoritative civ list (see MED-03 in
+    // setSnapshot), not from however many colonies happened to resolve this frame.
+    // `alive` is `false` only once collapsed; undefined defaults to living.
+    this.prevLivingCount = (this.snapshot.civs ?? []).filter((c) => c.alive !== false).length;
     this.onResize();
   }
 
@@ -550,7 +553,11 @@ class CivPhaserScene extends Phaser.Scene {
     this.recomputeColonies();
     // Re-frame on collapse: when the living-civ count shrinks, drop the dead civ
     // from the default view. (World create/load re-frames via the `framed` flip.)
-    const living = this.colonies.filter((c) => c.alive).length;
+    // Count from the authoritative civ list, NOT this.colonies — a colony that is
+    // alive but momentarily unresolvable (no home_region/entities/spawn_x) would
+    // otherwise drop from the count and trigger a spurious collapse re-frame (MED-03).
+    // `alive` is `false` only once collapsed; undefined defaults to living.
+    const living = (this.snapshot.civs ?? []).filter((c) => c.alive !== false).length;
     if (this.prevLivingCount >= 0 && living < this.prevLivingCount && living > 0) {
       this.frameAll();
     }
