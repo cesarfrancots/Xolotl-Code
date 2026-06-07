@@ -80,11 +80,12 @@ describe("AgentOutputView Mac worktree handoffs", () => {
     });
   });
 
-  it("copies the active agent worktree path", async () => {
+  it("copies the active agent worktree path from the automation menu", async () => {
     const user = userEvent.setup();
 
     render(<AgentOutputView agentId="agent-1" />);
-    await user.click(screen.getByLabelText("Copy agent worktree path"));
+    await user.click(screen.getByLabelText("Agent worktree automation actions"));
+    await user.click(await screen.findByRole("menuitem", { name: "Copy agent worktree path" }));
 
     await waitFor(() => {
       expect(commandMocks.getAgentWorktreePath).toHaveBeenCalledWith("agent-1");
@@ -93,11 +94,12 @@ describe("AgentOutputView Mac worktree handoffs", () => {
     expect(await screen.findByText("Agent worktree path copied.")).toBeTruthy();
   });
 
-  it("copies the active agent worktree Xolotl link", async () => {
+  it("copies the active agent worktree Xolotl link from the automation menu", async () => {
     const user = userEvent.setup();
 
     render(<AgentOutputView agentId="agent-1" />);
-    await user.click(screen.getByLabelText("Copy agent worktree Xolotl link"));
+    await user.click(screen.getByLabelText("Agent worktree automation actions"));
+    await user.click(await screen.findByRole("menuitem", { name: "Copy agent worktree Xolotl link" }));
 
     await waitFor(() => {
       expect(commandMocks.getAgentWorktreePath).toHaveBeenCalledWith("agent-1");
@@ -106,11 +108,12 @@ describe("AgentOutputView Mac worktree handoffs", () => {
     expect(await screen.findByText("Agent worktree Xolotl link copied.")).toBeTruthy();
   });
 
-  it("copies the active agent worktree shell open command", async () => {
+  it("copies the active agent worktree shell open command from the automation menu", async () => {
     const user = userEvent.setup();
 
     render(<AgentOutputView agentId="agent-1" />);
-    await user.click(screen.getByLabelText("Copy agent worktree shell open command"));
+    await user.click(screen.getByLabelText("Agent worktree automation actions"));
+    await user.click(await screen.findByRole("menuitem", { name: "Copy agent worktree shell open command" }));
 
     await waitFor(() => {
       expect(commandMocks.getAgentWorktreePath).toHaveBeenCalledWith("agent-1");

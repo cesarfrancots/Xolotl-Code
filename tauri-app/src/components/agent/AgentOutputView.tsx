@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Code2, Copy, FolderOpen, Link2, TerminalSquare, X } from "lucide-react";
+import { Code2, Copy, FolderOpen, Link2, MoreHorizontal, TerminalSquare, X } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
 import { useAgentStore } from "../../stores/agentStore";
@@ -13,6 +13,13 @@ import {
   openPathInExternalTerminal,
   revealPathInFinder,
 } from "../../lib/pathActions";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 
 type AgentWorktreeHandoffState = "idle" | "working" | "ok" | "error";
 
@@ -119,54 +126,6 @@ export function AgentOutputView({ agentId }: { agentId: string }) {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                title={handoffMessage || "Copy agent worktree path"}
-                aria-label="Copy agent worktree path"
-                disabled={handoffWorking}
-                onClick={() => void runAgentWorktreeHandoff(
-                  "clipboard",
-                  copyTextToClipboard,
-                  "Agent worktree path copied.",
-                  "Copy agent worktree path failed.",
-                )}
-              >
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                title={handoffMessage || "Copy agent worktree Xolotl link"}
-                aria-label="Copy agent worktree Xolotl link"
-                disabled={handoffWorking}
-                onClick={() => void runAgentWorktreeHandoff(
-                  "clipboard",
-                  copyXolotlCodeOpenUrl,
-                  "Agent worktree Xolotl link copied.",
-                  "Copy agent worktree Xolotl link failed.",
-                )}
-              >
-                <Link2 className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                title={handoffMessage || "Copy agent worktree shell open command"}
-                aria-label="Copy agent worktree shell open command"
-                disabled={handoffWorking}
-                onClick={() => void runAgentWorktreeHandoff(
-                  "clipboard",
-                  copyXolotlCodeOpenShellCommand,
-                  "Agent worktree shell open command copied.",
-                  "Copy agent worktree shell open command failed.",
-                )}
-              >
-                <TerminalSquare className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
                 title={handoffMessage || "Open agent worktree in editor"}
                 aria-label="Open agent worktree in editor"
                 disabled={handoffWorking}
@@ -195,6 +154,61 @@ export function AgentOutputView({ agentId }: { agentId: string }) {
               >
                 <TerminalSquare className="h-3.5 w-3.5" />
               </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    title={handoffMessage || "Agent worktree automation actions"}
+                    aria-label="Agent worktree automation actions"
+                    disabled={handoffWorking}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[250px] border-[oklch(0.22_0.010_235)] bg-[oklch(0.105_0.004_245)] text-[oklch(0.78_0.014_225)]">
+                  <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.14em] text-[oklch(0.52_0.014_230)]">
+                    Agent worktree
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem
+                    onClick={() => void runAgentWorktreeHandoff(
+                      "clipboard",
+                      copyTextToClipboard,
+                      "Agent worktree path copied.",
+                      "Copy agent worktree path failed.",
+                    )}
+                    className="gap-2 text-xs"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy agent worktree path
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void runAgentWorktreeHandoff(
+                      "clipboard",
+                      copyXolotlCodeOpenUrl,
+                      "Agent worktree Xolotl link copied.",
+                      "Copy agent worktree Xolotl link failed.",
+                    )}
+                    className="gap-2 text-xs"
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                    Copy agent worktree Xolotl link
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void runAgentWorktreeHandoff(
+                      "clipboard",
+                      copyXolotlCodeOpenShellCommand,
+                      "Agent worktree shell open command copied.",
+                      "Copy agent worktree shell open command failed.",
+                    )}
+                    className="gap-2 text-xs"
+                  >
+                    <TerminalSquare className="h-3.5 w-3.5" />
+                    Copy agent worktree shell open command
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
           <Button

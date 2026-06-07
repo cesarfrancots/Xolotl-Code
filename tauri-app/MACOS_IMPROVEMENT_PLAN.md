@@ -44,6 +44,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Launched eval outcome artifacts can reveal their generated artifact folder in Finder, copy its POSIX path, and open it in the preferred external editor or terminal.
 - Expanded agent output can reveal the active agent worktree in Finder, copy its POSIX path, and open it in the preferred external editor or terminal.
 - Launched eval outcome artifacts and expanded agent worktrees can copy `xolotl-code://open?path=...` links and Terminal-safe shell-open commands for automation handoff.
+- Expanded agent output keeps primary worktree Finder/editor/terminal actions visible while grouping worktree copy automation in a compact Mac-style menu.
 - Packaged launch-path smoke coverage is available through `npm run smoke:mac:launch-path`, including spaces, Unicode, symlink canonicalization, package-directory names, and nested source-file project-root detection.
 - Packaged Launch Services/Open With smoke coverage is available through `npm run smoke:mac:open-project`, including file URLs, document URLs, `xolotl-code://` URLs, spaces, Unicode, symlinks, and package directories.
 - Terminal tab commands are available from a native Terminal menu.
@@ -367,7 +368,7 @@ Deliverables:
   - Evaluate system accent-color usage only where it improves recognizability and does not create a one-color UI.
 - Improve compact-window behavior:
   - Verify traffic-light spacing, collapsed sidebar controls, terminal tabs, and command palette at narrow widths.
-  - Prevent titlebar and toolbar actions from wrapping into unusable states. Done for the first terminal tab strip overflow pass and terminal cwd automation menu grouping.
+  - Prevent titlebar and toolbar actions from wrapping into unusable states. Done for the first terminal tab strip overflow pass, terminal cwd automation menu grouping, and agent worktree automation menu grouping.
 
 Acceptance:
 
