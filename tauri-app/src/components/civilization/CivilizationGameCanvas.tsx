@@ -3051,7 +3051,10 @@ class CivPhaserScene extends Phaser.Scene {
     this.mm = { x: 16, y: ch - mw * (this.snapshot.world.height / this.snapshot.world.width) - 16, w: mw, h: mw * (this.snapshot.world.height / this.snapshot.world.width) };
     if (!this.framed) {
       this.framed = true;
-      const b = colonyBounds(this.colonies, 6 * TILE_SIZE);
+      // Only use the multi-colony fit when there are >= 2 colonies; a lone colony
+      // keeps the legacy single-civ world-fit (the dominant path) instead of being
+      // clamped to maxZoom by its tiny 12-tile bounding box (MED-01).
+      const b = this.colonies.length >= 2 ? colonyBounds(this.colonies, 6 * TILE_SIZE) : null;
       if (b && b.w > 0 && b.h > 0) {
         // Multi-colony fit: frame the bounding box over all living colonies.
         const fit = Math.min(cw / b.w, ch / b.h);
