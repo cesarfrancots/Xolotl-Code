@@ -141,6 +141,19 @@ describe("App tab navigation", () => {
     expect(evalTab.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("exposes overlay-titlebar drag regions in the workbench toolbar", () => {
+    const { container } = render(<App />);
+
+    const workbench = container.querySelector(".xolotl-workbench");
+    const toolbar = container.querySelector(".xolotl-workbench-bar");
+    const dragRegions = toolbar?.querySelectorAll("[data-tauri-drag-region]");
+
+    expect(workbench).toBeTruthy();
+    expect(toolbar).toBeTruthy();
+    expect(dragRegions?.length).toBe(2);
+    expect(container.querySelector(".xolotl-workspace-content")).toBeTruthy();
+  });
+
   it("supports Mac command-number shortcuts for workspace tabs", async () => {
     render(<App />);
 

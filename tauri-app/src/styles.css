@@ -69,6 +69,8 @@ button {
 }
 
 .xolotl-shell {
+  --xolotl-titlebar-height: 44px;
+  --xolotl-traffic-light-safe-width: 88px;
   height: 100dvh;
   max-height: 100dvh;
   min-height: 0;
@@ -97,6 +99,50 @@ button {
   background:
     linear-gradient(180deg, oklch(0.135 0.004 230 / 0.98), oklch(0.112 0.003 245 / 0.99)),
     linear-gradient(90deg, oklch(0.70 0.035 190 / 0.018), transparent 42%);
+}
+
+.xolotl-sidebar-header {
+  display: flex;
+  height: 48px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px;
+  border-bottom: 1px solid oklch(0.22 0.008 240);
+}
+
+.xolotl-left-sidebar[data-collapsed="false"] > .xolotl-sidebar-header {
+  padding-left: var(--xolotl-traffic-light-safe-width);
+}
+
+.xolotl-left-sidebar[data-collapsed="true"] > .xolotl-sidebar-header {
+  height: calc(var(--xolotl-titlebar-height) + 32px);
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 8px 8px;
+}
+
+.xolotl-sidebar-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: oklch(0.56 0.012 220);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.xolotl-left-sidebar[data-collapsed="true"] + .xolotl-workbench .xolotl-workbench-bar {
+  padding-left: calc(var(--xolotl-traffic-light-safe-width) - 48px + 10px);
+}
+
+.xolotl-left-sidebar[data-collapsed="true"] + .xolotl-workbench .xolotl-workspace-content-titlebar-safe {
+  padding-left: calc(var(--xolotl-traffic-light-safe-width) - 48px);
 }
 
 .xolotl-workbench-bar {

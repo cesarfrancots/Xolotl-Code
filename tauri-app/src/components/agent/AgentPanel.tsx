@@ -44,13 +44,13 @@ export function AgentPanel({ forceCollapsed = false }: { forceCollapsed?: boolea
   return (
     <aside
       className={[
-        "xolotl-sidebar flex-none flex min-h-0 flex-col border-l border-[oklch(0.22_0.008_240)]",
+        "xolotl-sidebar xolotl-right-sidebar flex-none flex min-h-0 flex-col border-l border-[oklch(0.22_0.008_240)]",
         "transition-[width] duration-200 ease-out",
         collapsed ? "w-12" : "w-80",
       ].join(" ")}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-2 h-12 flex-none border-b border-[oklch(0.22_0.008_240)]">
+      <div className="xolotl-sidebar-header">
         {collapsed ? (
           <Button
             variant="ghost"

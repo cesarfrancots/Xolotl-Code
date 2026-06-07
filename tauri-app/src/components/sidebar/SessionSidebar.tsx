@@ -103,14 +103,16 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
     <>
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <aside
+        data-collapsed={collapsed ? "true" : "false"}
+        data-force-collapsed={forceCollapsed ? "true" : "false"}
         className={[
-          "xolotl-sidebar flex-none flex min-h-0 flex-col border-r border-[oklch(0.22_0.008_240)]",
+          "xolotl-sidebar xolotl-left-sidebar flex-none flex min-h-0 flex-col border-r border-[oklch(0.22_0.008_240)]",
           "transition-[width] duration-200 ease-out",
           collapsed ? "w-12" : "w-64",
         ].join(" ")}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-2 h-12 flex-none border-b border-[oklch(0.22_0.008_240)]">
+        <div className="xolotl-sidebar-header">
           {collapsed ? (
             <Button
               variant="ghost"
@@ -123,7 +125,7 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
             </Button>
           ) : (
             <>
-              <div className="flex items-center gap-1.5 pl-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[oklch(0.56_0.012_220)]">
+              <div className="xolotl-sidebar-title" data-tauri-drag-region>
                 <Folder className="h-3.5 w-3.5 text-[oklch(0.62_0.035_192)]" />
                 Workspace
               </div>

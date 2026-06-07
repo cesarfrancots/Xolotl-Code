@@ -13,6 +13,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Native macOS menu and Cmd shortcuts are wired and smoke-tested.
 - File > New Chat, workbench tab shortcuts, command palette, and terminal toggle route through the native menu bridge.
 - Workbench toolbar uses a quieter macOS utility style with a focused segmented control and explicit active states.
+- Main window uses macOS overlay titlebar chrome with hidden title text, explicit traffic-light positioning, custom drag regions, and safe spacing when the left rail is collapsed.
 - File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
 - Directory paths passed at app launch are imported into the project store and activated on startup.
 - macOS open/reopen events are handled: file URLs from Finder/Open With are normalized into project-open requests, and Dock/app reopen focuses the main window.
@@ -57,15 +58,15 @@ Acceptance:
 
 ## Phase 2 - Mac-Style Window and Navigation UX
 
-Status: planned next.
+Status: in progress.
 
 Deliverables:
 
 - Window chrome:
   - Keep native traffic-light controls.
-  - Use an inset or transparent titlebar if it does not break drag regions or automated smoke tests.
-  - Add explicit drag regions to non-interactive toolbar areas.
-  - Reserve safe space around the traffic lights at compact widths.
+  - Use an inset or transparent titlebar if it does not break drag regions or automated smoke tests. Done for the first pass with Tauri overlay titlebar chrome.
+  - Add explicit drag regions to non-interactive toolbar areas. Done for the workbench toolbar and left sidebar title area.
+  - Reserve safe space around the traffic lights at compact widths. Done for expanded left sidebar and collapsed left rail/workbench handoff.
   - Keep the current dense developer-tool layout rather than a marketing-style shell.
 - Mac visual style pass:
   - Shift the top toolbar toward a quieter macOS utility-app look.
@@ -84,7 +85,7 @@ Deliverables:
 Implementation order:
 
 1. Restyle the app header and workbench tabs without changing layout ownership. Done for the first toolbar pass.
-2. Add titlebar/drag-region support behind a small Tauri config and CSS pass.
+2. Add titlebar/drag-region support behind a small Tauri config and CSS pass. Done for the first overlay-titlebar pass.
 3. Tighten sidebar list density, selected states, and project/file browser labels.
 4. Add shortcut labels/tooltips to command-bearing controls.
 5. Run screenshot checks at desktop and compact widths before package smoke.
@@ -285,7 +286,6 @@ This is the near-term order for this branch.
    - Finder/Open With end-to-end smoke harness for packaged app file-url open events.
    - Optional AppKit Dock menu shim only if the benefit is worth the native-maintenance cost.
 2. Start Phase 2 Mac UI pass:
-   - Titlebar-safe layout and deeper drag-region validation.
    - Sidebar, project, and file browser density pass.
    - Shortcut labels and tooltips.
 3. Add Phase 2.5 keyboard parity:

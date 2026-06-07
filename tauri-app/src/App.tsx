@@ -252,7 +252,7 @@ export default function App() {
   return (
     <div className="min-h-0 w-screen flex flex-row overflow-hidden xolotl-shell">
       <SessionSidebar forceCollapsed={compactShell} />
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+      <div className="xolotl-workbench flex-1 min-w-0 min-h-0 flex flex-col">
         {!showAgentView && (
           <div className="xolotl-workbench-bar">
             <div className="xolotl-workbench-brand" data-tauri-drag-region>
@@ -309,7 +309,14 @@ export default function App() {
           </div>
         )}
         <WorkspaceErrorBoundary key={`${centerTab}:${expandedAgentId ?? ""}:${mergeCheckpointGroupId ?? ""}`}>
-          <div className="flex-1 min-h-0 flex flex-col">{renderCenter()}</div>
+          <div
+            className={[
+              "xolotl-workspace-content flex-1 min-h-0 flex flex-col",
+              showAgentView ? "xolotl-workspace-content-titlebar-safe" : "",
+            ].join(" ")}
+          >
+            {renderCenter()}
+          </div>
         </WorkspaceErrorBoundary>
         {terminalDockMounted && (
           <Suspense fallback={null}>
