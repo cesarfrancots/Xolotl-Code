@@ -49,6 +49,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Terminal tab commands are available from a native Terminal menu.
 - Terminal tabs capture the active project directory when they are created.
 - Terminal tabs use stable Mac-style compact sizing, active/focus close affordances, and Arrow/Home/End tablist navigation.
+- Terminal cwd keeps primary terminal/Finder/path actions visible while grouping lower-frequency automation copies in a compact Mac-style menu.
 - Finder-style folder drops on the app window can activate projects.
 - Sidebar project paths use Mac-style `~` home labels.
 - File browser entries include hidden, alias, and package metadata.
@@ -366,7 +367,7 @@ Deliverables:
   - Evaluate system accent-color usage only where it improves recognizability and does not create a one-color UI.
 - Improve compact-window behavior:
   - Verify traffic-light spacing, collapsed sidebar controls, terminal tabs, and command palette at narrow widths.
-  - Prevent titlebar and toolbar actions from wrapping into unusable states. Done for the first terminal tab strip overflow pass.
+  - Prevent titlebar and toolbar actions from wrapping into unusable states. Done for the first terminal tab strip overflow pass and terminal cwd automation menu grouping.
 
 Acceptance:
 

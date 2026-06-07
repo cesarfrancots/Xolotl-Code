@@ -1,5 +1,5 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { AlertCircle, CheckCircle, ClipboardList, Copy, ExternalLink, Link2, Plus, TerminalSquare, X } from "lucide-react";
+import { AlertCircle, CheckCircle, ClipboardList, Copy, ExternalLink, Link2, MoreHorizontal, Plus, TerminalSquare, X } from "lucide-react";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { useUiStore } from "../../stores/uiStore";
 import { projectDisplayName, useProjectStore } from "../../stores/projectStore";
@@ -15,6 +15,13 @@ import {
   revealPathInFinder,
 } from "../../lib/pathActions";
 import { TerminalView } from "./TerminalView";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 
 type TerminalStatusTone = "ok" | "error";
 
@@ -290,64 +297,75 @@ export function TerminalPanel() {
                 >
                   <Copy className="h-3 w-3" />
                 </button>
-                <button
-                  type="button"
-                  title="Copy terminal cwd Xolotl link"
-                  aria-label="Copy terminal cwd Xolotl link"
-                  onClick={() => {
-                    if (activeTab.cwd) {
-                      void runCwdHandoff(
-                        "Copy terminal cwd Xolotl link",
-                        () => copyXolotlCodeOpenUrl(activeTab.cwd!),
-                        "Terminal cwd Xolotl link copied.",
-                        "Check macOS clipboard access and try copying the Xolotl link again.",
-                      );
-                    }
-                  }}
-                  className="grid h-5 w-5 place-items-center rounded text-[oklch(0.45_0.010_225)] hover:bg-[oklch(0.16_0.006_245)] hover:text-[oklch(0.78_0.040_195)]"
-                >
-                  <Link2 className="h-3 w-3" />
-                </button>
-                <button
-                  type="button"
-                  title="Copy terminal cwd shell open command"
-                  aria-label="Copy terminal cwd shell open command"
-                  onClick={() => {
-                    if (activeTab.cwd) {
-                      void runCwdHandoff(
-                        "Copy terminal cwd shell open command",
-                        () => copyXolotlCodeOpenShellCommand(activeTab.cwd!),
-                        "Terminal cwd shell open command copied.",
-                        "Check macOS clipboard access and try copying the shell open command again.",
-                      );
-                    }
-                  }}
-                  className="grid h-5 w-5 place-items-center rounded text-[oklch(0.45_0.010_225)] hover:bg-[oklch(0.16_0.006_245)] hover:text-[oklch(0.78_0.040_195)]"
-                >
-                  <TerminalSquare className="h-3 w-3" />
-                </button>
-                <button
-                  type="button"
-                  title="Copy terminal cwd context prompt"
-                  aria-label="Copy terminal cwd context prompt"
-                  onClick={() => {
-                    if (activeTab.cwd) {
-                      void runCwdHandoff(
-                        "Copy terminal cwd context prompt",
-                        () => copyPathContextHandoff(activeTab.cwd!, {
-                          label: macPathLabel(activeTab.cwd!),
-                          kind: "Terminal cwd",
-                          relativePath: activeProjectPath ? relativePathFromRoot(activeTab.cwd!, activeProjectPath) : null,
-                        }),
-                        "Terminal cwd context prompt copied.",
-                        "Check macOS clipboard access and try copying the terminal context prompt again.",
-                      );
-                    }
-                  }}
-                  className="grid h-5 w-5 place-items-center rounded text-[oklch(0.45_0.010_225)] hover:bg-[oklch(0.16_0.006_245)] hover:text-[oklch(0.78_0.040_195)]"
-                >
-                  <ClipboardList className="h-3 w-3" />
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      title="Terminal cwd automation actions"
+                      aria-label="Terminal cwd automation actions"
+                      className="grid h-5 w-5 place-items-center rounded text-[oklch(0.45_0.010_225)] hover:bg-[oklch(0.16_0.006_245)] hover:text-[oklch(0.78_0.040_195)]"
+                    >
+                      <MoreHorizontal className="h-3 w-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[240px] border-[oklch(0.22_0.010_235)] bg-[oklch(0.105_0.004_245)] text-[oklch(0.78_0.014_225)]">
+                    <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.14em] text-[oklch(0.52_0.014_230)]">
+                      Terminal cwd
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        if (activeTab.cwd) {
+                          void runCwdHandoff(
+                            "Copy terminal cwd Xolotl link",
+                            () => copyXolotlCodeOpenUrl(activeTab.cwd!),
+                            "Terminal cwd Xolotl link copied.",
+                            "Check macOS clipboard access and try copying the Xolotl link again.",
+                          );
+                        }
+                      }}
+                      className="gap-2 text-xs"
+                    >
+                      <Link2 className="h-3.5 w-3.5" />
+                      Copy terminal cwd Xolotl link
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        if (activeTab.cwd) {
+                          void runCwdHandoff(
+                            "Copy terminal cwd shell open command",
+                            () => copyXolotlCodeOpenShellCommand(activeTab.cwd!),
+                            "Terminal cwd shell open command copied.",
+                            "Check macOS clipboard access and try copying the shell open command again.",
+                          );
+                        }
+                      }}
+                      className="gap-2 text-xs"
+                    >
+                      <TerminalSquare className="h-3.5 w-3.5" />
+                      Copy terminal cwd shell open command
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        if (activeTab.cwd) {
+                          void runCwdHandoff(
+                            "Copy terminal cwd context prompt",
+                            () => copyPathContextHandoff(activeTab.cwd!, {
+                              label: macPathLabel(activeTab.cwd!),
+                              kind: "Terminal cwd",
+                              relativePath: activeProjectPath ? relativePathFromRoot(activeTab.cwd!, activeProjectPath) : null,
+                            }),
+                            "Terminal cwd context prompt copied.",
+                            "Check macOS clipboard access and try copying the terminal context prompt again.",
+                          );
+                        }
+                      }}
+                      className="gap-2 text-xs"
+                    >
+                      <ClipboardList className="h-3.5 w-3.5" />
+                      Copy terminal cwd context prompt
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </span>
             )}
             {activeTab.envSource && (

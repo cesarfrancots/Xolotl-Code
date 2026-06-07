@@ -117,19 +117,22 @@ it("offers external terminal, Finder, and automation copy actions for the active
     expect(screen.getByText("Terminal cwd path copied.")).toBeTruthy();
   });
 
-  await user.click(screen.getByLabelText("Copy terminal cwd Xolotl link"));
+  await user.click(screen.getByLabelText("Terminal cwd automation actions"));
+  await user.click(await screen.findByRole("menuitem", { name: "Copy terminal cwd Xolotl link" }));
   await waitFor(() => {
     expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/project-a");
     expect(screen.getByText("Terminal cwd Xolotl link copied.")).toBeTruthy();
   });
 
-  await user.click(screen.getByLabelText("Copy terminal cwd shell open command"));
+  await user.click(screen.getByLabelText("Terminal cwd automation actions"));
+  await user.click(await screen.findByRole("menuitem", { name: "Copy terminal cwd shell open command" }));
   await waitFor(() => {
     expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/project-a");
     expect(screen.getByText("Terminal cwd shell open command copied.")).toBeTruthy();
   });
 
-  await user.click(screen.getByLabelText("Copy terminal cwd context prompt"));
+  await user.click(screen.getByLabelText("Terminal cwd automation actions"));
+  await user.click(await screen.findByRole("menuitem", { name: "Copy terminal cwd context prompt" }));
   await waitFor(() => {
     expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
       "/Users/cesar/project-a",
@@ -228,7 +231,8 @@ it("shows recovery guidance when copying the terminal cwd Xolotl link fails", as
     });
   });
 
-  await user.click(screen.getByLabelText("Copy terminal cwd Xolotl link"));
+  await user.click(screen.getByLabelText("Terminal cwd automation actions"));
+  await user.click(await screen.findByRole("menuitem", { name: "Copy terminal cwd Xolotl link" }));
 
   expect(await screen.findByText("Copy terminal cwd Xolotl link failed.")).toBeTruthy();
   expect(screen.getByText(/try copying the Xolotl link again/)).toBeTruthy();
@@ -251,7 +255,8 @@ it("shows recovery guidance when copying the terminal cwd shell open command fai
     });
   });
 
-  await user.click(screen.getByLabelText("Copy terminal cwd shell open command"));
+  await user.click(screen.getByLabelText("Terminal cwd automation actions"));
+  await user.click(await screen.findByRole("menuitem", { name: "Copy terminal cwd shell open command" }));
 
   expect(await screen.findByText("Copy terminal cwd shell open command failed.")).toBeTruthy();
   expect(screen.getByText(/try copying the shell open command again/)).toBeTruthy();
@@ -274,7 +279,8 @@ it("shows recovery guidance when copying the terminal cwd context prompt fails",
     });
   });
 
-  await user.click(screen.getByLabelText("Copy terminal cwd context prompt"));
+  await user.click(screen.getByLabelText("Terminal cwd automation actions"));
+  await user.click(await screen.findByRole("menuitem", { name: "Copy terminal cwd context prompt" }));
 
   expect(await screen.findByText("Copy terminal cwd context prompt failed.")).toBeTruthy();
   expect(screen.getByText(/try copying the terminal context prompt again/)).toBeTruthy();
