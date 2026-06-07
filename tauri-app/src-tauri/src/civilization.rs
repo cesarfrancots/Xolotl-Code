@@ -249,11 +249,22 @@ const BIOMES: [BiomeDef; 14] = [
 const HOME_BIOME: usize = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct CivSessionConfig {
+pub struct CivParticipant {
     pub name: String,
     pub model: String,
     #[serde(default)]
+    pub color: Option<String>, // None => auto CIV_COLORS[index]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct CivSessionConfig {
+    pub name: String,
+    #[serde(default)]
     pub seed: Option<u32>,
+    #[serde(default)]
+    pub civs: Vec<CivParticipant>,
+    #[serde(default)]
+    pub model: Option<String>, // legacy single-model; mapped to one participant if civs empty
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -451,6 +462,9 @@ pub struct CivCivilization {
     pub techs: Vec<String>,
     pub policies: Vec<String>,
     pub score: CivScore,
+    /// Harness/model id driving this civ (ARENA-03 score attribution). None => model plays itself.
+    #[serde(default)]
+    pub controller: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -515,6 +529,14 @@ pub struct CivLogEntry {
     pub title: String,
     pub body: String,
     pub created_at: u64,
+    /// Civ this entry is attributed to (e.g. an "ai_decision"). None for
+    /// world/session-global entries and legacy saves (serde default).
+    #[serde(default)]
+    pub civ_id: Option<String>,
+    /// The model's private reasoning behind a decision (D-12 Option B). None
+    /// when the model emitted no reasoning or for non-decision entries.
+    #[serde(default)]
+    pub reasoning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -574,19 +596,64 @@ pub struct CivDecisionAction {
     pub event_id: Option<String>,
 }
 
+/// Resolve a `CivSessionConfig` into a validated, colour-assigned participant
+/// list. Explicit `civs` win; otherwise the legacy single `model` maps to one
+/// participant (back-compat, D-05). Enforces 1-3 participants (D-03), non-empty
+/// models, and assigns each civ a concrete colour (auto from the palette when
+/// not overridden).
+fn resolve_participants(config: &CivSessionConfig) -> Result<Vec<CivParticipant>, String> {
+    let mut participants = if !config.civs.is_empty() {
+        config.civs.clone()
+    } else if let Some(model) = config
+        .model
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        vec![CivParticipant {
+            name: clean_name(&config.name),
+            model: model.to_string(),
+            color: None,
+        }]
+    } else {
+        return Err("at least one civilization is required".to_string());
+    };
+
+    // Bound the world: 1-3 participants only (D-03; >=1 guaranteed above).
+    if participants.len() > 3 {
+        return Err("at most 3 civilizations are allowed".to_string());
+    }
+
+    // Each model must be non-empty; resolve each civ's colour (auto from the
+    // palette when not overridden) so initial_snapshot gets concrete colours.
+    for (i, participant) in participants.iter_mut().enumerate() {
+        if participant.model.trim().is_empty() {
+            return Err("model is required".to_string());
+        }
+        participant.model = participant.model.trim().to_string();
+        participant.name = clean_name(&participant.name);
+        let color = participant
+            .color
+            .clone()
+            .unwrap_or_else(|| CIV_COLORS[i % CIV_COLORS.len()].to_string());
+        participant.color = Some(color);
+    }
+
+    Ok(participants)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn create_civ_session(config: CivSessionConfig) -> Result<String, String> {
-    if config.model.trim().is_empty() {
-        return Err("model is required".to_string());
-    }
+    let participants = resolve_participants(&config)?;
+
     let id = uuid::Uuid::new_v4().to_string();
     let seed = config.seed.unwrap_or_else(|| seed_from(&id));
     let now = unix_timestamp_secs();
     let mut snapshot = initial_snapshot(
         id.clone(),
         clean_name(&config.name),
-        config.model.trim().to_string(),
+        &participants,
         seed,
         now,
     );
@@ -676,6 +743,40 @@ pub fn apply_civ_intervention(
     serde_json::to_string(&snapshot).map_err(|e| e.to_string())
 }
 
+/// Set (or clear) the harness/model controller tag on a civ for ARENA-03 score
+/// attribution. The tag is sanitised (trimmed + capped at 64 chars, dropped if
+/// empty) so a hostile/overlong label cannot bloat the snapshot or spoof the
+/// leaderboard/text-state (threat T-01-02). The tag is a free-form label only —
+/// never a provider key.
+#[tauri::command]
+#[specta::specta]
+pub fn set_civ_controller(
+    app_handle: AppHandle,
+    id: String,
+    civ_id: String,
+    controller: Option<String>,
+) -> Result<String, String> {
+    let mut snapshot = load_snapshot(&id)?;
+    let sanitized = controller
+        .map(|s| s.trim().chars().take(64).collect::<String>())
+        .filter(|s| !s.is_empty());
+    let civ = snapshot
+        .civs
+        .iter_mut()
+        .find(|c| c.id == civ_id)
+        .ok_or_else(|| format!("civ {civ_id} not found"))?;
+    civ.controller = sanitized;
+    snapshot.updated_at = unix_timestamp_secs();
+    save_snapshot(&snapshot)?;
+    emit_civ_event(
+        &app_handle,
+        &snapshot.id,
+        "ControllerSet",
+        serde_json::json!({ "snapshot": &snapshot }),
+    );
+    serde_json::to_string(&snapshot).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<String, String> {
@@ -742,6 +843,7 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
             }
         };
 
+        let reasoning = first.reasoning;
         emit_civ_event(
             &app_handle,
             &snapshot.id,
@@ -750,10 +852,17 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
                 "turn": next_turn,
                 "civ_id": civ_id,
                 "decision": &decision,
-                "reasoning": first.reasoning,
+                "reasoning": &reasoning,
             }),
         );
-        apply_model_decision(&mut snapshot, civ_id, &decision);
+        // Persist the reasoning into the decision log (D-12 Option B); empty
+        // reasoning is stored as None by push_decision_log.
+        let reasoning = if reasoning.is_empty() {
+            None
+        } else {
+            Some(reasoning)
+        };
+        apply_model_decision(&mut snapshot, civ_id, &decision, reasoning);
     }
 
     // Resolve each civ's environment, then collapse any that ran out of axolotls.
@@ -833,75 +942,94 @@ async fn call_model_text(
     Ok(ModelTextResult { content, reasoning })
 }
 
+/// Found an N-civ world from resolved participants (each carries a concrete
+/// colour). `name` is the session/world name; per-civ names come from the
+/// participants. The founding (index 0) civ keeps the original centred-colony
+/// behaviour via `generate_world`'s single-civ path when only one participant
+/// is supplied.
 fn initial_snapshot(
     id: String,
     name: String,
-    model: String,
+    participants: &[CivParticipant],
     seed: u32,
     now: u64,
 ) -> CivSessionSnapshot {
-    let world = generate_world(seed, 1);
+    let world = generate_world(seed, participants.len() as u32);
 
-    // Locate the founding civ's home: its pond/nest column and the region it sits in.
-    let spawn_x = world
-        .entities
+    let civs: Vec<CivCivilization> = participants
         .iter()
-        .find(|e| e.civ_id.as_deref() == Some(FIRST_CIV_ID) && e.role == "pond")
-        .or_else(|| {
-            world
+        .enumerate()
+        .map(|(i, participant)| {
+            let civ_id = civ_id_for(i);
+            // Each civ's home: its pond/nest column and the region it sits in,
+            // from the colony `found_colony` placed for this index.
+            let spawn_x = world
                 .entities
                 .iter()
-                .find(|e| e.civ_id.as_deref() == Some(FIRST_CIV_ID) && e.role == "nest")
+                .find(|e| e.civ_id.as_deref() == Some(civ_id.as_str()) && e.role == "pond")
+                .or_else(|| {
+                    world
+                        .entities
+                        .iter()
+                        .find(|e| e.civ_id.as_deref() == Some(civ_id.as_str()) && e.role == "nest")
+                })
+                .map(|e| e.x)
+                .unwrap_or(world.width / 2);
+            let home_region = world
+                .regions
+                .iter()
+                .find(|r| r.owner.as_deref() == Some(civ_id.as_str()))
+                .map(|r| r.id.clone())
+                .unwrap_or_default();
+
+            let mut resources = HashMap::new();
+            resources.insert("food".to_string(), 42);
+            resources.insert("clean_water".to_string(), 38);
+            resources.insert("wood".to_string(), 18);
+            resources.insert("stone".to_string(), 10);
+            resources.insert("clay".to_string(), 8);
+            resources.insert("fiber".to_string(), 12);
+            resources.insert("tools".to_string(), 2);
+            resources.insert("glowshards".to_string(), 0);
+            resources.insert("kelp".to_string(), 0);
+            resources.insert("ore".to_string(), 0);
+            resources.insert("ice".to_string(), 0);
+            resources.insert("coral".to_string(), 0);
+            resources.insert("sulfur".to_string(), 0);
+            resources.insert("amber".to_string(), 0);
+            resources.insert("herbs".to_string(), 0);
+
+            let color = participant
+                .color
+                .clone()
+                .unwrap_or_else(|| CIV_COLORS[i % CIV_COLORS.len()].to_string());
+
+            CivCivilization {
+                id: civ_id,
+                name: participant.name.clone(),
+                model: participant.model.clone(),
+                color,
+                spawn_x,
+                home_region,
+                alive: true,
+                diplomacy: HashMap::new(),
+                era: "pond_camp".to_string(),
+                population: INITIAL_POPULATION,
+                health: 82.0,
+                morale: 76.0,
+                resources,
+                techs: vec!["forage".to_string(), "basic_shelter".to_string()],
+                policies: Vec::new(),
+                score: CivScore {
+                    survival: 0.0,
+                    ethics: 0.0,
+                    intelligence: 0.0,
+                    total: 0.0,
+                },
+                controller: None,
+            }
         })
-        .map(|e| e.x)
-        .unwrap_or(world.width / 2);
-    let home_region = world
-        .regions
-        .iter()
-        .find(|r| r.owner.as_deref() == Some(FIRST_CIV_ID))
-        .map(|r| r.id.clone())
-        .unwrap_or_default();
-
-    let mut resources = HashMap::new();
-    resources.insert("food".to_string(), 42);
-    resources.insert("clean_water".to_string(), 38);
-    resources.insert("wood".to_string(), 18);
-    resources.insert("stone".to_string(), 10);
-    resources.insert("clay".to_string(), 8);
-    resources.insert("fiber".to_string(), 12);
-    resources.insert("tools".to_string(), 2);
-    resources.insert("glowshards".to_string(), 0);
-    resources.insert("kelp".to_string(), 0);
-    resources.insert("ore".to_string(), 0);
-    resources.insert("ice".to_string(), 0);
-    resources.insert("coral".to_string(), 0);
-    resources.insert("sulfur".to_string(), 0);
-    resources.insert("amber".to_string(), 0);
-    resources.insert("herbs".to_string(), 0);
-
-    let civ = CivCivilization {
-        id: FIRST_CIV_ID.to_string(),
-        name: name.clone(),
-        model,
-        color: CIV_COLORS[0].to_string(),
-        spawn_x,
-        home_region,
-        alive: true,
-        diplomacy: HashMap::new(),
-        era: "pond_camp".to_string(),
-        population: INITIAL_POPULATION,
-        health: 82.0,
-        morale: 76.0,
-        resources,
-        techs: vec!["forage".to_string(), "basic_shelter".to_string()],
-        policies: Vec::new(),
-        score: CivScore {
-            survival: 0.0,
-            ethics: 0.0,
-            intelligence: 0.0,
-            total: 0.0,
-        },
-    };
+        .collect();
 
     let mut snapshot = CivSessionSnapshot {
         id,
@@ -912,7 +1040,7 @@ fn initial_snapshot(
         updated_at: now,
         turn: 0,
         world,
-        civs: vec![civ],
+        civs,
         environment: CivEnvironment::new(),
         modifiers: Vec::new(),
         log: Vec::new(),
@@ -1509,6 +1637,7 @@ fn leaderboard(civs: &[CivCivilization]) -> Vec<serde_json::Value> {
                 "population": civ.population,
                 "era": civ.era,
                 "score": civ.score,
+                "controller": civ.controller,
             })
         })
         .collect()
@@ -2049,17 +2178,16 @@ fn apply_model_decision(
     snapshot: &mut CivSessionSnapshot,
     civ_id: &str,
     decision: &CivModelDecision,
+    reasoning: Option<String>,
 ) {
     reset_activities(snapshot, civ_id);
-    let civ_name = civ_label(snapshot, civ_id);
-    push_log(
+    push_decision_log(
         snapshot,
-        "ai_decision",
-        &format!("{civ_name} intent: {}", decision.intent),
-        &format!(
-            "{}\nEthics: {}",
-            decision.public_rationale, decision.ethics_note
-        ),
+        civ_id,
+        &decision.intent,
+        &decision.public_rationale,
+        &decision.ethics_note,
+        reasoning,
     );
 
     for action in &decision.actions {
@@ -4326,6 +4454,37 @@ fn push_log(snapshot: &mut CivSessionSnapshot, kind: &str, title: &str, body: &s
         title: title.to_string(),
         body: body.to_string(),
         created_at: unix_timestamp_secs(),
+        civ_id: None,
+        reasoning: None,
+    });
+    if snapshot.log.len() > 240 {
+        let overflow = snapshot.log.len() - 240;
+        snapshot.log.drain(0..overflow);
+    }
+}
+
+/// Append an "ai_decision" log entry attributed to a civ, persisting the model's
+/// reasoning alongside the public rationale (D-12 Option B). Mirrors `push_log`
+/// but populates `civ_id`/`reasoning`; an empty reasoning string is stored as
+/// `None`.
+fn push_decision_log(
+    snapshot: &mut CivSessionSnapshot,
+    civ_id: &str,
+    intent: &str,
+    rationale: &str,
+    ethics: &str,
+    reasoning: Option<String>,
+) {
+    let civ_name = civ_label(snapshot, civ_id);
+    let reasoning = reasoning.filter(|r| !r.trim().is_empty());
+    snapshot.log.push(CivLogEntry {
+        turn: snapshot.turn,
+        kind: "ai_decision".to_string(),
+        title: format!("{civ_name} intent: {intent}"),
+        body: format!("{rationale}\nEthics: {ethics}"),
+        created_at: unix_timestamp_secs(),
+        civ_id: Some(civ_id.to_string()),
+        reasoning,
     });
     if snapshot.log.len() > 240 {
         let overflow = snapshot.log.len() - 240;
@@ -4764,6 +4923,28 @@ mod tests {
         snapshot.civs[0].id.clone()
     }
 
+    /// Single-civ snapshot helper preserving the pre-multi-civ ergonomics for
+    /// the existing tests (one model => one founding civ).
+    fn test_snapshot(
+        id: &str,
+        name: &str,
+        model: &str,
+        seed: u32,
+        now: u64,
+    ) -> CivSessionSnapshot {
+        initial_snapshot(
+            id.to_string(),
+            name.to_string(),
+            &[CivParticipant {
+                name: name.to_string(),
+                model: model.to_string(),
+                color: None,
+            }],
+            seed,
+            now,
+        )
+    }
+
     #[test]
     fn world_generation_is_deterministic_by_seed() {
         let a = generate_world(1234, 1);
@@ -4907,13 +5088,7 @@ mod tests {
 
     #[test]
     fn initial_snapshot_is_multi_civ_shaped() {
-        let s = initial_snapshot(
-            "shape".to_string(),
-            "Shape".to_string(),
-            "m".to_string(),
-            3,
-            1,
-        );
+        let s = test_snapshot("shape", "Shape", "m", 3, 1);
         assert_eq!(s.version, SCHEMA_VERSION);
         assert_eq!(s.civs.len(), 1);
         assert_eq!(s.civs[0].id, FIRST_CIV_ID);
@@ -4937,13 +5112,7 @@ mod tests {
 
     #[test]
     fn intervention_grants_resources_and_scores() {
-        let mut snapshot = initial_snapshot(
-            "test-session".to_string(),
-            "Test".to_string(),
-            "mock-model".to_string(),
-            42,
-            1,
-        );
+        let mut snapshot = test_snapshot("test-session", "Test", "mock-model", 42, 1);
         let before = snapshot.civs[0].resources["food"];
         apply_intervention_to_snapshot(
             &mut snapshot,
@@ -4968,13 +5137,7 @@ mod tests {
 
     #[test]
     fn player_harvest_depletes_tile_and_grants_yield() {
-        let mut snapshot = initial_snapshot(
-            "harvest-session".to_string(),
-            "Harvest".to_string(),
-            "mock-model".to_string(),
-            42,
-            1,
-        );
+        let mut snapshot = test_snapshot("harvest-session", "Harvest", "mock-model", 42, 1);
         let tile = snapshot
             .world
             .tiles
@@ -5013,13 +5176,7 @@ mod tests {
 
     #[test]
     fn player_mine_and_place_tile_edits_world() {
-        let mut snapshot = initial_snapshot(
-            "terrain-session".to_string(),
-            "Terrain".to_string(),
-            "mock-model".to_string(),
-            42,
-            1,
-        );
+        let mut snapshot = test_snapshot("terrain-session", "Terrain", "mock-model", 42, 1);
         let cid = first_civ_id(&snapshot);
         let axo_id = snapshot
             .world
@@ -5104,13 +5261,7 @@ mod tests {
 
     #[test]
     fn player_move_talk_and_building_use_have_sim_effects() {
-        let mut snapshot = initial_snapshot(
-            "player-session".to_string(),
-            "Player".to_string(),
-            "mock-model".to_string(),
-            42,
-            1,
-        );
+        let mut snapshot = test_snapshot("player-session", "Player", "mock-model", 42, 1);
         let cid = first_civ_id(&snapshot);
         let axo_id = snapshot
             .world
@@ -5287,13 +5438,7 @@ mod tests {
 
     #[test]
     fn scoring_rewards_protective_policies() {
-        let mut snapshot = initial_snapshot(
-            "test-session".to_string(),
-            "Test".to_string(),
-            "mock-model".to_string(),
-            42,
-            1,
-        );
+        let mut snapshot = test_snapshot("test-session", "Test", "mock-model", 42, 1);
         let cid = first_civ_id(&snapshot);
         let base = score_civilization(&snapshot, &cid).ethics;
         snapshot.civs[0]
@@ -5336,13 +5481,7 @@ mod tests {
 
     #[test]
     fn life_cycle_lays_eggs_and_syncs_population() {
-        let mut s = initial_snapshot(
-            "life-test".to_string(),
-            "Life".to_string(),
-            "mock".to_string(),
-            7,
-            1,
-        );
+        let mut s = test_snapshot("life-test", "Life", "mock", 7, 1);
         let cid = first_civ_id(&s);
         let start = s.civs[0].population;
         let mut saw_egg = false;
@@ -5380,13 +5519,7 @@ mod tests {
 
     #[test]
     fn equip_accessory_round_trips() {
-        let mut s = initial_snapshot(
-            "acc-test".to_string(),
-            "Acc".to_string(),
-            "mock".to_string(),
-            5,
-            1,
-        );
+        let mut s = test_snapshot("acc-test", "Acc", "mock", 5, 1);
         let id = s
             .world
             .entities
@@ -5432,7 +5565,11 @@ mod tests {
         let s = initial_snapshot(
             "legacy".to_string(),
             "Old Pond".to_string(),
-            "old-model".to_string(),
+            &[CivParticipant {
+                name: "Old Pond".to_string(),
+                model: "old-model".to_string(),
+                color: None,
+            }],
             9,
             1,
         );
@@ -5476,14 +5613,129 @@ mod tests {
     }
 
     #[test]
-    fn civ_does_not_collapse_while_eggs_remain() {
-        let mut s = initial_snapshot(
-            "collapse".to_string(),
-            "C".to_string(),
-            "m".to_string(),
-            11,
-            1,
+    fn legacy_single_model_config_founds_one_civ() {
+        // Legacy shape {name, model, seed} with no `civs` deserializes and
+        // resolves to exactly one founding participant (back-compat, D-05).
+        let raw = r#"{"name":"W","model":"kimi","seed":7}"#;
+        let config: CivSessionConfig = serde_json::from_str(raw).unwrap();
+        let participants = resolve_participants(&config).unwrap();
+        assert_eq!(participants.len(), 1);
+        assert_eq!(participants[0].model, "kimi");
+
+        let snapshot = initial_snapshot("legacy-one".to_string(), "W".to_string(), &participants, 7, 1);
+        assert_eq!(snapshot.civs.len(), 1);
+        assert_eq!(snapshot.civs[0].model, "kimi");
+        // Auto colour from the palette head.
+        assert_eq!(snapshot.civs[0].color, CIV_COLORS[0]);
+    }
+
+    #[test]
+    fn multi_participant_config_founds_n_civs_with_distinct_colors() {
+        let raw = r##"{"name":"W","seed":7,"civs":[{"name":"A","model":"kimi"},{"name":"B","model":"deepseek","color":"#ff0000"}]}"##;
+        let config: CivSessionConfig = serde_json::from_str(raw).unwrap();
+        let participants = resolve_participants(&config).unwrap();
+        assert_eq!(participants.len(), 2);
+        // A gets the auto palette head; B keeps its override.
+        assert_eq!(participants[0].color.as_deref(), Some(CIV_COLORS[0]));
+        assert_eq!(participants[1].color.as_deref(), Some("#ff0000"));
+
+        let snapshot = initial_snapshot("multi-2".to_string(), "W".to_string(), &participants, 7, 1);
+        assert_eq!(snapshot.civs.len(), 2);
+        assert_eq!(snapshot.civs[0].color, CIV_COLORS[0]);
+        assert_eq!(snapshot.civs[1].color, "#ff0000");
+        // Distinct colours and distinct ids.
+        assert_ne!(snapshot.civs[0].color, snapshot.civs[1].color);
+        assert_eq!(snapshot.civs[0].id, "civ-1");
+        assert_eq!(snapshot.civs[1].id, "civ-2");
+        assert_eq!(snapshot.civs[1].name, "B");
+    }
+
+    #[test]
+    fn empty_config_errors() {
+        // No civs and no model at all.
+        let raw = r#"{"name":"W","seed":7}"#;
+        let config: CivSessionConfig = serde_json::from_str(raw).unwrap();
+        let err = resolve_participants(&config).unwrap_err();
+        assert!(err.contains("at least one"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn too_many_participants_errors() {
+        let config = CivSessionConfig {
+            name: "W".to_string(),
+            seed: Some(7),
+            civs: vec![
+                CivParticipant { name: "A".to_string(), model: "m".to_string(), color: None },
+                CivParticipant { name: "B".to_string(), model: "m".to_string(), color: None },
+                CivParticipant { name: "C".to_string(), model: "m".to_string(), color: None },
+                CivParticipant { name: "D".to_string(), model: "m".to_string(), color: None },
+            ],
+            model: None,
+        };
+        let err = resolve_participants(&config).unwrap_err();
+        assert!(err.contains("at most 3"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn fresh_civ_has_no_controller() {
+        let s = test_snapshot("ctl", "C", "m", 3, 1);
+        assert!(s.civs[0].controller.is_none());
+    }
+
+    #[test]
+    fn leaderboard_includes_controller_key() {
+        let s = test_snapshot("lb", "L", "m", 3, 1);
+        let board = leaderboard(&s.civs);
+        let first = &board[0];
+        assert!(
+            first.as_object().unwrap().contains_key("controller"),
+            "leaderboard entry missing controller key"
         );
+        assert!(first["controller"].is_null());
+    }
+
+    #[test]
+    fn snapshot_missing_controller_key_deserializes() {
+        // A saved civ JSON lacking "controller" still loads (serde default).
+        let s = test_snapshot("mc", "M", "m", 3, 1);
+        let mut value = serde_json::to_value(&s).unwrap();
+        for civ in value["civs"].as_array_mut().unwrap() {
+            civ.as_object_mut().unwrap().remove("controller");
+        }
+        let raw = serde_json::to_string(&value).unwrap();
+        let loaded: CivSessionSnapshot = serde_json::from_str(&raw).unwrap();
+        assert!(loaded.civs[0].controller.is_none());
+    }
+
+    #[test]
+    fn push_decision_log_persists_civ_id_and_reasoning() {
+        let mut s = test_snapshot("dl", "D", "m", 3, 1);
+        let cid = first_civ_id(&s);
+        push_decision_log(
+            &mut s,
+            &cid,
+            "stabilize",
+            "food first",
+            "share fairly",
+            Some("internal chain of thought".to_string()),
+        );
+        let entry = s.log.last().unwrap();
+        assert_eq!(entry.kind, "ai_decision");
+        assert_eq!(entry.civ_id.as_deref(), Some(cid.as_str()));
+        assert_eq!(entry.reasoning.as_deref(), Some("internal chain of thought"));
+    }
+
+    #[test]
+    fn log_entry_missing_civ_id_reasoning_deserializes() {
+        let raw = r#"{"turn":1,"kind":"session","title":"t","body":"b","created_at":0}"#;
+        let entry: CivLogEntry = serde_json::from_str(raw).unwrap();
+        assert!(entry.civ_id.is_none());
+        assert!(entry.reasoning.is_none());
+    }
+
+    #[test]
+    fn civ_does_not_collapse_while_eggs_remain() {
+        let mut s = test_snapshot("collapse", "C", "m", 11, 1);
         let cid = first_civ_id(&s);
         // Wipe the colony's axolotls but leave its buildings and a single egg.
         s.world.entities.retain(|e| e.kind == "building");
@@ -5565,7 +5817,7 @@ mod tests {
 
     #[test]
     fn mining_caps_yield_and_floods_emptied_block() {
-        let mut s = initial_snapshot("mine".to_string(), "M".to_string(), "m".to_string(), 5, 1);
+        let mut s = test_snapshot("mine", "M", "m", 5, 1);
         let cid = first_civ_id(&s);
         let (cx, _) = colony_center(&s, &cid);
         // Leave exactly one ore block (5 units) on the colony's seabed; clear the
@@ -5613,7 +5865,7 @@ mod tests {
 
     #[test]
     fn renewable_gather_is_not_block_limited() {
-        let mut s = initial_snapshot("ren".to_string(), "R".to_string(), "m".to_string(), 5, 1);
+        let mut s = test_snapshot("ren", "R", "m", 5, 1);
         let cid = first_civ_id(&s);
         // No moss tiles anywhere: food (a renewable) must still yield its flat rate.
         for t in s.world.tiles.iter_mut() {
@@ -5636,7 +5888,7 @@ mod tests {
     fn mining_a_surface_block_keeps_the_ground_solid() {
         // Stripping ore from a seabed-SURFACE block must not flood it — the seabed
         // stays solid/buildable so default building placement can't fall into a hole.
-        let mut s = initial_snapshot("surf".to_string(), "S".to_string(), "m".to_string(), 5, 1);
+        let mut s = test_snapshot("surf", "S", "m", 5, 1);
         let cid = first_civ_id(&s);
         let (cx, _) = colony_center(&s, &cid);
         for t in s.world.tiles.iter_mut() {
@@ -5676,7 +5928,7 @@ mod tests {
 
     #[test]
     fn mining_requires_tools() {
-        let mut s = initial_snapshot("tools".to_string(), "T".to_string(), "m".to_string(), 5, 1);
+        let mut s = test_snapshot("tools", "T", "m", 5, 1);
         let cid = first_civ_id(&s);
         let (cx, _) = colony_center(&s, &cid);
         for t in s.world.tiles.iter_mut() {
@@ -5741,13 +5993,7 @@ mod tests {
     /// (World entities stay tagged to civ-1 — these tests only exercise the civ
     /// list, turn order, and intervention targeting, none of which read entities.)
     fn multi_civ_snapshot(seed: u32, n: usize) -> CivSessionSnapshot {
-        let mut s = initial_snapshot(
-            "multi".to_string(),
-            "Multi".to_string(),
-            "m".to_string(),
-            seed,
-            1,
-        );
+        let mut s = test_snapshot("multi", "Multi", "m", seed, 1);
         let base = s.civs[0].clone();
         for i in 1..n {
             let mut c = base.clone();
