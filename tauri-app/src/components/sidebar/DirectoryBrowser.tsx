@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  ClipboardList,
   CornerLeftUp,
   CornerDownRight,
   Copy,
@@ -20,7 +21,7 @@ import { commands } from "../../bindings";
 import { useProjectStore, projectDisplayName } from "../../stores/projectStore";
 import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "../../lib/fileBrowser";
 import { macFileAccessRecovery } from "../../lib/macFileRecovery";
-import { copyTextToClipboard, openPathInExternalTerminal, quickLookPath, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { copyPathContextHandoff, copyTextToClipboard, openPathInExternalTerminal, quickLookPath, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 import { openTerminalAtPath } from "../../lib/terminalActions";
 import {
   SidebarHandoffStatus,
@@ -348,6 +349,7 @@ function PathActionButtons({
   onHandoffStatus: (status: SidebarHandoffStatusState) => void;
 }) {
   const relativePath = relativePathFromRoot(path, root);
+  const contextKind = canOpenTerminal ? "Folder" : "File";
   async function runRowHandoff(
     actionLabel: string,
     action: () => Promise<void>,
@@ -457,6 +459,24 @@ function PathActionButtons({
         className="xolotl-row-action-button"
       >
         <Copy className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          void runRowHandoff(
+            `Copy context prompt for ${label}`,
+            () => copyPathContextHandoff(path, { label, kind: contextKind, relativePath }),
+            `Context prompt copied for ${label}.`,
+            "clipboard",
+            "path",
+          );
+        }}
+        title="Copy context prompt"
+        aria-label={`Copy context prompt for ${label}`}
+        className="xolotl-row-action-button"
+      >
+        <ClipboardList className="h-3 w-3" />
       </button>
       <button
         type="button"

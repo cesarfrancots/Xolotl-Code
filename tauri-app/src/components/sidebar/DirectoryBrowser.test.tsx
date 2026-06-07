@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DirectoryBrowser } from "./DirectoryBrowser";
-import { copyTextToClipboard, openPathInExternalTerminal, quickLookPath, revealPathInFinder } from "../../lib/pathActions";
+import { copyPathContextHandoff, copyTextToClipboard, openPathInExternalTerminal, quickLookPath, revealPathInFinder } from "../../lib/pathActions";
 import { useProjectStore } from "../../stores/projectStore";
 
 const terminalActionMocks = vi.hoisted(() => ({
@@ -12,6 +12,7 @@ vi.mock("../../lib/pathActions", async () => {
   const actual = await vi.importActual<typeof import("../../lib/pathActions")>("../../lib/pathActions");
   return {
     ...actual,
+    copyPathContextHandoff: vi.fn(() => Promise.resolve()),
     copyTextToClipboard: vi.fn(() => Promise.resolve()),
     openPathInExternalTerminal: vi.fn(() => Promise.resolve()),
     quickLookPath: vi.fn(() => Promise.resolve()),
@@ -84,8 +85,20 @@ describe("DirectoryBrowser", () => {
     fireEvent.click(screen.getByLabelText("Copy relative path for README.md"));
     expect(copyTextToClipboard).toHaveBeenCalledWith("README.md");
 
+    fireEvent.click(screen.getByLabelText("Copy context prompt for README.md"));
+    expect(copyPathContextHandoff).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl/README.md",
+      { label: "README.md", kind: "File", relativePath: "README.md" },
+    );
+
     fireEvent.click(screen.getByLabelText("Reveal src in Finder"));
     expect(revealPathInFinder).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/src");
+
+    fireEvent.click(screen.getByLabelText("Copy context prompt for src"));
+    expect(copyPathContextHandoff).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl/src",
+      { label: "src", kind: "Folder", relativePath: "src" },
+    );
 
     fireEvent.click(screen.getByLabelText("Quick Look README.md"));
     expect(quickLookPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/README.md");
