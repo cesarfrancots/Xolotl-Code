@@ -318,11 +318,11 @@ for civ_id in &turn_order { let model = snapshot.civs[ci].model.clone(); ... emi
 
 (Only 2 assumptions; everything else is `[VERIFIED: code trace]`.)
 
-## Open Questions
+## Open Questions (RESOLVED during planning)
 
-1. **Depth of "harness drives one civ" (D-15).** See A1. Recommendation: implement additive `civId` scoping + controller attribution now; defer "harness fully replaces civ-X's model decision loop" if it expands scope. Confirm with planner/user.
-2. **D-12 Option A vs B.** Recommend Option B (persist `CivLogEntry.civ_id` + `reasoning`) because it also hardens the D-10 per-civ filter; Option A is the lighter fallback. Planner to choose.
-3. **Controller-tag set point (D-16 discretion).** Recommend a small `set_civ_controller` command invoked from `civPilotControls.start`, with optional creation-time default.
+1. **Depth of "harness drives one civ" (D-15).** See A1. Recommendation: implement additive `civId` scoping + controller attribution now; defer "harness fully replaces civ-X's model decision loop" if it expands scope. **RESOLVED: see 01-04/T2 — Phase 1 scope = selection + attribution only; full per-turn decision-loop replacement deferred.**
+2. **D-12 Option A vs B.** Recommend Option B (persist `CivLogEntry.civ_id` + `reasoning`) because it also hardens the D-10 per-civ filter; Option A is the lighter fallback. **RESOLVED: see 01-01/T3 — Option B chosen (persist civ_id + reasoning).**
+3. **Controller-tag set point (D-16 discretion).** Recommend a small `set_civ_controller` command invoked from `civPilotControls.start`, with optional creation-time default. **RESOLVED: see 01-04/T2 — set at `civPilotControls.start` time via `set_civ_controller`; creation-time default out of scope.**
 
 ## Environment Availability
 
