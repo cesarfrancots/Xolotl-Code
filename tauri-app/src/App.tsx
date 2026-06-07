@@ -2,7 +2,6 @@ import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 
 import "./styles.css";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { SessionSidebar } from "./components/sidebar/SessionSidebar";
-import { AgentPanel } from "./components/agent/AgentPanel";
 import { useAgentStore, type AgentRecord } from "./stores/agentStore";
 import { useUiStore } from "./stores/uiStore";
 import { useTerminalStore } from "./stores/terminalStore";
@@ -33,6 +32,7 @@ import type { PathContextHandoffOptions } from "./lib/pathActions";
 const loadEvalView = () => import("./components/eval/EvalView");
 const loadCivilizationView = () => import("./components/civilization/CivilizationView");
 const loadChatPane = () => import("./components/chat/ChatPane");
+const loadAgentPanel = () => import("./components/agent/AgentPanel");
 const loadPathActions = () => import("./lib/pathActions");
 
 const LazyChatPane = lazy(async () => {
@@ -53,6 +53,11 @@ const LazyCivilizationView = lazy(async () => {
 const LazyTerminalDock = lazy(async () => {
   const module = await import("./components/terminal/TerminalDock");
   return { default: module.TerminalDock };
+});
+
+const LazyAgentPanel = lazy(async () => {
+  const module = await loadAgentPanel();
+  return { default: module.AgentPanel };
 });
 
 const LazyAgentOutputView = lazy(async () => {
@@ -829,7 +834,9 @@ export default function App() {
           </Suspense>
         )}
       </div>
-      <AgentPanel forceCollapsed={compactShell} />
+      <Suspense fallback={<AgentPanelLoading forceCollapsed={compactShell} />}>
+        <LazyAgentPanel forceCollapsed={compactShell} />
+      </Suspense>
     </div>
   );
 }
@@ -842,6 +849,22 @@ function AgentViewLoading({ label }: { label: string }) {
         {label}
       </div>
     </div>
+  );
+}
+
+function AgentPanelLoading({ forceCollapsed }: { forceCollapsed: boolean }) {
+  return (
+    <aside
+      className={[
+        "xolotl-sidebar xolotl-right-sidebar flex-none flex min-h-0 flex-col border-l border-[oklch(0.22_0.008_240)]",
+        forceCollapsed ? "w-12" : "w-80",
+      ].join(" ")}
+      aria-label="Loading agents"
+    >
+      <div className="xolotl-sidebar-header">
+        <div className="mx-auto h-8 w-8 rounded-md bg-[oklch(0.14_0.004_245)]" />
+      </div>
+    </aside>
   );
 }
 
