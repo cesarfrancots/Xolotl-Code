@@ -2,7 +2,6 @@ import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 
 import "./styles.css";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { SessionSidebar } from "./components/sidebar/SessionSidebar";
-import { ChatPane } from "./components/chat/ChatPane";
 import { AgentPanel } from "./components/agent/AgentPanel";
 import { useAgentStore, type AgentRecord } from "./stores/agentStore";
 import { useUiStore } from "./stores/uiStore";
@@ -44,6 +43,12 @@ import {
 
 const loadEvalView = () => import("./components/eval/EvalView");
 const loadCivilizationView = () => import("./components/civilization/CivilizationView");
+const loadChatPane = () => import("./components/chat/ChatPane");
+
+const LazyChatPane = lazy(async () => {
+  const module = await loadChatPane();
+  return { default: module.ChatPane };
+});
 
 const LazyEvalView = lazy(async () => {
   const module = await loadEvalView();
@@ -699,7 +704,11 @@ export default function App() {
         </Suspense>
       );
     }
-    return <ChatPane />;
+    return (
+      <Suspense fallback={<ChatLoading />}>
+        <LazyChatPane />
+      </Suspense>
+    );
   }
 
   return (
@@ -853,6 +862,23 @@ class WorkspaceErrorBoundary extends React.Component<
       </div>
     );
   }
+}
+
+function ChatLoading() {
+  return (
+    <div className="flex flex-1 items-center justify-center bg-[oklch(0.105_0.004_250)]">
+      <div className="flex items-center gap-3 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.12_0.004_245)] px-4 py-3 text-sm text-[oklch(0.66_0.025_210)] shadow-[0_18px_48px_oklch(0_0_0_/_0.18)]">
+        <div className="xolotl-mark scale-90" aria-hidden="true" />
+        <div>
+          <div className="font-semibold text-[oklch(0.88_0.025_220)]">Preparing Chat</div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[oklch(0.55_0.018_205)]">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Loading composer
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function EvalLoading() {
