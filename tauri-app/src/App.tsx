@@ -6,7 +6,7 @@ import { useAgentStore, type AgentRecord } from "./stores/agentStore";
 import { useUiStore } from "./stores/uiStore";
 import { useTerminalStore } from "./stores/terminalStore";
 import { projectDisplayName, useProjectStore } from "./stores/projectStore";
-import { AlertTriangle, CheckCircle2, Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves, X } from "lucide-react";
+import { Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves } from "lucide-react";
 import { centerTabFromSearch, initialCenterTabFromSearch, persistCenterTab, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
 import { commands } from "./bindings";
 import { errorDetail, MAC_APP_STATUS_EVENT, type MacAppStatus } from "./lib/macAppStatus";
@@ -29,6 +29,7 @@ const loadCivilizationView = () => import("./components/civilization/Civilizatio
 const loadChatPane = () => import("./components/chat/ChatPane");
 const loadAgentPanel = () => import("./components/agent/AgentPanel");
 const loadMacRuntimeBridge = () => import("./components/mac/MacRuntimeBridge");
+const loadMacAppStatusBanner = () => import("./components/mac/MacAppStatusBanner");
 const loadPathActions = () => import("./lib/pathActions");
 
 const LazyChatPane = lazy(async () => {
@@ -59,6 +60,11 @@ const LazyAgentPanel = lazy(async () => {
 const LazyMacRuntimeBridge = lazy(async () => {
   const module = await loadMacRuntimeBridge();
   return { default: module.MacRuntimeBridge };
+});
+
+const LazyMacAppStatusBanner = lazy(async () => {
+  const module = await loadMacAppStatusBanner();
+  return { default: module.MacAppStatusBanner };
 });
 
 const LazyAgentOutputView = lazy(async () => {
@@ -824,7 +830,9 @@ export default function App() {
           </div>
         </WorkspaceErrorBoundary>
         {macAppStatus && (
-          <MacAppStatusBanner status={macAppStatus} onDismiss={() => setMacAppStatus(null)} />
+          <Suspense fallback={null}>
+            <LazyMacAppStatusBanner status={macAppStatus} onDismiss={() => setMacAppStatus(null)} />
+          </Suspense>
         )}
         {terminalDockMounted && (
           <Suspense fallback={null}>
@@ -863,40 +871,6 @@ function AgentPanelLoading({ forceCollapsed }: { forceCollapsed: boolean }) {
         <div className="mx-auto h-8 w-8 rounded-md bg-[oklch(0.14_0.004_245)]" />
       </div>
     </aside>
-  );
-}
-
-function MacAppStatusBanner({
-  status,
-  onDismiss,
-}: {
-  status: MacAppStatus;
-  onDismiss: () => void;
-}) {
-  const Icon = status.tone === "error" ? AlertTriangle : CheckCircle2;
-  const classes = status.tone === "error"
-    ? "border-[oklch(0.34_0.055_25)] bg-[oklch(0.145_0.018_25)] text-[oklch(0.78_0.090_25)]"
-    : "border-[oklch(0.32_0.045_155)] bg-[oklch(0.145_0.018_155)] text-[oklch(0.74_0.080_155)]";
-
-  return (
-    <div
-      role={status.tone === "error" ? "alert" : "status"}
-      className={`flex flex-none items-start gap-2 border-t px-3 py-2 text-xs ${classes}`}
-    >
-      <Icon className="mt-0.5 h-3.5 w-3.5 flex-none" />
-      <div className="min-w-0 flex-1">
-        <div className="font-medium">{status.message}</div>
-        {status.hint && <div className="mt-0.5 break-words leading-relaxed text-[oklch(0.67_0.045_45)]">{status.hint}</div>}
-      </div>
-      <button
-        type="button"
-        onClick={onDismiss}
-        className="flex-none rounded px-1 text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.18_0.008_245)] hover:text-[oklch(0.86_0.016_220)]"
-        aria-label="Dismiss Mac app status"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
-    </div>
   );
 }
 
