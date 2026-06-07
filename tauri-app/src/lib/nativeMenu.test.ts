@@ -8,6 +8,9 @@ describe("nativeMenuActionFromPayload", () => {
     expect(nativeMenuActionFromPayload("xolotl:open-folder")).toBe("open-folder");
     expect(nativeMenuActionFromPayload("xolotl:terminal-new-tab")).toBe("terminal-new");
     expect(nativeMenuActionFromPayload("xolotl:tab-civ")).toBe("tab-civ");
+    expect(nativeMenuActionFromPayload("xolotl:status-reveal-active-project")).toBe("status-reveal-active-project");
+    expect(nativeMenuActionFromPayload("xolotl:status-open-active-project-editor")).toBe("status-open-active-project-editor");
+    expect(nativeMenuActionFromPayload("xolotl:status-open-active-project-terminal")).toBe("status-open-active-project-terminal");
   });
 
   it("accepts already-normalized frontend actions", () => {

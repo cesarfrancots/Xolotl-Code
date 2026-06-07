@@ -65,6 +65,9 @@ const APP_URL_SCHEME: &str = "xolotl-code";
 const STATUS_ITEM_ID: &str = "xolotl-status-item";
 const STATUS_PROJECT_ID: &str = "xolotl:status-project";
 const STATUS_AGENTS_ID: &str = "xolotl:status-agents";
+const STATUS_REVEAL_ACTIVE_PROJECT: &str = "xolotl:status-reveal-active-project";
+const STATUS_OPEN_ACTIVE_PROJECT_EDITOR: &str = "xolotl:status-open-active-project-editor";
+const STATUS_OPEN_ACTIVE_PROJECT_TERMINAL: &str = "xolotl:status-open-active-project-terminal";
 const MENU_FOCUS_WINDOW: &str = "xolotl:focus-window";
 const MENU_NEW_CHAT: &str = "xolotl:new-chat";
 const MENU_OPEN_FOLDER: &str = "xolotl:open-folder";
@@ -508,6 +511,14 @@ fn mac_status_item_tooltip(state: &MacStatusItemState) -> String {
     )
 }
 
+fn mac_status_item_has_active_project(state: &MacStatusItemState) -> bool {
+    state
+        .active_project_path
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|path| !path.is_empty())
+}
+
 fn build_mac_status_item_menu(
     app: &tauri::AppHandle,
     state: &MacStatusItemState,
@@ -518,6 +529,21 @@ fn build_mac_status_item_menu(
     let agents = MenuItemBuilder::with_id(STATUS_AGENTS_ID, mac_status_agents_label(state))
         .enabled(false)
         .build(app)?;
+    let reveal_active_project = MenuItemBuilder::with_id(
+        STATUS_REVEAL_ACTIVE_PROJECT,
+        "Reveal Active Project in Finder",
+    )
+    .build(app)?;
+    let open_active_project_editor = MenuItemBuilder::with_id(
+        STATUS_OPEN_ACTIVE_PROJECT_EDITOR,
+        "Open Active Project in Editor",
+    )
+    .build(app)?;
+    let open_active_project_terminal = MenuItemBuilder::with_id(
+        STATUS_OPEN_ACTIVE_PROJECT_TERMINAL,
+        "Open Active Project in External Terminal",
+    )
+    .build(app)?;
     let open = MenuItemBuilder::with_id(MENU_FOCUS_WINDOW, "Open Xolotl Code").build(app)?;
     let new_chat = MenuItemBuilder::with_id(MENU_NEW_CHAT, "New Chat").build(app)?;
     let open_folder = MenuItemBuilder::with_id(MENU_OPEN_FOLDER, "Open Folder...").build(app)?;
@@ -527,10 +553,20 @@ fn build_mac_status_item_menu(
     let settings = MenuItemBuilder::with_id(MENU_SETTINGS, "Settings...").build(app)?;
     let quit = PredefinedMenuItem::quit(app, Some("Quit Xolotl Code"))?;
 
-    MenuBuilder::new(app)
+    let mut builder = MenuBuilder::new(app)
         .item(&project)
         .item(&agents)
-        .separator()
+        .separator();
+
+    if mac_status_item_has_active_project(state) {
+        builder = builder
+            .item(&reveal_active_project)
+            .item(&open_active_project_editor)
+            .item(&open_active_project_terminal)
+            .separator();
+    }
+
+    builder
         .item(&open)
         .item(&new_chat)
         .item(&open_folder)
@@ -779,6 +815,12 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
         Some(MENU_TAB_EVAL)
     } else if id == MENU_TAB_CIV {
         Some(MENU_TAB_CIV)
+    } else if id == STATUS_REVEAL_ACTIVE_PROJECT {
+        Some(STATUS_REVEAL_ACTIVE_PROJECT)
+    } else if id == STATUS_OPEN_ACTIVE_PROJECT_EDITOR {
+        Some(STATUS_OPEN_ACTIVE_PROJECT_EDITOR)
+    } else if id == STATUS_OPEN_ACTIVE_PROJECT_TERMINAL {
+        Some(STATUS_OPEN_ACTIVE_PROJECT_TERMINAL)
     } else {
         None
     }
@@ -914,6 +956,7 @@ mod tests {
         assert_eq!(mac_status_item_title(&idle), "Xolotl");
         assert_eq!(mac_status_project_label(&idle), "Project: No project");
         assert_eq!(mac_status_agents_label(&idle), "Agents: Idle");
+        assert!(!mac_status_item_has_active_project(&idle));
 
         let active = MacStatusItemState {
             active_project_name: Some("Xolotl Code".into()),
@@ -927,6 +970,25 @@ mod tests {
         assert_eq!(
             mac_status_agents_label(&active),
             "Agents: 2 running, 1 waiting"
+        );
+        assert!(mac_status_item_has_active_project(&active));
+    }
+
+    #[test]
+    fn status_item_project_menu_ids_route_through_native_actions() {
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(STATUS_REVEAL_ACTIVE_PROJECT)),
+            Some(STATUS_REVEAL_ACTIVE_PROJECT)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(STATUS_OPEN_ACTIVE_PROJECT_EDITOR)),
+            Some(STATUS_OPEN_ACTIVE_PROJECT_EDITOR)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(
+                STATUS_OPEN_ACTIVE_PROJECT_TERMINAL
+            )),
+            Some(STATUS_OPEN_ACTIVE_PROJECT_TERMINAL)
         );
     }
 

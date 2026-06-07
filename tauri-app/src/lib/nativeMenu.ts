@@ -14,6 +14,9 @@ const MENU_ACTION_BY_ID = {
   "xolotl:tab-chat": "tab-chat",
   "xolotl:tab-eval": "tab-eval",
   "xolotl:tab-civ": "tab-civ",
+  "xolotl:status-reveal-active-project": "status-reveal-active-project",
+  "xolotl:status-open-active-project-editor": "status-open-active-project-editor",
+  "xolotl:status-open-active-project-terminal": "status-open-active-project-terminal",
 } as const;
 
 export type NativeMenuAction = (typeof MENU_ACTION_BY_ID)[keyof typeof MENU_ACTION_BY_ID];

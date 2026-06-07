@@ -20,6 +20,7 @@ import { centerTabFromSearch, initialCenterTabFromSearch, persistCenterTab, type
 import { errorDetail, MAC_APP_STATUS_EVENT, type MacAppStatus } from "./lib/macAppStatus";
 import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
+import { openPathInExternalEditor, openPathInExternalTerminal, revealPathInFinder } from "./lib/pathActions";
 import {
   dispatchNativeMenuAction,
   listenForNativeMenuActions,
@@ -102,6 +103,35 @@ export default function App() {
     terminal.setActive(terminal.tabs[nextIndex].key);
   }, []);
 
+  const runActiveProjectStatusHandoff = useCallback((
+    action: (path: string) => Promise<void>,
+    successMessage: string,
+    failureMessage: string,
+    recoveryHint: string,
+  ) => {
+    const activeProjectPath = useProjectStore.getState().activeProjectPath;
+    if (!activeProjectPath) {
+      setMacAppStatus({
+        tone: "error",
+        message: "No active project is available.",
+        hint: "Open a project before using menu bar project actions.",
+      });
+      return;
+    }
+
+    void action(activeProjectPath)
+      .then(() => {
+        setMacAppStatus({ tone: "ok", message: successMessage });
+      })
+      .catch((err) => {
+        setMacAppStatus({
+          tone: "error",
+          message: failureMessage,
+          hint: `${recoveryHint} ${errorDetail(err)}`,
+        });
+      });
+  }, []);
+
   const handleNativeMenuAction = useCallback((action: NativeMenuAction) => {
     const now = performance.now();
     const last = handledMenuActionRef.current;
@@ -132,6 +162,33 @@ export default function App() {
       selectAdjacentTerminalTab(1);
       return;
     }
+    if (action === "status-reveal-active-project") {
+      runActiveProjectStatusHandoff(
+        revealPathInFinder,
+        "Active project revealed in Finder.",
+        "Reveal active project in Finder failed.",
+        "Check that the active project folder still exists and Finder can access it.",
+      );
+      return;
+    }
+    if (action === "status-open-active-project-editor") {
+      runActiveProjectStatusHandoff(
+        openPathInExternalEditor,
+        "Active project opened in the external editor.",
+        "Open active project in external editor failed.",
+        "Check the preferred external editor in macOS Settings, or choose an installed editor app.",
+      );
+      return;
+    }
+    if (action === "status-open-active-project-terminal") {
+      runActiveProjectStatusHandoff(
+        openPathInExternalTerminal,
+        "Active project opened in the external terminal.",
+        "Open active project in external terminal failed.",
+        "Check the preferred external terminal in macOS Settings, or choose an installed terminal app.",
+      );
+      return;
+    }
     if (action === "tab-chat") {
       selectCenterTab("chat");
       return;
@@ -145,7 +202,7 @@ export default function App() {
       void loadCivilizationView();
       selectCenterTab("civ");
     }
-  }, [addTerminalTab, closeActiveTerminalTab, selectAdjacentTerminalTab, selectCenterTab]);
+  }, [addTerminalTab, closeActiveTerminalTab, runActiveProjectStatusHandoff, selectAdjacentTerminalTab, selectCenterTab]);
 
   useEffect(() => listenForNativeMenuActions(handleNativeMenuAction), [handleNativeMenuAction]);
 

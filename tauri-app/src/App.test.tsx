@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -12,10 +12,17 @@ import { useUiStore } from "./stores/uiStore";
 const tauriEventMocks = vi.hoisted(() => ({
   listen: vi.fn((_eventName: string, _handler?: unknown) => Promise.resolve(() => {})),
 }));
+const pathActionMocks = vi.hoisted(() => ({
+  openPathInExternalEditor: vi.fn((_path: string) => Promise.resolve()),
+  openPathInExternalTerminal: vi.fn((_path: string) => Promise.resolve()),
+  revealPathInFinder: vi.fn((_path: string) => Promise.resolve()),
+}));
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: tauriEventMocks.listen,
 }));
+
+vi.mock("./lib/pathActions", () => pathActionMocks);
 
 vi.mock("./hooks/useMacGlobalHotkey", () => ({
   MAC_PRODUCTIVITY_SETTINGS_CHANGED_EVENT: "xolotl:mac-productivity-settings-changed",
@@ -85,6 +92,7 @@ function installTestStorage() {
 
 describe("App tab navigation", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     installTestStorage();
     localStorage.clear();
     window.history.replaceState(null, "", "/");
@@ -175,6 +183,40 @@ describe("App tab navigation", () => {
     fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "tab-chat" }));
     expect(screen.getByText("Chat workspace")).toBeTruthy();
     expect(window.location.search).toBe("");
+  });
+
+  it("runs active project handoffs from menu bar status item actions", async () => {
+    useProjectStore.setState({ activeProjectPath: "/Users/cesar/Documents/Xolotl" });
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "status-reveal-active-project" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.revealPathInFinder).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+    expect(await screen.findByText("Active project revealed in Finder.")).toBeTruthy();
+  });
+
+  it("shows recovery when menu bar project actions have no active project", async () => {
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "status-open-active-project-editor" }));
+
+    expect(await screen.findByText("No active project is available.")).toBeTruthy();
+    expect(screen.getByText("Open a project before using menu bar project actions.")).toBeTruthy();
+    expect(pathActionMocks.openPathInExternalEditor).not.toHaveBeenCalled();
+  });
+
+  it("shows recovery when menu bar external terminal handoff fails", async () => {
+    pathActionMocks.openPathInExternalTerminal.mockRejectedValueOnce(new Error("Warp missing"));
+    useProjectStore.setState({ activeProjectPath: "/Users/cesar/Documents/Xolotl" });
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "status-open-active-project-terminal" }));
+
+    expect(await screen.findByText("Open active project in external terminal failed.")).toBeTruthy();
+    expect(screen.getByText(/Check the preferred external terminal in macOS Settings/)).toBeTruthy();
+    expect(screen.getByText(/Warp missing/)).toBeTruthy();
   });
 
   it("marks the active workbench segment and exposes Mac shortcut hints", async () => {
