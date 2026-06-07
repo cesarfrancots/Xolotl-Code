@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Civ Simulation
-status: Awaiting next milestone
-last_updated: "2026-06-07T14:38:45.508Z"
-last_activity: 2026-06-07 — Milestone v2.0 completed and archived
+milestone: v2.1
+milestone_name: Living World & Economy
+status: planning
+last_updated: "2026-06-07T14:47:14.528Z"
+last_activity: 2026-06-07
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 14
-  completed_plans: 14
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State: xolotl
@@ -24,14 +24,14 @@ progress:
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** v2.0 Civ Simulation — ALL 5 phases COMPLETE & verified (autonomous run). Sim-first order: W9-lite ✅ → W8 ✅ → W4 ✅ → W6 ✅ → W5 ✅. Next: milestone lifecycle (audit → complete → cleanup).
+- **Current Focus:** v2.1 Living World & Economy — **planning** (defining requirements → roadmap). v2.0 Civ Simulation shipped 2026-06-07 (code-complete; live UAT pending). v2.1 goal: a fully playable axolotl civ game — infinite procedural world, resource→currency→shop economy (5+ currencies), true human takeover, NPCs, items, Gemini-generated assets, game-native UI.
 
 ## Current Position
 
-Phase: Milestone v2.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-07 — Milestone v2.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-07 — Milestone v2.1 started
 
 ## Performance Metrics
 
@@ -92,4 +92,4 @@ Last activity: 2026-06-07 — Milestone v2.0 completed and archived
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- v2.1 milestone is being defined (requirements → roadmap). Once roadmap is approved, resume with `/gsd-discuss-phase 1` (or `/gsd-plan-phase 1`).

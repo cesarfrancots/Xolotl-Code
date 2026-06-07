@@ -8,19 +8,27 @@ xolotl is a personal AI development ecosystem — a Tauri desktop app plus a CLI
 
 A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
 
-## Current Milestone: v2.0 Civ Simulation
+## Current Milestone: v2.1 Living World & Economy
 
-**Goal:** Turn the Axolotl Civilization game into a living, watchable, multi-AI-civilization simulation — and a harness eval/arena where agentic harnesses (Claude Code, Codex) compete on a shared scoreboard.
+**Goal:** Turn the multi-civ simulation into a fully playable, understandable, and enjoyable axolotl civilization game — an infinite procedural world rich with content, a deep resource→currency→shop economy, true human takeover of a civ, NPCs, and a game-native UI — where every human-play feature also deepens agentic playability.
 
-**Target features (sim-first):**
-- Create a world with 2–3 different AI models (each a color) and watch a leaderboard rank the living civs across turns (W9-lite).
-- Renderer multi-civ identity: per-civ color tints, multi-colony camera, focus-a-civ (W8).
-- Environment engine: seasons drift, disasters physically reshape terrain, renewable-only regrowth (W4).
-- Combat + diplomacy: claim/raid/fortify/trade, territory ownership, wild predators (W6).
-- Genetics depth + environmental selection pressure (W5).
-- **Harness arena (cross-cutting):** agentic harnesses interact with the game and compete; the leaderboard doubles as a harness scoreboard. Interface = `window.render_game_to_text()` + `window.civPilotControls` + `tauri-app/scripts/codex-play-civ.mjs` (keep/extend, don't break).
+**Target features:**
+- **Infinite procedural world** — replace the fixed world with procedurally-generated, explorable/expandable terrain (fBm terrain, caves, prospecting, terraform/place — the deferred W10.3–W10.7), seeded with more buildings, mineable items, and resources throughout.
+- **Items & gathering** — tools/items for mining, digging, harvesting, and growing more & better vegetation/resources; a richer resource taxonomy.
+- **Economy & currency** — civs and axolotls gather resources and sell them at fixed prices for currency; **at least 5 distinct currencies** with different uses (shells + others, ocean/pond-themed); researched acquisition rates and sinks so the economy is balanced and fun.
+- **Shop / store with full UI** — buy buffs, resources, buildings, items, and more; a game-native store UI primarily for human takeovers; catalog + prices grounded in economy research.
+- **True human takeover (Game B)** — possessing a civ makes it fully player-controlled and bypasses the LLM; richer human-play controls that also expand the agentic control surface.
+- **NPCs** — interactable non-civ characters (traders / quest-givers / fauna handlers) the world and players engage with.
+- **Asset generation (Gemini)** — generate game images/sprites/resource art via the Gemini image API (`GEMINI_API_KEY`) rather than placeholder art.
+- **Game-native UI refinement** — the Civ UI should read as a game, not as part of the harness app; restyle to fit.
 
-**Spec-of-record:** `civ-multi-civ-world-plan.md` (workstreams W1–W10). Already done: W1 (multi-civ data model), W2 (world gen at scale), W10.1 (mining-as-terraform), W10.2 (tool gating). The backend turn loop already calls each civ's own LLM (`advance_civ_turn` → `call_model_text`); the gap is making the competition visible and the world alive. The single-player possession layer ("Game B") is **parked** for this milestone.
+**Guiding constraints (carry into every phase):**
+- Every human-play feature should also benefit agentic playability — keep the arena bridge (`render_game_to_text()`, `civPilotControls`, `codex-play-civ.mjs`) extended, never broken.
+- Keep the engine deterministic/seeded; backend untestable on Windows (WebView2) → verify via `cargo check`/`clippy`/`test --no-run` + frontend `tsc`/vitest.
+- Single-player mechanics are duplicated in `civilization.rs` and `tauriBrowserFallback.ts` — keep in lockstep where touched.
+- v2.0 live UAT is still pending (providers + WebView2) — see MILESTONES.md.
+
+**Spec-of-record:** extends `civ-multi-civ-world-plan.md` (W10.3–W10.7 procedural world) plus new economy / shop / possession / NPC / asset workstreams defined in v2.1 `REQUIREMENTS.md`.
 
 ## Requirements
 
