@@ -43,6 +43,7 @@ export function DirectoryBrowser() {
   const activePath = useProjectStore((s) => s.activeProjectPath);
   const browse = useProjectStore((s) => s.browse);
   const refreshBrowse = useProjectStore((s) => s.refreshBrowse);
+  const openFolderDialog = useProjectStore((s) => s.openFolderDialog);
   const clearBrowseError = useProjectStore((s) => s.clearBrowseError);
   const [converting, setConverting] = useState<string | null>(null);
   const [convertError, setConvertError] = useState<string | null>(null);
@@ -254,6 +255,11 @@ export function DirectoryBrowser() {
             status={{ tone: "error", message: browseRecovery.message, hint: browseRecovery.hint }}
             onDismiss={clearBrowseError}
             dismissLabel="Dismiss file browser error"
+            action={{
+              label: "Open Folder",
+              ariaLabel: "Open Folder to refresh folder access",
+              onClick: () => void openFolderDialog(),
+            }}
           />
         ) : listing && visibleChildren.length === 0 ? (
           <p className="px-2 py-2 text-[11px] text-[oklch(0.46_0.010_225)]">

@@ -98,6 +98,9 @@ describe("ProjectsSection", () => {
     expect(screen.getByText(/Check that the folder still exists/)).toBeTruthy();
     expect(screen.getByText(/Folder is not accessible/)).toBeTruthy();
 
+    fireEvent.click(screen.getByLabelText("Open Folder to retry project access"));
+    expect(useProjectStore.getState().openFolderDialog).toHaveBeenCalled();
+
     fireEvent.click(screen.getByLabelText("Dismiss project open error"));
 
     expect(useProjectStore.getState().error).toBeNull();
@@ -111,6 +114,7 @@ describe("ProjectsSection", () => {
 
     expect(screen.getByText("Folder access blocked by macOS.")).toBeTruthy();
     expect(screen.getByText(/Privacy & Security/)).toBeTruthy();
+    expect(screen.getByText(/Full Disk Access/)).toBeTruthy();
     expect(screen.getByText(/Permission denied/)).toBeTruthy();
   });
 

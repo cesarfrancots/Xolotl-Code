@@ -5,6 +5,9 @@ export interface MacFileAccessRecovery {
   hint: string;
 }
 
+const MAC_PRIVACY_HINT =
+  "For folders under Documents, Desktop, Downloads, iCloud Drive, external drives, or network volumes, open macOS System Settings > Privacy & Security > Files and Folders or Full Disk Access, allow Xolotl Code, then choose the folder again with Open Folder.";
+
 function detailFromError(error: unknown): string {
   return error instanceof Error ? error.message : String(error ?? "");
 }
@@ -32,7 +35,23 @@ export function macFileAccessRecovery(
     return {
       message: "Folder access blocked by macOS.",
       hint: withDetail(
-        "Open macOS System Settings > Privacy & Security and allow Xolotl Code access to the folder, then retry.",
+        MAC_PRIVACY_HINT,
+        detail,
+      ),
+    };
+  }
+
+  if (
+    lower.includes("security scoped")
+    || lower.includes("security-scoped")
+    || lower.includes("bookmark")
+    || lower.includes("stale access")
+    || lower.includes("scope")
+  ) {
+    return {
+      message: isProjectOpen ? "Project folder permission needs refresh." : "Folder permission needs refresh.",
+      hint: withDetail(
+        "macOS may have invalidated the saved folder permission. Use Open Folder to choose the folder again; if it still fails, grant Xolotl Code access in Privacy & Security.",
         detail,
       ),
     };
@@ -61,7 +80,7 @@ export function macFileAccessRecovery(
   return {
     message: isProjectOpen ? "Could not open project folder." : "Could not load folder contents.",
     hint: withDetail(
-      "Check that the folder still exists and that macOS has allowed Xolotl Code to access it.",
+      "Check that the folder still exists, choose it again with Open Folder, and confirm macOS has allowed Xolotl Code to access it.",
       detail,
     ),
   };

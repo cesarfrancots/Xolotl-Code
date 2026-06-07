@@ -31,6 +31,7 @@ describe("DirectoryBrowser", () => {
       browseError: null,
       browse: vi.fn(() => Promise.resolve()),
       refreshBrowse: vi.fn(() => Promise.resolve()),
+      openFolderDialog: vi.fn(() => Promise.resolve()),
       listing: {
         path: "/Users/cesar/Documents/Xolotl",
         parent: "/Users/cesar/Documents",
@@ -160,7 +161,11 @@ describe("DirectoryBrowser", () => {
 
     expect(screen.getByText("Folder access blocked by macOS.")).toBeTruthy();
     expect(screen.getByText(/Privacy & Security/)).toBeTruthy();
+    expect(screen.getByText(/Full Disk Access/)).toBeTruthy();
     expect(screen.getByText(/Operation not permitted/)).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText("Open Folder to refresh folder access"));
+    expect(useProjectStore.getState().openFolderDialog).toHaveBeenCalled();
 
     fireEvent.click(screen.getByLabelText("Dismiss file browser error"));
 

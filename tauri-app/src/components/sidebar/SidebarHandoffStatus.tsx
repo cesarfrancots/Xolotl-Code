@@ -34,10 +34,16 @@ export function SidebarHandoffStatus({
   status,
   onDismiss,
   dismissLabel = "Dismiss sidebar status",
+  action,
 }: {
   status: SidebarHandoffStatusState;
   onDismiss: () => void;
   dismissLabel?: string;
+  action?: {
+    label: string;
+    onClick: () => void;
+    ariaLabel?: string;
+  };
 }) {
   const Icon = status.tone === "error" ? AlertTriangle : CheckCircle2;
   const classes = status.tone === "error"
@@ -54,14 +60,26 @@ export function SidebarHandoffStatus({
         <div className="font-medium">{status.message}</div>
         {status.hint && <div className="mt-0.5 break-words leading-relaxed text-[oklch(0.67_0.045_45)]">{status.hint}</div>}
       </div>
-      <button
-        type="button"
-        onClick={onDismiss}
-        className="flex-none rounded px-1 text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.18_0.008_245)] hover:text-[oklch(0.86_0.016_220)]"
-        aria-label={dismissLabel}
-      >
-        Dismiss
-      </button>
+      <div className="flex flex-none flex-col items-end gap-1">
+        {action && (
+          <button
+            type="button"
+            onClick={action.onClick}
+            className="whitespace-nowrap rounded border border-[oklch(0.30_0.018_230)] px-1.5 py-0.5 text-[oklch(0.78_0.030_210)] hover:border-[oklch(0.42_0.035_210)] hover:bg-[oklch(0.18_0.010_235)] hover:text-[oklch(0.90_0.018_220)]"
+            aria-label={action.ariaLabel ?? action.label}
+          >
+            {action.label}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="whitespace-nowrap rounded px-1 text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.18_0.008_245)] hover:text-[oklch(0.86_0.016_220)]"
+          aria-label={dismissLabel}
+        >
+          Dismiss
+        </button>
+      </div>
     </div>
   );
 }

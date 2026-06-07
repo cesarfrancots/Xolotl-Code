@@ -33,6 +33,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - File browser entries can reveal their target in Finder.
 - File browser current folders and entries can copy POSIX paths, project-relative paths where useful, and prompt-ready context prompts.
 - File browser browse failures show macOS-specific recovery for missing folders and privacy-denied folder access.
+- Project and file-browser access failures can reopen the native folder picker from the recovery banner to refresh macOS folder permission.
 - File browser entries can preview files with macOS Quick Look from row actions and the command palette.
 - File browser folders can open embedded terminals at the current folder or selected child folder, matching Finder-style "New Terminal Here" workflow.
 - Terminal cwd metadata can reveal its folder in Finder and copy the POSIX cwd path.
@@ -239,7 +240,7 @@ Deliverables:
   - Loaded from legacy config file. Done.
   - Missing. Done.
   - Needs migration. Done for legacy config-file keys.
-- Review filesystem permissions and user prompts for project access.
+- Review filesystem permissions and user prompts for project access. Done for project/file-browser access recovery banners with Files and Folders/Full Disk Access guidance plus an Open Folder permission-refresh action.
 - Add better error recovery when macOS denies file or notification permissions. Done for provider Keychain read failures, notification permission/routing failures, and project/file-browser folder access failures.
 
 Acceptance:

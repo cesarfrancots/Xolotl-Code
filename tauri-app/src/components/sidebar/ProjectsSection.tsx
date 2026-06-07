@@ -78,6 +78,11 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
           status={projectOpenErrorStatus(projectError)}
           onDismiss={clearProjectError}
           dismissLabel="Dismiss project open error"
+          action={{
+            label: "Open Folder",
+            ariaLabel: "Open Folder to retry project access",
+            onClick: () => void openFolderDialog(),
+          }}
         />
       )}
 
