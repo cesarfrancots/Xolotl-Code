@@ -15,6 +15,8 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Workbench toolbar uses a quieter macOS utility style with a focused segmented control and explicit active states.
 - Main window uses macOS overlay titlebar chrome with hidden title text, explicit traffic-light positioning, custom drag regions, and safe spacing when the left rail is collapsed.
 - Sidebar projects and file browser use compact Mac navigator rows, count badges, consistent utility icon buttons, and tighter Finder-style metadata labels.
+- Shortcut hints use macOS symbols across workbench, terminal, sidebar footer, composer command button, and command palette rows.
+- Command palette includes native-menu actions, active project Finder/path actions, recent project entries, and terminal actions with Mac shortcut chips.
 - File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
 - Directory paths passed at app launch are imported into the project store and activated on startup.
 - macOS open/reopen events are handled: file URLs from Finder/Open With are normalized into project-open requests, and Dock/app reopen focuses the main window.
@@ -78,7 +80,7 @@ Deliverables:
 - Workbench navigation:
   - Convert center workbench switching into a tighter segmented-control pattern. Done for the main Chat/Eval/Civ toolbar.
   - Add visible focus rings and predictable Tab order for sidebar, chat, eval, civ, terminal, and agent panels.
-  - Use Mac shortcut labels consistently in menus, buttons, tooltips, and command palette rows. In progress: main toolbar exposes shortcut hints through titles/ARIA without adding visual clutter.
+  - Use Mac shortcut labels consistently in menus, buttons, tooltips, and command palette rows. Done for the first pass across toolbar, terminal, sidebar footer, composer, and palette.
 - Accessibility:
   - Verify reduced motion and high-contrast behavior.
   - Avoid text clipping in compact sidebars, titlebar-safe areas, and terminal tabs.
@@ -89,7 +91,7 @@ Implementation order:
 1. Restyle the app header and workbench tabs without changing layout ownership. Done for the first toolbar pass.
 2. Add titlebar/drag-region support behind a small Tauri config and CSS pass. Done for the first overlay-titlebar pass.
 3. Tighten sidebar list density, selected states, and project/file browser labels. Done for the first project/file-browser pass.
-4. Add shortcut labels/tooltips to command-bearing controls.
+4. Add shortcut labels/tooltips to command-bearing controls. Done for the first shortcut symbol pass.
 5. Run screenshot checks at desktop and compact widths before package smoke.
 
 Acceptance:
@@ -101,13 +103,13 @@ Acceptance:
 
 ## Phase 2.5 - Mac Command and Keyboard UX
 
-Status: planned.
+Status: in progress.
 
 Deliverables:
 
 - Command palette:
-  - Show Mac symbols for shortcuts where useful: Cmd, Shift, Option, Control.
-  - Add project-aware commands for Open Recent, Reveal in Finder, New Terminal Here, and Copy Path.
+  - Show Mac symbols for shortcuts where useful: Cmd, Shift, Option, Control. Done for the first palette shortcut-chip pass.
+  - Add project-aware commands for Open Recent, Reveal in Finder, New Terminal Here, and Copy Path. Done for active project and recent project rows.
   - Keep action names short and scan-friendly.
 - Keyboard model:
   - Preserve existing web-friendly shortcuts where they do not conflict.
@@ -288,11 +290,9 @@ This is the near-term order for this branch.
    - Finder/Open With end-to-end smoke harness for packaged app file-url open events.
    - Optional AppKit Dock menu shim only if the benefit is worth the native-maintenance cost.
 2. Start Phase 2 Mac UI pass:
-   - Shortcut labels and tooltips.
 3. Add Phase 2.5 keyboard parity:
-   - Command palette shortcut rendering.
-   - Project/file/terminal commands.
-   - Tests for menu, palette, and keydown routing.
+   - Additional file-browser row commands in the command palette.
+  - Tests for menu, palette, and keydown routing.
 4. Expand Phase 6 productivity features:
    - Notifications with click-through routing.
    - Optional global hotkey.

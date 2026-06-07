@@ -14,6 +14,7 @@ import { useProjectDrop } from "./hooks/useProjectDrop";
 import { useProjectOpenEvents } from "./hooks/useProjectOpenEvents";
 import { Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves } from "lucide-react";
 import { centerTabFromSearch, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
+import { shortcutTitle } from "./lib/macShortcuts";
 import {
   dispatchNativeMenuAction,
   listenForNativeMenuActions,
@@ -294,7 +295,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => useUiStore.getState().toggleTerminalPanel()}
-              title="Toggle terminal (Cmd+J)"
+              title={shortcutTitle("Toggle terminal", "Cmd+J")}
               aria-label="Toggle terminal panel"
               aria-pressed={terminalPanelOpen}
               className={[
@@ -405,7 +406,7 @@ function PillTab({
       onFocus={onPreload}
       onMouseEnter={onPreload}
       aria-pressed={active}
-      title={`${label} (${shortcut})`}
+      title={shortcutTitle(label, shortcut)}
       className={["xolotl-segment-tab", active ? "xolotl-segment-tab-active" : ""].join(" ")}
     >
       {icon}

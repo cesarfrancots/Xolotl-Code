@@ -34,6 +34,7 @@ import {
   findSlashCommand,
   getWorkflowPrompt,
 } from "../../lib/chatCommands";
+import { shortcutTitle } from "../../lib/macShortcuts";
 import { extractThinkBlocks, stripThinkBlocks } from "../../lib/reasoning";
 import type { Message, ReasoningEffort } from "../../stores/chatStore";
 
@@ -685,7 +686,7 @@ export function MessageInput() {
               <Button
                 size="icon-sm" variant="ghost" type="button"
                 className="text-[oklch(0.58_0.012_230)] hover:text-[oklch(0.86_0.012_220)]"
-                title="Commands & shortcuts (Cmd+K)"
+                title={shortcutTitle("Commands & shortcuts", "Cmd+K")}
                 onClick={() => setCommandsOpen(true)}
               >
                 <CommandIcon className="h-3.5 w-3.5" />
@@ -776,6 +777,7 @@ export function MessageInput() {
         onOpenChange={setCommandsOpen}
         onUsePrompt={seedWorkflowPrompt}
         customCommands={customCommands}
+        enableGlobalShortcut={false}
       />
     </div>
   );

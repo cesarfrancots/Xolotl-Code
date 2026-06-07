@@ -45,6 +45,7 @@ it("launches new terminal tabs in the active project directory", async () => {
 
   render(<TerminalPanel />);
   expect(useTerminalStore.getState().tabs[0].cwd).toBe("/Users/cesar/project-a");
+  expect(screen.getByLabelText("New terminal").getAttribute("title")).toBe("New terminal in project-a (⌘T)");
 
   useProjectStore.setState({ activeProjectPath: "/Users/cesar/project-b" });
   await user.click(screen.getByLabelText("New terminal"));

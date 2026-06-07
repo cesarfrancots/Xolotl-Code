@@ -131,9 +131,9 @@ describe("App tab navigation", () => {
 
     expect(chat.getAttribute("aria-pressed")).toBe("true");
     expect(evalTab.getAttribute("aria-pressed")).toBe("false");
-    expect(chat.getAttribute("title")).toBe("Chat (Cmd+1)");
-    expect(evalTab.getAttribute("title")).toBe("Eval (Cmd+2)");
-    expect(civ.getAttribute("title")).toBe("Civ (Cmd+3)");
+    expect(chat.getAttribute("title")).toBe("Chat (⌘1)");
+    expect(evalTab.getAttribute("title")).toBe("Eval (⌘2)");
+    expect(civ.getAttribute("title")).toBe("Civ (⌘3)");
 
     await user.click(evalTab);
 

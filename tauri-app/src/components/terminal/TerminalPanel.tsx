@@ -4,6 +4,7 @@ import { useTerminalStore } from "../../stores/terminalStore";
 import { useUiStore } from "../../stores/uiStore";
 import { projectDisplayName, useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
+import { shortcutTitle } from "../../lib/macShortcuts";
 import { copyTextToClipboard, revealPathInFinder } from "../../lib/pathActions";
 import { TerminalView } from "./TerminalView";
 
@@ -119,6 +120,7 @@ export function TerminalPanel() {
                 <button
                   type="button"
                   aria-label={`Close ${tab.title}`}
+                  title={shortcutTitle(`Close ${tab.title}`, "Cmd+W")}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleClose(tab.key);
@@ -134,7 +136,7 @@ export function TerminalPanel() {
         <button
           type="button"
           aria-label="New terminal"
-          title={activeProjectPath ? `New terminal in ${projectDisplayName(activeProjectPath)} (Cmd+T)` : "New terminal (Cmd+T)"}
+          title={activeProjectPath ? shortcutTitle(`New terminal in ${projectDisplayName(activeProjectPath)}`, "Cmd+T") : shortcutTitle("New terminal", "Cmd+T")}
           onClick={handleNewTerminal}
           className="flex-none ml-1 rounded-md p-1 text-[oklch(0.55_0.012_235)] hover:text-[oklch(0.82_0.04_195)] hover:bg-[oklch(0.15_0.008_245)] transition-colors"
         >

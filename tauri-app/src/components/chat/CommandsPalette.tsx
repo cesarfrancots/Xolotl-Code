@@ -3,10 +3,12 @@ import {
   RotateCcw, Cpu, Save, FolderOpen, HelpCircle, Search,
   Hash, Keyboard, Paperclip, FlaskConical, GitBranch, Users, FileText, Settings2,
   DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen, Archive, Gauge,
+  MessageSquare, TerminalSquare, TestTubeDiagonal, Sprout, Settings, FolderPlus, ExternalLink, Copy,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
 import { useSessionStore, serializeSession } from "../../stores/sessionStore";
+import { useProjectStore } from "../../stores/projectStore";
 import { commands } from "../../bindings";
 import type { PromptCommand } from "../../bindings";
 import {
@@ -18,6 +20,10 @@ import {
   type SlashCommandId,
 } from "../../lib/chatCommands";
 import { calcTurnCost, formatCostBar } from "../../lib/cost";
+import { macPathLabel } from "../../lib/fileBrowser";
+import { formatMacShortcut } from "../../lib/macShortcuts";
+import { dispatchNativeMenuAction, type NativeMenuAction } from "../../lib/nativeMenu";
+import { copyTextToClipboard, revealPathInFinder } from "../../lib/pathActions";
 
 type CommandAction = () => void | Promise<void>;
 type CommandKind = "slash" | "shortcut" | "action";
@@ -29,23 +35,29 @@ interface PaletteCommand {
   label: string;
   /** Command syntax (e.g. "/clear" or "Cmd+Enter") */
   syntax?: string;
+  shortcut?: string;
   description: string;
   icon: React.ComponentType<{ className?: string }>;
   run?: CommandAction;
 }
 
 export function CommandsPalette({
-  open, onOpenChange, onUsePrompt, customCommands = [],
+  open, onOpenChange, onUsePrompt, customCommands = [], enableGlobalShortcut = true,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onUsePrompt?: (prompt: string) => void;
   customCommands?: PromptCommand[];
+  enableGlobalShortcut?: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const activeProjectPath = useProjectStore((s) => s.activeProjectPath);
+  const projects = useProjectStore((s) => s.projects);
+  const setActiveProject = useProjectStore((s) => s.setActiveProject);
 
   // Global Cmd+K / Ctrl+K binding.
   useEffect(() => {
+    if (!enableGlobalShortcut) return;
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -55,49 +67,91 @@ export function CommandsPalette({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onOpenChange]);
+  }, [enableGlobalShortcut, open, onOpenChange]);
 
   // Reset query when dialog opens.
   useEffect(() => { if (open) setQuery(""); }, [open]);
 
-  const cmds: PaletteCommand[] = useMemo(() => [
-    ...slashCommandItems.map((item) => ({
-      id: item.id,
-      kind: "slash" as const,
-      label: slashLabel(item.id),
-      syntax: item.command,
-      description: item.description,
-      icon: slashIcon(item.id),
-      run: () => {
-        runSlashCommand(item.id, onOpenChange, onUsePrompt);
-      },
-    })),
-    ...filterCustomPromptCommands("/", customCommands).map((item) => ({
-      id: `custom-${item.scope}-${item.source_path}`,
-      kind: "slash" as const,
-      label: item.command,
-      syntax: item.scope,
-      description: item.description,
-      icon: FileText,
-      run: () => {
-        onUsePrompt?.(item.content);
-        onOpenChange(false);
-      },
-    })),
+  const cmds: PaletteCommand[] = useMemo(() => {
+    const runNativeAction = (action: NativeMenuAction) => {
+      dispatchNativeMenuAction(action);
+      onOpenChange(false);
+    };
 
-    // Keyboard shortcuts are informational; they do not run actions.
-    { id: "kbd-send", kind: "shortcut", label: "Send message", syntax: "Enter", description: "Submit the composer. Shift+Enter inserts a newline instead.", icon: Keyboard },
-    { id: "kbd-newline", kind: "shortcut", label: "New line", syntax: "Shift+Enter", description: "Insert a line break without sending.", icon: Keyboard },
-    { id: "kbd-palette", kind: "shortcut", label: "Open commands", syntax: "Cmd+K", description: "Open this palette from anywhere.", icon: Keyboard },
-    { id: "kbd-attach", kind: "shortcut", label: "Attach files", syntax: "Drag & drop", description: "Drop text files onto the composer to attach them as fenced code blocks.", icon: Paperclip },
+    const nativeCommands: PaletteCommand[] = [
+      { id: "native-new-chat", kind: "action", label: "New Chat", shortcut: "Cmd+N", description: "Start a fresh chat in the current workspace.", icon: MessageSquare, run: () => runNativeAction("new-chat") },
+      { id: "native-open-folder", kind: "action", label: "Open Folder", shortcut: "Cmd+O", description: "Choose a project folder with the native picker.", icon: FolderPlus, run: () => runNativeAction("open-folder") },
+      { id: "native-settings", kind: "action", label: "Settings", shortcut: "Cmd+Comma", description: "Open provider, skill, and app settings.", icon: Settings, run: () => runNativeAction("settings") },
+      { id: "native-terminal-toggle", kind: "action", label: "Toggle Terminal", shortcut: "Cmd+J", description: "Show or hide the terminal dock.", icon: TerminalSquare, run: () => runNativeAction("toggle-terminal") },
+      { id: "native-tab-chat", kind: "action", label: "Go to Chat", shortcut: "Cmd+1", description: "Switch the center workbench to Chat.", icon: MessageSquare, run: () => runNativeAction("tab-chat") },
+      { id: "native-tab-eval", kind: "action", label: "Go to Eval", shortcut: "Cmd+2", description: "Switch the center workbench to Eval.", icon: TestTubeDiagonal, run: () => runNativeAction("tab-eval") },
+      { id: "native-tab-civ", kind: "action", label: "Go to Civ", shortcut: "Cmd+3", description: "Switch the center workbench to Civ.", icon: Sprout, run: () => runNativeAction("tab-civ") },
+      { id: "native-terminal-new", kind: "action", label: activeProjectPath ? "New Terminal Here" : "New Terminal", shortcut: "Cmd+T", description: activeProjectPath ? macPathLabel(activeProjectPath) : "Create a terminal tab from the current app directory.", icon: TerminalSquare, run: () => runNativeAction("terminal-new") },
+      { id: "native-terminal-close", kind: "action", label: "Close Terminal Tab", shortcut: "Cmd+W", description: "Close the active terminal tab when the dock is open.", icon: TerminalSquare, run: () => runNativeAction("terminal-close") },
+    ];
 
-    // Workflows point users at features they may not know exist.
-    { id: "agents", kind: "action", label: "Spawn an agent", description: "Right sidebar: plus button. Agents work in isolated git worktrees.", icon: GitBranch },
-    { id: "team", kind: "action", label: "Launch a team", description: "Right sidebar: people icon. Define roles and tasks for parallel agents.", icon: Users },
-    { id: "eval", kind: "action", label: "Compare models", description: "Eval tab. Compare models on one concrete goal with blind review.", icon: FlaskConical },
-    { id: "skills", kind: "action", label: "Manage skills & MCP", description: "Settings: Skills & MCP. Discovers skills from ~/.xolotl-code/skills/.", icon: Settings2 },
-    { id: "files", kind: "action", label: "Attach a file", description: "Paperclip in the chat composer, or drag-drop. Supports 40+ text file types.", icon: FileText },
-  ], [customCommands, onOpenChange, onUsePrompt]);
+    const projectCommands: PaletteCommand[] = [
+      ...(activeProjectPath ? [
+        { id: "project-reveal", kind: "action" as const, label: "Reveal Active Project in Finder", description: macPathLabel(activeProjectPath), icon: ExternalLink, run: () => { void revealPathInFinder(activeProjectPath); onOpenChange(false); } },
+        { id: "project-copy-path", kind: "action" as const, label: "Copy Active Project Path", description: macPathLabel(activeProjectPath), icon: Copy, run: () => { void copyTextToClipboard(activeProjectPath); onOpenChange(false); } },
+      ] : []),
+      ...projects.slice(0, 5).map((project) => ({
+        id: `recent-project-${project.path}`,
+        kind: "action" as const,
+        label: `Open Recent: ${project.name}`,
+        syntax: "Recent",
+        description: macPathLabel(project.path),
+        icon: FolderOpen,
+        run: () => {
+          setActiveProject(project.path);
+          onOpenChange(false);
+        },
+      })),
+    ];
+
+    return [
+      ...slashCommandItems.map((item) => ({
+        id: item.id,
+        kind: "slash" as const,
+        label: slashLabel(item.id),
+        syntax: item.command,
+        description: item.description,
+        icon: slashIcon(item.id),
+        run: () => {
+          runSlashCommand(item.id, onOpenChange, onUsePrompt);
+        },
+      })),
+      ...filterCustomPromptCommands("/", customCommands).map((item) => ({
+        id: `custom-${item.scope}-${item.source_path}`,
+        kind: "slash" as const,
+        label: item.command,
+        syntax: item.scope,
+        description: item.description,
+        icon: FileText,
+        run: () => {
+          onUsePrompt?.(item.content);
+          onOpenChange(false);
+        },
+      })),
+
+      // Keyboard shortcuts are informational; matching actions are listed below.
+      { id: "kbd-send", kind: "shortcut", label: "Send message", shortcut: "Enter", description: "Submit the composer. Shift+Enter inserts a newline instead.", icon: Keyboard },
+      { id: "kbd-newline", kind: "shortcut", label: "New line", shortcut: "Shift+Enter", description: "Insert a line break without sending.", icon: Keyboard },
+      { id: "kbd-palette", kind: "shortcut", label: "Open commands", shortcut: "Cmd+K", description: "Open this palette from anywhere.", icon: Keyboard },
+      { id: "kbd-terminal-web", kind: "shortcut", label: "Toggle terminal fallback", shortcut: "Ctrl+Backquote", description: "Web-compatible terminal toggle for users coming from browser editors.", icon: Keyboard },
+      { id: "kbd-attach", kind: "shortcut", label: "Attach files", syntax: "Drag & drop", description: "Drop text files onto the composer to attach them as fenced code blocks.", icon: Paperclip },
+
+      ...nativeCommands,
+      ...projectCommands,
+
+      // Workflows point users at features they may not know exist.
+      { id: "agents", kind: "action", label: "Spawn an agent", description: "Right sidebar: plus button. Agents work in isolated git worktrees.", icon: GitBranch },
+      { id: "team", kind: "action", label: "Launch a team", description: "Right sidebar: people icon. Define roles and tasks for parallel agents.", icon: Users },
+      { id: "eval", kind: "action", label: "Compare models", description: "Eval tab. Compare models on one concrete goal with blind review.", icon: FlaskConical },
+      { id: "skills", kind: "action", label: "Manage skills & MCP", description: "Settings: Skills & MCP. Discovers skills from ~/.xolotl-code/skills/.", icon: Settings2 },
+      { id: "files", kind: "action", label: "Attach a file", description: "Paperclip in the chat composer, or drag-drop. Supports 40+ text file types.", icon: FileText },
+    ];
+  }, [activeProjectPath, customCommands, onOpenChange, onUsePrompt, projects, setActiveProject]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -105,7 +159,9 @@ export function CommandsPalette({
     return cmds.filter((c) =>
       c.label.toLowerCase().includes(q) ||
       c.description.toLowerCase().includes(q) ||
-      (c.syntax?.toLowerCase().includes(q) ?? false)
+      (c.syntax?.toLowerCase().includes(q) ?? false) ||
+      (c.shortcut?.toLowerCase().includes(q) ?? false) ||
+      (c.shortcut ? formatMacShortcut(c.shortcut).toLowerCase().includes(q) : false)
     );
   }, [cmds, query]);
 
@@ -133,13 +189,13 @@ export function CommandsPalette({
             placeholder="Search commands, shortcuts, or features..."
             className="flex-1 bg-transparent outline-none text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)]"
           />
-          <kbd className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.145_0.004_245)] px-1.5 py-0.5 font-mono text-[10px] text-[oklch(0.52_0.010_225)]">Esc</kbd>
+          <kbd className="xolotl-keycap">{formatMacShortcut("Esc")}</kbd>
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto">
           <Section title="Slash Commands" icon={Hash} items={grouped.slash} />
           <Section title="Keyboard Shortcuts" icon={Keyboard} items={grouped.shortcut} />
-          <Section title="Workflows" icon={GitBranch} items={grouped.action} />
+          <Section title="Actions & Workflows" icon={GitBranch} items={grouped.action} />
           {filtered.length === 0 && (
             <div className="px-4 py-12 text-center text-sm text-[oklch(0.50_0_0)]">
               No commands match <span className="text-[oklch(0.78_0_0)]">"{query}"</span>.
@@ -149,7 +205,7 @@ export function CommandsPalette({
 
         <div className="flex items-center justify-between border-t border-[oklch(0.22_0.008_240)] bg-[oklch(0.105_0.004_245)] px-4 py-2 text-[11px] text-[oklch(0.48_0.012_230)]">
           <span>Click a command to run it</span>
-          <span><kbd className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.145_0.004_245)] px-1 py-0.5 font-mono">Cmd+K</kbd> to reopen</span>
+          <span><kbd className="xolotl-keycap">{formatMacShortcut("Cmd+K")}</kbd> to reopen</span>
         </div>
       </DialogContent>
     </Dialog>
@@ -329,7 +385,7 @@ function Section({
           return (
             <button
               key={c.id}
-              onClick={() => c.run?.()}
+              onClick={() => { void c.run?.(); }}
               disabled={!interactive}
               className={[
                 "flex items-start gap-3 px-4 py-2 text-left transition-colors",
@@ -343,9 +399,14 @@ function Section({
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-[oklch(0.90_0_0)]">{c.label}</span>
                   {c.syntax && (
-                    <code className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[oklch(0.15_0.004_245)] border border-[oklch(0.24_0.010_235)] text-[oklch(0.66_0.040_190)]">
+                    <code className="xolotl-command-chip">
                       {c.syntax}
                     </code>
+                  )}
+                  {c.shortcut && (
+                    <kbd className="xolotl-keycap" title={c.shortcut}>
+                      {formatMacShortcut(c.shortcut)}
+                    </kbd>
                   )}
                 </div>
                 <div className="text-xs text-[oklch(0.55_0_0)] mt-0.5 leading-relaxed">{c.description}</div>

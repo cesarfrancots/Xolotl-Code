@@ -339,6 +339,29 @@ button {
   background: oklch(0.132 0.006 220);
 }
 
+.xolotl-keycap,
+.xolotl-command-chip {
+  display: inline-flex;
+  height: 18px;
+  align-items: center;
+  border: 1px solid oklch(0.24 0.010 235);
+  border-radius: 5px;
+  padding: 0 5px;
+  background: oklch(0.145 0.004 245);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.xolotl-keycap {
+  color: oklch(0.64 0.018 215);
+}
+
+.xolotl-command-chip {
+  color: oklch(0.66 0.040 190);
+}
+
 @media (hover: none) {
   .xolotl-row-action-button {
     opacity: 1;

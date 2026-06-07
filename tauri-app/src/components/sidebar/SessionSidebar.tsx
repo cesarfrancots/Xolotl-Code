@@ -23,6 +23,7 @@ import { commands } from "../../bindings";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { CommandsPalette } from "../chat/CommandsPalette";
 import { listenForNativeMenuActions } from "../../lib/nativeMenu";
+import { formatMacShortcut, shortcutTitle } from "../../lib/macShortcuts";
 
 /**
  * Left column — the workbench navigator.
@@ -237,7 +238,7 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
         >
           {collapsed ? (
             <>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-[oklch(0.60_0_0)] hover:text-[oklch(0.85_0_0)]" title="Commands & shortcuts" onClick={() => setCommandsOpen(true)}>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-[oklch(0.60_0_0)] hover:text-[oklch(0.85_0_0)]" title={shortcutTitle("Commands & shortcuts", "Cmd+K")} onClick={() => setCommandsOpen(true)}>
                 <Command className="h-4 w-4" />
               </Button>
               <Button variant="ghost" size="icon" className="h-8 w-8 text-[oklch(0.60_0_0)] hover:text-[oklch(0.85_0_0)]" title="Settings" onClick={() => setSettingsOpen(true)}>
@@ -249,11 +250,11 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
               <button
                 onClick={() => setCommandsOpen(true)}
                 className="flex items-center gap-2 px-2 py-1 rounded-md text-xs text-[oklch(0.58_0.010_225)] hover:text-[oklch(0.86_0.015_220)] hover:bg-[oklch(0.16_0.004_240)] transition-colors"
-                title="Commands & shortcuts"
+                title={shortcutTitle("Commands & shortcuts", "Cmd+K")}
               >
                 <Command className="h-3.5 w-3.5" />
                 <span>Commands</span>
-                <kbd className="ml-1 text-[10px] font-mono px-1 py-0.5 rounded bg-[oklch(0.16_0.004_240)] border border-[oklch(0.24_0.010_235)] text-[oklch(0.54_0.010_225)]">Cmd K</kbd>
+                <kbd className="xolotl-keycap ml-1">{formatMacShortcut("Cmd+K")}</kbd>
               </button>
               <Button
                 variant="ghost"
