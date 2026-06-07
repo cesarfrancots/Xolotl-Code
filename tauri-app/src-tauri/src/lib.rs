@@ -65,12 +65,12 @@ const APP_URL_SCHEME: &str = "xolotl-code";
 const STATUS_ITEM_ID: &str = "xolotl-status-item";
 const STATUS_PROJECT_ID: &str = "xolotl:status-project";
 const STATUS_AGENTS_ID: &str = "xolotl:status-agents";
+const STATUS_EVAL_ID: &str = "xolotl:status-eval";
 const STATUS_REVEAL_ACTIVE_PROJECT: &str = "xolotl:status-reveal-active-project";
 const STATUS_OPEN_ACTIVE_PROJECT_EDITOR: &str = "xolotl:status-open-active-project-editor";
 const STATUS_OPEN_ACTIVE_PROJECT_TERMINAL: &str = "xolotl:status-open-active-project-terminal";
 const STATUS_COPY_ACTIVE_PROJECT_LINK: &str = "xolotl:status-copy-active-project-link";
-const STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN: &str =
-    "xolotl:status-copy-active-project-shell-open";
+const STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN: &str = "xolotl:status-copy-active-project-shell-open";
 const MENU_FOCUS_WINDOW: &str = "xolotl:focus-window";
 const MENU_NEW_CHAT: &str = "xolotl:new-chat";
 const MENU_OPEN_FOLDER: &str = "xolotl:open-folder";
@@ -98,6 +98,12 @@ pub struct MacStatusItemState {
     pub running_agents: u32,
     pub waiting_agents: u32,
     pub total_agents: u32,
+    pub running_eval_models: u32,
+    pub pending_eval_models: u32,
+    pub completed_eval_models: u32,
+    pub failed_eval_models: u32,
+    pub total_eval_models: u32,
+    pub active_eval_complete: bool,
 }
 
 #[derive(Default)]
@@ -467,11 +473,15 @@ fn focus_main_window(app: &tauri::AppHandle) {
 }
 
 fn mac_status_item_title(state: &MacStatusItemState) -> String {
-    let active_agents = state.running_agents.saturating_add(state.waiting_agents);
-    if active_agents == 0 {
+    let active_work_items = state
+        .running_agents
+        .saturating_add(state.waiting_agents)
+        .saturating_add(state.running_eval_models)
+        .saturating_add(state.pending_eval_models);
+    if active_work_items == 0 {
         "Xolotl".into()
     } else {
-        format!("Xolotl {active_agents}")
+        format!("Xolotl {active_work_items}")
     }
 }
 
@@ -506,11 +516,51 @@ fn mac_status_agents_label(state: &MacStatusItemState) -> String {
     }
 }
 
+fn mac_status_eval_label(state: &MacStatusItemState) -> String {
+    if state.total_eval_models == 0 {
+        return "Eval: Idle".into();
+    }
+
+    let finished = state
+        .completed_eval_models
+        .saturating_add(state.failed_eval_models);
+    if state.active_eval_complete || finished >= state.total_eval_models {
+        if state.failed_eval_models == 0 {
+            return format!(
+                "Eval: Complete ({}/{})",
+                state.completed_eval_models, state.total_eval_models
+            );
+        }
+        return format!(
+            "Eval: Complete ({} done, {} failed)",
+            state.completed_eval_models, state.failed_eval_models
+        );
+    }
+
+    let mut parts = Vec::new();
+    if state.running_eval_models > 0 {
+        parts.push(format!("{} running", state.running_eval_models));
+    }
+    if state.pending_eval_models > 0 {
+        parts.push(format!("{} pending", state.pending_eval_models));
+    }
+    if finished > 0 {
+        parts.push(format!("{finished}/{} finished", state.total_eval_models));
+    }
+
+    if parts.is_empty() {
+        "Eval: Ready".into()
+    } else {
+        format!("Eval: {}", parts.join(", "))
+    }
+}
+
 fn mac_status_item_tooltip(state: &MacStatusItemState) -> String {
     format!(
-        "Xolotl Code - {} - {}",
+        "Xolotl Code - {} - {} - {}",
         mac_status_project_label(state),
-        mac_status_agents_label(state)
+        mac_status_agents_label(state),
+        mac_status_eval_label(state)
     )
 }
 
@@ -530,6 +580,9 @@ fn build_mac_status_item_menu(
         .enabled(false)
         .build(app)?;
     let agents = MenuItemBuilder::with_id(STATUS_AGENTS_ID, mac_status_agents_label(state))
+        .enabled(false)
+        .build(app)?;
+    let eval = MenuItemBuilder::with_id(STATUS_EVAL_ID, mac_status_eval_label(state))
         .enabled(false)
         .build(app)?;
     let reveal_active_project = MenuItemBuilder::with_id(
@@ -569,6 +622,7 @@ fn build_mac_status_item_menu(
     let mut builder = MenuBuilder::new(app)
         .item(&project)
         .item(&agents)
+        .item(&eval)
         .separator();
 
     if mac_status_item_has_active_project(state) {
@@ -976,6 +1030,7 @@ mod tests {
         assert_eq!(mac_status_item_title(&idle), "Xolotl");
         assert_eq!(mac_status_project_label(&idle), "Project: No project");
         assert_eq!(mac_status_agents_label(&idle), "Agents: Idle");
+        assert_eq!(mac_status_eval_label(&idle), "Eval: Idle");
         assert!(!mac_status_item_has_active_project(&idle));
 
         let active = MacStatusItemState {
@@ -984,14 +1039,41 @@ mod tests {
             running_agents: 2,
             waiting_agents: 1,
             total_agents: 4,
+            running_eval_models: 1,
+            pending_eval_models: 1,
+            completed_eval_models: 2,
+            failed_eval_models: 0,
+            total_eval_models: 4,
+            active_eval_complete: false,
         };
-        assert_eq!(mac_status_item_title(&active), "Xolotl 3");
+        assert_eq!(mac_status_item_title(&active), "Xolotl 5");
         assert_eq!(mac_status_project_label(&active), "Project: Xolotl Code");
         assert_eq!(
             mac_status_agents_label(&active),
             "Agents: 2 running, 1 waiting"
         );
+        assert_eq!(
+            mac_status_eval_label(&active),
+            "Eval: 1 running, 1 pending, 2/4 finished"
+        );
         assert!(mac_status_item_has_active_project(&active));
+    }
+
+    #[test]
+    fn mac_status_eval_label_formats_completed_failures() {
+        let completed = MacStatusItemState {
+            completed_eval_models: 2,
+            failed_eval_models: 1,
+            total_eval_models: 3,
+            active_eval_complete: true,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            mac_status_eval_label(&completed),
+            "Eval: Complete (2 done, 1 failed)"
+        );
+        assert_eq!(mac_status_item_title(&completed), "Xolotl");
     }
 
     #[test]

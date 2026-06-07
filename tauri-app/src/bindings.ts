@@ -810,6 +810,12 @@ export type MacStatusItemState = {
 	running_agents: number,
 	waiting_agents: number,
 	total_agents: number,
+	running_eval_models: number,
+	pending_eval_models: number,
+	completed_eval_models: number,
+	failed_eval_models: number,
+	total_eval_models: number,
+	active_eval_complete: boolean,
 };
 
 /**  User-authored post-eval review, intentionally separate from blind rubric scores. */

@@ -64,7 +64,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - The last active project is revalidated and restored on reopen when Finder/Open With/URL launch paths are absent; stale or inaccessible folders clear the active scope with Mac recovery guidance.
 - Settings and the command palette share a tighter macOS utility-dialog surface and close with `Cmd+W` before underlying app shortcuts see the event.
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
-- macOS Settings include an opt-in menu bar status item with active project and agent-state summary plus quick access to common commands.
+- macOS Settings include an opt-in menu bar status item with active project, agent-state, and eval-model summary plus quick access to common commands.
 - The optional menu bar status item can reveal the active project in Finder and hand it off to the configured external editor or external terminal.
 - The optional menu bar status item can copy the active project `xolotl-code://` link and Terminal-safe shell open command for Shortcuts, Raycast, Alfred, and shell automation.
 - macOS Settings show compact status tiles and targeted recovery guidance for editor, global-hotkey, menu-bar, and notification states.
@@ -255,6 +255,7 @@ Deliverables:
 - Optional global hotkey to bring Xolotl Code to front. Done for opt-in settings, configurable accelerator persistence, runtime register/unregister, and window focus.
 - Optional menu bar helper or status item:
   - Running agents count. Done for opt-in status item title/menu summary.
+  - Running/pending eval model summary. Done for the opt-in status item title/menu summary without updating on token-stream-only changes.
   - Active project. Done for disabled status menu row.
   - Quick open command palette. Done through the status item menu using the native command bridge.
 - Finder actions:
@@ -444,7 +445,7 @@ Acceptance:
 Deliverables:
 
 - Improve the optional menu bar status item:
-  - Show active project and running agent/eval summary.
+  - Show active project and running agent/eval summary. Done for active project, agent counts, and active eval model counts.
   - Add quick commands only when they are stable and already route through native command actions.
   - Active-project Finder/editor/terminal handoff actions are available from the status item when a project is active.
   - Avoid turning the status menu into a second full app navigation tree.
