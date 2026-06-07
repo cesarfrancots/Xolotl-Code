@@ -45,6 +45,7 @@ describe("projectStore project errors", () => {
       listing: null,
       browseLoading: false,
       browseError: null,
+      recentBrowserFolders: [],
     });
   });
 
@@ -80,6 +81,43 @@ describe("projectStore project errors", () => {
 
     expect(useProjectStore.getState().error).toBe("Open failed");
     expect(useProjectStore.getState().browseError).toBeNull();
+  });
+
+  it("records successful file-browser folders for Mac recent-folder commands", async () => {
+    commandMocks.browseDirectory.mockImplementation((path: string) => Promise.resolve({
+      status: "ok",
+      data: {
+        path,
+        parent: "/Users/cesar/Documents/Xolotl",
+        children: [],
+      },
+    }));
+
+    await useProjectStore.getState().browse("/Users/cesar/Documents/Xolotl/docs");
+    await useProjectStore.getState().browse("/Users/cesar/Documents/Xolotl/src");
+    await useProjectStore.getState().browse("/Users/cesar/Documents/Xolotl/docs");
+
+    expect(useProjectStore.getState().recentBrowserFolders.slice(0, 2)).toEqual([
+      "/Users/cesar/Documents/Xolotl/docs",
+      "/Users/cesar/Documents/Xolotl/src",
+    ]);
+  });
+
+  it("does not promote failed file-browser folders into recent-folder commands", async () => {
+    useProjectStore.setState({
+      recentBrowserFolders: ["/Users/cesar/Documents/Xolotl/docs"],
+    });
+    commandMocks.browseDirectory.mockResolvedValueOnce({
+      status: "error",
+      error: "Operation not permitted",
+    });
+
+    await useProjectStore.getState().browse("/Users/cesar/Documents/Xolotl/private");
+
+    expect(useProjectStore.getState().recentBrowserFolders).toEqual([
+      "/Users/cesar/Documents/Xolotl/docs",
+    ]);
+    expect(useProjectStore.getState().browseError).toBe("Operation not permitted");
   });
 
   it("restores and canonicalizes the last active project on Mac reopen", async () => {

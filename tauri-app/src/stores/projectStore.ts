@@ -4,6 +4,8 @@ import type { DirListing, Project } from "../bindings";
 import { readStorageItem, removeStorageItem, writeStorageItem } from "../lib/browserStorage";
 
 const ACTIVE_KEY = "xolotl-active-project";
+const RECENT_BROWSER_FOLDERS_KEY = "xolotl-recent-browser-folders";
+const MAX_RECENT_BROWSER_FOLDERS = 8;
 
 function readActive(): string | null {
   return readStorageItem(ACTIVE_KEY);
@@ -12,6 +14,38 @@ function readActive(): string | null {
 function persistActive(path: string | null) {
   if (path) writeStorageItem(ACTIVE_KEY, path);
   else removeStorageItem(ACTIVE_KEY);
+}
+
+function normalizeFolderPath(path: string): string {
+  if (path === "/") return path;
+  return path.replace(/[\\/]+$/, "");
+}
+
+function readRecentBrowserFolders(): string[] {
+  const raw = readStorageItem(RECENT_BROWSER_FOLDERS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const folders = parsed
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map((value) => normalizeFolderPath(value.trim()));
+    return Array.from(new Set(folders)).slice(0, MAX_RECENT_BROWSER_FOLDERS);
+  } catch {
+    return [];
+  }
+}
+
+function persistRecentBrowserFolders(folders: string[]) {
+  writeStorageItem(RECENT_BROWSER_FOLDERS_KEY, JSON.stringify(folders.slice(0, MAX_RECENT_BROWSER_FOLDERS)));
+}
+
+function promoteRecentBrowserFolder(path: string, current: string[]): string[] {
+  const normalized = normalizeFolderPath(path);
+  return [
+    normalized,
+    ...current.filter((folder) => normalizeFolderPath(folder) !== normalized),
+  ].slice(0, MAX_RECENT_BROWSER_FOLDERS);
 }
 
 function refreshNativeMenu() {
@@ -30,6 +64,8 @@ export interface ProjectState {
   listing: DirListing | null;
   browseLoading: boolean;
   browseError: string | null;
+  /** Recently browsed folders for Mac command-palette continuity. */
+  recentBrowserFolders: string[];
 
   loadProjects: () => Promise<void>;
   /** Revalidate and reactivate the last saved working directory on app reopen. */
@@ -54,6 +90,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
   listing: null,
   browseLoading: false,
   browseError: null,
+  recentBrowserFolders: readRecentBrowserFolders(),
 
   loadProjects: async () => {
     set({ loading: true, error: null });
@@ -152,7 +189,9 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
       set({ browseError: res.error, browseLoading: false });
       return;
     }
-    set({ listing: res.data, browseLoading: false });
+    const recentBrowserFolders = promoteRecentBrowserFolder(res.data.path, get().recentBrowserFolders);
+    persistRecentBrowserFolders(recentBrowserFolders);
+    set({ listing: res.data, browseLoading: false, recentBrowserFolders });
   },
 
   refreshBrowse: async () => {

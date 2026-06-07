@@ -54,6 +54,12 @@ describe("CommandsPalette", () => {
         { name: "Xolotl", path: "/Users/cesar/Documents/Xolotl", added_at: 1, last_opened_at: 10 },
       ],
       activeProjectPath: "/Users/cesar/Documents/Xolotl",
+      recentBrowserFolders: [
+        "/Users/cesar/Documents/Xolotl/examples",
+        "/Users/cesar/Documents/Xolotl/docs/src",
+        "/Users/cesar/Documents/Xolotl/docs",
+        "/Users/cesar/Documents/Other",
+      ],
       listing: {
         path: "/Users/cesar/Documents/Xolotl/docs",
         parent: "/Users/cesar/Documents/Xolotl",
@@ -136,6 +142,9 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Copy Current Folder Relative Path")).toBeTruthy();
     expect(screen.getByText("Browse Parent Folder")).toBeTruthy();
     expect(screen.getByText("Back to Project Root")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Browse Recent Folder: examples" })).toBeTruthy();
+    expect(screen.queryByText("Browse Recent Folder: src")).toBeNull();
+    expect(screen.queryByText("Browse Recent Folder: Other")).toBeNull();
     expect(screen.getByRole("button", { name: "Open Folder: src" })).toBeTruthy();
     expect(screen.getByLabelText("Open src in editor")).toBeTruthy();
     expect(screen.getByLabelText("Open README.md in editor")).toBeTruthy();
@@ -444,6 +453,45 @@ describe("CommandsPalette", () => {
     fireEvent.click(screen.getByRole("button", { name: "Quick Look File: README.md" }));
     await waitFor(() => {
       expect(pathActionMocks.quickLookPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/README.md");
+    });
+  });
+
+  it("runs recent file-browser folder commands from the palette", async () => {
+    const browse = vi.fn(() => Promise.resolve());
+    const onOpenChange = vi.fn();
+    useProjectStore.setState({ browse });
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Browse Recent Folder: examples" }));
+    expect(browse).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/examples");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "New terminal in recent folder examples" }));
+    expect(terminalActionMocks.openTerminalAtPath).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl/examples",
+      "examples",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open recent folder examples in editor" }));
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalEditor).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/examples",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reveal recent folder examples in Finder" }));
+    await waitFor(() => {
+      expect(pathActionMocks.revealPathInFinder).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/examples",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy context prompt for recent folder examples" }));
+    await waitFor(() => {
+      expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/examples",
+        { label: "examples", kind: "Folder", relativePath: "examples" },
+      );
     });
   });
 

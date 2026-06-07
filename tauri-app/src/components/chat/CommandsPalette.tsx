@@ -9,7 +9,7 @@ import {
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
 import { useSessionStore, serializeSession } from "../../stores/sessionStore";
-import { useProjectStore } from "../../stores/projectStore";
+import { projectDisplayName, useProjectStore } from "../../stores/projectStore";
 import { commands } from "../../bindings";
 import type { PromptCommand } from "../../bindings";
 import {
@@ -96,6 +96,7 @@ export function CommandsPalette({
   const activeProjectPath = useProjectStore((s) => s.activeProjectPath);
   const projects = useProjectStore((s) => s.projects);
   const listing = useProjectStore((s) => s.listing);
+  const recentBrowserFolders = useProjectStore((s) => s.recentBrowserFolders);
   const browse = useProjectStore((s) => s.browse);
   const refreshBrowse = useProjectStore((s) => s.refreshBrowse);
   const setActiveProject = useProjectStore((s) => s.setActiveProject);
@@ -258,6 +259,20 @@ export function CommandsPalette({
 
     const currentBrowserPath = listing?.path ?? activeProjectPath;
     const visibleChildren = listing ? visibleDirectoryChildren(listing.children, false).slice(0, 8) : [];
+    const visibleChildFolderPaths = new Set(
+      visibleChildren
+        .filter((child) => child.is_dir)
+        .map((child) => child.path),
+    );
+    const recentFolders = activeProjectPath && currentBrowserPath
+      ? recentBrowserFolders
+        .filter((path) => (
+          path !== currentBrowserPath
+          && pathIsWithinRoot(path, activeProjectPath)
+          && !visibleChildFolderPaths.has(path)
+        ))
+        .slice(0, 4)
+      : [];
     const fileBrowserCommands: PaletteCommand[] = activeProjectPath && currentBrowserPath ? [
       { id: "browser-reveal-current", kind: "file", label: "Reveal Current Folder in Finder", syntax: "Folder", description: macPathLabel(currentBrowserPath), icon: ExternalLink, run: () => runMacHandoff("Reveal in Finder", () => revealPathInFinder(currentBrowserPath), "finder") },
       { id: "browser-open-current-editor", kind: "file", label: "Open Current Folder in Editor", syntax: "Editor", description: macPathLabel(currentBrowserPath), icon: Code2, run: () => runMacHandoff("Open in editor", () => openPathInExternalEditor(currentBrowserPath), "editor") },
@@ -277,6 +292,49 @@ export function CommandsPalette({
       ...(currentBrowserPath !== activeProjectPath ? [
         { id: "browser-project-root", kind: "file" as const, label: "Back to Project Root", syntax: "Root", description: macPathLabel(activeProjectPath), icon: CornerDownRight, run: () => { void browse(activeProjectPath); onOpenChange(false); } },
       ] : []),
+      ...recentFolders.map((folderPath) => {
+        const folderName = projectDisplayName(folderPath);
+        const relativePath = relativePathFromRoot(folderPath, activeProjectPath);
+        return {
+          id: `browser-recent-folder-${folderPath}`,
+          kind: "file" as const,
+          label: `Browse Recent Folder: ${folderName}`,
+          syntax: "Recent",
+          description: relativePath,
+          icon: FolderOpen,
+          run: () => { void browse(folderPath); onOpenChange(false); },
+          secondaryActions: [
+            {
+              id: "terminal",
+              label: `New terminal in recent folder ${folderName}`,
+              title: "New Terminal Here",
+              icon: TerminalSquare,
+              run: () => { openTerminalAtPath(folderPath, folderName); onOpenChange(false); },
+            },
+            {
+              id: "open-editor",
+              label: `Open recent folder ${folderName} in editor`,
+              title: "Open in editor",
+              icon: Code2,
+              run: () => runMacHandoff("Open in editor", () => openPathInExternalEditor(folderPath), "editor"),
+            },
+            {
+              id: "reveal",
+              label: `Reveal recent folder ${folderName} in Finder`,
+              title: "Reveal in Finder",
+              icon: ExternalLink,
+              run: () => runMacHandoff("Reveal in Finder", () => revealPathInFinder(folderPath), "finder"),
+            },
+            {
+              id: "copy-context",
+              label: `Copy context prompt for recent folder ${folderName}`,
+              title: "Copy context prompt",
+              icon: ClipboardList,
+              run: () => runMacHandoff("Copy folder context", () => copyPathContextHandoff(folderPath, { label: folderName, kind: "Folder", relativePath }), "clipboard"),
+            },
+          ],
+        };
+      }),
       ...visibleChildren.map((child) => {
         const relativePath = relativePathFromRoot(child.path, activeProjectPath);
         const badges = directoryChildBadges(child);
@@ -408,7 +466,7 @@ export function CommandsPalette({
       { id: "skills", kind: "action", label: "Manage skills & MCP", description: "Settings: Skills & MCP. Discovers skills from ~/.xolotl-code/skills/.", icon: Settings2 },
       { id: "files", kind: "action", label: "Attach a file", description: "Paperclip in the chat composer, or drag-drop. Supports 40+ text file types.", icon: FileText },
     ];
-  }, [activeProjectPath, browse, customCommands, listing, onOpenChange, onUsePrompt, projects, refreshBrowse, setActiveProject]);
+  }, [activeProjectPath, browse, customCommands, listing, onOpenChange, onUsePrompt, projects, recentBrowserFolders, refreshBrowse, setActiveProject]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -535,6 +593,18 @@ function macHandoffRecoveryHint(kind: MacHandoffHintKey, error: unknown): string
     case "clipboard":
       return `Check macOS clipboard access and try the copy action again.${suffix}`;
   }
+}
+
+function cleanFolderPath(path: string): string {
+  if (path === "/") return path;
+  return path.replace(/\/+$/, "");
+}
+
+function pathIsWithinRoot(path: string, root: string): boolean {
+  const cleanPath = cleanFolderPath(path);
+  const cleanRoot = cleanFolderPath(root);
+  if (cleanRoot === "/") return cleanPath.startsWith("/");
+  return cleanPath === cleanRoot || cleanPath.startsWith(`${cleanRoot}/`);
 }
 
 function runSlashCommand(
