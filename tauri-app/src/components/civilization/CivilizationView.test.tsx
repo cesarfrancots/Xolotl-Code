@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CivilizationView } from "./CivilizationView";
-import { useCivStore } from "../../stores/civStore";
-import type { CivSessionConfig } from "../../bindings";
+import { normalizeCivSnapshot, useCivStore } from "../../stores/civStore";
+import type { CivLogEntry, CivSessionConfig, CivSessionSnapshot } from "../../bindings";
 
 const createCivSession = vi.fn();
+const setCivController = vi.fn();
 
 // Mock Tauri event listener — the view calls listen() for civ-event streams.
 vi.mock("@tauri-apps/api/event", () => ({
@@ -19,6 +20,8 @@ vi.mock("../../bindings", () => ({
     listCivSessions: vi.fn().mockResolvedValue([]),
     createCivSession: (config: CivSessionConfig) => createCivSession(config),
     loadCivSession: vi.fn().mockResolvedValue({ status: "ok", data: "{}" }),
+    setCivController: (id: string, civId: string, controller: string | null) =>
+      setCivController(id, civId, controller),
   },
 }));
 
@@ -136,5 +139,187 @@ describe("CivilizationView creation card", () => {
     const config = createCivSession.mock.calls[0][0] as CivSessionConfig;
     expect(config.civs).toHaveLength(1);
     expect(config.civs?.[0]?.model).toBe("kimi");
+  });
+});
+
+// ── Multi-civ observer fixtures (Plan 01-04) ─────────────────────────────────
+// A snapshot with three civs (two living, one collapsed) plus per-civ ai_decision
+// log entries — the shape leaderboard ranking, log filtering, and the reasoning
+// toggle all consume.
+function civ(over: Record<string, unknown>) {
+  return {
+    era: "pond_camp",
+    population: 4,
+    health: 80,
+    morale: 70,
+    resources: {},
+    techs: [],
+    policies: [],
+    score: { survival: 0, ethics: 0, intelligence: 0, total: 0 },
+    ...over,
+  };
+}
+
+function decisionLog(over: Partial<CivLogEntry>): CivLogEntry {
+  return {
+    turn: 1,
+    kind: "ai_decision",
+    title: "intent",
+    body: "rationale",
+    created_at: Date.now(),
+    civ_id: null,
+    reasoning: null,
+    ...over,
+  };
+}
+
+function multiCivSnapshot(): CivSessionSnapshot {
+  return normalizeCivSnapshot({
+    id: "sess-1",
+    name: "Arena",
+    version: 2,
+    turn: 3,
+    world: { width: 64, height: 36, tiles: [], entities: [], regions: [] },
+    civs: [
+      civ({ id: "civ-1", name: "Reef", color: "#7fdfff", alive: true, score: { survival: 10, ethics: 10, intelligence: 10, total: 30 } }),
+      civ({ id: "civ-2", name: "Coral", color: "#ff9ec7", alive: true, controller: "codex", score: { survival: 20, ethics: 20, intelligence: 20, total: 60 } }),
+      civ({ id: "civ-3", name: "Bog", color: "#9bffa0", alive: false, score: { survival: 5, ethics: 5, intelligence: 5, total: 15 } }),
+    ],
+    log: [
+      decisionLog({ turn: 1, title: "Reef intent: gather", body: "Reef gathers food.", civ_id: "civ-1", reasoning: "Reef private chain-of-thought." }),
+      decisionLog({ turn: 2, title: "Coral intent: build", body: "Coral builds a nest.", civ_id: "civ-2", reasoning: "Coral private chain-of-thought." }),
+      decisionLog({ turn: 3, title: "Coral intent: trade", body: "Coral trades kelp.", civ_id: "civ-2", reasoning: null }),
+    ],
+  });
+}
+
+function hydrateMultiCiv(snapshot: CivSessionSnapshot = multiCivSnapshot()) {
+  useCivStore.setState({ activeSessionId: snapshot.id, activeSnapshot: snapshot, selectedCivId: null });
+}
+
+function openObserver(user: ReturnType<typeof userEvent.setup>) {
+  return user.click(document.querySelector(".civ-edge-right") as HTMLElement);
+}
+
+describe("CivilizationView leaderboard top-bar", () => {
+  it("ranks living civs by score.total desc and greys collapsed civs at the bottom", () => {
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+
+    const board = document.querySelector(".civ-leaderboard") as HTMLElement;
+    expect(board).not.toBeNull();
+    const rows = within(board).getAllByRole("button");
+    // Living first by score desc (Coral 60, Reef 30), then the collapsed civ (Bog).
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining("Coral"),
+      expect.stringContaining("Reef"),
+      expect.stringContaining("Bog"),
+    ]);
+    // The dead civ row is marked collapsed.
+    const bogRow = rows[2];
+    expect(bogRow.className).toContain("is-collapsed");
+    expect(bogRow.textContent).toMatch(/collapsed/i);
+  });
+
+  it("shows a controller badge only on civs with a controller tag", () => {
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+
+    const board = document.querySelector(".civ-leaderboard") as HTMLElement;
+    const rows = within(board).getAllByRole("button");
+    // Coral has controller "codex"; Reef has none.
+    expect(rows[0].textContent).toContain("codex");
+    expect(rows[1].textContent).not.toContain("codex");
+  });
+
+  it("selects a civ when its row is clicked", async () => {
+    const user = userEvent.setup();
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+
+    const board = document.querySelector(".civ-leaderboard") as HTMLElement;
+    const reefRow = within(board).getAllByRole("button").find((r) => r.textContent?.includes("Reef"))!;
+    await user.click(reefRow);
+
+    expect(useCivStore.getState().selectedCivId).toBe("civ-1");
+  });
+});
+
+describe("CivilizationView selectedCivId-driven observer + log", () => {
+  it("drives the observer score panel from the selected civ, not civs[0]", async () => {
+    const user = userEvent.setup();
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+    useCivStore.setState({ selectedCivId: "civ-2" });
+    await openObserver(user);
+
+    const drawer = document.querySelector(".civ-drawer-right") as HTMLElement;
+    // Coral (civ-2) total is 60 — primaryCiv (civs[0]=Reef) total is 30.
+    expect(within(drawer).getByText("60")).toBeDefined();
+  });
+
+  it("filters the log to the selected civ and shows all when none selected", async () => {
+    const user = userEvent.setup();
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+    await openObserver(user);
+
+    // No selection -> all entries visible.
+    expect(document.body.textContent).toContain("Reef gathers food.");
+    expect(document.body.textContent).toContain("Coral builds a nest.");
+
+    // Select civ-2 -> only Coral entries remain in the log.
+    useCivStore.setState({ selectedCivId: "civ-2" });
+    const log = document.querySelector(".civ-log") as HTMLElement;
+    expect(within(log).queryByText("Reef gathers food.")).toBeNull();
+    expect(within(log).getByText("Coral builds a nest.")).toBeDefined();
+  });
+});
+
+describe("CivilizationView reasoning expand toggle", () => {
+  it("hides reasoning behind a toggle and reveals it on expand; no toggle when absent", async () => {
+    const user = userEvent.setup();
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+    await openObserver(user);
+
+    const log = document.querySelector(".civ-log") as HTMLElement;
+    // Rationale is always visible.
+    expect(within(log).getByText("Coral builds a nest.")).toBeDefined();
+    // Reasoning is collapsed by default.
+    expect(within(log).queryByText("Coral private chain-of-thought.")).toBeNull();
+
+    // The entry with reasoning exposes a toggle; the entry without reasoning does not.
+    const toggles = within(log).getAllByRole("button", { name: /reasoning/i });
+    expect(toggles).toHaveLength(2); // Reef + first Coral entry have reasoning; second Coral does not.
+
+    const coralToggle = toggles.find((t) =>
+      (t.closest("article")?.textContent ?? "").includes("Coral builds a nest."),
+    )!;
+    await user.click(coralToggle);
+    expect(within(log).getByText("Coral private chain-of-thought.")).toBeDefined();
+  });
+});
+
+describe("CivilizationView civPilotControls", () => {
+  it("keeps the legacy start({goal, possessId}) signature working (ARENA-02)", () => {
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+    // The bridge mounts on the window regardless of possessable axolotls.
+    expect(typeof window.civPilotControls?.start).toBe("function");
+    // Legacy call must not throw and must not touch selection or the controller IPC.
+    expect(() => window.civPilotControls?.start({ goal: "task", possessId: "axo-1" })).not.toThrow();
+    expect(setCivController).not.toHaveBeenCalled();
+  });
+
+  it("scopes selection to civId and tags the controller via set_civ_controller (ARENA-03)", () => {
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+    setCivController.mockReset();
+
+    window.civPilotControls?.start({ civId: "civ-2", controller: "codex" });
+
+    expect(useCivStore.getState().selectedCivId).toBe("civ-2");
+    expect(setCivController).toHaveBeenCalledWith("sess-1", "civ-2", "codex");
   });
 });
