@@ -14,6 +14,10 @@ function persistActive(path: string | null) {
   else removeStorageItem(ACTIVE_KEY);
 }
 
+function refreshNativeMenu() {
+  void commands.refreshNativeMenu().catch(() => undefined);
+}
+
 export interface ProjectState {
   /** Quick-access working directories, most-recently-opened first. */
   projects: Project[];
@@ -51,6 +55,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
     try {
       const projects = await commands.listProjects();
       set({ projects, loading: false });
+      refreshNativeMenu();
       const active = get().activeProjectPath;
       if (active && !get().listing) {
         void get().browse(active);
@@ -76,6 +81,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
       return;
     }
     set({ projects: res.data });
+    refreshNativeMenu();
     // The command sorts most-recently-opened first, so the freshly added (or
     // re-touched) project is at the top with its canonical path.
     const canonical = res.data[0]?.path ?? path;
@@ -89,6 +95,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
       return;
     }
     set({ projects: res.data });
+    refreshNativeMenu();
     if (get().activeProjectPath === path) get().setActiveProject(null);
   },
 
@@ -96,7 +103,12 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
     persistActive(path);
     set({ activeProjectPath: path, listing: null, browseError: null });
     if (path) {
-      void commands.touchProject(path).catch(() => undefined);
+      void commands
+        .touchProject(path)
+        .then((res) => {
+          if (res.status === "ok") refreshNativeMenu();
+        })
+        .catch(() => undefined);
       void get().browse(path);
     }
   },

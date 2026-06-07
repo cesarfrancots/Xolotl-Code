@@ -1,6 +1,8 @@
 use specta_typescript::Typescript;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::menu::{AboutMetadata, Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::menu::{AboutMetadata, Menu, MenuBuilder, MenuItemBuilder, Submenu, SubmenuBuilder};
 use tauri::Emitter;
 use tauri_specta::{collect_commands, Builder};
 
@@ -47,8 +49,11 @@ pub mod skills_mcp;
 mod terminal;
 
 const MENU_EVENT: &str = "xolotl://menu";
+const PROJECT_OPEN_EVENT: &str = "xolotl://open-project";
 const MENU_NEW_CHAT: &str = "xolotl:new-chat";
 const MENU_OPEN_FOLDER: &str = "xolotl:open-folder";
+const MENU_RECENT_PROJECT_PREFIX: &str = "xolotl:recent-project:";
+const MENU_NO_RECENT_PROJECTS: &str = "xolotl:no-recent-projects";
 const MENU_SETTINGS: &str = "xolotl:settings";
 const MENU_COMMANDS: &str = "xolotl:commands";
 const MENU_TOGGLE_TERMINAL: &str = "xolotl:toggle-terminal";
@@ -59,6 +64,7 @@ const MENU_TERMINAL_NEXT_TAB: &str = "xolotl:terminal-next-tab";
 const MENU_TAB_CHAT: &str = "xolotl:tab-chat";
 const MENU_TAB_EVAL: &str = "xolotl:tab-eval";
 const MENU_TAB_CIV: &str = "xolotl:tab-civ";
+const RECENT_PROJECT_LIMIT: usize = 8;
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
@@ -111,10 +117,12 @@ fn make_builder() -> Builder<tauri::Wry> {
             cleanup_eval_processes,
             cancel_chat_turn,
             chat_turn,
+            macos_commands::launch_project_paths,
             list_projects,
             add_project,
             remove_project,
             touch_project,
+            macos_commands::refresh_native_menu,
             pick_directory,
             browse_directory,
             convert_pdf,
@@ -185,6 +193,131 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<CivDecisionAction>()
 }
 
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn hex_decode(value: &str) -> Option<Vec<u8>> {
+    let bytes = value.as_bytes();
+    if bytes.len() % 2 != 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for pair in bytes.chunks_exact(2) {
+        let high = hex_value(pair[0])?;
+        let low = hex_value(pair[1])?;
+        out.push((high << 4) | low);
+    }
+    Some(out)
+}
+
+fn recent_project_menu_id(path: &str) -> String {
+    format!("{MENU_RECENT_PROJECT_PREFIX}{}", hex_encode(path.as_bytes()))
+}
+
+fn recent_project_path_from_menu_id(id: &tauri::menu::MenuId) -> Option<String> {
+    let encoded = id.as_ref().strip_prefix(MENU_RECENT_PROJECT_PREFIX)?;
+    let bytes = hex_decode(encoded)?;
+    String::from_utf8(bytes).ok()
+}
+
+fn mac_path_label(path: &str) -> String {
+    let path_ref = Path::new(path);
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        if let Ok(relative) = path_ref.strip_prefix(&home) {
+            if relative.as_os_str().is_empty() {
+                return "~".into();
+            }
+            return format!("~/{}", relative.to_string_lossy());
+        }
+    }
+    path.to_string()
+}
+
+fn recent_project_label(project: &Project) -> String {
+    format!("{} - {}", project.name, mac_path_label(&project.path))
+}
+
+fn build_recent_projects_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
+    let projects = list_projects();
+    let mut builder = SubmenuBuilder::new(app, "Open Recent").enabled(!projects.is_empty());
+
+    if projects.is_empty() {
+        let empty = MenuItemBuilder::with_id(MENU_NO_RECENT_PROJECTS, "No Recent Projects")
+            .enabled(false)
+            .build(app)?;
+        builder = builder.item(&empty);
+        return builder.build();
+    }
+
+    for project in projects.iter().take(RECENT_PROJECT_LIMIT) {
+        let item = MenuItemBuilder::with_id(
+            recent_project_menu_id(&project.path),
+            recent_project_label(project),
+        )
+        .build(app)?;
+        builder = builder.item(&item);
+    }
+
+    builder.build()
+}
+
+fn canonical_project_path_from_arg(arg: OsString) -> Option<String> {
+    let raw = PathBuf::from(arg);
+    if !raw.is_dir() {
+        return None;
+    }
+    let canonical = std::fs::canonicalize(&raw).unwrap_or(raw);
+    Some(canonical.to_string_lossy().into_owned())
+}
+
+fn launch_project_paths_from_args<I>(args: I) -> Vec<String>
+where
+    I: IntoIterator<Item = OsString>,
+{
+    let mut paths = Vec::new();
+    for arg in args.into_iter().skip(1) {
+        let Some(path) = canonical_project_path_from_arg(arg) else {
+            continue;
+        };
+        if !paths.iter().any(|existing| existing == &path) {
+            paths.push(path);
+        }
+    }
+    paths
+}
+
+mod macos_commands {
+    #[tauri::command]
+    #[specta::specta]
+    pub fn launch_project_paths() -> Vec<String> {
+        super::launch_project_paths_from_args(std::env::args_os())
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub fn refresh_native_menu(app_handle: tauri::AppHandle) -> Result<(), String> {
+        let menu = super::build_native_menu(&app_handle).map_err(|err| err.to_string())?;
+        app_handle.set_menu(menu).map_err(|err| err.to_string())?;
+        Ok(())
+    }
+}
+
 fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let about_metadata = AboutMetadata {
         name: Some("Xolotl Code".into()),
@@ -202,6 +335,7 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
     let open_folder = MenuItemBuilder::with_id(MENU_OPEN_FOLDER, "Open Folder...")
         .accelerator("CmdOrCtrl+KeyO")
         .build(app)?;
+    let recent_projects = build_recent_projects_menu(app)?;
     let commands = MenuItemBuilder::with_id(MENU_COMMANDS, "Command Palette...")
         .accelerator("CmdOrCtrl+KeyK")
         .build(app)?;
@@ -249,6 +383,8 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(&new_chat)
         .item(&open_folder)
+        .separator()
+        .item(&recent_projects)
         .build()?;
 
     let edit_menu = SubmenuBuilder::new(app, "Edit")
@@ -376,6 +512,8 @@ pub fn run() {
             app.on_menu_event(|app, event| {
                 if let Some(action) = menu_action_for_id(event.id()) {
                     let _ = app.emit(MENU_EVENT, action);
+                } else if let Some(path) = recent_project_path_from_menu_id(event.id()) {
+                    let _ = app.emit(PROJECT_OPEN_EVENT, path);
                 }
             });
             Ok(())
@@ -398,5 +536,47 @@ mod tests {
             Path::new(&out).exists(),
             "bindings.ts should have been generated at {out}"
         );
+    }
+
+    #[test]
+    fn recent_project_menu_id_round_trips_path() {
+        let path = "/Users/cesar/Projects/Xolotl Code";
+        let menu_id = tauri::menu::MenuId::new(recent_project_menu_id(path));
+
+        assert_eq!(
+            recent_project_path_from_menu_id(&menu_id),
+            Some(path.to_string())
+        );
+    }
+
+    #[test]
+    fn recent_project_menu_id_rejects_malformed_payload() {
+        let menu_id = tauri::menu::MenuId::new(format!("{MENU_RECENT_PROJECT_PREFIX}xyz"));
+
+        assert_eq!(recent_project_path_from_menu_id(&menu_id), None);
+    }
+
+    #[test]
+    fn launch_project_paths_keep_existing_directories_once() {
+        let root =
+            std::env::temp_dir().join(format!("xolotl-launch-paths-{}", std::process::id()));
+        let project = root.join("Project With Spaces");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&project).expect("project test dir should be created");
+
+        let paths = launch_project_paths_from_args(vec![
+            OsString::from("xolotl-code"),
+            project.clone().into_os_string(),
+            OsString::from("/not/a/real/project"),
+            project.clone().into_os_string(),
+        ]);
+
+        let expected = std::fs::canonicalize(&project)
+            .expect("project test dir should canonicalize")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(paths, vec![expected]);
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

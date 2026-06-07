@@ -12,6 +12,8 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Embedded terminal opens reliably and focuses when the dock becomes visible.
 - Native macOS menu and Cmd shortcuts are wired and smoke-tested.
 - File > New Chat, workbench tab shortcuts, command palette, and terminal toggle route through the native menu bridge.
+- File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
+- Directory paths passed at app launch are imported into the project store and activated on startup.
 - Terminal tab commands are available from a native Terminal menu.
 - Terminal tabs capture the active project directory when they are created.
 - Finder-style folder drops on the app window can activate projects.
@@ -49,27 +51,68 @@ Acceptance:
 
 ## Phase 2 - Mac-Style Window and Navigation UX
 
-Status: planned.
+Status: planned next.
 
 Deliverables:
 
-- Evaluate a macOS titlebar style:
+- Window chrome:
   - Keep native traffic-light controls.
-  - Use an inset or transparent titlebar if it does not break drag regions.
-  - Preserve a dense developer-tool layout rather than a marketing-style shell.
-- Add proper draggable header regions where the window chrome allows it.
-- Refine the top workbench toolbar:
-  - More native spacing.
-  - Clear active tab affordance.
-  - Less visual noise around borders and shadows.
-- Add Mac shortcut labels consistently in menus, buttons, tooltips, and command palette rows.
-- Add reduced-transparency and high-contrast checks for Mac accessibility settings where feasible.
+  - Use an inset or transparent titlebar if it does not break drag regions or automated smoke tests.
+  - Add explicit drag regions to non-interactive toolbar areas.
+  - Reserve safe space around the traffic lights at compact widths.
+  - Keep the current dense developer-tool layout rather than a marketing-style shell.
+- Mac visual style pass:
+  - Shift the top toolbar toward a quieter macOS utility-app look.
+  - Use restrained system-like contrast, thinner separators, and clearer active states.
+  - Move repeated command affordances toward icon buttons with tooltips where the action is familiar.
+  - Keep cards reserved for repeated items, dialogs, and framed tools; avoid nested cards.
+- Workbench navigation:
+  - Convert center workbench switching into a tighter segmented-control pattern.
+  - Add visible focus rings and predictable Tab order for sidebar, chat, eval, civ, terminal, and agent panels.
+  - Use Mac shortcut labels consistently in menus, buttons, tooltips, and command palette rows.
+- Accessibility:
+  - Verify reduced motion and high-contrast behavior.
+  - Avoid text clipping in compact sidebars, titlebar-safe areas, and terminal tabs.
+  - Preserve non-pointer access to every primary workbench action.
+
+Implementation order:
+
+1. Restyle the app header and workbench tabs without changing layout ownership.
+2. Add titlebar/drag-region support behind a small Tauri config and CSS pass.
+3. Tighten sidebar list density, selected states, and project/file browser labels.
+4. Add shortcut labels/tooltips to command-bearing controls.
+5. Run screenshot checks at desktop and compact widths before package smoke.
 
 Acceptance:
 
 - Window chrome feels native on macOS.
 - No controls overlap with traffic lights at narrow widths.
 - Keyboard users can reach all primary workbench areas without pointer use.
+- The app remains visually dense and operational, not landing-page-like.
+
+## Phase 2.5 - Mac Command and Keyboard UX
+
+Status: planned.
+
+Deliverables:
+
+- Command palette:
+  - Show Mac symbols for shortcuts where useful: Cmd, Shift, Option, Control.
+  - Add project-aware commands for Open Recent, Reveal in Finder, New Terminal Here, and Copy Path.
+  - Keep action names short and scan-friendly.
+- Keyboard model:
+  - Preserve existing web-friendly shortcuts where they do not conflict.
+  - Prefer Cmd-first equivalents for Mac users.
+  - Scope terminal tab shortcuts to terminal-open contexts where needed.
+- Menu parity:
+  - Keep native menu IDs, frontend action names, and command palette actions in sync.
+  - Add tests for any new command normalization.
+
+Acceptance:
+
+- A Mac user can operate chat, project switching, file browsing, terminal tabs, settings, and command palette from the keyboard.
+- Shortcut conflicts are documented or resolved in tests.
+- Browser preview remains usable without native menu APIs.
 
 ## Phase 3 - Finder and Project Workflow Integration
 
@@ -77,8 +120,9 @@ Status: in progress.
 
 Deliverables:
 
-- Open project folders from Finder and command-line launch arguments.
-- Add a Recent Projects menu that mirrors the project store.
+- Open project folders from command-line launch arguments. Done for existing directory arguments passed to the app.
+- Open project folders from Finder. Window drag/drop is done; reopen/document-open events still need deeper Tauri/AppKit validation.
+- Add a Recent Projects menu that mirrors the project store. Done for File > Open Recent with menu refresh after project changes.
 - Add Dock menu shortcuts for New Chat, Open Folder, and recent projects if Tauri/AppKit support is practical.
 - Support drag-and-drop of folders onto the app window to open a project. Done for Tauri window drops; still needs end-to-end Finder smoke coverage with a real project folder.
 - Improve file browser behavior for Mac paths:
@@ -89,8 +133,16 @@ Deliverables:
 Acceptance:
 
 - Dropping a folder or opening with a path activates the project.
-- Recent projects persist and are reachable without opening the sidebar.
-- Finder-originated workflows do not create duplicate project entries.
+- Recent projects persist and are reachable without opening the sidebar. Done for native menu access.
+- Finder-originated workflows do not create duplicate project entries. Done for drag/drop and launch-path imports through canonical project add.
+
+Next implementation details:
+
+- Add Reveal in Finder for the active project, selected file, and terminal cwd.
+- Add Copy POSIX Path and Copy Relative Path actions to file browser rows.
+- Investigate Tauri reopen/open-url/document-open support for dragging a folder onto the Dock icon or launching via Finder "Open With".
+- Add a packaged-app smoke script that launches the `.app` with a temporary directory argument and asserts the project is activated.
+- Evaluate Dock menu support only after project-open event handling is stable.
 
 ## Phase 4 - Terminal and Developer Environment Polish
 
@@ -150,6 +202,10 @@ Deliverables:
   - Running agents count.
   - Active project.
   - Quick open command palette.
+- Finder actions:
+  - Reveal active project in Finder.
+  - Reveal generated eval artifacts in Finder.
+  - Open project folder in the user's preferred external editor if configured.
 - Notification actions for long-running tasks:
   - Agent finished.
   - Eval finished.
@@ -164,6 +220,13 @@ Acceptance:
 - Every OS-level feature is opt-in when it can interrupt the user.
 - Global shortcuts are configurable and can be disabled.
 - Notifications route back to the relevant app view.
+
+Implementation order:
+
+1. Add non-interruptive Finder actions first.
+2. Add notification routing for existing long-running work.
+3. Add opt-in global hotkey with settings UI and tests.
+4. Evaluate menu bar helper only after agent/eval status events are stable enough to summarize.
 
 ## Phase 7 - Distribution, Signing, and Update Path
 
@@ -207,3 +270,29 @@ Automation targets:
 - Tauri Rust tests for menu ID mapping where practical.
 - Smoke script for `.app` launch, terminal focus, menu shortcuts, and project opening.
 - Build checks for app bundle, DMG, and universal target.
+
+## Working Implementation Queue
+
+This is the near-term order for this branch.
+
+1. Finish Phase 3 native project workflows:
+   - Packaged launch with a project path.
+   - Finder/Dock open validation.
+   - Reveal in Finder and copy-path actions.
+2. Start Phase 2 Mac UI pass:
+   - Header/titlebar-safe layout.
+   - Segmented workbench tabs.
+   - Sidebar, project, and file browser density pass.
+   - Shortcut labels and tooltips.
+3. Add Phase 2.5 keyboard parity:
+   - Command palette shortcut rendering.
+   - Project/file/terminal commands.
+   - Tests for menu, palette, and keydown routing.
+4. Expand Phase 6 productivity features:
+   - Notifications with click-through routing.
+   - Optional global hotkey.
+   - Optional status/menu bar helper if it proves useful in daily use.
+5. Harden distribution:
+   - Universal build path.
+   - Signing and notarization checklist.
+   - DMG polish and clean-machine install smoke.

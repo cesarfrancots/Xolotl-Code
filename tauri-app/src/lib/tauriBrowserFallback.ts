@@ -1209,6 +1209,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
     case "list_mcp_servers":
     case "list_prompt_commands":
     case "list_projects":
+    case "launch_project_paths":
     case "add_project":
     case "remove_project":
       return [];
@@ -1266,6 +1267,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
     case "delete_eval":
     case "save_manual_reviews":
     case "touch_project":
+    case "refresh_native_menu":
       return null;
     case "cleanup_eval_processes":
       return 0;

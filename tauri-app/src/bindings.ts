@@ -141,6 +141,7 @@ export const commands = {
 	 *  TurnCompleted or Error event to know the turn finished.
 	 */
 	chatTurn: (turnId: string, messages: ChatMessage[], model: string, enabledSkills: string[] | null, reasoningEffort: string | null, cwd: string | null) => typedError<null, string>(__TAURI_INVOKE("chat_turn", { turnId, messages, model, enabledSkills, reasoningEffort, cwd })),
+	launchProjectPaths: () => __TAURI_INVOKE<string[]>("launch_project_paths"),
 	/**  List saved quick-access projects, most-recently-opened first. */
 	listProjects: () => __TAURI_INVOKE<Project[]>("list_projects"),
 	/**
@@ -152,6 +153,7 @@ export const commands = {
 	removeProject: (path: string) => typedError<Project[], string>(__TAURI_INVOKE("remove_project", { path })),
 	/**  Mark a project as just-opened (bumps it to the top of the list). */
 	touchProject: (path: string) => typedError<null, string>(__TAURI_INVOKE("touch_project", { path })),
+	refreshNativeMenu: () => typedError<null, string>(__TAURI_INVOKE("refresh_native_menu")),
 	/**
 	 *  Open a native folder picker and return the chosen directory (or `None` if
 	 *  the user cancelled).
