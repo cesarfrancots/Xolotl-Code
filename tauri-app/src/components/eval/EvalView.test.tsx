@@ -36,6 +36,7 @@ const commandMocks = vi.hoisted(() => ({
 }));
 
 const pathActionMocks = vi.hoisted(() => ({
+  copyPathAutomationHandoff: vi.fn<(path: string, options?: unknown) => Promise<void>>((_path) => Promise.resolve()),
   copyTextToClipboard: vi.fn<(text: string) => Promise<void>>((_text) => Promise.resolve()),
   copyXolotlCodeOpenShellCommand: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   copyXolotlCodeOpenUrl: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
@@ -53,6 +54,7 @@ vi.mock("../../bindings", () => ({
 }));
 
 vi.mock("../../lib/pathActions", () => ({
+  copyPathAutomationHandoff: pathActionMocks.copyPathAutomationHandoff,
   copyTextToClipboard: pathActionMocks.copyTextToClipboard,
   copyXolotlCodeOpenShellCommand: pathActionMocks.copyXolotlCodeOpenShellCommand,
   copyXolotlCodeOpenUrl: pathActionMocks.copyXolotlCodeOpenUrl,
@@ -332,6 +334,32 @@ describe("EvalView Mac Finder handoffs", () => {
       expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/.xolotl-code/eval-artifacts/artifact-1");
     });
     expect(await screen.findByText("Generated artifact folder shell open command copied.")).toBeTruthy();
+  });
+
+  it("copies a generated artifact folder Shortcuts JSON after launch", async () => {
+    seedCompletedEval(`
+\`\`\`html
+<!doctype html>
+<html><body><button>Open me</button></body></html>
+\`\`\`
+`);
+    const user = userEvent.setup();
+
+    render(<EvalView />);
+    await user.click(screen.getByRole("button", { name: "Ready for scores" }));
+    await user.click(await screen.findByRole("button", { name: /Open index.html/ }));
+    await waitFor(() => {
+      expect(commands.startEvalArtifact).toHaveBeenCalled();
+    });
+    await user.click(await screen.findByLabelText("Copy index.html artifact folder Shortcuts JSON"));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyPathAutomationHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/.xolotl-code/eval-artifacts/artifact-1",
+        { label: "index.html", kind: "Eval artifact" },
+      );
+    });
+    expect(await screen.findByText("Generated artifact folder Shortcuts JSON copied.")).toBeTruthy();
   });
 
   it("opens a generated artifact folder in the external terminal after launch", async () => {
