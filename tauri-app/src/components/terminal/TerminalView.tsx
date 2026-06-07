@@ -58,11 +58,35 @@ function decodeBase64(b64: string): Uint8Array {
  * unmount. `active` is true when this tab is the visible one — used to re-fit
  * after the container un-hides (a hidden container reports a 0×0 size).
  */
-export function TerminalView({ tabKey, active }: { tabKey: string; active: boolean }) {
+export function TerminalView({
+  tabKey,
+  active,
+  visible,
+}: {
+  tabKey: string;
+  active: boolean;
+  visible: boolean;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const idRef = useRef<string | null>(null);
+
+  function fitAndFocus() {
+    const term = termRef.current;
+    const fit = fitRef.current;
+    const container = containerRef.current;
+    if (!term || !fit || !container) return;
+    if (container.clientHeight === 0 || container.clientWidth === 0) return;
+    try {
+      fit.fit();
+    } catch {
+      return;
+    }
+    term.focus();
+    const id = idRef.current;
+    if (id) void commands.terminalResize(id, term.cols, term.rows);
+  }
 
   useEffect(() => {
     const container = containerRef.current;
@@ -177,24 +201,19 @@ export function TerminalView({ tabKey, active }: { tabKey: string; active: boole
   // When this tab becomes visible, re-fit (the container had no size while
   // hidden) and focus it. Defer a frame so layout has settled.
   useEffect(() => {
-    if (!active) return undefined;
+    if (!active || !visible) return undefined;
     const raf = requestAnimationFrame(() => {
-      const term = termRef.current;
-      const fit = fitRef.current;
-      const container = containerRef.current;
-      if (!term || !fit || !container) return;
-      if (container.clientHeight === 0 || container.clientWidth === 0) return;
-      try {
-        fit.fit();
-      } catch {
-        return;
-      }
-      term.focus();
-      const id = idRef.current;
-      if (id) void commands.terminalResize(id, term.cols, term.rows);
+      fitAndFocus();
     });
     return () => cancelAnimationFrame(raf);
-  }, [active]);
+  }, [active, visible]);
 
-  return <div ref={containerRef} className="h-full w-full overflow-hidden" />;
+  return (
+    <div
+      ref={containerRef}
+      className="h-full w-full overflow-hidden"
+      onPointerDown={() => fitAndFocus()}
+      onFocus={() => fitAndFocus()}
+    />
+  );
 }

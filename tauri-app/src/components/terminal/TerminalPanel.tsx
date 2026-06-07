@@ -12,6 +12,7 @@ import { TerminalView } from "./TerminalView";
 export function TerminalPanel() {
   const tabs = useTerminalStore((s) => s.tabs);
   const activeKey = useTerminalStore((s) => s.activeKey);
+  const terminalPanelOpen = useUiStore((s) => s.terminalPanelOpen);
 
   // Open with one terminal ready to go.
   useEffect(() => {
@@ -91,7 +92,11 @@ export function TerminalPanel() {
             key={tab.key}
             className={tab.key === activeKey ? "absolute inset-0 p-1" : "hidden"}
           >
-            <TerminalView tabKey={tab.key} active={tab.key === activeKey} />
+            <TerminalView
+              tabKey={tab.key}
+              active={tab.key === activeKey}
+              visible={terminalPanelOpen && tab.key === activeKey}
+            />
           </div>
         ))}
       </div>

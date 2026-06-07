@@ -7,7 +7,9 @@ import { useUiStore } from "../../stores/uiStore";
 
 // Stub the xterm-backed view so the test never touches the real terminal.
 vi.mock("./TerminalView", () => ({
-  TerminalView: ({ tabKey }: { tabKey: string }) => <div data-testid={`view-${tabKey}`} />,
+  TerminalView: ({ tabKey, visible }: { tabKey: string; visible: boolean }) => (
+    <div data-testid={`view-${tabKey}`} data-visible={String(visible)} />
+  ),
 }));
 
 beforeEach(() => {
@@ -57,4 +59,18 @@ it("collapses the dock when the last tab is closed", async () => {
   await user.click(screen.getByLabelText(`Close ${title}`));
   expect(useTerminalStore.getState().tabs).toHaveLength(0);
   expect(useUiStore.getState().terminalPanelOpen).toBe(false);
+});
+
+it("marks the active terminal view visible only while the dock is open", () => {
+  const { rerender } = render(<TerminalPanel />);
+  const activeKey = useTerminalStore.getState().activeKey;
+  expect(screen.getByTestId(`view-${activeKey}`).getAttribute("data-visible")).toBe("true");
+
+  useUiStore.setState({ terminalPanelOpen: false });
+  rerender(<TerminalPanel />);
+  expect(screen.getByTestId(`view-${activeKey}`).getAttribute("data-visible")).toBe("false");
+
+  useUiStore.setState({ terminalPanelOpen: true });
+  rerender(<TerminalPanel />);
+  expect(screen.getByTestId(`view-${activeKey}`).getAttribute("data-visible")).toBe("true");
 });

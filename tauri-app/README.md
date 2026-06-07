@@ -16,6 +16,18 @@ npm test
 npm run build
 ```
 
+## macOS packaging
+
+```sh
+npm run build:mac             # builds Xolotl Code.app
+npm run build:mac:dmg         # builds the app and wraps it in a simple DMG
+npm run build:mac:universal   # builds a universal .app when both Rust targets are installed
+npm run open:mac              # opens the built .app
+```
+
+The DMG script uses `ditto` and `hdiutil` directly so CI and local builds do
+not depend on Finder AppleScript window-layout automation.
+
 ## Product surfaces
 
 - Chat: session-based coding conversations with model selection, skills, file attachments, and tool output rendering.
