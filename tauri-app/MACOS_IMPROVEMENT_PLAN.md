@@ -14,6 +14,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - File > New Chat, workbench tab shortcuts, command palette, and terminal toggle route through the native menu bridge.
 - Workbench toolbar uses a quieter macOS utility style with a focused segmented control and explicit active states.
 - Main window uses macOS overlay titlebar chrome with hidden title text, explicit traffic-light positioning, custom drag regions, and safe spacing when the left rail is collapsed.
+- Sidebar projects and file browser use compact Mac navigator rows, count badges, consistent utility icon buttons, and tighter Finder-style metadata labels.
 - File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
 - Directory paths passed at app launch are imported into the project store and activated on startup.
 - macOS open/reopen events are handled: file URLs from Finder/Open With are normalized into project-open requests, and Dock/app reopen focuses the main window.
@@ -73,6 +74,7 @@ Deliverables:
   - Use restrained system-like contrast, thinner separators, and clearer active states.
   - Move repeated command affordances toward icon buttons with tooltips where the action is familiar.
   - Keep cards reserved for repeated items, dialogs, and framed tools; avoid nested cards.
+  - Tighten sidebar project/file-browser density while preserving Finder actions. Done for the first project and file-browser row pass.
 - Workbench navigation:
   - Convert center workbench switching into a tighter segmented-control pattern. Done for the main Chat/Eval/Civ toolbar.
   - Add visible focus rings and predictable Tab order for sidebar, chat, eval, civ, terminal, and agent panels.
@@ -86,7 +88,7 @@ Implementation order:
 
 1. Restyle the app header and workbench tabs without changing layout ownership. Done for the first toolbar pass.
 2. Add titlebar/drag-region support behind a small Tauri config and CSS pass. Done for the first overlay-titlebar pass.
-3. Tighten sidebar list density, selected states, and project/file browser labels.
+3. Tighten sidebar list density, selected states, and project/file browser labels. Done for the first project/file-browser pass.
 4. Add shortcut labels/tooltips to command-bearing controls.
 5. Run screenshot checks at desktop and compact widths before package smoke.
 
@@ -286,7 +288,6 @@ This is the near-term order for this branch.
    - Finder/Open With end-to-end smoke harness for packaged app file-url open events.
    - Optional AppKit Dock menu shim only if the benefit is worth the native-maintenance cost.
 2. Start Phase 2 Mac UI pass:
-   - Sidebar, project, and file browser density pass.
    - Shortcut labels and tooltips.
 3. Add Phase 2.5 keyboard parity:
    - Command palette shortcut rendering.

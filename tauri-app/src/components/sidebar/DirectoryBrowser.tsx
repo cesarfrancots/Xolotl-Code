@@ -68,17 +68,22 @@ export function DirectoryBrowser() {
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center gap-1 px-2.5 pt-2 pb-1">
-        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-[oklch(0.56_0.012_220)]">
+      <div className="xolotl-sidebar-section-header">
+        <span className="xolotl-sidebar-section-title flex min-w-0 flex-1 items-center gap-1.5">
           <Folder className="h-3.5 w-3.5 flex-none" />
           <span className="truncate" title={listing?.path ? macPathLabel(listing.path) : undefined}>{here || "Files"}</span>
         </span>
+        {listing && (
+          <span className="xolotl-sidebar-section-count" aria-label={`${visibleChildren.length} visible items`}>
+            {visibleChildren.length}
+          </span>
+        )}
         <button
           type="button"
           title="Reveal in Finder"
           aria-label="Reveal current folder in Finder"
           onClick={() => void revealPathInFinder(currentPath).catch((err) => console.error("reveal folder failed:", err))}
-          className="grid h-6 w-6 flex-none place-items-center rounded text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.16_0.004_240)] hover:text-[oklch(0.82_0.015_220)]"
+          className="xolotl-sidebar-icon-button"
         >
           <ExternalLink className="h-3 w-3" />
         </button>
@@ -87,7 +92,7 @@ export function DirectoryBrowser() {
           title="Copy POSIX path"
           aria-label="Copy current folder POSIX path"
           onClick={() => void copyTextToClipboard(currentPath)}
-          className="grid h-6 w-6 flex-none place-items-center rounded text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.16_0.004_240)] hover:text-[oklch(0.82_0.015_220)]"
+          className="xolotl-sidebar-icon-button"
         >
           <Copy className="h-3 w-3" />
         </button>
@@ -98,8 +103,8 @@ export function DirectoryBrowser() {
           aria-pressed={showHidden}
           onClick={() => setShowHidden((value) => !value)}
           className={[
-            "grid h-6 w-6 flex-none place-items-center rounded hover:bg-[oklch(0.16_0.004_240)] hover:text-[oklch(0.82_0.015_220)]",
-            showHidden ? "text-[oklch(0.70_0.045_190)]" : "text-[oklch(0.46_0.010_225)]",
+            "xolotl-sidebar-icon-button",
+            showHidden ? "xolotl-sidebar-icon-button-active" : "",
           ].join(" ")}
         >
           {showHidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
@@ -110,7 +115,7 @@ export function DirectoryBrowser() {
           aria-label="Up one folder"
           disabled={!listing?.parent}
           onClick={() => listing?.parent && void browse(listing.parent)}
-          className="grid h-6 w-6 flex-none place-items-center rounded text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.16_0.004_240)] hover:text-[oklch(0.82_0.015_220)] disabled:opacity-30 disabled:hover:bg-transparent"
+          className="xolotl-sidebar-icon-button disabled:opacity-30 disabled:hover:bg-transparent"
         >
           <CornerLeftUp className="h-3.5 w-3.5" />
         </button>
@@ -119,7 +124,7 @@ export function DirectoryBrowser() {
           title="Refresh"
           aria-label="Refresh files"
           onClick={() => void refreshBrowse()}
-          className="grid h-6 w-6 flex-none place-items-center rounded text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.16_0.004_240)] hover:text-[oklch(0.82_0.015_220)]"
+          className="xolotl-sidebar-icon-button"
         >
           <RefreshCw className="h-3 w-3" />
         </button>
@@ -129,10 +134,11 @@ export function DirectoryBrowser() {
         <button
           type="button"
           onClick={() => void browse(activePath)}
-          className="mx-2 mb-1 rounded px-1.5 py-0.5 text-left text-[10px] text-[oklch(0.50_0.010_225)] hover:text-[oklch(0.72_0.035_190)]"
+          className="mx-2 mb-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-[10px] text-[oklch(0.50_0.010_225)] hover:bg-[oklch(0.145_0.004_240)] hover:text-[oklch(0.72_0.035_190)]"
           title={`Back to ${macPathLabel(activePath)}`}
         >
-          ↳ back to project root
+          <CornerDownRight className="h-3 w-3" />
+          Project root
         </button>
       )}
 
@@ -142,7 +148,7 @@ export function DirectoryBrowser() {
         </p>
       )}
 
-      <div className="max-h-[34vh] overflow-y-auto px-1.5 pb-1">
+      <div className="max-h-[34vh] overflow-y-auto px-1 pb-1">
         {loading && !listing ? (
           <div className="flex items-center gap-2 px-2 py-2 text-xs text-[oklch(0.52_0.012_230)]">
             <Loader2 className="h-3 w-3 animate-spin" /> Loading…
@@ -163,7 +169,7 @@ export function DirectoryBrowser() {
                   {child.is_dir ? (
                     <div
                       className={[
-                        "group flex w-full items-center gap-2 rounded px-2 py-1 text-[13px] hover:bg-[oklch(0.155_0.004_240)] hover:text-[oklch(0.90_0.012_220)]",
+                        "xolotl-file-row",
                         child.is_hidden ? "text-[oklch(0.50_0.010_225)]" : "text-[oklch(0.74_0.010_225)]",
                       ].join(" ")}
                       title={macPathLabel(child.path)}
@@ -171,7 +177,7 @@ export function DirectoryBrowser() {
                       <button
                         type="button"
                         onClick={() => void browse(child.path)}
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.55_0.04_195)]"
+                        className="xolotl-file-row-main"
                       >
                         {child.is_package ? (
                           <Package className="h-3.5 w-3.5 flex-none text-[oklch(0.72_0.050_260)]" />
@@ -187,7 +193,7 @@ export function DirectoryBrowser() {
                   ) : (
                     <div
                       className={[
-                        "group flex w-full items-center gap-2 rounded px-2 py-1 text-[13px] hover:bg-[oklch(0.155_0.004_240)]",
+                        "xolotl-file-row",
                         child.is_pdf
                           ? "text-[oklch(0.80_0.012_220)]"
                           : child.is_hidden
@@ -212,7 +218,7 @@ export function DirectoryBrowser() {
                           disabled={isConverting}
                           title="Convert PDF → Markdown into the chat"
                           aria-label={`Convert ${child.name} to Markdown`}
-                          className="flex flex-none items-center gap-1 rounded border border-[oklch(0.32_0.05_60)] bg-[oklch(0.16_0.02_60)] px-1.5 py-0.5 text-[10px] font-medium text-[oklch(0.78_0.09_65)] hover:bg-[oklch(0.20_0.03_60)] disabled:opacity-50"
+                          className="xolotl-file-convert-button"
                         >
                           {isConverting ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
@@ -246,7 +252,7 @@ function PathActionButtons({ path, root, label }: { path: string; root: string; 
         }}
         title="Reveal in Finder"
         aria-label={`Reveal ${label} in Finder`}
-        className="grid h-5 w-5 place-items-center rounded text-[oklch(0.40_0_0)] opacity-0 transition-opacity hover:text-[oklch(0.72_0.045_195)] group-hover:opacity-100 focus-visible:opacity-100"
+        className="xolotl-row-action-button"
       >
         <ExternalLink className="h-3 w-3" />
       </button>
@@ -258,7 +264,7 @@ function PathActionButtons({ path, root, label }: { path: string; root: string; 
         }}
         title="Copy POSIX path"
         aria-label={`Copy POSIX path for ${label}`}
-        className="grid h-5 w-5 place-items-center rounded text-[oklch(0.40_0_0)] opacity-0 transition-opacity hover:text-[oklch(0.72_0.045_195)] group-hover:opacity-100 focus-visible:opacity-100"
+        className="xolotl-row-action-button"
       >
         <Copy className="h-3 w-3" />
       </button>
@@ -270,7 +276,7 @@ function PathActionButtons({ path, root, label }: { path: string; root: string; 
         }}
         title="Copy relative path"
         aria-label={`Copy relative path for ${label}`}
-        className="grid h-5 w-5 place-items-center rounded text-[oklch(0.40_0_0)] opacity-0 transition-opacity hover:text-[oklch(0.72_0.045_195)] group-hover:opacity-100 focus-visible:opacity-100"
+        className="xolotl-row-action-button"
       >
         <CornerDownRight className="h-3 w-3" />
       </button>
@@ -285,7 +291,7 @@ function EntryBadges({ badges }: { badges: string[] }) {
       {badges.map((badge) => (
         <span
           key={badge}
-          className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-1 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-[oklch(0.50_0.012_225)]"
+          className="xolotl-file-badge"
         >
           {badge}
         </span>

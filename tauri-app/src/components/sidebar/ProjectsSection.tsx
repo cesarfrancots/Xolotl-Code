@@ -16,16 +16,19 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center gap-1 px-2.5 pt-2 pb-1">
-        <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-[oklch(0.56_0.012_220)]">
-          Projects
-        </span>
+      <div className="xolotl-sidebar-section-header">
+        <span className="xolotl-sidebar-section-title">Projects</span>
+        {projects.length > 0 && (
+          <span className="xolotl-sidebar-section-count" aria-label={`${projects.length} saved projects`}>
+            {projects.length}
+          </span>
+        )}
         <button
           type="button"
           title="Open folder…"
           aria-label="Open a folder"
           onClick={() => void openFolderDialog()}
-          className="flex items-center gap-1 rounded-md border border-[oklch(0.26_0.012_205)] bg-[oklch(0.13_0.006_210)] px-1.5 py-0.5 text-[10px] font-medium text-[oklch(0.70_0.040_190)] hover:bg-[oklch(0.16_0.010_205)] hover:text-[oklch(0.82_0.050_190)]"
+          className="xolotl-sidebar-section-action"
         >
           <FolderPlus className="h-3 w-3" />
           Open
@@ -36,18 +39,15 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
         <button
           type="button"
           onClick={() => void openFolderDialog()}
-          className="mx-2 mb-1.5 rounded-lg border border-dashed border-[oklch(0.26_0.012_210)] bg-[oklch(0.115_0.004_245)] px-3 py-2.5 text-left transition-colors hover:border-[oklch(0.34_0.025_195)] hover:bg-[oklch(0.135_0.006_220)]"
+          className="xolotl-sidebar-empty-action"
         >
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-[oklch(0.74_0.030_195)]">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-[oklch(0.76_0.034_195)]">
             <FolderPlus className="h-3.5 w-3.5" />
             Open a folder
           </div>
-          <p className="mt-1 text-[10px] leading-relaxed text-[oklch(0.50_0.010_225)]">
-            Pick a working directory to chat about. It's saved here for quick access.
-          </p>
         </button>
       ) : (
-        <ul className="flex flex-col gap-0.5 px-1.5 pb-1">
+        <ul className="flex flex-col gap-0.5 px-1 pb-1">
           {projects.map((project) => {
             const isActive = project.path === activePath;
             return (
@@ -64,12 +64,10 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     }
                   }}
                   title={macPathLabel(project.path)}
+                  aria-label={`Open project ${project.name}`}
                   className={[
-                    "group relative flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.55_0.04_195)]",
-                    isActive
-                      ? "bg-[oklch(0.16_0.012_195)] shadow-[inset_0_0_0_1px_oklch(0.40_0.025_195)]"
-                      : "hover:bg-[oklch(0.155_0.004_240)]",
+                    "xolotl-project-row",
+                    isActive ? "xolotl-project-row-active" : "",
                   ].join(" ")}
                 >
                   <Folder
@@ -87,7 +85,7 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     >
                       {project.name}
                     </p>
-                    <p className="truncate text-[10px] leading-tight text-[oklch(0.46_0.010_225)]">
+                    <p className="truncate text-[10px] leading-tight text-[oklch(0.48_0.010_225)]">
                       {macPathLabel(project.path)}
                     </p>
                   </div>
@@ -99,7 +97,7 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     }}
                     title="Reveal in Finder"
                     aria-label={`Reveal ${project.name} in Finder`}
-                    className="grid h-5 w-5 flex-none place-items-center rounded text-[oklch(0.40_0_0)] opacity-0 transition-opacity hover:text-[oklch(0.72_0.045_195)] group-hover:opacity-100 focus-visible:opacity-100"
+                    className="xolotl-row-action-button"
                   >
                     <ExternalLink className="h-3 w-3" />
                   </button>
@@ -111,7 +109,7 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     }}
                     title="Copy POSIX path"
                     aria-label={`Copy POSIX path for ${project.name}`}
-                    className="grid h-5 w-5 flex-none place-items-center rounded text-[oklch(0.40_0_0)] opacity-0 transition-opacity hover:text-[oklch(0.72_0.045_195)] group-hover:opacity-100 focus-visible:opacity-100"
+                    className="xolotl-row-action-button"
                   >
                     <Copy className="h-3 w-3" />
                   </button>
@@ -123,7 +121,7 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     }}
                     title="Remove from quick access"
                     aria-label={`Remove ${project.name} from quick access`}
-                    className="grid h-5 w-5 flex-none place-items-center rounded text-[oklch(0.40_0_0)] opacity-0 transition-opacity hover:text-[oklch(0.62_0.18_25)] group-hover:opacity-100"
+                    className="xolotl-row-action-button xolotl-row-action-button-danger"
                   >
                     <X className="h-3 w-3" />
                   </button>
