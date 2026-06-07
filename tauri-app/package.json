@@ -15,6 +15,7 @@
     "build:mac:universal:dmg": "npm run build:mac:universal && MAC_DMG_ARCH=universal npm run package:mac:dmg",
     "package:mac:dmg": "node scripts/package-mac-dmg.mjs",
     "smoke:mac:launch-path": "node scripts/smoke-mac-launch-path.mjs",
+    "smoke:mac:open-project": "node scripts/smoke-mac-open-project.mjs",
     "open:mac": "open 'src-tauri/target/release/bundle/macos/Xolotl Code.app'",
     "civ:codex-play": "node scripts/codex-play-civ.mjs",
     "civ:watch-demo": "node scripts/codex-play-civ.mjs --in-app-pilot --goal task-loop --steps 80 --headed --slow-mo 20 --sample-ms 900 --screenshot-dir output/web-game/civ-watch-demo --screenshot-every 8 --stop-after-completions 5 --fail-on-critical-oxygen --max-no-progress 18 --keep-open 30"
