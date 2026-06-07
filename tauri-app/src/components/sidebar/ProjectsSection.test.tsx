@@ -1,14 +1,16 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectsSection } from "./ProjectsSection";
-import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, openPathInExternalTerminal, revealPathInFinder } from "../../lib/pathActions";
+import { copyProjectContextHandoff, copyTextToClipboard, copyXolotlCodeOpenShellCommand, copyXolotlCodeOpenUrl, openPathInExternalEditor, openPathInExternalTerminal, revealPathInFinder } from "../../lib/pathActions";
 import { useProjectStore } from "../../stores/projectStore";
 
 vi.mock("../../lib/pathActions", async () => {
   const actual = await vi.importActual<typeof import("../../lib/pathActions")>("../../lib/pathActions");
   return {
     ...actual,
+    copyProjectContextHandoff: vi.fn(() => Promise.resolve()),
     copyTextToClipboard: vi.fn(() => Promise.resolve()),
+    copyXolotlCodeOpenShellCommand: vi.fn(() => Promise.resolve()),
     copyXolotlCodeOpenUrl: vi.fn(() => Promise.resolve()),
     openPathInExternalEditor: vi.fn(() => Promise.resolve()),
     openPathInExternalTerminal: vi.fn(() => Promise.resolve()),
@@ -51,6 +53,17 @@ describe("ProjectsSection", () => {
 
     fireEvent.click(screen.getByLabelText("Copy Xolotl link for Xolotl"));
     expect(copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    expect(onOpenProject).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByLabelText("Copy shell open command for Xolotl"));
+    expect(copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    expect(onOpenProject).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByLabelText("Copy context prompt for Xolotl"));
+    expect(copyProjectContextHandoff).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl",
+      "Xolotl",
+    );
     expect(onOpenProject).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByLabelText("Open Xolotl in external editor"));

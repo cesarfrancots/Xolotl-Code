@@ -27,9 +27,10 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - The macOS bundle registers Finder/Open With document types for project folders plus common source/text documents.
 - The macOS bundle registers `xolotl-code://open?path=...` project links for Shortcuts, Raycast, Alfred, and shell automation.
 - Project rows and the command palette can copy `xolotl-code://open?path=...` links for saved projects, current folders, and visible file-browser entries.
-- The command palette can copy Terminal-safe `open 'xolotl-code://...'` commands for active projects, current folders, and visible file-browser entries.
-- The command palette can copy prompt-ready context blocks with POSIX paths, relative paths where useful, and `xolotl-code://` links for active projects, current folders, and visible file-browser entries.
-- Saved project rows and file browser entries can reveal their target in Finder.
+- Project rows and the command palette can copy Terminal-safe `open 'xolotl-code://...'` commands for saved/active projects, current folders, and visible file-browser entries.
+- Project rows and the command palette can copy prompt-ready context blocks with POSIX paths, relative paths where useful, and `xolotl-code://` links for saved/active projects, current folders, and visible file-browser entries.
+- Saved project rows can reveal their target in Finder and copy Mac automation handoffs directly from the sidebar.
+- File browser entries can reveal their target in Finder.
 - File browser entries can copy POSIX paths and project-relative paths.
 - File browser browse failures show macOS-specific recovery for missing folders and privacy-denied folder access.
 - File browser entries can preview files with macOS Quick Look from row actions and the command palette.
@@ -377,6 +378,7 @@ Deliverables:
 - Make project and file handoff frictionless:
   - Continue expanding `xolotl-code://open?path=...` links where they naturally fit.
   - Add command-palette actions to copy prompt-ready context links for active projects, current folders, and visible entries. Done for path + `xolotl-code://` link context blocks with relative paths where useful.
+  - Keep saved-project sidebar rows useful for direct Mac automation handoff. Done for POSIX path, `xolotl-code://` link, shell open command, and prompt-ready context prompt copying.
   - Add documentation or in-app affordances for using links from Shortcuts, Raycast, Alfred, and shell scripts without adding noisy onboarding text to the main UI. Done for command-palette shell-open command copying.
   - Keep native-menu access for active project handoffs. Done for File > Active Project, including embedded-terminal, POSIX path, and prompt-ready context blocks.
 - Improve Finder-originated workflows:

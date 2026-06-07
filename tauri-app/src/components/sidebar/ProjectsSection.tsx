@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Code2, Copy, ExternalLink, Folder, FolderPlus, Link2, X } from "lucide-react";
+import { ClipboardList, Code2, Copy, ExternalLink, Folder, FolderPlus, Link2, TerminalSquare, X } from "lucide-react";
 import { useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
 import { macFileAccessRecovery } from "../../lib/macFileRecovery";
-import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, openPathInExternalTerminal, revealPathInFinder } from "../../lib/pathActions";
+import { copyProjectContextHandoff, copyTextToClipboard, copyXolotlCodeOpenShellCommand, copyXolotlCodeOpenUrl, openPathInExternalEditor, openPathInExternalTerminal, revealPathInFinder } from "../../lib/pathActions";
 import {
   SidebarHandoffStatus,
   sidebarHandoffRecoveryHint,
@@ -188,6 +188,42 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     className="xolotl-row-action-button"
                   >
                     <Link2 className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void runHandoff(
+                        `Copy shell open command for ${project.name}`,
+                        () => copyXolotlCodeOpenShellCommand(project.path),
+                        `Shell open command copied for ${project.name}.`,
+                        "clipboard",
+                        "path",
+                      );
+                    }}
+                    title="Copy shell open command"
+                    aria-label={`Copy shell open command for ${project.name}`}
+                    className="xolotl-row-action-button"
+                  >
+                    <TerminalSquare className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void runHandoff(
+                        `Copy context prompt for ${project.name}`,
+                        () => copyProjectContextHandoff(project.path, project.name),
+                        `Context prompt copied for ${project.name}.`,
+                        "clipboard",
+                        "path",
+                      );
+                    }}
+                    title="Copy context prompt"
+                    aria-label={`Copy context prompt for ${project.name}`}
+                    className="xolotl-row-action-button"
+                  >
+                    <ClipboardList className="h-3 w-3" />
                   </button>
                   <button
                     type="button"
