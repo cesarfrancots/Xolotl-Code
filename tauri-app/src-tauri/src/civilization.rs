@@ -594,6 +594,21 @@ pub struct CivDecisionAction {
     pub policy: Option<String>,
     #[serde(default)]
     pub event_id: Option<String>,
+    /// Target civ id (attack/diplomacy/trade) or target region id (claim).
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Diplomacy stance for diplomacy/set_stance: "ally|trade|neutral|hostile".
+    #[serde(default)]
+    pub stance: Option<String>,
+    /// trade: the resource wanted in return (the give-resource reuses `resource`).
+    #[serde(default)]
+    pub receive: Option<String>,
+    /// trade: amount of `resource` to give.
+    #[serde(default)]
+    pub amount: Option<u32>,
+    /// trade: amount of `receive` to get back.
+    #[serde(default)]
+    pub receive_amount: Option<u32>,
 }
 
 /// Resolve a `CivSessionConfig` into a validated, colour-assigned participant
@@ -2024,6 +2039,7 @@ fn build_observation(snapshot: &CivSessionSnapshot, civ_id: &str) -> serde_json:
             "resource_tiles": resource_tiles,
             "biome_regions": snapshot.world.regions.iter()
                 .map(|region| serde_json::json!({
+                    "id": region.id,
                     "name": region.name,
                     "biome": region.biome,
                     "x": region.x,
@@ -2061,6 +2077,10 @@ fn build_decision_prompt(observation: &serde_json::Value) -> String {
          - explore: direction left, right, or down\n\
          - policy: policy one of ration, share_equally, protect_vulnerable, conserve_water, push_growth\n\
          - prepare: event_id matching an active or expected crisis\n\
+         - claim: target = an unclaimed region id (see visible_world.biome_regions[].id) adjacent to your territory; omit target to auto-expand to an adjacent unclaimed region\n\
+         - attack: target = a rival civ id (refused if that civ is your ally); plunders resources and can seize a region on a decisive win\n\
+         - diplomacy: target = a rival civ id, stance one of ally, trade, neutral, hostile\n\
+         - trade: target = a rival civ id, resource + amount to give, receive + receive_amount to get (blocked if either side is hostile)\n\
          Use at most 3 actions.\n\n\
          OBSERVATION JSON:\n{}",
         serde_json::to_string_pretty(observation).unwrap_or_else(|_| "{}".to_string())
@@ -2172,6 +2192,55 @@ fn validate_action(action: &CivDecisionAction) -> Result<(), String> {
                 .is_empty()
             {
                 return Err("prepare.event_id is required".to_string());
+            }
+        }
+        "claim" => {
+            // target optional: present = a specific region id; absent = deterministic
+            // adjacent expansion. Nothing required to validate here.
+        }
+        "attack" | "raid" => {
+            // The attack RESOLUTION lands in 04-02; validating the target field now
+            // gates it harmlessly so the queue+combat pass only adds resolution.
+            if action
+                .target
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                return Err("attack.target (rival civ id) is required".to_string());
+            }
+        }
+        "diplomacy" | "set_stance" => {
+            let stance = action
+                .stance
+                .as_deref()
+                .ok_or("diplomacy.stance is required")?;
+            if !matches!(stance, "ally" | "trade" | "neutral" | "hostile") {
+                return Err(format!("unknown stance: {stance}"));
+            }
+            if action
+                .target
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                return Err("diplomacy.target (rival civ id) is required".to_string());
+            }
+        }
+        "trade" => {
+            if action
+                .target
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                return Err("trade.target (rival civ id) is required".to_string());
+            }
+            if action.resource.is_none() || action.receive.is_none() {
+                return Err("trade requires resource (to give) and receive (to get)".to_string());
             }
         }
         other => return Err(format!("unknown action type: {other}")),
@@ -5052,7 +5121,12 @@ fn disaster_kinds_for(season: &str, temperature: f32) -> &'static [&'static str]
 /// decrements it each turn, and resets it to the active duration when it fires.
 /// id/kind/epicenter/radius/intensity all derive from `(seed, turn)` so the whole
 /// roll is replayable — no uuid, no wall-clock (threat T-03-04).
-fn roll_forecast(seed: u32, turn: u32, env: &CivEnvironment, world_width: u32) -> Option<CivDisaster> {
+fn roll_forecast(
+    seed: u32,
+    turn: u32,
+    env: &CivEnvironment,
+    world_width: u32,
+) -> Option<CivDisaster> {
     let mut rng = (seed ^ turn.wrapping_mul(0x9E37_79B9) ^ ENV_FORECAST_SALT).max(1);
     // Base chance, modestly higher in the harsh seasons (CONTEXT weighting).
     let p = rand_f(&mut rng);
@@ -5112,15 +5186,20 @@ fn apply_disaster_to_tiles(tiles: &mut [CivTile], dis: &CivDisaster, width: u32)
             .unwrap_or(WORLD_HEIGHT - 2);
         // How deep to reshape this column — bounded, never the whole column.
         let depth = match dis.kind.as_str() {
-            "flood" => 2,  // raise water over the top 1-2 sub-surface rows
-            _ => 1,        // quake/landslide carve a single sub-surface void
+            "flood" => 2, // raise water over the top 1-2 sub-surface rows
+            _ => 1,       // quake/landslide carve a single sub-surface void
         };
         // Only convert BELOW surface+1 (Pitfall 2: keep the surface solid/buildable).
         let start = (surface + 2).max(WATER_SURFACE_Y);
         for ty in start..start.saturating_add(depth).min(WORLD_HEIGHT) {
             if let Some(t) = tiles.iter_mut().find(|t| t.x == x && t.y == ty) {
                 if is_substrate(&t.terrain) && ty > surface + 1 && ty >= WATER_SURFACE_Y {
-                    t.terrain = if ty >= DEEP_WATER_Y { "deepwater" } else { "water" }.to_string();
+                    t.terrain = if ty >= DEEP_WATER_Y {
+                        "deepwater"
+                    } else {
+                        "water"
+                    }
+                    .to_string();
                     t.resource = None;
                     t.amount = 0;
                 }
@@ -5272,7 +5351,9 @@ fn tick_environment(snapshot: &mut CivSessionSnapshot) {
                 snapshot,
                 "forecast",
                 &format!("A {kind} is forecast"),
-                &format!("Signs point to a {kind} in roughly {lead} turn(s); civilizations may prepare."),
+                &format!(
+                    "Signs point to a {kind} in roughly {lead} turn(s); civilizations may prepare."
+                ),
             );
         }
     }
@@ -5288,13 +5369,7 @@ mod tests {
 
     /// Single-civ snapshot helper preserving the pre-multi-civ ergonomics for
     /// the existing tests (one model => one founding civ).
-    fn test_snapshot(
-        id: &str,
-        name: &str,
-        model: &str,
-        seed: u32,
-        now: u64,
-    ) -> CivSessionSnapshot {
+    fn test_snapshot(id: &str, name: &str, model: &str, seed: u32, now: u64) -> CivSessionSnapshot {
         initial_snapshot(
             id.to_string(),
             name.to_string(),
@@ -5438,7 +5513,10 @@ mod tests {
     fn regrow_zero_when_too_cold() {
         let mut tiles = vec![renewable_tile("moss", 5)];
         regrow_resources(&mut tiles, "summer", 1.0);
-        assert_eq!(tiles[0].amount, 5, "below temperature threshold → unchanged");
+        assert_eq!(
+            tiles[0].amount, 5,
+            "below temperature threshold → unchanged"
+        );
     }
 
     #[test]
@@ -6112,7 +6190,13 @@ mod tests {
         assert_eq!(participants.len(), 1);
         assert_eq!(participants[0].model, "kimi");
 
-        let snapshot = initial_snapshot("legacy-one".to_string(), "W".to_string(), &participants, 7, 1);
+        let snapshot = initial_snapshot(
+            "legacy-one".to_string(),
+            "W".to_string(),
+            &participants,
+            7,
+            1,
+        );
         assert_eq!(snapshot.civs.len(), 1);
         assert_eq!(snapshot.civs[0].model, "kimi");
         // Auto colour from the palette head.
@@ -6129,7 +6213,8 @@ mod tests {
         assert_eq!(participants[0].color.as_deref(), Some(CIV_COLORS[0]));
         assert_eq!(participants[1].color.as_deref(), Some("#ff0000"));
 
-        let snapshot = initial_snapshot("multi-2".to_string(), "W".to_string(), &participants, 7, 1);
+        let snapshot =
+            initial_snapshot("multi-2".to_string(), "W".to_string(), &participants, 7, 1);
         assert_eq!(snapshot.civs.len(), 2);
         assert_eq!(snapshot.civs[0].color, CIV_COLORS[0]);
         assert_eq!(snapshot.civs[1].color, "#ff0000");
@@ -6155,10 +6240,26 @@ mod tests {
             name: "W".to_string(),
             seed: Some(7),
             civs: vec![
-                CivParticipant { name: "A".to_string(), model: "m".to_string(), color: None },
-                CivParticipant { name: "B".to_string(), model: "m".to_string(), color: None },
-                CivParticipant { name: "C".to_string(), model: "m".to_string(), color: None },
-                CivParticipant { name: "D".to_string(), model: "m".to_string(), color: None },
+                CivParticipant {
+                    name: "A".to_string(),
+                    model: "m".to_string(),
+                    color: None,
+                },
+                CivParticipant {
+                    name: "B".to_string(),
+                    model: "m".to_string(),
+                    color: None,
+                },
+                CivParticipant {
+                    name: "C".to_string(),
+                    model: "m".to_string(),
+                    color: None,
+                },
+                CivParticipant {
+                    name: "D".to_string(),
+                    model: "m".to_string(),
+                    color: None,
+                },
             ],
             model: None,
         };
@@ -6212,7 +6313,10 @@ mod tests {
         let entry = s.log.last().unwrap();
         assert_eq!(entry.kind, "ai_decision");
         assert_eq!(entry.civ_id.as_deref(), Some(cid.as_str()));
-        assert_eq!(entry.reasoning.as_deref(), Some("internal chain of thought"));
+        assert_eq!(
+            entry.reasoning.as_deref(),
+            Some("internal chain of thought")
+        );
     }
 
     #[test]
@@ -6264,6 +6368,11 @@ mod tests {
             direction: None,
             policy: None,
             event_id: None,
+            target: None,
+            stance: None,
+            receive: None,
+            amount: None,
+            receive_amount: None,
         }
     }
 
@@ -6656,7 +6765,12 @@ mod tests {
     #[test]
     fn roll_forecast_clamps_bounds() {
         // Whatever the season, a Some forecast stays inside the world/param bounds.
-        for (season, temp) in [("winter", 4.0), ("summer", 24.0), ("spring", 14.0), ("autumn", 14.0)] {
+        for (season, temp) in [
+            ("winter", 4.0),
+            ("summer", 24.0),
+            ("spring", 14.0),
+            ("autumn", 14.0),
+        ] {
             let env = env_for(season, temp);
             for turn in 0..256u32 {
                 if let Some(dis) = roll_forecast(4242, turn, &env, WORLD_WIDTH) {
@@ -6665,7 +6779,11 @@ mod tests {
                         "epicenter_x {} out of [1, width-2]",
                         dis.epicenter_x
                     );
-                    assert!((1..=8).contains(&dis.radius), "radius {} out of [1, 8]", dis.radius);
+                    assert!(
+                        (1..=8).contains(&dis.radius),
+                        "radius {} out of [1, 8]",
+                        dis.radius
+                    );
                     assert!(
                         (0.1..=3.0).contains(&dis.intensity),
                         "intensity {} out of [0.1, 3.0]",
@@ -6709,16 +6827,28 @@ mod tests {
     fn disaster_kinds_are_season_weighted() {
         // Winter eligibility includes a cold kind; hot summer includes a heat kind.
         let winter = disaster_kinds_for("winter", 4.0);
-        assert!(winter.contains(&"cold_snap"), "winter must allow a cold disaster");
+        assert!(
+            winter.contains(&"cold_snap"),
+            "winter must allow a cold disaster"
+        );
         let summer = disaster_kinds_for("summer", 24.0);
-        assert!(summer.contains(&"drought"), "hot summer must allow a heat disaster");
+        assert!(
+            summer.contains(&"drought"),
+            "hot summer must allow a heat disaster"
+        );
         // Below the heat threshold, summer drops the drought.
         let cool_summer = disaster_kinds_for("summer", 18.0);
-        assert!(!cool_summer.contains(&"drought"), "cool summer must not roll drought");
+        assert!(
+            !cool_summer.contains(&"drought"),
+            "cool summer must not roll drought"
+        );
         // LW-01: autumn allows landslide so the apply_disaster_to_tiles landslide
         // reshape arm is reachable through the normal tick path (not dead code).
         let autumn = disaster_kinds_for("autumn", 14.0);
-        assert!(autumn.contains(&"landslide"), "autumn must allow landslide (reshape variety)");
+        assert!(
+            autumn.contains(&"landslide"),
+            "autumn must allow landslide (reshape variety)"
+        );
     }
 
     // --- ENV-02: apply_disaster_to_tiles bounded reshape + invariants (03-02 Task 2) ---
@@ -6746,7 +6876,11 @@ mod tests {
             before,
             "apply_disaster mutates in place — tile count is invariant"
         );
-        assert_eq!(before, (width * WORLD_HEIGHT) as usize, "world stays width*height");
+        assert_eq!(
+            before,
+            (width * WORLD_HEIGHT) as usize,
+            "world stays width*height"
+        );
     }
 
     #[test]
@@ -6764,15 +6898,20 @@ mod tests {
             .collect();
         let dis = flood_at(cx, 3);
         apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
-        let changed = snapshot
-            .world
-            .tiles
-            .iter()
-            .zip(before.iter())
-            .any(|(t, (_, _, terrain_before))| {
-                &t.terrain != terrain_before && matches!(t.terrain.as_str(), "water" | "deepwater")
-            });
-        assert!(changed, "flood must convert at least one sub-surface substrate tile to water");
+        let changed =
+            snapshot
+                .world
+                .tiles
+                .iter()
+                .zip(before.iter())
+                .any(|(t, (_, _, terrain_before))| {
+                    &t.terrain != terrain_before
+                        && matches!(t.terrain.as_str(), "water" | "deepwater")
+                });
+        assert!(
+            changed,
+            "flood must convert at least one sub-surface substrate tile to water"
+        );
     }
 
     #[test]
@@ -6826,7 +6965,10 @@ mod tests {
             };
             apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
             let after = serde_json::to_string(&snapshot.world.tiles).unwrap();
-            assert_eq!(before, after, "terrain-neutral kind '{kind}' must not reshape tiles");
+            assert_eq!(
+                before, after,
+                "terrain-neutral kind '{kind}' must not reshape tiles"
+            );
         }
     }
 
@@ -6888,7 +7030,11 @@ mod tests {
             before_count,
             "landslide mutates in place — tile count is invariant"
         );
-        assert_eq!(before_count, (width * WORLD_HEIGHT) as usize, "world stays width*height");
+        assert_eq!(
+            before_count,
+            (width * WORLD_HEIGHT) as usize,
+            "world stays width*height"
+        );
         for t in &land.world.tiles {
             assert!(t.x < width, "x {} escaped width {}", t.x, width);
             assert!(t.y < WORLD_HEIGHT, "y {} escaped WORLD_HEIGHT", t.y);
@@ -6920,7 +7066,10 @@ mod tests {
         snapshot.turn = 1;
         tick_environment(&mut snapshot);
         assert_eq!(snapshot.environment.season, "summer", "season must wrap");
-        assert_eq!(snapshot.environment.turn_of_season, 0, "counter resets on wrap");
+        assert_eq!(
+            snapshot.environment.turn_of_season, 0,
+            "counter resets on wrap"
+        );
         assert_ne!(
             snapshot.environment.temperature, before_temp,
             "temperature must drift"
@@ -6940,7 +7089,11 @@ mod tests {
         snapshot.turn = 1;
         tick_environment(&mut snapshot);
         assert!(
-            snapshot.environment.disasters.iter().any(|d| d.kind == "flood"),
+            snapshot
+                .environment
+                .disasters
+                .iter()
+                .any(|d| d.kind == "flood"),
             "a due forecast must fire into disasters[]"
         );
         let fired = snapshot
@@ -6961,7 +7114,11 @@ mod tests {
         tick_environment(&mut later);
         // It is NOT in disasters[] yet...
         assert!(
-            !later.environment.disasters.iter().any(|d| d.kind == "flood"),
+            !later
+                .environment
+                .disasters
+                .iter()
+                .any(|d| d.kind == "flood"),
             "a non-due forecast must not fire yet"
         );
         // ...and a forecast (the decremented original or a freshly rolled one) is still pending.
@@ -6994,7 +7151,10 @@ mod tests {
                 break;
             }
         }
-        assert!(saw_forecast_log, "a rolled forecast must be logged with kind 'forecast'");
+        assert!(
+            saw_forecast_log,
+            "a rolled forecast must be logged with kind 'forecast'"
+        );
     }
 
     #[test]
@@ -7015,12 +7175,15 @@ mod tests {
         snapshot.turn = 1;
         tick_environment(&mut snapshot);
         assert!(
-            !snapshot.environment.disasters.iter().any(|d| d.id == "dis-0-storm"),
+            !snapshot
+                .environment
+                .disasters
+                .iter()
+                .any(|d| d.id == "dis-0-storm"),
             "a disaster at remaining_turns 0 must be retired"
         );
         assert!(
-            snapshot.log.len() > log_before
-                && snapshot.log.iter().any(|e| e.kind == "disaster"),
+            snapshot.log.len() > log_before && snapshot.log.iter().any(|e| e.kind == "disaster"),
             "disaster expiry must be logged"
         );
     }
@@ -7198,5 +7361,85 @@ mod tests {
         assert_eq!(loaded.environment.turn_of_season, 0);
         assert!(loaded.environment.disasters.is_empty());
         assert!(loaded.environment.forecast.is_none());
+    }
+
+    // ---- W6 (Phase 4) combat/diplomacy surface: CivDecisionAction + validate_action ----
+
+    #[test]
+    fn new_action_fields_deserialize() {
+        // A diplomacy action JSON carries the new target/stance fields.
+        let raw = r#"{"type":"diplomacy","target":"civ-2","stance":"ally"}"#;
+        let action: CivDecisionAction =
+            serde_json::from_str(raw).expect("diplomacy action must deserialize");
+        assert_eq!(action.action_type, "diplomacy");
+        assert_eq!(action.target.as_deref(), Some("civ-2"));
+        assert_eq!(action.stance.as_deref(), Some("ally"));
+        // A trade action carries give/receive resources + amounts.
+        let raw = r#"{"type":"trade","target":"civ-2","resource":"food","amount":10,"receive":"stone","receive_amount":5}"#;
+        let trade: CivDecisionAction =
+            serde_json::from_str(raw).expect("trade action must deserialize");
+        assert_eq!(trade.receive.as_deref(), Some("stone"));
+        assert_eq!(trade.amount, Some(10));
+        assert_eq!(trade.receive_amount, Some(5));
+    }
+
+    #[test]
+    fn old_action_json_still_deserializes() {
+        // Pre-Phase-4 action JSON (no target/stance/receive/amount/receive_amount)
+        // must still load; serde defaults fill the new fields with None.
+        let raw = r#"{"type":"gather","resource":"food","workers":2}"#;
+        let action: CivDecisionAction =
+            serde_json::from_str(raw).expect("old action JSON must still deserialize");
+        assert_eq!(action.action_type, "gather");
+        assert_eq!(action.workers, Some(2));
+        assert!(action.target.is_none());
+        assert!(action.stance.is_none());
+        assert!(action.receive.is_none());
+        assert!(action.amount.is_none());
+        assert!(action.receive_amount.is_none());
+    }
+
+    fn action_json(raw: &str) -> CivDecisionAction {
+        serde_json::from_str(raw).expect("valid action JSON")
+    }
+
+    #[test]
+    fn validate_action_accepts_new_actions() {
+        // claim with no target (deterministic adjacent expansion) is valid.
+        assert!(validate_action(&action_json(r#"{"type":"claim"}"#)).is_ok());
+        // claim with an explicit region target is valid.
+        assert!(validate_action(&action_json(r#"{"type":"claim","target":"region-3"}"#)).is_ok());
+        assert!(validate_action(&action_json(
+            r#"{"type":"diplomacy","target":"civ-2","stance":"ally"}"#
+        ))
+        .is_ok());
+        assert!(validate_action(&action_json(
+            r#"{"type":"trade","target":"civ-2","resource":"food","receive":"stone"}"#
+        ))
+        .is_ok());
+        assert!(validate_action(&action_json(r#"{"type":"attack","target":"civ-2"}"#)).is_ok());
+    }
+
+    #[test]
+    fn validate_action_rejects_malformed_new_actions() {
+        // Unknown stance.
+        assert!(validate_action(&action_json(
+            r#"{"type":"diplomacy","target":"civ-2","stance":"foo"}"#
+        ))
+        .is_err());
+        // Missing target on diplomacy.
+        assert!(validate_action(&action_json(r#"{"type":"diplomacy","stance":"ally"}"#)).is_err());
+        // Empty target on attack.
+        assert!(validate_action(&action_json(r#"{"type":"attack"}"#)).is_err());
+        // Trade missing the give/receive resources.
+        assert!(validate_action(&action_json(r#"{"type":"trade","target":"civ-2"}"#)).is_err());
+    }
+
+    #[test]
+    fn validate_action_still_rejects_unknown_types() {
+        // ARENA-02: the catch-all keeps rejecting unknown action types so existing
+        // gather/build/etc. are unaffected.
+        let err = validate_action(&action_json(r#"{"type":"teleport"}"#)).unwrap_err();
+        assert_eq!(err, "unknown action type: teleport");
     }
 }
