@@ -4964,6 +4964,52 @@ mod tests {
     }
 
     #[test]
+    fn advance_season_is_deterministic() {
+        // Same (season, turn_of_season, temperature, water_level, turn, seed) ⇒ identical tuple.
+        let a = advance_season("spring", 7, 14.0, 0, 5, 1234);
+        let b = advance_season("spring", 7, 14.0, 0, 5, 1234);
+        assert_eq!(a, b, "pure helper must be deterministic for replay");
+    }
+
+    #[test]
+    fn advance_season_wraps_on_season_len() {
+        // turn_of_season 7 + 1 == SEASON_LEN (8) → wrap to the next season, counter reset to 0.
+        let (season, tos, _, _) = advance_season("spring", 7, 14.0, 0, 5, 1234);
+        assert_eq!(season, "summer");
+        assert_eq!(tos, 0);
+        // Mid-season (no wrap): counter just increments.
+        let (season, tos, _, _) = advance_season("spring", 0, 14.0, 0, 5, 1234);
+        assert_eq!(season, "spring");
+        assert_eq!(tos, 1);
+    }
+
+    #[test]
+    fn advance_season_cycle_order() {
+        // Walk four wraps and confirm spring→summer→autumn→winter→spring.
+        let order = ["summer", "autumn", "winter", "spring"];
+        let mut season = "spring".to_string();
+        for expected in order {
+            let (next, tos, _, _) = advance_season(&season, 7, 14.0, 0, 5, 1234);
+            assert_eq!(next, expected, "season cycle must advance in order");
+            assert_eq!(tos, 0, "counter resets on wrap");
+            season = next;
+        }
+        assert_eq!(season, "spring", "cycle returns to spring after four wraps");
+    }
+
+    #[test]
+    fn advance_season_temp_is_round1_stable_and_water_bounded() {
+        let (_, _, temp, water) = advance_season("spring", 3, 14.0, 0, 5, 1234);
+        // Temperature passes through round1 → byte-stable saved float.
+        assert_eq!(temp, (temp * 10.0).round() / 10.0);
+        // water_level stays within [-6, 6] even after a delta.
+        assert!((-6..=6).contains(&water));
+        // Extreme starting water clamps.
+        let (_, _, _, water_hi) = advance_season("winter", 7, 4.0, 6, 9, 99);
+        assert!((-6..=6).contains(&water_hi));
+    }
+
+    #[test]
     fn world_scales_and_spawns_are_disjoint_per_civ() {
         let n = 3u32;
         let a = generate_world(4242, n);
