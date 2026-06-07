@@ -129,10 +129,11 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Axolotls carry expanded genetics (new traits + pattern alleles) that cross Mendelian-style across breeding and are visibly distinguishable (color morph × pattern × civ palette).
   2. Environmental pressure (ice age, plague) raises mortality for ill-adapted genes, so a population's gene distribution measurably shifts over a run.
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: TBD
+- [ ] 05-01-PLAN.md - Expanded CivGenes (pattern alleles + strength/cold_resistance/disease_resistance) + pattern_rank/expressed_pattern + Mendelian cross_genes/random/default + visible entity pattern + text-state line + headless bindings regen + civ_strength seam (GEN-01)
+- [ ] 05-02-PLAN.md - gene_mortality_modifier + bounded selection death roll in run_life_cycle + first-class plague disaster + survivor floor + measurable multi-turn cold-resistance selection test (GEN-02)
 
 > **Implementation notes:** Extend `CivGenes` (all `#[serde(default)]` so old eggs deserialize): `speed`, `cold_tolerance`, `disease_resistance`, `forage_yield`, `strength`, `pattern_a`/`pattern_b`. Update `random_genes`/`cross_genes`/`default_genes`; `expressed_pattern` mirrors `expressed_morph`; selection pressure in `run_life_cycle`; disasters temporarily raise mutation rate. Backend tests can't run on Windows — verify via `cargo check` + `cargo clippy` + `cargo test --no-run` (spec names `genetics_cross_is_deterministic_and_valid`, `selection_pressure_under_ice_age_favors_cold_tolerance`).
 
