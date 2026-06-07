@@ -4981,6 +4981,41 @@ fn advance_season(
     )
 }
 
+/// Renewable resources are the complement of `is_finite_mineral` — reuse the
+/// single classifier rather than re-listing resources (so the two never drift).
+/// Coral is FINITE here (it is mined/depleted like a block), per the code's
+/// `is_finite_mineral`, despite CONTEXT prose listing it as an organic example.
+#[allow(dead_code)]
+fn is_renewable(resource: &str) -> bool {
+    !is_finite_mineral(resource)
+}
+
+/// Pure: renewable resource tiles tick their `amount` back toward a cap, at a
+/// rate scaled by season/temperature (zero in winter or when too cold). Finite
+/// minerals are NEVER regrown (ENV-03 sustained scarcity). Mutates in place —
+/// the tile count is invariant (threat T-03-02). A partially-mined finite tile
+/// still carries `resource: Some("ore")` and stays finite, so it is skipped;
+/// a fully-mined finite tile already has `resource: None` and is skipped too.
+#[allow(dead_code)]
+fn regrow_resources(tiles: &mut [CivTile], season: &str, temperature: f32) {
+    let rate = match season {
+        "spring" | "summer" => 2,
+        "autumn" => 1,
+        _ => 0, // winter: no regrowth
+    };
+    if rate == 0 || temperature < 2.0 {
+        return;
+    }
+    const REGROW_CAP: i32 = 18; // grounded in world-gen patch amounts (6..18)
+    for tile in tiles.iter_mut() {
+        if let Some(res) = tile.resource.as_deref() {
+            if is_renewable(res) && tile.amount < REGROW_CAP {
+                tile.amount = (tile.amount + rate).min(REGROW_CAP);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
