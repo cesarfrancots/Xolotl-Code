@@ -12,6 +12,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Embedded terminal opens reliably and focuses when the dock becomes visible.
 - Native macOS menu and Cmd shortcuts are wired and smoke-tested.
 - File > New Chat, workbench tab shortcuts, command palette, and terminal toggle route through the native menu bridge.
+- Workbench > Latest Agent Output can open the most relevant agent output even when the optional menu bar status item is disabled.
 - File > Active Project exposes native-menu Finder, editor, external terminal, embedded terminal, POSIX path, `xolotl-code://` link, shell open-command, and context-prompt handoffs.
 - Workbench toolbar uses a quieter macOS utility style with a focused segmented control and explicit active states.
 - Main window uses macOS overlay titlebar chrome with hidden title text, explicit traffic-light positioning, custom drag regions, and safe spacing when the left rail is collapsed.
@@ -165,7 +166,7 @@ Deliverables:
   - Scope terminal tab shortcuts to terminal-open contexts where needed.
 - Menu parity:
   - Keep native menu IDs, frontend action names, and command palette actions in sync. Done for the first shared Mac command model pass.
-  - Add tests for any new command normalization. Done for shared command actions, global keydown routing, and terminal-scoped shortcut routing.
+  - Add tests for any new command normalization. Done for shared command actions, global keydown routing, terminal-scoped shortcut routing, and latest-agent native menu routing.
 
 Acceptance:
 
@@ -462,7 +463,7 @@ Deliverables:
 
 - Improve the optional menu bar status item:
   - Show active project and running agent/eval summary. Done for active project, running/waiting/done/failed/idle agent counts, and active eval model counts.
-  - Add quick commands only when they are stable and already route through native command actions. Done for latest-agent output and active-eval workspace handoffs.
+  - Add quick commands only when they are stable and already route through native command actions. Done for latest-agent output and active-eval workspace handoffs; latest-agent routing is also available from the native Workbench menu.
   - Active-project Finder/editor/terminal/copy/context handoff actions are available from the status item when a project is active.
   - Avoid turning the status menu into a second full app navigation tree.
 - Improve global hotkey behavior:

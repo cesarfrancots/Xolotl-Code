@@ -332,7 +332,7 @@ describe("App tab navigation", () => {
     expect(screen.getByText(/clipboard denied/)).toBeTruthy();
   });
 
-  it("opens the most relevant agent output from the menu bar status item", async () => {
+  it("opens the most relevant agent output from native menu actions", async () => {
     agentStoreMocks.state.agents = [
       { id: "agent-done", state: "Done" },
       { id: "agent-waiting", state: "Waiting" },
@@ -340,7 +340,7 @@ describe("App tab navigation", () => {
     ];
     render(<App />);
 
-    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "status-open-latest-agent" }));
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "open-latest-agent" }));
 
     await waitFor(() => {
       expect(agentStoreMocks.state.setExpandedAgent).toHaveBeenCalledWith("agent-executing");
@@ -350,10 +350,10 @@ describe("App tab navigation", () => {
     expect(await screen.findByText("Agent output")).toBeTruthy();
   });
 
-  it("shows recovery when the menu bar status item has no agent output", async () => {
+  it("shows recovery when native menu agent output actions have no agent output", async () => {
     render(<App />);
 
-    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "status-open-latest-agent" }));
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "open-latest-agent" }));
 
     expect(await screen.findByText("No agent output is available.")).toBeTruthy();
     expect(screen.getByText("Start an agent run before using menu bar agent actions.")).toBeTruthy();

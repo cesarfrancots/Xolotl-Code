@@ -253,7 +253,7 @@ export default function App() {
       );
       return;
     }
-    if (action === "status-open-latest-agent") {
+    if (action === "open-latest-agent") {
       openLatestAgentOutput();
       return;
     }

@@ -72,6 +72,7 @@ const STATUS_OPEN_ACTIVE_PROJECT_TERMINAL: &str = "xolotl:status-open-active-pro
 const STATUS_OPEN_LATEST_AGENT: &str = "xolotl:status-open-latest-agent";
 const STATUS_COPY_ACTIVE_PROJECT_LINK: &str = "xolotl:status-copy-active-project-link";
 const STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN: &str = "xolotl:status-copy-active-project-shell-open";
+const MENU_OPEN_LATEST_AGENT: &str = "xolotl:open-latest-agent";
 const MENU_NEW_ACTIVE_PROJECT_TERMINAL_TAB: &str = "xolotl:new-active-project-terminal-tab";
 const MENU_COPY_ACTIVE_PROJECT_PATH: &str = "xolotl:copy-active-project-path";
 const MENU_COPY_ACTIVE_PROJECT_CONTEXT: &str = "xolotl:copy-active-project-context";
@@ -906,6 +907,8 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
     let civ_tab = MenuItemBuilder::with_id(MENU_TAB_CIV, "Civ")
         .accelerator("CmdOrCtrl+Digit3")
         .build(app)?;
+    let latest_agent_output =
+        MenuItemBuilder::with_id(MENU_OPEN_LATEST_AGENT, "Latest Agent Output").build(app)?;
 
     let app_menu = SubmenuBuilder::new(app, "Xolotl Code")
         .about(Some(about_metadata))
@@ -951,6 +954,8 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
         .item(&chat_tab)
         .item(&eval_tab)
         .item(&civ_tab)
+        .separator()
+        .item(&latest_agent_output)
         .build()?;
 
     let terminal_menu = SubmenuBuilder::new(app, "Terminal")
@@ -1010,6 +1015,8 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
         Some(STATUS_OPEN_ACTIVE_PROJECT_EDITOR)
     } else if id == STATUS_OPEN_ACTIVE_PROJECT_TERMINAL {
         Some(STATUS_OPEN_ACTIVE_PROJECT_TERMINAL)
+    } else if id == MENU_OPEN_LATEST_AGENT {
+        Some(MENU_OPEN_LATEST_AGENT)
     } else if id == STATUS_OPEN_LATEST_AGENT {
         Some(STATUS_OPEN_LATEST_AGENT)
     } else if id == STATUS_COPY_ACTIVE_PROJECT_LINK {
@@ -1244,6 +1251,10 @@ mod tests {
         assert_eq!(
             menu_action_for_id(&tauri::menu::MenuId::new(STATUS_OPEN_LATEST_AGENT)),
             Some(STATUS_OPEN_LATEST_AGENT)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(MENU_OPEN_LATEST_AGENT)),
+            Some(MENU_OPEN_LATEST_AGENT)
         );
         assert_eq!(
             menu_action_for_id(&tauri::menu::MenuId::new(MENU_TAB_EVAL)),
