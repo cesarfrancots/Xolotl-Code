@@ -312,6 +312,20 @@ describe("CivilizationView window.civCamera bridge (REN-02 / ARENA-02 additive)"
     expect(useCivStore.getState().selectedCivId).toBe("civ-1");
     expect(cam.focusCiv).toHaveBeenCalledWith("civ-1");
   });
+
+  // MED-04 (guard): the Phaser scene installs window.civCamera in create(), which
+  // runs after React commit. Selecting a civ during that startup window (bridge
+  // not yet installed) must be a silent no-op via optional chaining, never a
+  // throw. (The missed-focus retry on scene-ready is deferred — see
+  // deferred-items.md; this only pins "does not crash before install".)
+  it("does not throw when a civ is selected before the camera bridge installs", () => {
+    delete window.civCamera; // bridge not installed yet (scene create() pending)
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+    expect(() => selectCiv("civ-2")).not.toThrow();
+    expect(() => selectCiv(null)).not.toThrow();
+    expect(window.civCamera).toBeUndefined();
+  });
 });
 
 describe("CivilizationView selectedCivId-driven observer + log", () => {
