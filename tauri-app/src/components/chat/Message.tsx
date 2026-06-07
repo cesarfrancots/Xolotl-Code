@@ -1,6 +1,6 @@
+import { lazy, Suspense } from "react";
 import { ChevronRight, Loader2 } from "lucide-react";
 import type { Message, PermissionItem } from "../../stores/chatStore";
-import { MarkdownRenderer } from "./MarkdownRenderer";
 import { PermissionCard } from "./PermissionCard";
 import { ToolBlock } from "./ToolBlock";
 import { useChatStore } from "../../stores/chatStore";
@@ -9,6 +9,23 @@ import { extractThinkBlocks } from "../../lib/reasoning";
 
 interface MessageItemProps {
   item: Message | PermissionItem;
+}
+
+const LazyMarkdownRenderer = lazy(async () => {
+  const module = await import("./MarkdownRenderer");
+  return { default: module.MarkdownRenderer };
+});
+
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <Suspense fallback={<PlainMarkdownFallback content={content} />}>
+      <LazyMarkdownRenderer content={content} />
+    </Suspense>
+  );
+}
+
+function PlainMarkdownFallback({ content }: { content: string }) {
+  return <p className="whitespace-pre-wrap break-words">{content}</p>;
 }
 
 /**
@@ -98,7 +115,7 @@ function AssistantMessage({ message }: { message: Message }) {
         {reasoning && <ReasoningBlock text={reasoning} defaultOpen={false} />}
         {visibleContent && (
           <div className="text-[14.5px] leading-7 text-[oklch(0.92_0.006_220)]">
-            <MarkdownRenderer content={visibleContent} />
+            <MarkdownContent content={visibleContent} />
           </div>
         )}
         {message.toolCalls.length > 0 && (
@@ -148,7 +165,7 @@ export function StreamingMessage({
         {!reasoningText && !hasVisibleContent && <ThinkingStatus />}
         {hasVisibleContent ? (
           <div className="text-[14.5px] leading-7 text-[oklch(0.92_0.006_220)] relative">
-            <MarkdownRenderer content={visibleContent} />
+            <MarkdownContent content={visibleContent} />
             <span
               className="inline-block w-0.5 h-[14px] bg-[oklch(0.66_0.050_190)] animate-pulse ml-0.5 align-text-bottom"
               aria-label="xolotl is typing"
