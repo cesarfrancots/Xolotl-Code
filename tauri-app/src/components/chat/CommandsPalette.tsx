@@ -211,6 +211,20 @@ export function CommandsPalette({
             run: () => { openTerminalAtPath(project.path, project.name); onOpenChange(false); },
           },
           {
+            id: "open-editor",
+            label: `Open recent project ${project.name} in editor`,
+            title: "Open in editor",
+            icon: Code2,
+            run: () => runMacHandoff("Open in editor", () => openPathInExternalEditor(project.path), "editor"),
+          },
+          {
+            id: "open-external-terminal",
+            label: `Open recent project ${project.name} in external terminal`,
+            title: "Open in external terminal",
+            icon: TerminalSquare,
+            run: () => runMacHandoff("Open in external terminal", () => openPathInExternalTerminal(project.path), "terminal"),
+          },
+          {
             id: "copy-posix",
             label: `Copy POSIX path for recent project ${project.name}`,
             title: "Copy POSIX path",

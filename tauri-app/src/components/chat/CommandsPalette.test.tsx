@@ -117,6 +117,8 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Start Chat With Clipboard")).toBeTruthy();
     expect(screen.getByText("Explain Clipboard Snippet")).toBeTruthy();
     expect(screen.getByText("Open Recent: Xolotl")).toBeTruthy();
+    expect(screen.getByLabelText("Open recent project Xolotl in editor")).toBeTruthy();
+    expect(screen.getByLabelText("Open recent project Xolotl in external terminal")).toBeTruthy();
     expect(screen.getByLabelText("Copy context prompt for recent project Xolotl")).toBeTruthy();
   });
 
@@ -196,6 +198,16 @@ describe("CommandsPalette", () => {
       "/Users/cesar/Documents/Xolotl",
       "Xolotl",
     );
+
+    fireEvent.click(screen.getByLabelText("Open recent project Xolotl in editor"));
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+
+    fireEvent.click(screen.getByLabelText("Open recent project Xolotl in external terminal"));
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
 
     fireEvent.click(screen.getByLabelText("Copy POSIX path for recent project Xolotl"));
     await waitFor(() => {

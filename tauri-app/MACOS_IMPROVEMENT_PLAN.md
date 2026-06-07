@@ -17,7 +17,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Main window uses macOS overlay titlebar chrome with hidden title text, explicit traffic-light positioning, custom drag regions, and safe spacing when the left rail is collapsed.
 - Sidebar projects and file browser use compact Mac navigator rows, count badges, consistent utility icon buttons, and tighter Finder-style metadata labels.
 - Shortcut hints use macOS symbols across workbench, terminal, sidebar footer, composer command button, and command palette rows.
-- Command palette includes native-menu actions, active-project Finder/terminal/path/context actions, recent project entries with compact Mac handoffs, and terminal actions with Mac shortcut chips.
+- Command palette includes native-menu actions, active-project Finder/terminal/path/context actions, recent project entries with compact Mac editor/terminal/copy handoffs, and terminal actions with Mac shortcut chips.
 - Command palette includes a File Browser section for current-folder reveal/copy/context/refresh/navigation and visible file/folder row actions.
 - Command palette keeps Mac handoff failures visible with recovery guidance for Finder, editor, Quick Look, and clipboard actions.
 - Mac command routing uses a shared command model for global keydown handling, native-menu action normalization, and command-palette action rows.
@@ -424,10 +424,11 @@ Deliverables:
 - Expand external editor support:
   - Keep the preferred editor setting.
   - Add per-action error recovery when the configured editor is missing.
-  - Consider editor-specific deep links for VS Code, Cursor, and Zed if they are installed and if detection is reliable. First pass done for installed app-bundle detection in macOS Settings while preserving `/usr/bin/open -a` handoff.
+  - Consider editor-specific deep links for VS Code, Cursor, and Zed if they are installed and if detection is reliable. First pass done for installed app-bundle detection in macOS Settings while preserving `/usr/bin/open -a` handoff and command-palette recent-project editor handoffs.
 - Expand terminal handoff:
   - Current embedded terminal actions stay first-class.
   - Optional external terminal launch for Terminal.app, iTerm2, and Warp is available behind a macOS Settings preference for terminal cwd, project row, current-folder, and folder-entry handoff actions.
+  - Command-palette recent projects can open in the configured external terminal without first switching the active project.
   - Installed Mac terminal apps are detected in Settings so users can choose Terminal, iTerm, Warp, Ghostty, or WezTerm without typing app names manually.
   - Preserve active project/folder cwd and shell profile metadata.
 - Add task-result handoffs:
