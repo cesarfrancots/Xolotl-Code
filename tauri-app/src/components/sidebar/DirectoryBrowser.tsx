@@ -19,6 +19,7 @@ import {
 import { commands } from "../../bindings";
 import { useProjectStore, projectDisplayName } from "../../stores/projectStore";
 import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "../../lib/fileBrowser";
+import { macFileAccessRecovery } from "../../lib/macFileRecovery";
 import { copyTextToClipboard, quickLookPath, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 import { openTerminalAtPath } from "../../lib/terminalActions";
 import {
@@ -41,6 +42,7 @@ export function DirectoryBrowser() {
   const activePath = useProjectStore((s) => s.activeProjectPath);
   const browse = useProjectStore((s) => s.browse);
   const refreshBrowse = useProjectStore((s) => s.refreshBrowse);
+  const clearBrowseError = useProjectStore((s) => s.clearBrowseError);
   const [converting, setConverting] = useState<string | null>(null);
   const [convertError, setConvertError] = useState<string | null>(null);
   const [handoffStatus, setHandoffStatus] = useState<SidebarHandoffStatusState | null>(null);
@@ -53,6 +55,7 @@ export function DirectoryBrowser() {
   const currentPath = listing?.path ?? activePath;
   const visibleChildren = listing ? visibleDirectoryChildren(listing.children, showHidden) : [];
   const hiddenCount = listing ? listing.children.length - visibleChildren.length : 0;
+  const browseRecovery = error ? macFileAccessRecovery(error, "folder-browse") : null;
 
   async function convertPdf(path: string, name: string) {
     setConverting(path);
@@ -211,8 +214,12 @@ export function DirectoryBrowser() {
           <div className="flex items-center gap-2 px-2 py-2 text-xs text-[oklch(0.52_0.012_230)]">
             <Loader2 className="h-3 w-3 animate-spin" /> Loading…
           </div>
-        ) : error ? (
-          <p className="px-2 py-2 text-[11px] text-[oklch(0.62_0.06_28)]">{error}</p>
+        ) : browseRecovery ? (
+          <SidebarHandoffStatus
+            status={{ tone: "error", message: browseRecovery.message, hint: browseRecovery.hint }}
+            onDismiss={clearBrowseError}
+            dismissLabel="Dismiss file browser error"
+          />
         ) : listing && visibleChildren.length === 0 ? (
           <p className="px-2 py-2 text-[11px] text-[oklch(0.46_0.010_225)]">
             {listing.children.length === 0 ? "Empty folder" : "Only hidden items"}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Code2, Copy, ExternalLink, Folder, FolderPlus, Link2, X } from "lucide-react";
 import { useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
+import { macFileAccessRecovery } from "../../lib/macFileRecovery";
 import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, revealPathInFinder } from "../../lib/pathActions";
 import {
   SidebarHandoffStatus,
@@ -251,9 +252,10 @@ function projectOpenErrorStatus(error: string): SidebarHandoffStatusState {
       hint: `Use Open Folder to add the folder again. ${error}`,
     };
   }
+  const recovery = macFileAccessRecovery(error, "project-open");
   return {
     tone: "error",
-    message: "Could not open project folder.",
-    hint: sidebarHandoffRecoveryHint("finder", error, "folder"),
+    message: recovery.message,
+    hint: recovery.hint,
   };
 }

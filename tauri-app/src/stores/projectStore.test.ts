@@ -67,4 +67,16 @@ describe("projectStore project errors", () => {
     expect(useProjectStore.getState().activeProjectPath).toBe("/Users/cesar/Documents/Xolotl");
     expect(commands.addProject).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
   });
+
+  it("clears file browser errors independently of project-open errors", () => {
+    useProjectStore.setState({
+      error: "Open failed",
+      browseError: "Browse failed",
+    });
+
+    useProjectStore.getState().clearBrowseError();
+
+    expect(useProjectStore.getState().error).toBe("Open failed");
+    expect(useProjectStore.getState().browseError).toBeNull();
+  });
 });

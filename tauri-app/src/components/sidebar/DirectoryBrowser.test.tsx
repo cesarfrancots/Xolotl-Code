@@ -113,6 +113,35 @@ describe("DirectoryBrowser", () => {
     expect(screen.getByText(/Folder missing/)).toBeTruthy();
   });
 
+  it("shows macOS recovery guidance when folder browsing is blocked", () => {
+    useProjectStore.setState({
+      browseError: "Operation not permitted",
+      listing: null,
+    });
+
+    render(<DirectoryBrowser />);
+
+    expect(screen.getByText("Folder access blocked by macOS.")).toBeTruthy();
+    expect(screen.getByText(/Privacy & Security/)).toBeTruthy();
+    expect(screen.getByText(/Operation not permitted/)).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText("Dismiss file browser error"));
+
+    expect(useProjectStore.getState().browseError).toBeNull();
+  });
+
+  it("shows stale-folder recovery when the browsed folder is missing", () => {
+    useProjectStore.setState({
+      browseError: "Not a directory: /Users/cesar/Documents/Moved",
+      listing: null,
+    });
+
+    render(<DirectoryBrowser />);
+
+    expect(screen.getByText("Folder unavailable.")).toBeTruthy();
+    expect(screen.getByText(/Project root, Open Folder, or Refresh/)).toBeTruthy();
+  });
+
   it("shows recovery guidance when Quick Look fails for a file", async () => {
     vi.mocked(quickLookPath).mockRejectedValueOnce(new Error("Preview blocked"));
 

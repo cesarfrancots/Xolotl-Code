@@ -41,6 +41,7 @@ export interface ProjectState {
   refreshBrowse: () => Promise<void>;
   setProjectError: (error: string | null) => void;
   clearProjectError: () => void;
+  clearBrowseError: () => void;
 }
 
 export const useProjectStore = create<ProjectState>()((set, get) => ({
@@ -136,6 +137,8 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
   setProjectError: (error) => set({ error }),
 
   clearProjectError: () => set({ error: null }),
+
+  clearBrowseError: () => set({ browseError: null }),
 }));
 
 /** Display name for a project path (its last path component). */

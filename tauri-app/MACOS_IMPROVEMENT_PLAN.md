@@ -28,6 +28,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Project rows and the command palette can copy `xolotl-code://open?path=...` links for saved projects, current folders, and visible file-browser entries.
 - Saved project rows and file browser entries can reveal their target in Finder.
 - File browser entries can copy POSIX paths and project-relative paths.
+- File browser browse failures show macOS-specific recovery for missing folders and privacy-denied folder access.
 - File browser entries can preview files with macOS Quick Look from row actions and the command palette.
 - File browser folders can open embedded terminals at the current folder or selected child folder, matching Finder-style "New Terminal Here" workflow.
 - Terminal cwd metadata can reveal its folder in Finder and copy the POSIX cwd path.
@@ -223,7 +224,7 @@ Deliverables:
   - Missing. Done.
   - Needs migration. Done for legacy config-file keys.
 - Review filesystem permissions and user prompts for project access.
-- Add better error recovery when macOS denies file or notification permissions. Done for provider Keychain read failures; file and notification permission recovery still needs follow-up.
+- Add better error recovery when macOS denies file or notification permissions. Done for provider Keychain read failures, notification permission/routing failures, and project/file-browser folder access failures.
 
 Acceptance:
 

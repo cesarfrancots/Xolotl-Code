@@ -85,6 +85,17 @@ describe("ProjectsSection", () => {
     expect(useProjectStore.getState().error).toBeNull();
   });
 
+  it("shows macOS permission recovery for blocked project folders", () => {
+    const onOpenProject = vi.fn();
+    useProjectStore.setState({ error: "Permission denied" });
+
+    render(<ProjectsSection onOpenProject={onOpenProject} />);
+
+    expect(screen.getByText("Folder access blocked by macOS.")).toBeTruthy();
+    expect(screen.getByText(/Privacy & Security/)).toBeTruthy();
+    expect(screen.getByText(/Permission denied/)).toBeTruthy();
+  });
+
   it("uses specific recovery copy when drag and drop setup fails", () => {
     const onOpenProject = vi.fn();
     useProjectStore.setState({ error: "Project drag and drop unavailable. Listener missing" });
