@@ -73,6 +73,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
 - macOS Settings include an opt-in menu bar status item with active project, agent-state, and eval-model summary plus quick access to common commands.
 - The optional menu bar status item preserves running, waiting, done, failed, and idle agent counts instead of collapsing completed work back to idle.
+- The optional menu bar status item can open the most relevant agent output directly, prioritizing executing, planning, waiting, failed, then completed runs.
 - The optional menu bar status item can reveal the active project in Finder and hand it off to the embedded terminal, configured external editor, or external terminal.
 - The optional menu bar status item can copy the active project POSIX path, `xolotl-code://` link, Terminal-safe shell open command, and prompt-ready context block for Shortcuts, Raycast, Alfred, and shell automation.
 - macOS Settings show compact status tiles and targeted recovery guidance for editor, global-hotkey, menu-bar, and notification states.
@@ -460,7 +461,7 @@ Deliverables:
 
 - Improve the optional menu bar status item:
   - Show active project and running agent/eval summary. Done for active project, running/waiting/done/failed/idle agent counts, and active eval model counts.
-  - Add quick commands only when they are stable and already route through native command actions.
+  - Add quick commands only when they are stable and already route through native command actions. Done for latest-agent output handoff.
   - Active-project Finder/editor/terminal/copy/context handoff actions are available from the status item when a project is active.
   - Avoid turning the status menu into a second full app navigation tree.
 - Improve global hotkey behavior:

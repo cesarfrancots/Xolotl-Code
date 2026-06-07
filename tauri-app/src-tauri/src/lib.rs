@@ -69,6 +69,7 @@ const STATUS_EVAL_ID: &str = "xolotl:status-eval";
 const STATUS_REVEAL_ACTIVE_PROJECT: &str = "xolotl:status-reveal-active-project";
 const STATUS_OPEN_ACTIVE_PROJECT_EDITOR: &str = "xolotl:status-open-active-project-editor";
 const STATUS_OPEN_ACTIVE_PROJECT_TERMINAL: &str = "xolotl:status-open-active-project-terminal";
+const STATUS_OPEN_LATEST_AGENT: &str = "xolotl:status-open-latest-agent";
 const STATUS_COPY_ACTIVE_PROJECT_LINK: &str = "xolotl:status-copy-active-project-link";
 const STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN: &str = "xolotl:status-copy-active-project-shell-open";
 const MENU_NEW_ACTIVE_PROJECT_TERMINAL_TAB: &str = "xolotl:new-active-project-terminal-tab";
@@ -639,6 +640,14 @@ fn mac_status_item_has_active_project(state: &MacStatusItemState) -> bool {
         .is_some_and(|path| !path.is_empty())
 }
 
+fn mac_status_item_has_agents(state: &MacStatusItemState) -> bool {
+    state.total_agents > 0
+        || state.running_agents > 0
+        || state.waiting_agents > 0
+        || state.completed_agents > 0
+        || state.failed_agents > 0
+}
+
 fn build_mac_status_item_menu(
     app: &tauri::AppHandle,
     state: &MacStatusItemState,
@@ -652,6 +661,9 @@ fn build_mac_status_item_menu(
     let eval = MenuItemBuilder::with_id(STATUS_EVAL_ID, mac_status_eval_label(state))
         .enabled(false)
         .build(app)?;
+    let open_latest_agent =
+        MenuItemBuilder::with_id(STATUS_OPEN_LATEST_AGENT, "Open Latest Agent Output")
+            .build(app)?;
     let reveal_active_project = MenuItemBuilder::with_id(
         STATUS_REVEAL_ACTIVE_PROJECT,
         "Reveal Active Project in Finder",
@@ -706,6 +718,10 @@ fn build_mac_status_item_menu(
         .item(&agents)
         .item(&eval)
         .separator();
+
+    if mac_status_item_has_agents(state) {
+        builder = builder.item(&open_latest_agent).separator();
+    }
 
     if mac_status_item_has_active_project(state) {
         builder = builder
@@ -979,6 +995,8 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
         Some(STATUS_OPEN_ACTIVE_PROJECT_EDITOR)
     } else if id == STATUS_OPEN_ACTIVE_PROJECT_TERMINAL {
         Some(STATUS_OPEN_ACTIVE_PROJECT_TERMINAL)
+    } else if id == STATUS_OPEN_LATEST_AGENT {
+        Some(STATUS_OPEN_LATEST_AGENT)
     } else if id == STATUS_COPY_ACTIVE_PROJECT_LINK {
         Some(STATUS_COPY_ACTIVE_PROJECT_LINK)
     } else if id == STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN {
@@ -1126,6 +1144,7 @@ mod tests {
         assert_eq!(mac_status_agents_label(&idle), "Agents: Idle");
         assert_eq!(mac_status_eval_label(&idle), "Eval: Idle");
         assert!(!mac_status_item_has_active_project(&idle));
+        assert!(!mac_status_item_has_agents(&idle));
 
         let active = MacStatusItemState {
             active_project_name: Some("Xolotl Code".into()),
@@ -1153,6 +1172,7 @@ mod tests {
             "Eval: 1 running, 1 pending, 2/4 finished"
         );
         assert!(mac_status_item_has_active_project(&active));
+        assert!(mac_status_item_has_agents(&active));
     }
 
     #[test]
@@ -1202,6 +1222,10 @@ mod tests {
                 STATUS_OPEN_ACTIVE_PROJECT_TERMINAL
             )),
             Some(STATUS_OPEN_ACTIVE_PROJECT_TERMINAL)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(STATUS_OPEN_LATEST_AGENT)),
+            Some(STATUS_OPEN_LATEST_AGENT)
         );
         assert_eq!(
             menu_action_for_id(&tauri::menu::MenuId::new(STATUS_COPY_ACTIVE_PROJECT_LINK)),

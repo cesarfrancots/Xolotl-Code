@@ -6,7 +6,7 @@ import { ChatPane } from "./components/chat/ChatPane";
 import { AgentPanel } from "./components/agent/AgentPanel";
 import { AgentOutputView } from "./components/agent/AgentOutputView";
 import { MergeCheckpointView } from "./components/agent/MergeCheckpointView";
-import { useAgentStore } from "./stores/agentStore";
+import { useAgentStore, type AgentRecord } from "./stores/agentStore";
 import { useUiStore } from "./stores/uiStore";
 import { useTerminalStore } from "./stores/terminalStore";
 import { useProjectStore } from "./stores/projectStore";
@@ -56,9 +56,26 @@ const LazyTerminalDock = lazy(async () => {
 });
 
 const COMPACT_SHELL_QUERY = "(max-width: 899px)";
+const STATUS_AGENT_STATE_PRIORITY: AgentRecord["state"][] = [
+  "Executing",
+  "Planning",
+  "Waiting",
+  "Failed",
+  "Done",
+  "Idle",
+];
 
 function isCompactShell() {
   return typeof window.matchMedia === "function" && window.matchMedia(COMPACT_SHELL_QUERY).matches;
+}
+
+function latestAgentForStatusMenu(agents: AgentRecord[]): AgentRecord | null {
+  for (const state of STATUS_AGENT_STATE_PRIORITY) {
+    for (let index = agents.length - 1; index >= 0; index -= 1) {
+      if (agents[index].state === state) return agents[index];
+    }
+  }
+  return agents.length > 0 ? agents[agents.length - 1] : null;
 }
 
 export default function App() {
@@ -87,6 +104,14 @@ export default function App() {
     });
   }, []);
 
+  const showNoAgentStatus = useCallback(() => {
+    setMacAppStatus({
+      tone: "error",
+      message: "No agent output is available.",
+      hint: "Start an agent run before using menu bar agent actions.",
+    });
+  }, []);
+
   const selectCenterTab = useCallback((tab: CenterTab) => {
     setCenterTab(tab);
     const nextUrl = urlForCenterTab(window.location.href, tab);
@@ -112,6 +137,17 @@ export default function App() {
     useTerminalStore.getState().addTab(undefined, activeProjectPath);
     setMacAppStatus({ tone: "ok", message: "Embedded terminal opened at the active project." });
   }, [showNoActiveProjectStatus]);
+
+  const openLatestAgentOutput = useCallback(() => {
+    const agentStore = useAgentStore.getState();
+    const latestAgent = latestAgentForStatusMenu(agentStore.agents);
+    if (!latestAgent) {
+      showNoAgentStatus();
+      return;
+    }
+    agentStore.setExpandedAgent(latestAgent.id);
+    setMacAppStatus({ tone: "ok", message: "Latest agent output opened." });
+  }, [showNoAgentStatus]);
 
   const closeActiveTerminalTab = useCallback(() => {
     const terminal = useTerminalStore.getState();
@@ -217,6 +253,10 @@ export default function App() {
       );
       return;
     }
+    if (action === "status-open-latest-agent") {
+      openLatestAgentOutput();
+      return;
+    }
     if (action === "new-active-project-terminal-tab") {
       addActiveProjectTerminalTab();
       return;
@@ -271,7 +311,7 @@ export default function App() {
       void loadCivilizationView();
       selectCenterTab("civ");
     }
-  }, [addActiveProjectTerminalTab, addTerminalTab, closeActiveTerminalTab, runActiveProjectHandoff, selectAdjacentTerminalTab, selectCenterTab]);
+  }, [addActiveProjectTerminalTab, addTerminalTab, closeActiveTerminalTab, openLatestAgentOutput, runActiveProjectHandoff, selectAdjacentTerminalTab, selectCenterTab]);
 
   useEffect(() => listenForNativeMenuActions(handleNativeMenuAction), [handleNativeMenuAction]);
 

@@ -5,6 +5,7 @@ import App from "./App";
 import { persistCenterTab } from "./lib/appNavigation";
 import { MAC_APP_STATUS_EVENT } from "./lib/macAppStatus";
 import { NATIVE_MENU_EVENT } from "./lib/nativeMenu";
+import { useAgentStore } from "./stores/agentStore";
 import { useProjectStore } from "./stores/projectStore";
 import { useTerminalStore } from "./stores/terminalStore";
 import { useUiStore } from "./stores/uiStore";
@@ -21,6 +22,17 @@ const pathActionMocks = vi.hoisted(() => ({
   openPathInExternalTerminal: vi.fn((_path: string) => Promise.resolve()),
   revealPathInFinder: vi.fn((_path: string) => Promise.resolve()),
 }));
+const agentStoreMocks = vi.hoisted(() => {
+  const state = {
+    agents: [] as Array<{ id: string; state: string }>,
+    expandedAgentId: null as string | null,
+    mergeCheckpointGroupId: null as string | null,
+    setExpandedAgent: vi.fn((id: string | null) => {
+      state.expandedAgentId = id;
+    }),
+  };
+  return { state };
+});
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: tauriEventMocks.listen,
@@ -70,8 +82,12 @@ vi.mock("./components/terminal/TerminalDock", () => ({
 }));
 
 vi.mock("./stores/agentStore", () => ({
-  useAgentStore: (selector: (state: { expandedAgentId: null; mergeCheckpointGroupId: null }) => unknown) =>
-    selector({ expandedAgentId: null, mergeCheckpointGroupId: null }),
+  useAgentStore: Object.assign(
+    (selector: (state: typeof agentStoreMocks.state) => unknown) => selector(agentStoreMocks.state),
+    {
+      getState: () => agentStoreMocks.state,
+    },
+  ),
 }));
 
 function installTestStorage() {
@@ -109,6 +125,10 @@ describe("App tab navigation", () => {
     });
     useTerminalStore.setState({ tabs: [], activeKey: null });
     useProjectStore.setState({ activeProjectPath: null, projects: [], listing: null });
+    agentStoreMocks.state.agents = [];
+    agentStoreMocks.state.expandedAgentId = null;
+    agentStoreMocks.state.mergeCheckpointGroupId = null;
+    agentStoreMocks.state.setExpandedAgent.mockClear();
     tauriEventMocks.listen.mockImplementation((_eventName: string, _handler?: unknown) => Promise.resolve(() => {}));
   });
 
@@ -310,6 +330,34 @@ describe("App tab navigation", () => {
     expect(await screen.findByText("Copy active project Xolotl link failed.")).toBeTruthy();
     expect(screen.getByText(/Check clipboard permissions and try again/)).toBeTruthy();
     expect(screen.getByText(/clipboard denied/)).toBeTruthy();
+  });
+
+  it("opens the most relevant agent output from the menu bar status item", async () => {
+    agentStoreMocks.state.agents = [
+      { id: "agent-done", state: "Done" },
+      { id: "agent-waiting", state: "Waiting" },
+      { id: "agent-executing", state: "Executing" },
+    ];
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "status-open-latest-agent" }));
+
+    await waitFor(() => {
+      expect(agentStoreMocks.state.setExpandedAgent).toHaveBeenCalledWith("agent-executing");
+    });
+    expect(useAgentStore.getState().expandedAgentId).toBe("agent-executing");
+    expect(await screen.findByText("Latest agent output opened.")).toBeTruthy();
+    expect(await screen.findByText("Agent output")).toBeTruthy();
+  });
+
+  it("shows recovery when the menu bar status item has no agent output", async () => {
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "status-open-latest-agent" }));
+
+    expect(await screen.findByText("No agent output is available.")).toBeTruthy();
+    expect(screen.getByText("Start an agent run before using menu bar agent actions.")).toBeTruthy();
+    expect(agentStoreMocks.state.setExpandedAgent).not.toHaveBeenCalled();
   });
 
   it("marks the active workbench segment and exposes Mac shortcut hints", async () => {
