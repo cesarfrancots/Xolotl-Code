@@ -24,7 +24,6 @@
     "civ:watch-demo": "node scripts/codex-play-civ.mjs --in-app-pilot --goal task-loop --steps 80 --headed --slow-mo 20 --sample-ms 900 --screenshot-dir output/web-game/civ-watch-demo --screenshot-every 8 --stop-after-completions 5 --fail-on-critical-oxygen --max-no-progress 18 --keep-open 30"
   },
   "dependencies": {
-    "@fontsource-variable/geist": "^5.2.8",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/react-virtual": "^3.13.24",
