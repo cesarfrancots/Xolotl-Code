@@ -1,9 +1,9 @@
 use specta_typescript::Typescript;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::menu::{AboutMetadata, Menu, MenuBuilder, MenuItemBuilder, Submenu, SubmenuBuilder};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tauri_specta::{collect_commands, Builder};
 
 use crate::civilization::{
@@ -65,6 +65,9 @@ const MENU_TAB_CHAT: &str = "xolotl:tab-chat";
 const MENU_TAB_EVAL: &str = "xolotl:tab-eval";
 const MENU_TAB_CIV: &str = "xolotl:tab-civ";
 const RECENT_PROJECT_LIMIT: usize = 8;
+
+#[derive(Default)]
+struct PendingOpenProjects(Mutex<Vec<String>>);
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
@@ -303,11 +306,75 @@ where
     paths
 }
 
+fn dedupe_project_paths(paths: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut unique = Vec::new();
+    for path in paths {
+        if !unique.iter().any(|existing| existing == &path) {
+            unique.push(path);
+        }
+    }
+    unique
+}
+
+fn project_path_from_open_url(url: &tauri::Url) -> Option<String> {
+    if url.scheme() != "file" {
+        return None;
+    }
+    let path = url.to_file_path().ok()?;
+    canonical_project_path_from_arg(path.into_os_string())
+}
+
+fn project_paths_from_open_urls(urls: Vec<tauri::Url>) -> Vec<String> {
+    dedupe_project_paths(urls.iter().filter_map(project_path_from_open_url))
+}
+
+fn store_pending_project_paths(app: &tauri::AppHandle, paths: &[String]) {
+    let pending = app.state::<PendingOpenProjects>();
+    let Ok(mut pending_paths) = pending.0.lock() else {
+        return;
+    };
+    for path in paths {
+        if !pending_paths.iter().any(|existing| existing == path) {
+            pending_paths.push(path.clone());
+        }
+    }
+}
+
+fn drain_pending_project_paths(pending: &PendingOpenProjects) -> Vec<String> {
+    let Ok(mut pending_paths) = pending.0.lock() else {
+        return Vec::new();
+    };
+    let paths = pending_paths.clone();
+    pending_paths.clear();
+    paths
+}
+
+fn emit_project_open_paths(app: &tauri::AppHandle, paths: Vec<String>) {
+    let paths = dedupe_project_paths(paths);
+    if paths.is_empty() {
+        return;
+    }
+    store_pending_project_paths(app, &paths);
+    for path in paths {
+        let _ = app.emit(PROJECT_OPEN_EVENT, path);
+    }
+}
+
+fn focus_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 mod macos_commands {
     #[tauri::command]
     #[specta::specta]
-    pub fn launch_project_paths() -> Vec<String> {
-        super::launch_project_paths_from_args(std::env::args_os())
+    pub fn launch_project_paths(state: tauri::State<'_, super::PendingOpenProjects>) -> Vec<String> {
+        let launch_paths = super::launch_project_paths_from_args(std::env::args_os());
+        let pending_paths = super::drain_pending_project_paths(&state);
+        super::dedupe_project_paths(launch_paths.into_iter().chain(pending_paths))
     }
 
     #[tauri::command]
@@ -500,6 +567,7 @@ pub fn run() {
         .manage(Arc::new(AgentSupervisor::new(repo_root)))
         .manage(PendingPrompts::default())
         .manage(TerminalManager::default())
+        .manage(PendingOpenProjects::default())
         .on_window_event(|_window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 crate::commands::cleanup_eval_processes();
@@ -519,8 +587,24 @@ pub fn run() {
             });
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+            tauri::RunEvent::Opened { urls } => {
+                let paths = project_paths_from_open_urls(urls);
+                emit_project_open_paths(app, paths);
+                focus_main_window(app);
+            }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen {
+                has_visible_windows: _,
+                ..
+            } => {
+                focus_main_window(app);
+            }
+            _ => {}
+        });
 }
 
 #[cfg(test)]
@@ -577,6 +661,45 @@ mod tests {
             .to_string_lossy()
             .into_owned();
         assert_eq!(paths, vec![expected]);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn project_paths_from_open_urls_accepts_file_directory_urls() {
+        let root =
+            std::env::temp_dir().join(format!("xolotl-open-url-{}", std::process::id()));
+        let project = root.join("Project From Finder");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&project).expect("project test dir should be created");
+
+        let file_url = tauri::Url::from_file_path(&project).expect("file url should be created");
+        let paths = project_paths_from_open_urls(vec![file_url.clone(), file_url]);
+
+        let expected = std::fs::canonicalize(&project)
+            .expect("project test dir should canonicalize")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(paths, vec![expected]);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn project_paths_from_open_urls_rejects_non_file_urls_and_files() {
+        let root =
+            std::env::temp_dir().join(format!("xolotl-open-url-reject-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("project test dir should be created");
+        let file = root.join("note.txt");
+        std::fs::write(&file, "not a project").expect("test file should be written");
+
+        let urls = vec![
+            tauri::Url::parse("https://example.com/project").expect("https url should parse"),
+            tauri::Url::from_file_path(&file).expect("file url should be created"),
+        ];
+
+        assert!(project_paths_from_open_urls(urls).is_empty());
 
         let _ = std::fs::remove_dir_all(&root);
     }

@@ -14,6 +14,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - File > New Chat, workbench tab shortcuts, command palette, and terminal toggle route through the native menu bridge.
 - File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
 - Directory paths passed at app launch are imported into the project store and activated on startup.
+- macOS open/reopen events are handled: file URLs from Finder/Open With are normalized into project-open requests, and Dock/app reopen focuses the main window.
 - Saved project rows and file browser entries can reveal their target in Finder.
 - File browser entries can copy POSIX paths and project-relative paths.
 - Terminal cwd metadata can reveal its folder in Finder and copy the POSIX cwd path.
@@ -125,9 +126,9 @@ Status: in progress.
 Deliverables:
 
 - Open project folders from command-line launch arguments. Done for existing directory arguments passed to the app.
-- Open project folders from Finder. Window drag/drop is done; reopen/document-open events still need deeper Tauri/AppKit validation.
+- Open project folders from Finder. Done for Tauri window drops and macOS `RunEvent::Opened` file URLs; still needs end-to-end Finder/Dock smoke coverage against the packaged app.
 - Add a Recent Projects menu that mirrors the project store. Done for File > Open Recent with menu refresh after project changes.
-- Add Dock menu shortcuts for New Chat, Open Folder, and recent projects if Tauri/AppKit support is practical.
+- Add Dock menu shortcuts for New Chat, Open Folder, and recent projects if Tauri/AppKit support is practical. Evaluated against local Tauri 2.11 API: Dock visibility is exposed, but Dock menu construction is not; revisit only if an AppKit-specific shim is worth carrying.
 - Support drag-and-drop of folders onto the app window to open a project. Done for Tauri window drops; still needs end-to-end Finder smoke coverage with a real project folder.
 - Improve file browser behavior for Mac paths:
   - Home directory display. Done for sidebar/project labels.
@@ -144,9 +145,9 @@ Next implementation details:
 
 - Add Reveal in Finder for the active project, saved projects, terminal cwd, and file browser entries. Done for saved projects, current browser folder, terminal cwd, and visible entries.
 - Add Copy POSIX Path and Copy Relative Path actions to file browser rows. Done for visible entries; current folder and saved projects support POSIX path copy.
-- Investigate Tauri reopen/open-url/document-open support for dragging a folder onto the Dock icon or launching via Finder "Open With".
+- Investigate Tauri reopen/open-url/document-open support for dragging a folder onto the Dock icon or launching via Finder "Open With". Done for `RunEvent::Opened` and `RunEvent::Reopen` handling; packaged end-to-end smoke still needs a reliable harness.
 - Add a packaged-app smoke script that launches the `.app` with a temporary directory argument and asserts the project is activated. Done via `npm run smoke:mac:launch-path`.
-- Evaluate Dock menu support only after project-open event handling is stable.
+- Evaluate Dock menu support only after project-open event handling is stable. Done: current Tauri API does not provide Dock menu construction.
 
 ## Phase 4 - Terminal and Developer Environment Polish
 
@@ -280,8 +281,8 @@ Automation targets:
 This is the near-term order for this branch.
 
 1. Finish Phase 3 native project workflows:
-   - Finder/Dock open validation and automation.
-   - Dock menu feasibility for New Chat, Open Folder, and recent projects.
+   - Finder/Open With end-to-end smoke harness for packaged app file-url open events.
+   - Optional AppKit Dock menu shim only if the benefit is worth the native-maintenance cost.
 2. Start Phase 2 Mac UI pass:
    - Header/titlebar-safe layout.
    - Segmented workbench tabs.
