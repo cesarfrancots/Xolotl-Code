@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CivilizationView } from "./CivilizationView";
 import { useCivStore } from "../../stores/civStore";
@@ -51,66 +51,72 @@ afterEach(() => {
   cleanup();
 });
 
+// The creation form renders in both the welcome card and the left drawer (shared
+// participant state). Scope every query to the welcome card for unambiguous matches.
+function card() {
+  return within(document.querySelector(".civ-welcome-card") as HTMLElement);
+}
+
 function participantRows() {
-  return screen.getAllByLabelText(/^Participant \d+ model$/);
+  return card().getAllByLabelText(/^Participant \d+ model$/);
 }
 
 describe("CivilizationView creation card", () => {
   it("renders a single participant row by default", () => {
     render(<CivilizationView />);
     expect(participantRows()).toHaveLength(1);
-    expect(screen.getByLabelText("Participant 1 name")).toBeDefined();
-    expect(screen.getByLabelText("Participant 1 color")).toBeDefined();
+    expect(card().getByLabelText("Participant 1 name")).toBeDefined();
+    expect(card().getByLabelText("Participant 1 color")).toBeDefined();
   });
 
   it("adds participant rows up to a maximum of 3", async () => {
     const user = userEvent.setup();
     render(<CivilizationView />);
 
-    const addButton = screen.getByRole("button", { name: /add civilization/i });
+    const addButton = card().getByRole("button", { name: /add civilization/i });
     await user.click(addButton);
     expect(participantRows()).toHaveLength(2);
     await user.click(addButton);
     expect(participantRows()).toHaveLength(3);
     // Capped at 3 — the add control disables.
-    expect(addButton).toBeDisabled();
+    expect(addButton).toHaveProperty("disabled", true);
   });
 
   it("removes participant rows down to a minimum of 1", async () => {
     const user = userEvent.setup();
     render(<CivilizationView />);
 
-    const addButton = screen.getByRole("button", { name: /add civilization/i });
+    const addButton = card().getByRole("button", { name: /add civilization/i });
     await user.click(addButton);
     expect(participantRows()).toHaveLength(2);
 
-    await user.click(screen.getByRole("button", { name: /remove participant 2/i }));
+    await user.click(card().getByRole("button", { name: /remove participant 2/i }));
     expect(participantRows()).toHaveLength(1);
     // Never goes below one row, so no remove control is offered.
-    expect(screen.queryByRole("button", { name: /remove participant/i })).toBeNull();
+    expect(card().queryByRole("button", { name: /remove participant/i })).toBeNull();
   });
 
   it("each row exposes an editable name, a model select, and a color chip", () => {
     render(<CivilizationView />);
-    const model = screen.getByLabelText("Participant 1 model") as HTMLSelectElement;
+    const model = card().getByLabelText("Participant 1 model") as HTMLSelectElement;
     expect(within(model).getAllByRole("option").map((o) => (o as HTMLOptionElement).value))
       .toEqual(["kimi", "deepseek", "gpt-5"]);
-    expect(screen.getByLabelText("Participant 1 name")).toBeDefined();
-    expect(screen.getByLabelText("Participant 1 color")).toBeDefined();
+    expect(card().getByLabelText("Participant 1 name")).toBeDefined();
+    expect(card().getByLabelText("Participant 1 color")).toBeDefined();
   });
 
   it("founds an N-civ world via createSession with per-row name/model/color", async () => {
     const user = userEvent.setup();
     render(<CivilizationView />);
 
-    await user.click(screen.getByRole("button", { name: /add civilization/i }));
+    await user.click(card().getByRole("button", { name: /add civilization/i }));
 
-    const name2 = screen.getByLabelText("Participant 2 name");
+    const name2 = card().getByLabelText("Participant 2 name");
     await user.clear(name2);
     await user.type(name2, "Coral");
-    await user.selectOptions(screen.getByLabelText("Participant 2 model"), "deepseek");
+    await user.selectOptions(card().getByLabelText("Participant 2 model"), "deepseek");
 
-    await user.click(screen.getByRole("button", { name: /found colony/i }));
+    await user.click(card().getByRole("button", { name: /found colony/i }));
 
     expect(createCivSession).toHaveBeenCalledTimes(1);
     const config = createCivSession.mock.calls[0][0] as CivSessionConfig;
@@ -124,7 +130,7 @@ describe("CivilizationView creation card", () => {
     const user = userEvent.setup();
     render(<CivilizationView />);
 
-    await user.click(screen.getByRole("button", { name: /found colony/i }));
+    await user.click(card().getByRole("button", { name: /found colony/i }));
 
     expect(createCivSession).toHaveBeenCalledTimes(1);
     const config = createCivSession.mock.calls[0][0] as CivSessionConfig;

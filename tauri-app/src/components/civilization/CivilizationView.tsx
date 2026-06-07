@@ -134,6 +134,26 @@ type PersistedCivPlayerSessionState = {
 const STAGE_LABEL: Record<string, string> = {
   egg: "Egg", hatchling: "Hatchling", juvenile: "Juvenile", adult: "Adult", elder: "Elder",
 };
+// Auto-assigned per-civ palette, mirroring the backend CIV_COLORS ordering
+// (civilization.rs:66-68) so creation-time chips match the founded civ colors.
+const CIV_PALETTE = [
+  "#7fdfff", "#ff9ec7", "#9bffa0", "#ffd66e", "#c79cff", "#ff8f6e", "#6ee0c7", "#f4f59a",
+];
+const MAX_PARTICIPANTS = 3;
+
+type CivParticipantDraft = { name: string; model: string; color: string };
+
+function paletteColor(index: number) {
+  return CIV_PALETTE[index % CIV_PALETTE.length];
+}
+
+function makeParticipant(index: number, model: string): CivParticipantDraft {
+  return { name: `Civ ${index + 1}`, model, color: paletteColor(index) };
+}
+
+function preferredModel(models: string[]) {
+  return models.find((m) => m.toLowerCase().includes("kimi")) ?? models[0] ?? "";
+}
 
 type PilotReadout = {
   label: string;
@@ -179,9 +199,10 @@ export function CivilizationView() {
   const applyIntervention = useCivStore((s) => s.applyIntervention);
   const hydrateSnapshot = useCivStore((s) => s.hydrateSnapshot);
   const setError = useCivStore((s) => s.setError);
+  const setSelectedCivId = useCivStore((s) => s.setSelectedCivId);
 
   const [name, setName] = useState("Axolotl Colony");
-  const [selectedModel, setSelectedModel] = useState("");
+  const [participants, setParticipants] = useState<CivParticipantDraft[]>([makeParticipant(0, "")]);
   const [resource, setResource] = useState("food");
   const [amount, setAmount] = useState(10);
   const [modifier, setModifier] = useState("abundant_moss");
@@ -213,12 +234,17 @@ export function CivilizationView() {
     void loadSessions();
   }, [loadModels, loadSessions]);
 
+  // Once models load, backfill any participant row that has no model yet
+  // (the initial row starts blank because models arrive asynchronously).
   useEffect(() => {
-    if (!selectedModel && models.length > 0) {
-      const preferred = models.find((m) => m.toLowerCase().includes("kimi")) ?? models[0];
-      setSelectedModel(preferred);
-    }
-  }, [models, selectedModel]);
+    if (models.length === 0) return;
+    const fallback = preferredModel(models);
+    setParticipants((rows) => (
+      rows.some((row) => !row.model)
+        ? rows.map((row) => (row.model ? row : { ...row, model: fallback }))
+        : rows
+    ));
+  }, [models]);
 
   useEffect(() => {
     if (!activeSessionId && sessions && sessions.length > 0) {
@@ -530,9 +556,35 @@ export function CivilizationView() {
     return () => window.clearInterval(timer);
   }, [advanceTurn, codexPilot, snapshot, selectedPlayerId, pilotGoal, possessableAxos, turnRunning]);
 
+  function addParticipant() {
+    setParticipants((rows) => (
+      rows.length >= MAX_PARTICIPANTS
+        ? rows
+        : [...rows, makeParticipant(rows.length, preferredModel(models))]
+    ));
+  }
+
+  function removeParticipant(index: number) {
+    setParticipants((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== index)));
+  }
+
+  function updateParticipant(index: number, patch: Partial<CivParticipantDraft>) {
+    setParticipants((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  const canFound = !loading && participants.every((p) => Boolean(p.model));
+
   async function handleCreate() {
-    const model = selectedModel || models[0] || "";
-    await createSession({ name, model, seed: null });
+    if (!canFound) return;
+    const fallback = preferredModel(models);
+    const civs = participants.map((p, i) => ({
+      name: p.name.trim() || `Civ ${i + 1}`,
+      model: p.model || fallback,
+      color: p.color,
+    }));
+    await createSession({ name, seed: null, civs });
+    // Reset selection to the founding colony so the observer panel has a focus.
+    setSelectedCivId(null);
     setLeftOpen(false);
   }
 
@@ -814,18 +866,14 @@ export function CivilizationView() {
               </p>
               <div className="space-y-2">
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Colony name" />
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="civ-select"
-                >
-                  {models.length ? (
-                    models.map((m) => <option key={m} value={m}>{m}</option>)
-                  ) : (
-                    <option value="" disabled>No models available</option>
-                  )}
-                </select>
-                <Button className="w-full" disabled={loading || !selectedModel} onClick={() => void handleCreate()}>
+                <ParticipantPicker
+                  participants={participants}
+                  models={models}
+                  onAdd={addParticipant}
+                  onRemove={removeParticipant}
+                  onChange={updateParticipant}
+                />
+                <Button className="w-full" disabled={!canFound} onClick={() => void handleCreate()}>
                   <Sprout className="h-3.5 w-3.5" />
                   Found Colony
                 </Button>
@@ -940,14 +988,16 @@ export function CivilizationView() {
           <div className="civ-drawer-body">
             <Section label="New colony" icon={<Plus className="h-3.5 w-3.5" />}>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Colony name" />
-              <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} className="civ-select mt-2">
-                {models.length ? (
-                  models.map((m) => <option key={m} value={m}>{m}</option>)
-                ) : (
-                  <option value="" disabled>No models available</option>
-                )}
-              </select>
-              <Button size="sm" className="mt-2 w-full" disabled={loading || !selectedModel} onClick={() => void handleCreate()}>
+              <div className="mt-2">
+                <ParticipantPicker
+                  participants={participants}
+                  models={models}
+                  onAdd={addParticipant}
+                  onRemove={removeParticipant}
+                  onChange={updateParticipant}
+                />
+              </div>
+              <Button size="sm" className="mt-2 w-full" disabled={!canFound} onClick={() => void handleCreate()}>
                 <Sprout className="h-3.5 w-3.5" />
                 Found Colony
               </Button>
@@ -1233,6 +1283,77 @@ export function CivilizationView() {
         </div>
       )}
     </main>
+  );
+}
+
+function ParticipantPicker({
+  participants,
+  models,
+  onAdd,
+  onRemove,
+  onChange,
+}: {
+  participants: CivParticipantDraft[];
+  models: string[];
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+  onChange: (index: number, patch: Partial<CivParticipantDraft>) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      {participants.map((participant, index) => (
+        <div key={index} className="flex items-center gap-1.5">
+          <input
+            type="color"
+            aria-label={`Participant ${index + 1} color`}
+            value={participant.color}
+            onChange={(e) => onChange(index, { color: e.target.value })}
+            className="civ-color-chip h-7 w-7 flex-none cursor-pointer rounded border border-[oklch(0.24_0.008_240)] bg-transparent p-0.5"
+            title={`Color for ${participant.name || `Civ ${index + 1}`}`}
+          />
+          <Input
+            aria-label={`Participant ${index + 1} name`}
+            value={participant.name}
+            onChange={(e) => onChange(index, { name: e.target.value })}
+            placeholder={`Civ ${index + 1}`}
+            className="flex-1"
+          />
+          <select
+            aria-label={`Participant ${index + 1} model`}
+            value={participant.model}
+            onChange={(e) => onChange(index, { model: e.target.value })}
+            className="civ-select flex-1"
+          >
+            {models.length ? (
+              models.map((m) => <option key={m} value={m}>{m}</option>)
+            ) : (
+              <option value="" disabled>No models available</option>
+            )}
+          </select>
+          {participants.length > 1 && (
+            <button
+              type="button"
+              aria-label={`Remove participant ${index + 1}`}
+              onClick={() => onRemove(index)}
+              className="flex-none rounded p-1 text-[oklch(0.44_0.012_230)] hover:text-[oklch(0.78_0.055_28)]"
+              title="Remove civilization"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      ))}
+      <Button
+        size="xs"
+        variant="outline"
+        className="w-full"
+        disabled={participants.length >= MAX_PARTICIPANTS}
+        onClick={onAdd}
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add civilization
+      </Button>
+    </div>
   );
 }
 
