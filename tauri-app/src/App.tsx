@@ -4,8 +4,6 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { SessionSidebar } from "./components/sidebar/SessionSidebar";
 import { ChatPane } from "./components/chat/ChatPane";
 import { AgentPanel } from "./components/agent/AgentPanel";
-import { AgentOutputView } from "./components/agent/AgentOutputView";
-import { MergeCheckpointView } from "./components/agent/MergeCheckpointView";
 import { useAgentStore, type AgentRecord } from "./stores/agentStore";
 import { useUiStore } from "./stores/uiStore";
 import { useTerminalStore } from "./stores/terminalStore";
@@ -60,6 +58,16 @@ const LazyCivilizationView = lazy(async () => {
 const LazyTerminalDock = lazy(async () => {
   const module = await import("./components/terminal/TerminalDock");
   return { default: module.TerminalDock };
+});
+
+const LazyAgentOutputView = lazy(async () => {
+  const module = await import("./components/agent/AgentOutputView");
+  return { default: module.AgentOutputView };
+});
+
+const LazyMergeCheckpointView = lazy(async () => {
+  const module = await import("./components/agent/MergeCheckpointView");
+  return { default: module.MergeCheckpointView };
 });
 
 const COMPACT_SHELL_QUERY = "(max-width: 899px)";
@@ -663,8 +671,20 @@ export default function App() {
   }, []);
 
   function renderCenter() {
-    if (mergeCheckpointGroupId) return <MergeCheckpointView groupId={mergeCheckpointGroupId} />;
-    if (expandedAgentId) return <AgentOutputView agentId={expandedAgentId} />;
+    if (mergeCheckpointGroupId) {
+      return (
+        <Suspense fallback={<AgentViewLoading label="Loading merge checkpoint" />}>
+          <LazyMergeCheckpointView groupId={mergeCheckpointGroupId} />
+        </Suspense>
+      );
+    }
+    if (expandedAgentId) {
+      return (
+        <Suspense fallback={<AgentViewLoading label="Loading agent output" />}>
+          <LazyAgentOutputView agentId={expandedAgentId} />
+        </Suspense>
+      );
+    }
     if (centerTab === "eval") {
       return (
         <Suspense fallback={<EvalLoading />}>
@@ -761,6 +781,17 @@ export default function App() {
         )}
       </div>
       <AgentPanel forceCollapsed={compactShell} />
+    </div>
+  );
+}
+
+function AgentViewLoading({ label }: { label: string }) {
+  return (
+    <div className="flex flex-1 items-center justify-center bg-[oklch(0.105_0.004_250)]">
+      <div className="flex items-center gap-2 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.12_0.004_245)] px-3 py-2 text-sm text-[oklch(0.66_0.025_210)]">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        {label}
+      </div>
     </div>
   );
 }

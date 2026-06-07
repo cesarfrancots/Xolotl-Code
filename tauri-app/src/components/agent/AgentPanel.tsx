@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { CirclePlus, UsersRound, PanelRightClose, PanelRightOpen, BotMessageSquare, Bot } from "lucide-react";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
@@ -6,8 +6,16 @@ import { useAgentStore } from "../../stores/agentStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useGroupWatcher } from "../../hooks/useGroupWatcher";
 import { AgentCard } from "./AgentCard";
-import { SpawnAgentDialog } from "./SpawnAgentDialog";
-import { LaunchTeamDialog } from "./LaunchTeamDialog";
+
+const LazySpawnAgentDialog = lazy(async () => {
+  const module = await import("./SpawnAgentDialog");
+  return { default: module.SpawnAgentDialog };
+});
+
+const LazyLaunchTeamDialog = lazy(async () => {
+  const module = await import("./LaunchTeamDialog");
+  return { default: module.LaunchTeamDialog };
+});
 
 /**
  * Right column: agent roster + spawn buttons.
@@ -192,8 +200,16 @@ export function AgentPanel({ forceCollapsed = false }: { forceCollapsed?: boolea
         </ScrollArea>
       )}
 
-      <SpawnAgentDialog open={dialogOpen} onOpenChange={setDialogOpen} />
-      <LaunchTeamDialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen} />
+      {dialogOpen && (
+        <Suspense fallback={null}>
+          <LazySpawnAgentDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+        </Suspense>
+      )}
+      {teamDialogOpen && (
+        <Suspense fallback={null}>
+          <LazyLaunchTeamDialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen} />
+        </Suspense>
+      )}
     </aside>
   );
 }
