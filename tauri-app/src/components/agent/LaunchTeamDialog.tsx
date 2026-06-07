@@ -17,6 +17,7 @@ import {
 } from "../ui/select";
 import { commands, type RoleConfig } from "../../bindings";
 import { useAgentStore } from "../../stores/agentStore";
+import { useMacDialogDismissal } from "../../hooks/useMacDialogDismissal";
 
 type Mode = "team" | "swarm";
 
@@ -53,6 +54,7 @@ export function LaunchTeamDialog({
   const [swarmCount, setSwarmCount] = useState<string>("2");
   const [swarmObjective, setSwarmObjective] = useState<string>("");
   const [swarmModel, setSwarmModel] = useState<string>("");
+  useMacDialogDismissal(open, handleDialogOpenChange);
 
   useEffect(() => {
     commands
@@ -73,6 +75,11 @@ export function LaunchTeamDialog({
     setSwarmCount("2");
     setSwarmObjective("");
     setTeamRoles(ROLES.map(() => ({ task: "", model: models[0] ?? "" })));
+  }
+
+  function handleDialogOpenChange(nextOpen: boolean) {
+    if (!nextOpen) reset();
+    onOpenChange(nextOpen);
   }
 
   function updateRoleTask(index: number, task: string) {
@@ -145,129 +152,128 @@ export function LaunchTeamDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={(o) => {
-        if (!o) reset();
-        onOpenChange(o);
-      }}
+      onOpenChange={handleDialogOpenChange}
     >
-      <DialogContent className="border-[oklch(0.22_0.008_240)] bg-[oklch(0.112_0.004_245)] text-[oklch(0.90_0.015_220)] shadow-[0_28px_90px_oklch(0_0_0_/_0.32)] sm:max-w-[560px]">
-        <DialogHeader>
+      <DialogContent className="xolotl-mac-dialog w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0 sm:max-w-[600px]">
+        <DialogHeader className="xolotl-mac-dialog-header px-5 py-4">
           <DialogTitle className="text-[oklch(0.92_0.015_220)]">Launch Team</DialogTitle>
           <DialogDescription className="text-[oklch(0.56_0.014_225)]">
             Configure a role-based team or a parallel swarm.
           </DialogDescription>
         </DialogHeader>
 
-        {/* Mode toggle */}
-        <div className="flex w-fit gap-1 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.105_0.004_245)] p-1">
-          <button
-            type="button"
-            aria-pressed={mode === "team"}
-            className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
-              mode === "team"
-                ? "bg-[oklch(0.145_0.010_195)] text-[oklch(0.76_0.040_190)] shadow-[inset_0_0_0_1px_oklch(0.36_0.022_195)]"
-                : "text-[oklch(0.56_0.014_225)] hover:text-[oklch(0.84_0.015_220)]"
-            }`}
-            onClick={() => setMode("team")}
-          >
-            Team
-          </button>
-          <button
-            type="button"
-            aria-pressed={mode === "swarm"}
-            className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
-              mode === "swarm"
-                ? "bg-[oklch(0.145_0.010_195)] text-[oklch(0.76_0.040_190)] shadow-[inset_0_0_0_1px_oklch(0.36_0.022_195)]"
-                : "text-[oklch(0.56_0.014_225)] hover:text-[oklch(0.84_0.015_220)]"
-            }`}
-            onClick={() => setMode("swarm")}
-          >
-            Swarm
-          </button>
-        </div>
+        <div className="xolotl-mac-dialog-scroll max-h-[72vh] overflow-y-auto px-5 py-4">
+          {/* Mode toggle */}
+          <div className="flex w-fit gap-1 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.105_0.004_245)] p-1">
+            <button
+              type="button"
+              aria-pressed={mode === "team"}
+              className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
+                mode === "team"
+                  ? "bg-[oklch(0.145_0.010_195)] text-[oklch(0.76_0.040_190)] shadow-[inset_0_0_0_1px_oklch(0.36_0.022_195)]"
+                  : "text-[oklch(0.56_0.014_225)] hover:text-[oklch(0.84_0.015_220)]"
+              }`}
+              onClick={() => setMode("team")}
+            >
+              Team
+            </button>
+            <button
+              type="button"
+              aria-pressed={mode === "swarm"}
+              className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
+                mode === "swarm"
+                  ? "bg-[oklch(0.145_0.010_195)] text-[oklch(0.76_0.040_190)] shadow-[inset_0_0_0_1px_oklch(0.36_0.022_195)]"
+                  : "text-[oklch(0.56_0.014_225)] hover:text-[oklch(0.84_0.015_220)]"
+              }`}
+              onClick={() => setMode("swarm")}
+            >
+              Swarm
+            </button>
+          </div>
 
-        {/* Team form */}
-        {mode === "team" && (
-          <div className="flex flex-col gap-0 py-1 max-h-[60vh] overflow-y-auto">
-            {ROLES.map((roleDef, i) => (
-              <div key={roleDef.name} className="flex flex-col gap-2 border-b border-[oklch(0.22_0.008_240)] py-3 last:border-0">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[oklch(0.88_0.015_220)]">{roleDef.name}</span>
-                  <Select
-                    value={teamRoles[i].model}
-                    onValueChange={(v) => updateRoleModel(i, v)}
-                  >
-                    <SelectTrigger className="w-44 h-7 border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] text-xs text-[oklch(0.84_0.012_220)]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.115_0.004_245)] text-[oklch(0.86_0.012_220)]">
-                      {models.map((m) => (
-                        <SelectItem key={m} value={m}>{m}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+          {/* Team form */}
+          {mode === "team" && (
+            <div className="mt-3 flex flex-col gap-0">
+              {ROLES.map((roleDef, i) => (
+                <div key={roleDef.name} className="flex flex-col gap-2 border-b border-[oklch(0.22_0.008_240)] py-3 last:border-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[oklch(0.88_0.015_220)]">{roleDef.name}</span>
+                    <Select
+                      value={teamRoles[i].model}
+                      onValueChange={(v) => updateRoleModel(i, v)}
+                    >
+                      <SelectTrigger className="h-7 w-44 border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] text-xs text-[oklch(0.84_0.012_220)]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.115_0.004_245)] text-[oklch(0.86_0.012_220)]">
+                        {models.map((m) => (
+                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={teamRoles[i].task}
+                    onChange={(e) => updateRoleTask(i, e.target.value)}
+                    placeholder={roleDef.placeholder}
+                    className="w-full resize-none rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-3 py-2 text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.52_0.030_195)]"
+                  />
                 </div>
-                <textarea
-                  rows={2}
-                  value={teamRoles[i].task}
-                  onChange={(e) => updateRoleTask(i, e.target.value)}
-                  placeholder={roleDef.placeholder}
-                  className="w-full resize-none rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-3 py-2 text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.52_0.030_195)]"
+              ))}
+            </div>
+          )}
+
+          {/* Swarm form */}
+          {mode === "swarm" && (
+            <div className="mt-3 flex flex-col gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-[oklch(0.56_0.014_225)]">Agent count</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="8"
+                  value={swarmCount}
+                  onChange={(e) => setSwarmCount(e.target.value)}
+                  placeholder="2"
+                  className="w-24 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-3 py-2 text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.52_0.030_195)]"
                 />
               </div>
-            ))}
-          </div>
-        )}
-
-        {/* Swarm form */}
-        {mode === "swarm" && (
-          <div className="flex flex-col gap-4 py-2">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-[oklch(0.56_0.014_225)]">Agent count</label>
-              <input
-                type="number"
-                min="1"
-                max="8"
-                value={swarmCount}
-                onChange={(e) => setSwarmCount(e.target.value)}
-                placeholder="2"
-                className="w-24 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-3 py-2 text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.52_0.030_195)]"
-              />
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-[oklch(0.56_0.014_225)]">Shared objective</label>
+                <textarea
+                  rows={4}
+                  value={swarmObjective}
+                  onChange={(e) => setSwarmObjective(e.target.value)}
+                  placeholder="e.g. Explore three different approaches to optimizing the query pipeline"
+                  className="resize-none rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-3 py-2 text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.52_0.030_195)]"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-[oklch(0.56_0.014_225)]">Model (all agents)</label>
+                <Select value={swarmModel} onValueChange={setSwarmModel}>
+                  <SelectTrigger className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] text-[oklch(0.84_0.012_220)]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.115_0.004_245)] text-[oklch(0.86_0.012_220)]">
+                    {models.map((m) => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-[oklch(0.56_0.014_225)]">Shared objective</label>
-              <textarea
-                rows={4}
-                value={swarmObjective}
-                onChange={(e) => setSwarmObjective(e.target.value)}
-                placeholder="e.g. Explore three different approaches to optimizing the query pipeline"
-                className="resize-none rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] px-3 py-2 text-sm text-[oklch(0.90_0.015_220)] placeholder:text-[oklch(0.42_0.012_235)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.52_0.030_195)]"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-[oklch(0.56_0.014_225)]">Model (all agents)</label>
-              <Select value={swarmModel} onValueChange={setSwarmModel}>
-                <SelectTrigger className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.13_0.004_245)] text-[oklch(0.84_0.012_220)]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="border-[oklch(0.24_0.010_235)] bg-[oklch(0.115_0.004_245)] text-[oklch(0.86_0.012_220)]">
-                  {models.map((m) => (
-                    <SelectItem key={m} value={m}>{m}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        )}
+          )}
 
-        {error && (
-          <p className="rounded-md border border-[oklch(0.38_0.040_28)] bg-[oklch(0.13_0.014_28)] px-3 py-2 text-xs text-[oklch(0.72_0.060_28)]" role="alert">
-            {error}
-          </p>
-        )}
+          {error && (
+            <p className="mt-3 rounded-md border border-[oklch(0.38_0.040_28)] bg-[oklch(0.13_0.014_28)] px-3 py-2 text-xs text-[oklch(0.72_0.060_28)]" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
 
-        <DialogFooter>
-          <Button variant="ghost" className="text-[oklch(0.58_0.012_230)] hover:text-[oklch(0.86_0.015_220)]" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="xolotl-mac-dialog-footer px-5 py-3">
+          <Button variant="ghost" className="text-[oklch(0.58_0.012_230)] hover:text-[oklch(0.86_0.015_220)]" onClick={() => handleDialogOpenChange(false)}>
             Discard
           </Button>
           <Button

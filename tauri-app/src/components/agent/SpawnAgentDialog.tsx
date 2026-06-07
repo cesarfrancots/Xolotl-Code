@@ -17,6 +17,7 @@ import {
 } from "../ui/select";
 import { commands } from "../../bindings";
 import { useAgentStore } from "../../stores/agentStore";
+import { useMacDialogDismissal } from "../../hooks/useMacDialogDismissal";
 
 export function SpawnAgentDialog({
   open,
@@ -31,6 +32,7 @@ export function SpawnAgentDialog({
   const [budget, setBudget] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  useMacDialogDismissal(open, handleDialogOpenChange);
 
   useEffect(() => {
     commands.listModels()
@@ -48,6 +50,11 @@ export function SpawnAgentDialog({
     setBudget("");
     setError(null);
     setModel(models[0] ?? "");
+  }
+
+  function handleDialogOpenChange(nextOpen: boolean) {
+    if (!nextOpen) reset();
+    onOpenChange(nextOpen);
   }
 
   async function handleSpawn() {
@@ -92,19 +99,16 @@ export function SpawnAgentDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={(o) => {
-        if (!o) reset();
-        onOpenChange(o);
-      }}
+      onOpenChange={handleDialogOpenChange}
     >
-      <DialogContent className="border-[oklch(0.22_0.008_240)] bg-[oklch(0.112_0.004_245)] text-[oklch(0.90_0.015_220)] shadow-[0_28px_90px_oklch(0_0_0_/_0.32)]">
-        <DialogHeader>
+      <DialogContent className="xolotl-mac-dialog w-[calc(100vw-2rem)] max-w-lg gap-0 overflow-hidden p-0">
+        <DialogHeader className="xolotl-mac-dialog-header px-5 py-4">
           <DialogTitle className="text-[oklch(0.92_0.015_220)]">Spawn Agent</DialogTitle>
           <DialogDescription className="text-[oklch(0.56_0.014_225)]">
             Pick a model, describe the task, and optionally cap spend.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-4 py-2">
+        <div className="xolotl-mac-dialog-scroll flex max-h-[70vh] flex-col gap-4 overflow-y-auto px-5 py-4">
           <div className="flex flex-col gap-1">
             <label className="text-xs text-[oklch(0.56_0.014_225)]">Model</label>
             <Select value={model} onValueChange={setModel}>
@@ -155,8 +159,8 @@ export function SpawnAgentDialog({
             </p>
           )}
         </div>
-        <DialogFooter>
-          <Button variant="ghost" className="text-[oklch(0.58_0.012_230)] hover:text-[oklch(0.86_0.015_220)]" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="xolotl-mac-dialog-footer px-5 py-3">
+          <Button variant="ghost" className="text-[oklch(0.58_0.012_230)] hover:text-[oklch(0.86_0.015_220)]" onClick={() => handleDialogOpenChange(false)}>
             Cancel
           </Button>
           <Button className="bg-[oklch(0.46_0.040_190)] text-white hover:bg-[oklch(0.42_0.040_190)]" onClick={() => void handleSpawn()} disabled={submitting || !model || !task.trim()}>

@@ -402,6 +402,11 @@ button {
   background: oklch(0.125 0.004 242 / 0.96);
 }
 
+.xolotl-mac-dialog-footer {
+  border-top: 1px solid oklch(0.22 0.008 240);
+  background: oklch(0.106 0.003 245 / 0.94);
+}
+
 .xolotl-mac-dialog-tabbar,
 .xolotl-command-palette-search,
 .xolotl-command-palette-footer {
