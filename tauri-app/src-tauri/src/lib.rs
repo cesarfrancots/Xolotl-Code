@@ -53,6 +53,7 @@ mod terminal;
 
 const MENU_EVENT: &str = "xolotl://menu";
 const PROJECT_OPEN_EVENT: &str = "xolotl://open-project";
+const APP_REOPEN_EVENT: &str = "xolotl://app-reopen";
 const MENU_NEW_CHAT: &str = "xolotl:new-chat";
 const MENU_OPEN_FOLDER: &str = "xolotl:open-folder";
 const MENU_RECENT_PROJECT_PREFIX: &str = "xolotl:recent-project:";
@@ -628,9 +629,13 @@ pub fn run() {
             }
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen {
-                has_visible_windows: _,
+                has_visible_windows,
                 ..
             } => {
+                let _ = app.emit(
+                    APP_REOPEN_EVENT,
+                    serde_json::json!({ "has_visible_windows": has_visible_windows }),
+                );
                 focus_main_window(app);
             }
             _ => {}

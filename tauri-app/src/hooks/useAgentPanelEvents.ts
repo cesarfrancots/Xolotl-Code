@@ -2,11 +2,6 @@ import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { AgentEvent } from "../bindings";
 import { useAgentStore } from "../stores/agentStore";
-import {
-  sendNotification,
-  isPermissionGranted,
-  requestPermission,
-} from "@tauri-apps/plugin-notification";
 
 /**
  * Per-agent event subscription hook — mirrors useAgentEvents.ts but writes
@@ -17,7 +12,7 @@ import {
  * - ToolCallStarted → generates client-side id, calls startAgentToolCall
  * - ToolCallCompleted → resolves pending tool call by tool name via stored mapping
  * - TurnCompleted → flushes rAF buffer, calls finalizeAgentStream
- * - StateChanged → calls updateAgentState; fires OS notification on Done/Failed
+ * - StateChanged → calls updateAgentState
  * - Error → calls appendAgentError
  *
  * Cleanup on unmount: cancels pending rAF, calls all unlisten functions.
@@ -98,9 +93,6 @@ export function useAgentPanelEvents(agentId: string): void {
       if ("StateChanged" in payload && payload.StateChanged) {
         const state = payload.StateChanged;
         useAgentStore.getState().updateAgentState(agentId, state);
-        if (state === "Done" || state === "Failed") {
-          void fireDoneNotification(agentId, state);
-        }
         return;
       }
 
@@ -128,40 +120,4 @@ export function useAgentPanelEvents(agentId: string): void {
       unlistenFn?.();
     };
   }, [agentId]);
-}
-
-// ---------------------------------------------------------------------------
-// Notification helpers
-// ---------------------------------------------------------------------------
-
-/** Lazy permission grant cache — request once, reuse across invocations. */
-let notifPermissionGranted: boolean | null = null;
-
-/**
- * Fire an OS notification when an agent transitions to Done or Failed.
- * T-5-03: title is capped at 60 chars before passing to sendNotification.
- * T-5-08: fires regardless of window focus (D-14).
- */
-async function fireDoneNotification(
-  agentId: string,
-  state: "Done" | "Failed"
-): Promise<void> {
-  try {
-    if (notifPermissionGranted === null) {
-      const granted = await isPermissionGranted();
-      notifPermissionGranted =
-        granted || (await requestPermission()) === "granted";
-    }
-    if (!notifPermissionGranted) return;
-
-    const record = useAgentStore.getState().agents.find((a) => a.id === agentId);
-    if (!record) return;
-
-    // T-5-03 mitigation: cap title at 60 chars (task is user-controlled input).
-    const title = record.task.slice(0, 60);
-    const cost = record.cumulativeCost.toFixed(4);
-    await sendNotification({ title, body: `${state} — $${cost}` });
-  } catch (err) {
-    console.warn("notification send failed:", err);
-  }
 }

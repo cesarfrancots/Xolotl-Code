@@ -10,13 +10,6 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
-// Mock notification plugin
-vi.mock("@tauri-apps/plugin-notification", () => ({
-  isPermissionGranted: vi.fn().mockResolvedValue(true),
-  requestPermission: vi.fn().mockResolvedValue("granted"),
-  sendNotification: vi.fn(),
-}));
-
 // Mock bindings so stopAgent is available
 vi.mock("../../bindings", () => ({
   commands: {

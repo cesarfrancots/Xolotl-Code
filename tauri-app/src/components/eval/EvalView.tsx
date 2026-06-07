@@ -29,6 +29,10 @@ import {
 } from "../../lib/evalReadiness";
 import { arenaCreatureClass, arenaCreatureStatusLabel } from "../../lib/evalArena";
 import { calibrationVerdict, reliabilityRows, type CalibrationTone } from "../../lib/reliability";
+import {
+  OPEN_EVAL_FROM_NOTIFICATION_EVENT,
+  consumePendingEvalNotificationId,
+} from "../../hooks/useMacNotificationRoutes";
 
 const ReliabilityDashboard = lazy(() => import("./ReliabilityDashboard"));
 
@@ -2262,6 +2266,7 @@ export function EvalView() {
   // Subscribe to streaming eval events; survives multiple consecutive runs.
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const suiteUnlistenRef = useRef<UnlistenFn | null>(null);
+  const lastNotificationEvalIdRef = useRef<string | null>(null);
   useEffect(() => {
     return () => {
       if (unlistenRef.current) unlistenRef.current();
@@ -2739,6 +2744,49 @@ export function EvalView() {
     setSelectedModels((prev) => prev.includes(model) ? prev.filter((m) => m !== model) : [...prev, model]);
   }
 
+  const loadEvalFromHistory = useCallback(async (id: string) => {
+    const r = await commands.loadEval(id);
+    if (r.status === "ok") {
+      const parsed: EvalResult = JSON.parse(r.data);
+      useEvalStore.getState().loadEval(parsed);
+      const loadedReviewMode = determineEvalReviewMode({
+        suiteId: parsed.suite_id,
+        prompt: parsed.prompt,
+        isGoalEval: parsed.is_goal_eval,
+      });
+      if (loadedReviewMode === "automatic") {
+        setEvalStage("results");
+        setBlindMode(false);
+      } else {
+        const scoreableModels = parsed.results
+          .filter((result) => !result.error && result.content.trim().length > 0)
+          .map((result) => result.model);
+        const savedReview = getBlindReviewProgress(scoreableModels, parsed.human_scores);
+        const reviewComplete = savedReview.totalModels === 0 || savedReview.complete;
+        setEvalStage(reviewComplete ? "results" : "review");
+        setBlindMode(!reviewComplete);
+      }
+      setReviewNotice(null);
+    }
+  }, [setBlindMode]);
+
+  useEffect(() => {
+    const loadNotificationEval = (evalId?: string | null) => {
+      if (!evalId || lastNotificationEvalIdRef.current === evalId) return;
+      lastNotificationEvalIdRef.current = evalId;
+      consumePendingEvalNotificationId();
+      void loadEvalFromHistory(evalId);
+    };
+    const openEvalFromNotification = (event: Event) => {
+      const evalId = (event as CustomEvent<{ evalId?: string | null }>).detail?.evalId;
+      loadNotificationEval(evalId);
+    };
+    const pendingEvalId = consumePendingEvalNotificationId();
+    loadNotificationEval(pendingEvalId);
+    window.addEventListener(OPEN_EVAL_FROM_NOTIFICATION_EVENT, openEvalFromNotification);
+    return () => window.removeEventListener(OPEN_EVAL_FROM_NOTIFICATION_EVENT, openEvalFromNotification);
+  }, [loadEvalFromHistory]);
+
   const hasScores = Object.keys(humanScores).some((m) => Object.values(humanScores[m] ?? {}).some((v) => (v ?? 0) > 0));
   const visibleEvalStage = resolveVisibleEvalStage({
     activeEvalComplete: Boolean(activeEval?.complete),
@@ -2768,31 +2816,7 @@ export function EvalView() {
               <ChevronUp className="w-3 h-3 rotate-90" />
             </button>
           </div>
-          <HistoryPanel onLoad={async (id) => {
-            const r = await commands.loadEval(id);
-            if (r.status === "ok") {
-              const parsed: EvalResult = JSON.parse(r.data);
-              useEvalStore.getState().loadEval(parsed);
-              const loadedReviewMode = determineEvalReviewMode({
-                suiteId: parsed.suite_id,
-                prompt: parsed.prompt,
-                isGoalEval: parsed.is_goal_eval,
-              });
-              if (loadedReviewMode === "automatic") {
-                setEvalStage("results");
-                setBlindMode(false);
-              } else {
-                const scoreableModels = parsed.results
-                  .filter((result) => !result.error && result.content.trim().length > 0)
-                  .map((result) => result.model);
-                const savedReview = getBlindReviewProgress(scoreableModels, parsed.human_scores);
-                const reviewComplete = savedReview.totalModels === 0 || savedReview.complete;
-                setEvalStage(reviewComplete ? "results" : "review");
-                setBlindMode(!reviewComplete);
-              }
-              setReviewNotice(null);
-            }
-          }} />
+          <HistoryPanel onLoad={loadEvalFromHistory} />
         </div>
       )}
 

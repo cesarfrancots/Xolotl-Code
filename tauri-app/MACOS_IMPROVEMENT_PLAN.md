@@ -42,6 +42,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Terminal tabs resolve zsh/bash/fish-aware shell profiles and display shell, cwd, and environment source metadata.
 - macOS Settings include a preferred external editor, and active projects can open in that editor from project rows or the command palette.
 - macOS Settings include opt-in notification toggles for agent completion, eval completion, and permission prompts. Backend notifications now respect those toggles.
+- Mac productivity notifications emit route metadata and Dock/app reopen can route back to the related Chat, Eval, or Agent view; eval ids are preserved while the lazy Eval view mounts.
 - Command palette includes clipboard-aware actions to seed a chat from the current text clipboard or ask for an explanation of the clipboard snippet.
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
 - The Mac UI respects system reduced-motion and higher-contrast preferences, with a fallback keyboard focus ring for custom workbench controls.
@@ -230,9 +231,9 @@ Deliverables:
   - Reveal generated eval artifacts in Finder. Done for saved eval JSON files, the eval-artifacts folder, and generated artifact folders after launch.
   - Open project folder in the user's preferred external editor if configured. Done for active project rows and command palette access.
 - Notification actions for long-running tasks:
-  - Agent finished. Done for opt-in native completion alerts.
-  - Eval finished. Done for opt-in single eval, goal eval, and suite completion alerts.
-  - Permission required. Done for opt-in tool permission prompt alerts.
+  - Agent finished. Done for opt-in native completion alerts and reopen-to-agent routing.
+  - Eval finished. Done for opt-in single eval, goal eval, and suite completion alerts with reopen-to-eval routing.
+  - Permission required. Done for opt-in tool permission prompt alerts with reopen-to-chat routing.
 - Clipboard-aware command palette actions:
   - Explain selected code. Done for the current text clipboard.
   - Start chat with clipboard snippet. Done for the current text clipboard.
@@ -249,7 +250,7 @@ Implementation order:
 1. Add non-interruptive Finder actions first.
    - Done for active project external-editor launch with a macOS Settings preference.
 2. Add notification routing for existing long-running work.
-   - Done for opt-in backend notifications. Click-to-view routing remains a follow-up because the current Tauri desktop notification wrapper ignores Rust-side action metadata.
+   - Done for opt-in backend notifications, route metadata events, app-reopen routing, and eval-id handoff for lazy Eval views. Direct notification click payloads remain constrained by the current Tauri desktop notification wrapper, which ignores Rust-side action metadata.
 3. Add opt-in global hotkey with settings UI and tests.
    - Done for the first implementation with the official Tauri global-shortcut plugin. Remaining validation: packaged-app manual collision behavior on a clean Mac account.
 4. Evaluate menu bar helper only after agent/eval status events are stable enough to summarize.
@@ -310,8 +311,8 @@ This is the near-term order for this branch.
    - Additional file-browser row commands in the command palette. Done for current-folder and visible-entry commands.
    - Tests for menu, palette, and keydown routing. Done for shared command actions, palette native rows, global shortcuts, and terminal-scoped shortcuts.
 4. Expand Phase 6 productivity features:
-   - Notifications with click-through routing.
-   - Optional global hotkey.
+   - Notifications with click-through routing. Done for backend route metadata and macOS app-reopen routing; direct action payload support remains dependent on Tauri desktop notification support.
+   - Optional global hotkey. Done for the first opt-in implementation.
    - Optional status/menu bar helper if it proves useful in daily use.
 5. Harden distribution:
    - Universal build path.

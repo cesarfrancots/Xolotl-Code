@@ -4,6 +4,7 @@ use runtime::{
     cost_for_usage, estimate_tokens_for_family, pricing_for, slugify_task, AgentEvent, AgentHandle,
     AgentId, AgentState, AgentSupervisor, ModelHints, TokenUsage,
 };
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
@@ -662,6 +663,9 @@ pub fn test_permission_prompt(
         MacNotificationKind::PermissionRequired,
         "Permission required",
         "A tool request is waiting for review.",
+        Some(MacNotificationRoute::Permission {
+            prompt_id: prompt_id.clone(),
+        }),
     );
 
     let pending = pending_prompts.inner().clone();
@@ -1517,6 +1521,7 @@ pub async fn run_eval_suite(
             MacNotificationKind::EvalFinished,
             "Eval suite finished",
             format!("{prompt_count} prompts complete - {suite_name}"),
+            Some(MacNotificationRoute::Eval { eval_id: None }),
         );
     });
 
@@ -1900,6 +1905,9 @@ async fn start_eval_inner_full(
                 result_summary,
                 truncate_notification_text(&eval_result.prompt, 72)
             ),
+            Some(MacNotificationRoute::Eval {
+                eval_id: Some(eval_id.clone()),
+            }),
         );
     }
 
@@ -2788,10 +2796,37 @@ fn set_mac_notification_settings_in_config(
     );
 }
 
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum MacNotificationKind {
     AgentFinished,
     EvalFinished,
     PermissionRequired,
+}
+
+impl MacNotificationKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            MacNotificationKind::AgentFinished => "agent_finished",
+            MacNotificationKind::EvalFinished => "eval_finished",
+            MacNotificationKind::PermissionRequired => "permission_required",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "view", rename_all = "snake_case")]
+pub(crate) enum MacNotificationRoute {
+    Eval { eval_id: Option<String> },
+    Agent { agent_id: String },
+    Permission { prompt_id: String },
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MacProductivityNotificationPayload {
+    kind: &'static str,
+    title: String,
+    body: String,
+    route: MacNotificationRoute,
 }
 
 fn mac_notification_enabled(config: &ConfigMap, kind: MacNotificationKind) -> bool {
@@ -2818,16 +2853,30 @@ pub(crate) fn show_productivity_notification_if_enabled(
     kind: MacNotificationKind,
     title: impl Into<String>,
     body: impl Into<String>,
+    route: Option<MacNotificationRoute>,
 ) {
     let config = load_config();
     if !mac_notification_enabled(&config, kind) {
         return;
     }
+    let title = title.into();
+    let body = body.into();
+    if let Some(route) = route {
+        let _ = app_handle.emit(
+            "xolotl://mac-productivity-notification",
+            MacProductivityNotificationPayload {
+                kind: kind.as_str(),
+                title: title.clone(),
+                body: body.clone(),
+                route,
+            },
+        );
+    }
     let _ = app_handle
         .notification()
         .builder()
-        .title(title.into())
-        .body(body.into())
+        .title(title)
+        .body(body)
         .show();
 }
 
@@ -5035,6 +5084,9 @@ pub(crate) fn spawn_event_relay(app_handle: AppHandle, agent_id: AgentId, handle
                                 MacNotificationKind::AgentFinished,
                                 title,
                                 body,
+                                Some(MacNotificationRoute::Agent {
+                                    agent_id: agent_id.0.clone(),
+                                }),
                             );
                         }
                     }
@@ -5387,6 +5439,27 @@ mod config_tests {
         assert!(settings.agent_finished);
         assert!(!settings.eval_finished);
         assert!(settings.permission_required);
+    }
+
+    #[test]
+    fn mac_notification_route_serializes_for_frontend() {
+        let agent = serde_json::to_value(MacNotificationRoute::Agent {
+            agent_id: "agent-1".into(),
+        })
+        .expect("agent route should serialize");
+        assert_eq!(
+            agent,
+            serde_json::json!({ "view": "agent", "agent_id": "agent-1" })
+        );
+
+        let eval = serde_json::to_value(MacNotificationRoute::Eval {
+            eval_id: Some("eval-1".into()),
+        })
+        .expect("eval route should serialize");
+        assert_eq!(
+            eval,
+            serde_json::json!({ "view": "eval", "eval_id": "eval-1" })
+        );
     }
 
     #[test]

@@ -12,6 +12,7 @@ import { useTerminalStore } from "./stores/terminalStore";
 import { useProjectStore } from "./stores/projectStore";
 import { useProjectDrop } from "./hooks/useProjectDrop";
 import { useMacGlobalHotkey } from "./hooks/useMacGlobalHotkey";
+import { useMacNotificationRoutes } from "./hooks/useMacNotificationRoutes";
 import { useProjectOpenEvents } from "./hooks/useProjectOpenEvents";
 import { Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves } from "lucide-react";
 import { centerTabFromSearch, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
@@ -73,6 +74,7 @@ export default function App() {
       window.history.pushState(null, "", nextUrl);
     }
   }, []);
+  useMacNotificationRoutes(selectCenterTab);
 
   const addTerminalTab = useCallback(() => {
     useUiStore.getState().setTerminalPanelOpen(true);

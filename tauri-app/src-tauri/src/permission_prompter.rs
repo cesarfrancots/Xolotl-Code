@@ -81,6 +81,9 @@ impl PermissionPrompter for TauriPermissionPrompter {
             crate::commands::MacNotificationKind::PermissionRequired,
             "Permission required",
             format!("{tool_name} is waiting for review."),
+            Some(crate::commands::MacNotificationRoute::Permission {
+                prompt_id: prompt_id.clone(),
+            }),
         );
 
         // SAFE: decide() is always called from within tokio::task::spawn_blocking
