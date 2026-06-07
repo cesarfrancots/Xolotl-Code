@@ -3093,6 +3093,79 @@ function shade(color: number, factor: number): number {
   return (r << 16) | (g << 8) | b;
 }
 
+// Blend each channel toward white by `t` (0 = unchanged, 1 = white). Pure; used
+// to keep a multiply civ-tint light enough that morph/GFP detail still reads.
+function lighten(color: number, t: number): number {
+  const f = Math.max(0, Math.min(1, t));
+  const r = (color >> 16) & 0xff;
+  const g = (color >> 8) & 0xff;
+  const b = color & 0xff;
+  const blend = (c: number) => Math.round(c + (0xff - c) * f);
+  return (blend(r) << 16) | (blend(g) << 8) | blend(b);
+}
+
+/** Flat grey used to desaturate dead/collapsed civs' entities and overlays. */
+const GREY_TINT = 0x888888;
+
+// ── pure civ-tint helpers (Phaser-free named exports, unit-tested) ──────────
+
+/**
+ * Resolve a hex colour string to a 24-bit tint number. Total / fail-safe:
+ * tolerant of a leading "#" and 3-digit shorthand; missing or non-finite input
+ * returns 0xffffff (T-02-01 — a colour string only ever becomes a number, never
+ * markup, and never throws / NaN).
+ */
+export function hexToTint(hex: string | null | undefined): number {
+  if (!hex) return 0xffffff;
+  const h = hex.replace(/^#/, "");
+  if (h.length !== 3 && h.length !== 6) return 0xffffff;
+  if (!/^[0-9a-fA-F]+$/.test(h)) return 0xffffff;
+  const expanded = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = Number.parseInt(expanded, 16);
+  return Number.isFinite(n) ? n : 0xffffff;
+}
+
+/**
+ * Build the per-snapshot `civ_id -> {tint, alive}` lookup. Skips id-less civs;
+ * `alive` defaults to true; an undefined civ list yields an empty map.
+ */
+export function buildCivColorMap(
+  civs: { id?: string; color?: string; alive?: boolean }[] | undefined,
+): Map<string, { tint: number; alive: boolean }> {
+  const m = new Map<string, { tint: number; alive: boolean }>();
+  for (const c of civs ?? []) {
+    if (!c.id) continue;
+    m.set(c.id, { tint: hexToTint(c.color), alive: c.alive !== false });
+  }
+  return m;
+}
+
+/**
+ * Pick the tint to apply for an entity given its resolved civ info.
+ * - undefined info (map miss — wild fauna / null civ_id) -> null = leave default.
+ * - living civ -> a lightened identity tint (multiply keeps morph detail).
+ * - dead civ -> the flat grey constant.
+ */
+export function civTintFor(
+  info: { tint: number; alive: boolean } | undefined,
+  grey: number = GREY_TINT,
+): number | null {
+  if (!info) return null;
+  return info.alive ? lighten(info.tint, 0.5) : grey;
+}
+
+/**
+ * Decide the territory overlay for a region's owner. Null when unowned/absent or
+ * the owner is not a known civ (neutral, Pitfall 4); else the {tint, alive} entry.
+ */
+export function regionOverlayFor(
+  owner: string | null | undefined,
+  map: Map<string, { tint: number; alive: boolean }>,
+): { tint: number; alive: boolean } | null {
+  if (!owner) return null;
+  return map.get(owner) ?? null;
+}
+
 function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(ax - bx, ay - by);
 }
