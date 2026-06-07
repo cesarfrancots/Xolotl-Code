@@ -716,6 +716,7 @@ fn build_mac_status_item_menu(
     let open_latest_agent =
         MenuItemBuilder::with_id(STATUS_OPEN_LATEST_AGENT, "Open Latest Agent Output")
             .build(app)?;
+    let latest_agent_worktree = build_latest_agent_worktree_menu(app)?;
     let open_eval = MenuItemBuilder::with_id(MENU_TAB_EVAL, "Open Eval Workspace").build(app)?;
     let reveal_active_project = MenuItemBuilder::with_id(
         STATUS_REVEAL_ACTIVE_PROJECT,
@@ -773,7 +774,9 @@ fn build_mac_status_item_menu(
         .separator();
 
     if mac_status_item_has_agents(state) {
-        builder = builder.item(&open_latest_agent);
+        builder = builder
+            .item(&open_latest_agent)
+            .item(&latest_agent_worktree);
     }
     if mac_status_item_has_eval(state) {
         builder = builder.item(&open_eval);
