@@ -23,7 +23,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Command palette includes a File Browser section for current-folder reveal/copy/context/Shortcuts JSON/refresh/navigation plus recent-folder and visible file/folder row actions.
 - Command palette keeps Mac handoff failures visible with recovery guidance for Finder, editor, Quick Look, and clipboard actions.
 - Mac command routing uses a shared command model for global keydown handling, native-menu action normalization, and command-palette action rows.
-- File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
+- File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation; its Project Handoffs submenu can reveal recent projects, open them in the configured editor or terminal, start an embedded terminal, and copy POSIX path, `xolotl-code://` link, shell open-command, context-prompt, and Shortcuts JSON handoffs without switching the active project first.
 - Directory paths passed at app launch are imported into the project store and activated on startup.
 - macOS open/reopen events are handled: folder URLs from Finder/Open With activate directly, document file URLs activate their containing folder, and Dock/app reopen focuses the main window.
 - The macOS bundle registers Finder/Open With document types for project folders plus common source/text documents.
@@ -187,7 +187,7 @@ Deliverables:
 - Open source/text files from Finder by activating the containing folder as a project. Done for macOS `RunEvent::Opened` file URLs and packaged Open With smoke coverage for nested source files.
 - Open projects from `xolotl-code://open?path=...` deep links. Done for macOS URL scheme registration, native open-event parsing, and packaged smoke coverage for Unicode source-file paths.
 - Copy project and file-browser deep links for automation handoff. Done for saved project rows plus active/current/visible command-palette actions.
-- Add a Recent Projects menu that mirrors the project store. Done for File > Open Recent with menu refresh after project changes.
+- Add a Recent Projects menu that mirrors the project store. Done for File > Open Recent with menu refresh after project changes plus native recent-project handoff submenus.
 - Add Dock menu shortcuts for New Chat, Open Folder, and recent projects if Tauri/AppKit support is practical. Evaluated against local Tauri 2.11 API: Dock visibility is exposed, but Dock menu construction is not; revisit only if an AppKit-specific shim is worth carrying.
 - Support drag-and-drop of folders onto the app window to open a project. Done for Tauri window drops; still needs end-to-end Finder smoke coverage with a real project folder.
 - Improve file browser behavior for Mac paths:
@@ -287,8 +287,8 @@ Deliverables:
   - First pass done with `xolotl-code://open?path=...` deep links for Shortcuts, Raycast, Alfred, and shell automation.
   - Link-copying actions are available from saved project rows and the command palette.
   - Shell open-command copying is available from the command palette for active projects, current folders, and visible file-browser entries.
-  - Structured JSON payload copying is available from the command palette for active projects and current file-browser folders, from saved project rows and file-browser rows in the sidebar, and from the native File menu/menu bar status item for the active project.
-  - Active project links, shell open commands, context prompts, and Shortcuts JSON payloads are available from the native File menu.
+  - Structured JSON payload copying is available from the command palette for active/recent projects, current/recent file-browser folders, and visible file-browser entries; from saved project rows and file-browser rows in the sidebar; from native File > Active Project and the menu bar status item for the active project; and from File > Open Recent project handoff submenus.
+  - Active and recent project links, shell open commands, context prompts, and Shortcuts JSON payloads are available from the native File menu.
 
 Acceptance:
 
@@ -393,7 +393,7 @@ Deliverables:
   - Keep saved-project sidebar rows useful for direct Mac automation handoff. Done for POSIX path, `xolotl-code://` link, shell open command, prompt-ready context prompt, and Shortcuts JSON copying.
   - Keep file-browser current folders and visible rows useful for direct Mac automation handoff. Done for prompt-ready folder/file context prompt and Shortcuts JSON copying with project-relative paths where useful.
   - Add documentation or in-app affordances for using links from Shortcuts, Raycast, Alfred, and shell scripts without adding noisy onboarding text to the main UI. Done for command-palette shell-open command copying and Shortcuts/Raycast-friendly JSON payloads for active projects and current folders.
-  - Keep native-menu access for active project handoffs. Done for File > Active Project, including embedded-terminal, POSIX path, prompt-ready context blocks, and Shortcuts JSON payloads.
+  - Keep native-menu access for project handoffs. Done for File > Active Project and File > Open Recent project handoffs, including embedded-terminal, POSIX path, prompt-ready context blocks, and Shortcuts JSON payloads.
 - Improve Finder-originated workflows:
   - Complete end-to-end manual QA for drag/drop, Open With, and file-url launch using real folders with spaces and package directories. Automated packaged smoke now covers Open With/file-url/deep-link cases for spaces, Unicode, symlinks, package directories, and nested source files.
   - Consider an AppKit shim only for features Tauri cannot expose cleanly and only after the maintenance cost is clear.
@@ -422,7 +422,7 @@ Deliverables:
   - Preserve route metadata for chat, eval, and agent contexts.
   - Revisit direct notification action payloads if the Tauri notification layer exposes reliable click metadata.
 - Add recent-work affordances:
-  - Recent projects stay in the native menu and command palette. Done for command-palette recent rows with compact Mac handoff actions.
+  - Recent projects stay in the native menu and command palette. Done for command-palette recent rows with compact Mac handoff actions and File > Open Recent project handoff submenus.
   - Consider recent files/folders only if it does not clutter the command palette. Done for a capped, active-project-only recent file-browser folder section with compact Mac automation handoffs and active-project cleanup.
 
 Acceptance:

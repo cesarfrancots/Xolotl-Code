@@ -1,4 +1,5 @@
 export const TAURI_MENU_EVENT = "xolotl://menu";
+export const TAURI_RECENT_PROJECT_MENU_EVENT = "xolotl://recent-project-menu";
 export const NATIVE_MENU_EVENT = "xolotl:native-menu";
 
 const MENU_ACTION_BY_ID = {
@@ -40,6 +41,34 @@ export type NativeMenuAction = (typeof MENU_ACTION_BY_ID)[keyof typeof MENU_ACTI
 
 const MENU_ACTIONS = new Set<NativeMenuAction>(Object.values(MENU_ACTION_BY_ID));
 
+const RECENT_PROJECT_MENU_ACTIONS = new Set([
+  "reveal",
+  "open-editor",
+  "open-external-terminal",
+  "new-terminal",
+  "copy-path",
+  "copy-link",
+  "copy-shell-open",
+  "copy-context",
+  "copy-shortcuts-json",
+] as const);
+
+export type NativeRecentProjectMenuAction =
+  | "reveal"
+  | "open-editor"
+  | "open-external-terminal"
+  | "new-terminal"
+  | "copy-path"
+  | "copy-link"
+  | "copy-shell-open"
+  | "copy-context"
+  | "copy-shortcuts-json";
+
+export interface NativeRecentProjectMenuPayload {
+  action: NativeRecentProjectMenuAction;
+  path: string;
+}
+
 export function nativeMenuActionFromPayload(payload: unknown): NativeMenuAction | null {
   if (typeof payload !== "string") return null;
   if (payload in MENU_ACTION_BY_ID) {
@@ -53,6 +82,18 @@ export function nativeMenuActionFromPayload(payload: unknown): NativeMenuAction 
 
 export function dispatchNativeMenuAction(action: NativeMenuAction) {
   window.dispatchEvent(new CustomEvent<NativeMenuAction>(NATIVE_MENU_EVENT, { detail: action }));
+}
+
+export function nativeRecentProjectMenuActionFromPayload(payload: unknown): NativeRecentProjectMenuPayload | null {
+  if (!payload || typeof payload !== "object") return null;
+  const candidate = payload as { action?: unknown; path?: unknown };
+  if (typeof candidate.action !== "string" || typeof candidate.path !== "string") return null;
+  if (!RECENT_PROJECT_MENU_ACTIONS.has(candidate.action as NativeRecentProjectMenuAction)) return null;
+  if (!candidate.path.trim()) return null;
+  return {
+    action: candidate.action as NativeRecentProjectMenuAction,
+    path: candidate.path,
+  };
 }
 
 export function listenForNativeMenuActions(

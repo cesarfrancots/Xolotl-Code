@@ -88,12 +88,22 @@ const MENU_COPY_LATEST_AGENT_WORKTREE_SHORTCUTS_JSON: &str =
 const MENU_NEW_ACTIVE_PROJECT_TERMINAL_TAB: &str = "xolotl:new-active-project-terminal-tab";
 const MENU_COPY_ACTIVE_PROJECT_PATH: &str = "xolotl:copy-active-project-path";
 const MENU_COPY_ACTIVE_PROJECT_CONTEXT: &str = "xolotl:copy-active-project-context";
-const MENU_COPY_ACTIVE_PROJECT_SHORTCUTS_JSON: &str =
-    "xolotl:copy-active-project-shortcuts-json";
+const MENU_COPY_ACTIVE_PROJECT_SHORTCUTS_JSON: &str = "xolotl:copy-active-project-shortcuts-json";
 const MENU_FOCUS_WINDOW: &str = "xolotl:focus-window";
 const MENU_NEW_CHAT: &str = "xolotl:new-chat";
 const MENU_OPEN_FOLDER: &str = "xolotl:open-folder";
 const MENU_RECENT_PROJECT_PREFIX: &str = "xolotl:recent-project:";
+const MENU_RECENT_PROJECT_ACTION_PREFIX: &str = "xolotl:recent-project-action:";
+const RECENT_PROJECT_MENU_EVENT: &str = "xolotl://recent-project-menu";
+const RECENT_PROJECT_ACTION_REVEAL: &str = "reveal";
+const RECENT_PROJECT_ACTION_OPEN_EDITOR: &str = "open-editor";
+const RECENT_PROJECT_ACTION_OPEN_TERMINAL: &str = "open-external-terminal";
+const RECENT_PROJECT_ACTION_NEW_TERMINAL: &str = "new-terminal";
+const RECENT_PROJECT_ACTION_COPY_PATH: &str = "copy-path";
+const RECENT_PROJECT_ACTION_COPY_LINK: &str = "copy-link";
+const RECENT_PROJECT_ACTION_COPY_SHELL_OPEN: &str = "copy-shell-open";
+const RECENT_PROJECT_ACTION_COPY_CONTEXT: &str = "copy-context";
+const RECENT_PROJECT_ACTION_COPY_SHORTCUTS_JSON: &str = "copy-shortcuts-json";
 const MENU_NO_RECENT_PROJECTS: &str = "xolotl:no-recent-projects";
 const MENU_SETTINGS: &str = "xolotl:settings";
 const MENU_COMMANDS: &str = "xolotl:commands";
@@ -320,10 +330,45 @@ fn recent_project_menu_id(path: &str) -> String {
     )
 }
 
+fn recent_project_action_menu_id(action: &str, path: &str) -> String {
+    format!(
+        "{MENU_RECENT_PROJECT_ACTION_PREFIX}{action}:{}",
+        hex_encode(path.as_bytes())
+    )
+}
+
 fn recent_project_path_from_menu_id(id: &tauri::menu::MenuId) -> Option<String> {
     let encoded = id.as_ref().strip_prefix(MENU_RECENT_PROJECT_PREFIX)?;
     let bytes = hex_decode(encoded)?;
     String::from_utf8(bytes).ok()
+}
+
+fn is_recent_project_action(action: &str) -> bool {
+    matches!(
+        action,
+        RECENT_PROJECT_ACTION_REVEAL
+            | RECENT_PROJECT_ACTION_OPEN_EDITOR
+            | RECENT_PROJECT_ACTION_OPEN_TERMINAL
+            | RECENT_PROJECT_ACTION_NEW_TERMINAL
+            | RECENT_PROJECT_ACTION_COPY_PATH
+            | RECENT_PROJECT_ACTION_COPY_LINK
+            | RECENT_PROJECT_ACTION_COPY_SHELL_OPEN
+            | RECENT_PROJECT_ACTION_COPY_CONTEXT
+            | RECENT_PROJECT_ACTION_COPY_SHORTCUTS_JSON
+    )
+}
+
+fn recent_project_action_from_menu_id(id: &tauri::menu::MenuId) -> Option<(String, String)> {
+    let payload = id
+        .as_ref()
+        .strip_prefix(MENU_RECENT_PROJECT_ACTION_PREFIX)?;
+    let (action, encoded_path) = payload.split_once(':')?;
+    if !is_recent_project_action(action) {
+        return None;
+    }
+    let bytes = hex_decode(encoded_path)?;
+    let path = String::from_utf8(bytes).ok()?;
+    Some((action.to_string(), path))
 }
 
 fn mac_path_label(path: &str) -> String {
@@ -341,6 +386,70 @@ fn mac_path_label(path: &str) -> String {
 
 fn recent_project_label(project: &Project) -> String {
     format!("{} - {}", project.name, mac_path_label(&project.path))
+}
+
+fn build_recent_project_handoff_menu(
+    app: &tauri::AppHandle,
+    project: &Project,
+) -> tauri::Result<Submenu<tauri::Wry>> {
+    let reveal = MenuItemBuilder::with_id(
+        recent_project_action_menu_id(RECENT_PROJECT_ACTION_REVEAL, &project.path),
+        "Reveal in Finder",
+    )
+    .build(app)?;
+    let editor = MenuItemBuilder::with_id(
+        recent_project_action_menu_id(RECENT_PROJECT_ACTION_OPEN_EDITOR, &project.path),
+        "Open in Editor",
+    )
+    .build(app)?;
+    let terminal = MenuItemBuilder::with_id(
+        recent_project_action_menu_id(RECENT_PROJECT_ACTION_OPEN_TERMINAL, &project.path),
+        "Open in External Terminal",
+    )
+    .build(app)?;
+    let embedded_terminal = MenuItemBuilder::with_id(
+        recent_project_action_menu_id(RECENT_PROJECT_ACTION_NEW_TERMINAL, &project.path),
+        "New Embedded Terminal Here",
+    )
+    .build(app)?;
+    let copy_path = MenuItemBuilder::with_id(
+        recent_project_action_menu_id(RECENT_PROJECT_ACTION_COPY_PATH, &project.path),
+        "Copy POSIX Path",
+    )
+    .build(app)?;
+    let copy_link = MenuItemBuilder::with_id(
+        recent_project_action_menu_id(RECENT_PROJECT_ACTION_COPY_LINK, &project.path),
+        "Copy Xolotl Link",
+    )
+    .build(app)?;
+    let copy_shell = MenuItemBuilder::with_id(
+        recent_project_action_menu_id(RECENT_PROJECT_ACTION_COPY_SHELL_OPEN, &project.path),
+        "Copy Shell Open Command",
+    )
+    .build(app)?;
+    let copy_context = MenuItemBuilder::with_id(
+        recent_project_action_menu_id(RECENT_PROJECT_ACTION_COPY_CONTEXT, &project.path),
+        "Copy Context Prompt",
+    )
+    .build(app)?;
+    let copy_shortcuts_json = MenuItemBuilder::with_id(
+        recent_project_action_menu_id(RECENT_PROJECT_ACTION_COPY_SHORTCUTS_JSON, &project.path),
+        "Copy Shortcuts JSON",
+    )
+    .build(app)?;
+
+    SubmenuBuilder::new(app, recent_project_label(project))
+        .item(&reveal)
+        .item(&editor)
+        .item(&terminal)
+        .item(&embedded_terminal)
+        .separator()
+        .item(&copy_path)
+        .item(&copy_link)
+        .item(&copy_shell)
+        .item(&copy_context)
+        .item(&copy_shortcuts_json)
+        .build()
 }
 
 fn build_recent_projects_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
@@ -363,6 +472,14 @@ fn build_recent_projects_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<t
         .build(app)?;
         builder = builder.item(&item);
     }
+
+    let mut handoffs = SubmenuBuilder::new(app, "Project Handoffs");
+    for project in projects.iter().take(RECENT_PROJECT_LIMIT) {
+        let project_handoffs = build_recent_project_handoff_menu(app, project)?;
+        handoffs = handoffs.item(&project_handoffs);
+    }
+    let handoffs = handoffs.build()?;
+    builder = builder.separator().item(&handoffs);
 
     builder.build()
 }
@@ -1190,6 +1307,12 @@ pub fn run() {
                     focus_main_window(app);
                 } else if let Some(action) = menu_action_for_id(event.id()) {
                     let _ = app.emit(MENU_EVENT, action);
+                } else if let Some((action, path)) = recent_project_action_from_menu_id(event.id())
+                {
+                    let _ = app.emit(
+                        RECENT_PROJECT_MENU_EVENT,
+                        serde_json::json!({ "action": action, "path": path }),
+                    );
                 } else if let Some(path) = recent_project_path_from_menu_id(event.id()) {
                     let _ = app.emit(PROJECT_OPEN_EVENT, path);
                 }
@@ -1261,6 +1384,34 @@ mod tests {
         let menu_id = tauri::menu::MenuId::new(format!("{MENU_RECENT_PROJECT_PREFIX}xyz"));
 
         assert_eq!(recent_project_path_from_menu_id(&menu_id), None);
+    }
+
+    #[test]
+    fn recent_project_action_menu_id_round_trips_action_and_path() {
+        let path = "/Users/cesar/Projects/Xolotl Code/mañana";
+        let menu_id = tauri::menu::MenuId::new(recent_project_action_menu_id(
+            RECENT_PROJECT_ACTION_COPY_SHORTCUTS_JSON,
+            path,
+        ));
+
+        assert_eq!(
+            recent_project_action_from_menu_id(&menu_id),
+            Some((
+                RECENT_PROJECT_ACTION_COPY_SHORTCUTS_JSON.to_string(),
+                path.to_string()
+            ))
+        );
+        assert_eq!(menu_action_for_id(&menu_id), None);
+    }
+
+    #[test]
+    fn recent_project_action_menu_id_rejects_unknown_actions() {
+        let menu_id = tauri::menu::MenuId::new(format!(
+            "{MENU_RECENT_PROJECT_ACTION_PREFIX}delete:{}",
+            hex_encode(b"/Users/cesar/Projects/Xolotl")
+        ));
+
+        assert_eq!(recent_project_action_from_menu_id(&menu_id), None);
     }
 
     #[test]

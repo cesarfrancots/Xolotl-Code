@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { persistCenterTab } from "./lib/appNavigation";
 import { MAC_APP_STATUS_EVENT } from "./lib/macAppStatus";
-import { NATIVE_MENU_EVENT } from "./lib/nativeMenu";
+import { NATIVE_MENU_EVENT, TAURI_RECENT_PROJECT_MENU_EVENT } from "./lib/nativeMenu";
 import { useAgentStore } from "./stores/agentStore";
 import { useProjectStore } from "./stores/projectStore";
 import { useTerminalStore } from "./stores/terminalStore";
@@ -123,6 +123,13 @@ function installTestStorage() {
   };
   Object.defineProperty(window, "localStorage", { configurable: true, value: storage });
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
+}
+
+function emitTauriEvent(eventName: string, payload: unknown) {
+  const call = tauriEventMocks.listen.mock.calls.find(([name]) => name === eventName);
+  expect(call).toBeTruthy();
+  const handler = call?.[1] as ((event: { payload: unknown }) => void) | undefined;
+  handler?.({ payload });
 }
 
 describe("App tab navigation", () => {
@@ -257,6 +264,106 @@ describe("App tab navigation", () => {
       expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
     });
     expect(await screen.findByText("Active project shell open command copied.")).toBeTruthy();
+  });
+
+  it("runs native recent project handoffs without activating the project", async () => {
+    useProjectStore.setState({
+      activeProjectPath: null,
+      projects: [{
+        path: "/Users/cesar/Documents/Xolotl",
+        name: "Xolotl Code",
+        added_at: 1,
+        last_opened_at: 2,
+      }],
+    });
+    render(<App />);
+
+    await waitFor(() => {
+      expect(tauriEventMocks.listen).toHaveBeenCalledWith(
+        TAURI_RECENT_PROJECT_MENU_EVENT,
+        expect.any(Function),
+      );
+    });
+
+    emitTauriEvent(TAURI_RECENT_PROJECT_MENU_EVENT, {
+      action: "reveal",
+      path: "/Users/cesar/Documents/Xolotl",
+    });
+    await waitFor(() => {
+      expect(pathActionMocks.revealPathInFinder).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+    expect(await screen.findByText("Xolotl Code revealed in Finder.")).toBeTruthy();
+
+    emitTauriEvent(TAURI_RECENT_PROJECT_MENU_EVENT, {
+      action: "open-editor",
+      path: "/Users/cesar/Documents/Xolotl",
+    });
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+
+    emitTauriEvent(TAURI_RECENT_PROJECT_MENU_EVENT, {
+      action: "open-external-terminal",
+      path: "/Users/cesar/Documents/Xolotl",
+    });
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+
+    emitTauriEvent(TAURI_RECENT_PROJECT_MENU_EVENT, {
+      action: "new-terminal",
+      path: "/Users/cesar/Documents/Xolotl",
+    });
+    expect(await screen.findByText("Terminal dock")).toBeTruthy();
+    expect(useTerminalStore.getState().tabs[0].cwd).toBe("/Users/cesar/Documents/Xolotl");
+
+    emitTauriEvent(TAURI_RECENT_PROJECT_MENU_EVENT, {
+      action: "copy-path",
+      path: "/Users/cesar/Documents/Xolotl",
+    });
+    await waitFor(() => {
+      expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+
+    emitTauriEvent(TAURI_RECENT_PROJECT_MENU_EVENT, {
+      action: "copy-link",
+      path: "/Users/cesar/Documents/Xolotl",
+    });
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+
+    emitTauriEvent(TAURI_RECENT_PROJECT_MENU_EVENT, {
+      action: "copy-shell-open",
+      path: "/Users/cesar/Documents/Xolotl",
+    });
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+
+    emitTauriEvent(TAURI_RECENT_PROJECT_MENU_EVENT, {
+      action: "copy-context",
+      path: "/Users/cesar/Documents/Xolotl",
+    });
+    await waitFor(() => {
+      expect(pathActionMocks.copyProjectContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl",
+        "Xolotl Code",
+      );
+    });
+
+    emitTauriEvent(TAURI_RECENT_PROJECT_MENU_EVENT, {
+      action: "copy-shortcuts-json",
+      path: "/Users/cesar/Documents/Xolotl",
+    });
+    await waitFor(() => {
+      expect(pathActionMocks.copyProjectAutomationHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl",
+        "Xolotl Code",
+      );
+    });
+    expect(await screen.findByText("Xolotl Code Shortcuts JSON copied.")).toBeTruthy();
+    expect(useProjectStore.getState().activeProjectPath).toBeNull();
   });
 
   it("copies active project context prompts from native active project actions", async () => {

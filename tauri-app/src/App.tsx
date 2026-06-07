@@ -9,7 +9,7 @@ import { MergeCheckpointView } from "./components/agent/MergeCheckpointView";
 import { useAgentStore, type AgentRecord } from "./stores/agentStore";
 import { useUiStore } from "./stores/uiStore";
 import { useTerminalStore } from "./stores/terminalStore";
-import { useProjectStore } from "./stores/projectStore";
+import { projectDisplayName, useProjectStore } from "./stores/projectStore";
 import { useProjectDrop } from "./hooks/useProjectDrop";
 import { useMacGlobalHotkey } from "./hooks/useMacGlobalHotkey";
 import { useMacNotificationRoutes } from "./hooks/useMacNotificationRoutes";
@@ -37,8 +37,11 @@ import {
   dispatchNativeMenuAction,
   listenForNativeMenuActions,
   nativeMenuActionFromPayload,
+  nativeRecentProjectMenuActionFromPayload,
   TAURI_MENU_EVENT,
+  TAURI_RECENT_PROJECT_MENU_EVENT,
   type NativeMenuAction,
+  type NativeRecentProjectMenuPayload,
 } from "./lib/nativeMenu";
 
 const loadEvalView = () => import("./components/eval/EvalView");
@@ -232,6 +235,125 @@ export default function App() {
         });
       });
   }, [showNoActiveProjectStatus]);
+
+  const recentProjectNameForPath = useCallback((path: string) => {
+    return useProjectStore.getState().projects.find((project) => project.path === path)?.name
+      ?? projectDisplayName(path);
+  }, []);
+
+  const runRecentProjectMenuHandoff = useCallback((
+    payload: NativeRecentProjectMenuPayload,
+    action: (path: string, name: string) => Promise<void>,
+    successMessage: string,
+    failureMessage: string,
+    recoveryHint: string,
+  ) => {
+    const projectName = recentProjectNameForPath(payload.path);
+    void action(payload.path, projectName)
+      .then(() => {
+        setMacAppStatus({ tone: "ok", message: successMessage });
+      })
+      .catch((err) => {
+        setMacAppStatus({
+          tone: "error",
+          message: failureMessage,
+          hint: `${recoveryHint} ${errorDetail(err)}`,
+        });
+      });
+  }, [recentProjectNameForPath]);
+
+  const handleNativeRecentProjectMenuAction = useCallback((payload: NativeRecentProjectMenuPayload) => {
+    const projectName = recentProjectNameForPath(payload.path);
+    if (payload.action === "reveal") {
+      runRecentProjectMenuHandoff(
+        payload,
+        (path) => revealPathInFinder(path),
+        `${projectName} revealed in Finder.`,
+        `Reveal ${projectName} in Finder failed.`,
+        "Check that the recent project folder still exists and Finder can access it.",
+      );
+      return;
+    }
+    if (payload.action === "open-editor") {
+      runRecentProjectMenuHandoff(
+        payload,
+        (path) => openPathInExternalEditor(path),
+        `${projectName} opened in the external editor.`,
+        `Open ${projectName} in external editor failed.`,
+        "Check the preferred external editor in macOS Settings, or choose an installed editor app.",
+      );
+      return;
+    }
+    if (payload.action === "open-external-terminal") {
+      runRecentProjectMenuHandoff(
+        payload,
+        (path) => openPathInExternalTerminal(path),
+        `${projectName} opened in the external terminal.`,
+        `Open ${projectName} in external terminal failed.`,
+        "Check the preferred external terminal in macOS Settings, or choose an installed terminal app.",
+      );
+      return;
+    }
+    if (payload.action === "new-terminal") {
+      runRecentProjectMenuHandoff(
+        payload,
+        (path) => openEmbeddedTerminalAtPath(path),
+        `Embedded terminal opened at ${projectName}.`,
+        `Open embedded terminal at ${projectName} failed.`,
+        "Check that the recent project folder still exists and macOS can access it.",
+      );
+      return;
+    }
+    if (payload.action === "copy-path") {
+      runRecentProjectMenuHandoff(
+        payload,
+        (path) => copyTextToClipboard(path),
+        `${projectName} POSIX path copied.`,
+        `Copy ${projectName} POSIX path failed.`,
+        "Check clipboard permissions and try again.",
+      );
+      return;
+    }
+    if (payload.action === "copy-link") {
+      runRecentProjectMenuHandoff(
+        payload,
+        (path) => copyXolotlCodeOpenUrl(path),
+        `${projectName} Xolotl link copied.`,
+        `Copy ${projectName} Xolotl link failed.`,
+        "Check clipboard permissions and try again.",
+      );
+      return;
+    }
+    if (payload.action === "copy-shell-open") {
+      runRecentProjectMenuHandoff(
+        payload,
+        (path) => copyXolotlCodeOpenShellCommand(path),
+        `${projectName} shell open command copied.`,
+        `Copy ${projectName} shell open command failed.`,
+        "Check clipboard permissions and try again.",
+      );
+      return;
+    }
+    if (payload.action === "copy-context") {
+      runRecentProjectMenuHandoff(
+        payload,
+        (path, name) => copyProjectContextHandoff(path, name),
+        `${projectName} context prompt copied.`,
+        `Copy ${projectName} context prompt failed.`,
+        "Check clipboard permissions and try again.",
+      );
+      return;
+    }
+    if (payload.action === "copy-shortcuts-json") {
+      runRecentProjectMenuHandoff(
+        payload,
+        (path, name) => copyProjectAutomationHandoff(path, name),
+        `${projectName} Shortcuts JSON copied.`,
+        `Copy ${projectName} Shortcuts JSON failed.`,
+        "Check clipboard permissions and try again.",
+      );
+    }
+  }, [openEmbeddedTerminalAtPath, recentProjectNameForPath, runRecentProjectMenuHandoff]);
 
   const handleNativeMenuAction = useCallback((action: NativeMenuAction) => {
     const now = performance.now();
@@ -478,6 +600,34 @@ export default function App() {
       if (unlisten) unlisten();
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: UnlistenFn | null = null;
+
+    listen<unknown>(TAURI_RECENT_PROJECT_MENU_EVENT, (event) => {
+      const payload = nativeRecentProjectMenuActionFromPayload(event.payload);
+      if (payload) handleNativeRecentProjectMenuAction(payload);
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("recent project menu listener failed:", err);
+        setMacAppStatus({
+          tone: "error",
+          message: "Recent project menu bridge unavailable.",
+          hint: `Restart Xolotl Code if recent project handoff commands stop responding. Direct Open Recent entries still work. ${errorDetail(err)}`,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [handleNativeRecentProjectMenuAction]);
 
   useEffect(() => {
     const handlePopState = () => setCenterTab(centerTabFromSearch(window.location.search));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAC_COMMANDS } from "./macCommandModel";
-import { nativeMenuActionFromPayload } from "./nativeMenu";
+import { nativeMenuActionFromPayload, nativeRecentProjectMenuActionFromPayload } from "./nativeMenu";
 
 describe("nativeMenuActionFromPayload", () => {
   it("normalizes native Tauri menu ids to frontend actions", () => {
@@ -39,5 +39,24 @@ describe("nativeMenuActionFromPayload", () => {
   it("rejects unknown or malformed payloads", () => {
     expect(nativeMenuActionFromPayload("xolotl:quit")).toBeNull();
     expect(nativeMenuActionFromPayload({ action: "settings" })).toBeNull();
+  });
+});
+
+describe("nativeRecentProjectMenuActionFromPayload", () => {
+  it("normalizes path-carrying recent project menu actions", () => {
+    expect(nativeRecentProjectMenuActionFromPayload({
+      action: "copy-shortcuts-json",
+      path: "/Users/cesar/Projects/Xolotl Code",
+    })).toEqual({
+      action: "copy-shortcuts-json",
+      path: "/Users/cesar/Projects/Xolotl Code",
+    });
+  });
+
+  it("rejects malformed recent project menu payloads", () => {
+    expect(nativeRecentProjectMenuActionFromPayload(null)).toBeNull();
+    expect(nativeRecentProjectMenuActionFromPayload({ action: "delete", path: "/tmp/x" })).toBeNull();
+    expect(nativeRecentProjectMenuActionFromPayload({ action: "reveal", path: "" })).toBeNull();
+    expect(nativeRecentProjectMenuActionFromPayload({ action: "reveal" })).toBeNull();
   });
 });
