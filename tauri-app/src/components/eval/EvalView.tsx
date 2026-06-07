@@ -4,7 +4,7 @@ import {
   FlaskConical, Play, RotateCcw, ChevronDown, ChevronUp, Save,
   Eye, EyeOff, Trophy, History, ListChecks, Gavel, Trash2,
   Target, AlertTriangle, Activity, ShieldCheck, ScanSearch, Gauge,
-  CheckCircle2, CircleDot, ExternalLink, MonitorPlay,
+  CheckCircle2, CircleDot, ExternalLink, FileText, FolderOpen, MonitorPlay,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
@@ -146,6 +146,15 @@ function hasScoreableOutput(state: { status: string; content: string; error?: st
 }
 
 type ArtifactLaunchState = "idle" | "starting" | "ok" | "error";
+type ArtifactRevealState = "idle" | "revealing" | "ok" | "error";
+
+interface ArtifactActionStatus {
+  state: ArtifactLaunchState;
+  message: string;
+  artifactDir?: string;
+  revealState?: ArtifactRevealState;
+  revealMessage?: string;
+}
 
 type ModelAvatarMeta = {
   initials: string;
@@ -459,7 +468,7 @@ function OutcomePreview({
   const state = useEvalStore((s) => s.activeEval?.modelStates[model]);
   const artifacts = useMemo(() => state?.content ? extractEvalArtifacts(state.content) : [], [state?.content]);
   const firstInlinePreview = artifacts.find((artifact) => artifact.canPreviewInline && artifact.previewHtml);
-  const [launchStates, setLaunchStates] = useState<Record<string, { state: ArtifactLaunchState; message: string }>>({});
+  const [launchStates, setLaunchStates] = useState<Record<string, ArtifactActionStatus>>({});
   const [showText, setShowText] = useState(false);
 
   if (!state) return null;
@@ -473,10 +482,36 @@ function OutcomePreview({
       files: artifact.files.map((file) => ({ relative_path: file.relativePath, content: file.content })),
     });
     if (result.status === "ok") {
-      setLaunchStates((prev) => ({ ...prev, [artifact.id]: { state: "ok", message: result.data.message } }));
+      setLaunchStates((prev) => ({
+        ...prev,
+        [artifact.id]: {
+          state: "ok",
+          message: result.data.message,
+          artifactDir: result.data.artifact_dir,
+          revealState: "idle",
+        },
+      }));
     } else {
       setLaunchStates((prev) => ({ ...prev, [artifact.id]: { state: "error", message: result.error } }));
     }
+  };
+
+  const revealArtifact = async (artifact: EvalArtifact) => {
+    const launched = launchStates[artifact.id];
+    if (!launched?.artifactDir) return;
+    setLaunchStates((prev) => ({
+      ...prev,
+      [artifact.id]: { ...launched, revealState: "revealing", revealMessage: "" },
+    }));
+    const result = await commands.revealInFinder(launched.artifactDir);
+    setLaunchStates((prev) => ({
+      ...prev,
+      [artifact.id]: {
+        ...(prev[artifact.id] ?? launched),
+        revealState: result.status === "ok" ? "ok" : "error",
+        revealMessage: result.status === "ok" ? "Revealed in Finder." : result.error,
+      },
+    }));
   };
 
   return (
@@ -513,17 +548,31 @@ function OutcomePreview({
           {artifacts.map((artifact) => {
             const launch = launchStates[artifact.id] ?? { state: "idle" as ArtifactLaunchState, message: "" };
             return (
-              <button
-                key={artifact.id}
-                type="button"
-                onClick={() => void startArtifact(artifact)}
-                disabled={launch.state === "starting" || launch.state === "ok"}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.66_0.020_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
-                title={launch.message || artifact.title}
-              >
-                <ExternalLink className="h-3 w-3" />
-                {launch.state === "starting" ? "Starting..." : artifact.kind === "python" ? "Start" : "Open"} {artifact.title}
-              </button>
+              <div key={artifact.id} className="inline-flex min-w-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => void startArtifact(artifact)}
+                  disabled={launch.state === "starting" || launch.state === "ok"}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.66_0.020_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
+                  title={launch.message || artifact.title}
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {launch.state === "starting" ? "Starting..." : artifact.kind === "python" ? "Start" : "Open"} {artifact.title}
+                </button>
+                {launch.artifactDir && (
+                  <button
+                    type="button"
+                    onClick={() => void revealArtifact(artifact)}
+                    disabled={launch.revealState === "revealing"}
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.60_0.018_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
+                    title={launch.revealMessage || "Reveal generated artifact folder in Finder"}
+                    aria-label={`Reveal ${artifact.title} artifact in Finder`}
+                  >
+                    <FolderOpen className="h-3 w-3" />
+                    {launch.revealState === "revealing" ? "Revealing..." : "Reveal"}
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
@@ -1423,10 +1472,31 @@ function BenchmarkLeaderboardPanel() {
 
 function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
   const [items, setItems] = useState<EvalMeta[]>([]);
+  const [actionMessage, setActionMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const refresh = useCallback(() => {
     commands.listEvals().then(setItems).catch(console.error);
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
+
+  async function revealEvalFile(id: string) {
+    setActionMessage(null);
+    const result = await commands.revealEvalResultInFinder(id);
+    setActionMessage(
+      result.status === "ok"
+        ? { tone: "ok", text: "Eval file revealed in Finder." }
+        : { tone: "error", text: result.error }
+    );
+  }
+
+  async function revealArtifactsFolder() {
+    setActionMessage(null);
+    const result = await commands.revealEvalArtifactsInFinder();
+    setActionMessage(
+      result.status === "ok"
+        ? { tone: "ok", text: "Eval artifacts folder revealed in Finder." }
+        : { tone: "error", text: result.error }
+    );
+  }
 
   async function del(id: string) {
     await commands.deleteEval(id);
@@ -1444,6 +1514,30 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
   }
   return (
     <div className="flex flex-col gap-1 p-2 overflow-y-auto">
+      <div className="mb-1 flex items-center justify-between gap-2 px-1">
+        <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-[oklch(0.48_0.012_230)]">Saved evals</span>
+        <button
+          type="button"
+          onClick={() => void revealArtifactsFolder()}
+          className="inline-flex h-7 items-center gap-1 rounded-md border border-[oklch(0.24_0.010_235)] px-2 text-[11px] text-[oklch(0.58_0.016_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)]"
+          title="Reveal generated eval artifacts folder in Finder"
+          aria-label="Reveal Eval Artifacts in Finder"
+        >
+          <FolderOpen className="h-3 w-3" />
+          Artifacts
+        </button>
+      </div>
+      {actionMessage && (
+        <div
+          className={`mb-1 rounded-md border px-2 py-1.5 text-[11px] ${
+            actionMessage.tone === "ok"
+              ? "border-[oklch(0.32_0.045_155)] bg-[oklch(0.14_0.016_155)] text-[oklch(0.72_0.070_155)]"
+              : "border-[oklch(0.34_0.055_25)] bg-[oklch(0.145_0.018_25)] text-[oklch(0.72_0.090_25)]"
+          }`}
+        >
+          {actionMessage.text}
+        </div>
+      )}
       {items.map((m) => {
         const reviewBadge = evalReviewModeBadge({
           suiteId: m.suite_id,
@@ -1477,7 +1571,22 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
                 <span>{new Date(m.created_at * 1000).toLocaleString()}</span>
               </div>
             </button>
-            <button onClick={() => del(m.id)} className="opacity-0 group-hover:opacity-100 text-[oklch(0.45_0_0)] hover:text-red-400 transition-opacity">
+            <button
+              type="button"
+              onClick={() => void revealEvalFile(m.id)}
+              className="opacity-0 group-hover:opacity-100 text-[oklch(0.45_0_0)] transition-opacity hover:text-[oklch(0.78_0.040_190)] focus:opacity-100"
+              title="Reveal saved eval JSON in Finder"
+              aria-label="Reveal saved eval in Finder"
+            >
+              <FileText className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => del(m.id)}
+              className="opacity-0 group-hover:opacity-100 text-[oklch(0.45_0_0)] hover:text-red-400 transition-opacity focus:opacity-100"
+              title="Delete saved eval"
+              aria-label="Delete saved eval"
+            >
               <Trash2 className="w-3 h-3" />
             </button>
           </div>

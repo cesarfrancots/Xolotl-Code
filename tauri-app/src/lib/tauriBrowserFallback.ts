@@ -1430,6 +1430,8 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
     case "touch_project":
     case "refresh_native_menu":
     case "reveal_in_finder":
+    case "reveal_eval_result_in_finder":
+    case "reveal_eval_artifacts_in_finder":
     case "open_path_in_external_editor":
       return null;
     case "cleanup_eval_processes":

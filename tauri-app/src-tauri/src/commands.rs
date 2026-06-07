@@ -1202,10 +1202,14 @@ fn reveal_command(path: &Path) -> (&'static str, Vec<std::ffi::OsString>) {
 #[specta::specta]
 pub fn reveal_in_finder(path: String) -> Result<(), String> {
     let raw = PathBuf::from(&path);
-    if !raw.exists() {
-        return Err(format!("Path does not exist: {path}"));
+    reveal_existing_path_in_file_manager(&raw)
+}
+
+fn reveal_existing_path_in_file_manager(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Err(format!("Path does not exist: {}", path.display()));
     }
-    let target = std::fs::canonicalize(&raw).unwrap_or(raw);
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let (program, args) = reveal_command(&target);
     let status = std::process::Command::new(program)
         .args(args)
@@ -1218,6 +1222,37 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
             "Could not reveal path: {program} exited with {status}"
         ))
     }
+}
+
+fn is_valid_eval_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+}
+
+fn eval_result_path(id: &str) -> Result<PathBuf, String> {
+    if !is_valid_eval_id(id) {
+        return Err("invalid eval id".to_string());
+    }
+    Ok(home_evals_dir().join(format!("{id}.json")))
+}
+
+/// Reveal a persisted eval result JSON file in Finder.
+#[tauri::command]
+#[specta::specta]
+pub fn reveal_eval_result_in_finder(id: String) -> Result<(), String> {
+    let path = eval_result_path(&id)?;
+    reveal_existing_path_in_file_manager(&path)
+}
+
+/// Reveal the generated eval artifacts folder in Finder, creating it if needed.
+#[tauri::command]
+#[specta::specta]
+pub fn reveal_eval_artifacts_in_finder() -> Result<(), String> {
+    let dir = home_eval_artifacts_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    reveal_existing_path_in_file_manager(&dir)
 }
 
 /// Open a native folder picker and return the chosen directory (or `None` if
@@ -1876,13 +1911,7 @@ async fn start_eval_inner_full(
 #[tauri::command]
 #[specta::specta]
 pub async fn run_llm_judge(id: String, judge_model: String) -> Result<String, String> {
-    if !id
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err("invalid eval id".to_string());
-    }
-    let path = home_evals_dir().join(format!("{id}.json"));
+    let path = eval_result_path(&id)?;
     let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let mut result: EvalResult = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
 
@@ -2079,13 +2108,7 @@ async fn supervise_reasoning_window(
 #[tauri::command]
 #[specta::specta]
 pub async fn run_goal_grade(id: String, judge_model: String) -> Result<String, String> {
-    if !id
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err("invalid eval id".to_string());
-    }
-    let path = home_evals_dir().join(format!("{id}.json"));
+    let path = eval_result_path(&id)?;
     let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let mut result: EvalResult = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
 
@@ -2271,26 +2294,14 @@ pub fn list_evals() -> Vec<EvalMeta> {
 #[tauri::command]
 #[specta::specta]
 pub fn load_eval(id: String) -> Result<String, String> {
-    if !id
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err("invalid eval id".to_string());
-    }
-    let path = home_evals_dir().join(format!("{id}.json"));
+    let path = eval_result_path(&id)?;
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn delete_eval(id: String) -> Result<(), String> {
-    if !id
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err("invalid eval id".to_string());
-    }
-    let path = home_evals_dir().join(format!("{id}.json"));
+    let path = eval_result_path(&id)?;
     std::fs::remove_file(&path).map_err(|e| e.to_string())
 }
 
@@ -2299,13 +2310,7 @@ pub fn delete_eval(id: String) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub fn save_human_scores(id: String, scores_json: String) -> Result<(), String> {
-    if !id
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err("invalid eval id".to_string());
-    }
-    let path = home_evals_dir().join(format!("{id}.json"));
+    let path = eval_result_path(&id)?;
     let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let mut result: EvalResult = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
     let scores: HashMap<String, HumanScores> =
@@ -2320,13 +2325,7 @@ pub fn save_human_scores(id: String, scores_json: String) -> Result<(), String> 
 #[tauri::command]
 #[specta::specta]
 pub fn save_manual_reviews(id: String, reviews_json: String) -> Result<(), String> {
-    if !id
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err("invalid eval id".to_string());
-    }
-    let path = home_evals_dir().join(format!("{id}.json"));
+    let path = eval_result_path(&id)?;
     let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let mut result: EvalResult = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
     let mut reviews: HashMap<String, ManualReview> =
@@ -5217,6 +5216,16 @@ mod config_tests {
         {
             assert_eq!(program, "xdg-open");
             assert_eq!(args[0], path.as_os_str());
+        }
+    }
+
+    #[test]
+    fn eval_result_path_accepts_safe_ids_only() {
+        let path = eval_result_path("eval-123_abc").expect("safe eval id should resolve");
+        assert!(path.ends_with("eval-123_abc.json"));
+
+        for id in ["", "../secret", "bad/id", "bad\\id", "bad.id", "bad id"] {
+            assert_eq!(eval_result_path(id).unwrap_err(), "invalid eval id");
         }
     }
 

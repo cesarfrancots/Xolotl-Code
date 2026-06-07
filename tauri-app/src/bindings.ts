@@ -46,6 +46,10 @@ export const commands = {
 	listEvals: () => __TAURI_INVOKE<EvalMeta[]>("list_evals"),
 	loadEval: (id: string) => typedError<string, string>(__TAURI_INVOKE("load_eval", { id })),
 	deleteEval: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_eval", { id })),
+	/**  Reveal a persisted eval result JSON file in Finder. */
+	revealEvalResultInFinder: (id: string) => typedError<null, string>(__TAURI_INVOKE("reveal_eval_result_in_finder", { id })),
+	/**  Reveal the generated eval artifacts folder in Finder, creating it if needed. */
+	revealEvalArtifactsInFinder: () => typedError<null, string>(__TAURI_INVOKE("reveal_eval_artifacts_in_finder")),
 	/**
 	 *  save_human_scores: updates the human_scores map in a stored eval.
 	 *  scores_json is a JSON object mapping model name → HumanScores.

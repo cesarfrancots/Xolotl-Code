@@ -25,6 +25,8 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Saved project rows and file browser entries can reveal their target in Finder.
 - File browser entries can copy POSIX paths and project-relative paths.
 - Terminal cwd metadata can reveal its folder in Finder and copy the POSIX cwd path.
+- Eval history can reveal saved eval JSON files and the generated eval artifacts folder in Finder.
+- Launched eval outcome artifacts can reveal their generated artifact folder in Finder.
 - Packaged launch-path smoke coverage is available through `npm run smoke:mac:launch-path`.
 - Packaged Launch Services/Open With smoke coverage is available through `npm run smoke:mac:open-project`.
 - Terminal tab commands are available from a native Terminal menu.
@@ -223,7 +225,7 @@ Deliverables:
   - Quick open command palette.
 - Finder actions:
   - Reveal active project in Finder.
-  - Reveal generated eval artifacts in Finder.
+  - Reveal generated eval artifacts in Finder. Done for saved eval JSON files, the eval-artifacts folder, and generated artifact folders after launch.
   - Open project folder in the user's preferred external editor if configured. Done for active project rows and command palette access.
 - Notification actions for long-running tasks:
   - Agent finished. Done for opt-in native completion alerts.
