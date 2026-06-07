@@ -1,7 +1,7 @@
 //! Standalone smoke test for the chat streaming pipeline.
 //!
 //! Run with:
-//!   cd tauri-app/src-tauri && cargo run --bin test_chat
+//!   cd tauri-app/src-tauri && cargo run --features dev-tools --example test_chat
 //!
 //! Reads KIMI_CODING_API_KEY (or KIMI_API_KEY) from env or
 //! `~/.xolotl-code/config.json` (the same resolution order the Tauri command

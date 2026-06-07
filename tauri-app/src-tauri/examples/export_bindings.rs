@@ -6,7 +6,7 @@
 //! surface. It only runs the `tauri-specta` exporter — no window, no WebView2.
 //!
 //! Run from `tauri-app/src-tauri`:
-//!   cargo run --bin export_bindings
+//!   cargo run --features dev-tools --example export_bindings
 
 fn main() {
     xolotl_lib::export_bindings("../src/bindings.ts");

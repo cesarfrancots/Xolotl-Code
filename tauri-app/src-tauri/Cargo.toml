@@ -3,6 +3,8 @@ name = "xolotl"
 version = "0.1.0"
 edition = "2021"
 default-run = "xolotl"
+autobins = false
+autoexamples = false
 
 [lib]
 name = "xolotl_lib"
@@ -43,6 +45,7 @@ base64 = "0.22"
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 default = ["custom-protocol"]
+dev-tools = []
 
 [profile.release]
 codegen-units = 1
@@ -53,6 +56,16 @@ strip = true
 
 [dev-dependencies]
 anyhow = "1"
+
+[[example]]
+name = "export_bindings"
+path = "examples/export_bindings.rs"
+required-features = ["dev-tools"]
+
+[[example]]
+name = "test_chat"
+path = "examples/test_chat.rs"
+required-features = ["dev-tools"]
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
