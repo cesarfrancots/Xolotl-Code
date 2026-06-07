@@ -23,4 +23,8 @@ describe("urlForCenterTab", () => {
   it("removes the tab query for the default chat tab", () => {
     expect(urlForCenterTab("http://localhost:5173/?tab=civ&foo=1", "chat")).toBe("/?foo=1");
   });
+
+  it("keeps a slash path when clearing a tab from the Tauri custom scheme", () => {
+    expect(urlForCenterTab("tauri://localhost?tab=civ", "chat")).toBe("/");
+  });
 });

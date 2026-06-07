@@ -1,7 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { NATIVE_MENU_EVENT } from "./lib/nativeMenu";
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(() => Promise.resolve(() => {})),
+}));
 
 vi.mock("./components/sidebar/SessionSidebar", () => ({
   SessionSidebar: () => <aside>Sessions</aside>,
@@ -86,5 +91,37 @@ describe("App tab navigation", () => {
 
     expect(await screen.findByText("Civilization workspace")).toBeTruthy();
     expect(window.location.search).toBe("?tab=civ");
+  });
+
+  it("switches workspace tabs from native menu actions", async () => {
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "tab-eval" }));
+    expect(await screen.findByText("Eval workspace")).toBeTruthy();
+    expect(window.location.search).toBe("?tab=eval");
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "tab-chat" }));
+    expect(screen.getByText("Chat workspace")).toBeTruthy();
+    expect(window.location.search).toBe("");
+  });
+
+  it("supports Mac command-number shortcuts for workspace tabs", async () => {
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: "3", metaKey: true });
+
+    expect(await screen.findByText("Civilization workspace")).toBeTruthy();
+    expect(window.location.search).toBe("?tab=civ");
+  });
+
+  it("returns to chat for the native new chat action", async () => {
+    window.history.replaceState(null, "", "/?tab=eval");
+    render(<App />);
+    expect(await screen.findByText("Eval workspace")).toBeTruthy();
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "new-chat" }));
+
+    expect(screen.getByText("Chat workspace")).toBeTruthy();
+    expect(window.location.search).toBe("");
   });
 });

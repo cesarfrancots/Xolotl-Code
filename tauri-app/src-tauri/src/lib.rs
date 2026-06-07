@@ -1,5 +1,7 @@
 use specta_typescript::Typescript;
 use std::sync::Arc;
+use tauri::menu::{AboutMetadata, Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::Emitter;
 use tauri_specta::{collect_commands, Builder};
 
 use crate::civilization::{
@@ -43,6 +45,16 @@ mod commands;
 mod permission_prompter;
 pub mod skills_mcp;
 mod terminal;
+
+const MENU_EVENT: &str = "xolotl://menu";
+const MENU_NEW_CHAT: &str = "xolotl:new-chat";
+const MENU_OPEN_FOLDER: &str = "xolotl:open-folder";
+const MENU_SETTINGS: &str = "xolotl:settings";
+const MENU_COMMANDS: &str = "xolotl:commands";
+const MENU_TOGGLE_TERMINAL: &str = "xolotl:toggle-terminal";
+const MENU_TAB_CHAT: &str = "xolotl:tab-chat";
+const MENU_TAB_EVAL: &str = "xolotl:tab-eval";
+const MENU_TAB_CIV: &str = "xolotl:tab-civ";
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
@@ -168,6 +180,122 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<CivDecisionAction>()
 }
 
+fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let about_metadata = AboutMetadata {
+        name: Some("Xolotl Code".into()),
+        version: Some(env!("CARGO_PKG_VERSION").into()),
+        short_version: Some(env!("CARGO_PKG_VERSION").into()),
+        ..Default::default()
+    };
+
+    let settings = MenuItemBuilder::with_id(MENU_SETTINGS, "Settings...")
+        .accelerator("CmdOrCtrl+Comma")
+        .build(app)?;
+    let new_chat = MenuItemBuilder::with_id(MENU_NEW_CHAT, "New Chat")
+        .accelerator("CmdOrCtrl+KeyN")
+        .build(app)?;
+    let open_folder = MenuItemBuilder::with_id(MENU_OPEN_FOLDER, "Open Folder...")
+        .accelerator("CmdOrCtrl+KeyO")
+        .build(app)?;
+    let commands = MenuItemBuilder::with_id(MENU_COMMANDS, "Command Palette...")
+        .accelerator("CmdOrCtrl+KeyK")
+        .build(app)?;
+    let toggle_terminal = MenuItemBuilder::with_id(MENU_TOGGLE_TERMINAL, "Toggle Terminal")
+        .accelerator("CmdOrCtrl+KeyJ")
+        .build(app)?;
+    let chat_tab = MenuItemBuilder::with_id(MENU_TAB_CHAT, "Chat")
+        .accelerator("CmdOrCtrl+Digit1")
+        .build(app)?;
+    let eval_tab = MenuItemBuilder::with_id(MENU_TAB_EVAL, "Eval")
+        .accelerator("CmdOrCtrl+Digit2")
+        .build(app)?;
+    let civ_tab = MenuItemBuilder::with_id(MENU_TAB_CIV, "Civ")
+        .accelerator("CmdOrCtrl+Digit3")
+        .build(app)?;
+
+    let app_menu = SubmenuBuilder::new(app, "Xolotl Code")
+        .about(Some(about_metadata))
+        .separator()
+        .item(&settings)
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+
+    let file_menu = SubmenuBuilder::new(app, "File")
+        .item(&new_chat)
+        .item(&open_folder)
+        .separator()
+        .close_window()
+        .build()?;
+
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    let view_menu = SubmenuBuilder::new(app, "View")
+        .item(&commands)
+        .item(&toggle_terminal)
+        .separator()
+        .fullscreen()
+        .build()?;
+
+    let workbench_menu = SubmenuBuilder::new(app, "Workbench")
+        .item(&chat_tab)
+        .item(&eval_tab)
+        .item(&civ_tab)
+        .build()?;
+
+    let window_menu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize()
+        .separator()
+        .bring_all_to_front()
+        .build()?;
+
+    MenuBuilder::new(app)
+        .item(&app_menu)
+        .item(&file_menu)
+        .item(&edit_menu)
+        .item(&view_menu)
+        .item(&workbench_menu)
+        .item(&window_menu)
+        .build()
+}
+
+fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
+    if id == MENU_NEW_CHAT {
+        Some(MENU_NEW_CHAT)
+    } else if id == MENU_OPEN_FOLDER {
+        Some(MENU_OPEN_FOLDER)
+    } else if id == MENU_SETTINGS {
+        Some(MENU_SETTINGS)
+    } else if id == MENU_COMMANDS {
+        Some(MENU_COMMANDS)
+    } else if id == MENU_TOGGLE_TERMINAL {
+        Some(MENU_TOGGLE_TERMINAL)
+    } else if id == MENU_TAB_CHAT {
+        Some(MENU_TAB_CHAT)
+    } else if id == MENU_TAB_EVAL {
+        Some(MENU_TAB_EVAL)
+    } else if id == MENU_TAB_CIV {
+        Some(MENU_TAB_CIV)
+    } else {
+        None
+    }
+}
+
 pub fn export_bindings(path: &str) {
     make_builder()
         .export(Typescript::default(), path)
@@ -209,6 +337,13 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
+            let menu = build_native_menu(app.handle())?;
+            app.set_menu(menu)?;
+            app.on_menu_event(|app, event| {
+                if let Some(action) = menu_action_for_id(event.id()) {
+                    let _ = app.emit(MENU_EVENT, action);
+                }
+            });
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -88,7 +88,7 @@ export function CommandsPalette({
     // Keyboard shortcuts are informational; they do not run actions.
     { id: "kbd-send", kind: "shortcut", label: "Send message", syntax: "Enter", description: "Submit the composer. Shift+Enter inserts a newline instead.", icon: Keyboard },
     { id: "kbd-newline", kind: "shortcut", label: "New line", syntax: "Shift+Enter", description: "Insert a line break without sending.", icon: Keyboard },
-    { id: "kbd-palette", kind: "shortcut", label: "Open commands", syntax: "Ctrl+K", description: "Open this palette from anywhere.", icon: Keyboard },
+    { id: "kbd-palette", kind: "shortcut", label: "Open commands", syntax: "Cmd+K", description: "Open this palette from anywhere.", icon: Keyboard },
     { id: "kbd-attach", kind: "shortcut", label: "Attach files", syntax: "Drag & drop", description: "Drop text files onto the composer to attach them as fenced code blocks.", icon: Paperclip },
 
     // Workflows point users at features they may not know exist.
@@ -149,7 +149,7 @@ export function CommandsPalette({
 
         <div className="flex items-center justify-between border-t border-[oklch(0.22_0.008_240)] bg-[oklch(0.105_0.004_245)] px-4 py-2 text-[11px] text-[oklch(0.48_0.012_230)]">
           <span>Click a command to run it</span>
-          <span><kbd className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.145_0.004_245)] px-1 py-0.5 font-mono">Ctrl+K</kbd> to reopen</span>
+          <span><kbd className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.145_0.004_245)] px-1 py-0.5 font-mono">Cmd+K</kbd> to reopen</span>
         </div>
       </DialogContent>
     </Dialog>

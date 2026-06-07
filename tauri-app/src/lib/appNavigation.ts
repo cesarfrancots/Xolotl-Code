@@ -14,5 +14,5 @@ export function urlForCenterTab(currentHref: string, tab: CenterTab): string {
     url.searchParams.delete("tab");
   }
 
-  return `${url.pathname}${url.search}${url.hash}`;
+  return `${url.pathname || "/"}${url.search}${url.hash}`;
 }

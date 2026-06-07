@@ -685,7 +685,7 @@ export function MessageInput() {
               <Button
                 size="icon-sm" variant="ghost" type="button"
                 className="text-[oklch(0.58_0.012_230)] hover:text-[oklch(0.86_0.012_220)]"
-                title="Commands & shortcuts (Ctrl+K)"
+                title="Commands & shortcuts (Cmd+K)"
                 onClick={() => setCommandsOpen(true)}
               >
                 <CommandIcon className="h-3.5 w-3.5" />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ChevronDown,
   Command,
@@ -22,6 +22,7 @@ import { DirectoryBrowser } from "./DirectoryBrowser";
 import { commands } from "../../bindings";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { CommandsPalette } from "../chat/CommandsPalette";
+import { listenForNativeMenuActions } from "../../lib/nativeMenu";
 
 /**
  * Left column — the workbench navigator.
@@ -51,10 +52,30 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
     void loadProjects();
   }, [loadSessions, loadProjects]);
 
-  function handleNewSession() {
+  const handleNewSession = useCallback(() => {
     setActiveSessionId(null);
     clearSession();
-  }
+  }, [clearSession, setActiveSessionId]);
+
+  useEffect(() => {
+    return listenForNativeMenuActions((action) => {
+      if (action === "new-chat") {
+        handleNewSession();
+        return;
+      }
+      if (action === "open-folder") {
+        void openFolderDialog();
+        return;
+      }
+      if (action === "settings") {
+        setSettingsOpen(true);
+        return;
+      }
+      if (action === "commands") {
+        setCommandsOpen(true);
+      }
+    });
+  }, [handleNewSession, openFolderDialog]);
 
   function handleOpenProject(path: string) {
     setActiveProject(path);
@@ -230,7 +251,7 @@ export function SessionSidebar({ forceCollapsed = false }: { forceCollapsed?: bo
               >
                 <Command className="h-3.5 w-3.5" />
                 <span>Commands</span>
-                <kbd className="ml-1 text-[10px] font-mono px-1 py-0.5 rounded bg-[oklch(0.16_0.004_240)] border border-[oklch(0.24_0.010_235)] text-[oklch(0.54_0.010_225)]">Ctrl K</kbd>
+                <kbd className="ml-1 text-[10px] font-mono px-1 py-0.5 rounded bg-[oklch(0.16_0.004_240)] border border-[oklch(0.24_0.010_235)] text-[oklch(0.54_0.010_225)]">Cmd K</kbd>
               </button>
               <Button
                 variant="ghost"

@@ -1,5 +1,6 @@
-import React, { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import "./styles.css";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { SessionSidebar } from "./components/sidebar/SessionSidebar";
 import { ChatPane } from "./components/chat/ChatPane";
 import { AgentPanel } from "./components/agent/AgentPanel";
@@ -10,6 +11,13 @@ import { useUiStore } from "./stores/uiStore";
 import { useTerminalStore } from "./stores/terminalStore";
 import { Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves } from "lucide-react";
 import { centerTabFromSearch, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
+import {
+  dispatchNativeMenuAction,
+  listenForNativeMenuActions,
+  nativeMenuActionFromPayload,
+  TAURI_MENU_EVENT,
+  type NativeMenuAction,
+} from "./lib/nativeMenu";
 
 const loadEvalView = () => import("./components/eval/EvalView");
 const loadCivilizationView = () => import("./components/civilization/CivilizationView");
@@ -45,6 +53,7 @@ export default function App() {
   const terminalTabCount = useTerminalStore((s) => s.tabs.length);
   // Keep the dock mounted (and shells alive) while it is open or has tabs.
   const terminalDockMounted = terminalPanelOpen || terminalTabCount > 0;
+  const handledMenuActionRef = useRef<{ action: NativeMenuAction; at: number } | null>(null);
 
   const selectCenterTab = useCallback((tab: CenterTab) => {
     setCenterTab(tab);
@@ -53,6 +62,59 @@ export default function App() {
     if (nextUrl !== currentUrl) {
       window.history.pushState(null, "", nextUrl);
     }
+  }, []);
+
+  const handleNativeMenuAction = useCallback((action: NativeMenuAction) => {
+    const now = performance.now();
+    const last = handledMenuActionRef.current;
+    if (last && last.action === action && now - last.at < 150) return;
+    handledMenuActionRef.current = { action, at: now };
+
+    if (action === "new-chat") {
+      selectCenterTab("chat");
+      return;
+    }
+    if (action === "toggle-terminal") {
+      useUiStore.getState().toggleTerminalPanel();
+      return;
+    }
+    if (action === "tab-chat") {
+      selectCenterTab("chat");
+      return;
+    }
+    if (action === "tab-eval") {
+      void loadEvalView();
+      selectCenterTab("eval");
+      return;
+    }
+    if (action === "tab-civ") {
+      void loadCivilizationView();
+      selectCenterTab("civ");
+    }
+  }, [selectCenterTab]);
+
+  useEffect(() => listenForNativeMenuActions(handleNativeMenuAction), [handleNativeMenuAction]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: UnlistenFn | null = null;
+
+    listen<string>(TAURI_MENU_EVENT, (event) => {
+      const action = nativeMenuActionFromPayload(event.payload);
+      if (action) dispatchNativeMenuAction(action);
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch((err) => {
+        console.error("native menu listener failed:", err);
+      });
+
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
   }, []);
 
   useEffect(() => {
@@ -72,9 +134,30 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const metaOnly = e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+      if (metaOnly) {
+        const key = e.key.toLowerCase();
+        const actionByKey: Partial<Record<string, NativeMenuAction>> = {
+          ",": "settings",
+          "1": "tab-chat",
+          "2": "tab-eval",
+          "3": "tab-civ",
+          j: "toggle-terminal",
+          k: "commands",
+          n: "new-chat",
+          o: "open-folder",
+        };
+        const action = actionByKey[key];
+        if (action) {
+          e.preventDefault();
+          dispatchNativeMenuAction(action);
+          return;
+        }
+      }
+
       if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "`" || e.code === "Backquote")) {
         e.preventDefault();
-        useUiStore.getState().toggleTerminalPanel();
+        dispatchNativeMenuAction("toggle-terminal");
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -142,7 +225,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => useUiStore.getState().toggleTerminalPanel()}
-              title="Toggle terminal (Ctrl+`)"
+              title="Toggle terminal (Cmd+J)"
               aria-label="Toggle terminal panel"
               aria-pressed={terminalPanelOpen}
               className={[
