@@ -320,6 +320,144 @@ Automation targets:
 - Smoke script for Launch Services/Open With folder and file URL delivery.
 - Build checks for app bundle, DMG, and universal target.
 
+## Next Mac-Unique Improvement Track
+
+This track is the next implementation focus after the first compatibility and native integration work. It assumes macOS can support deeper OS integration than the Windows build, but keeps those features opt-in when they can interrupt the user or add native maintenance cost.
+
+### A. Mac Visual and Interaction Refinement
+
+Deliverables:
+
+- Tune the app shell toward a native utility-app feel without reducing developer density:
+  - Sidebar and file browser should read more like Finder/Xcode navigators.
+  - Workbench controls should keep segmented-control behavior and clear pressed states.
+  - Dialogs and popovers should feel closer to macOS sheets/popovers with tighter spacing, lighter borders, and predictable keyboard dismissal.
+- Respect system appearance more deeply:
+  - Audit light/dark transitions for contrast and separator clarity.
+  - Use the existing high-contrast/reduced-motion hooks for any new motion or focus state.
+  - Evaluate system accent-color usage only where it improves recognizability and does not create a one-color UI.
+- Improve compact-window behavior:
+  - Verify traffic-light spacing, collapsed sidebar controls, terminal tabs, and command palette at narrow widths.
+  - Prevent titlebar and toolbar actions from wrapping into unusable states.
+
+Acceptance:
+
+- The first viewport remains the working app, not a landing page.
+- No controls overlap at compact MacBook widths.
+- Full keyboard access can reach sidebar, workbench tabs, command palette, terminal tabs, and Settings.
+
+### B. Finder, Shortcuts, and Automation Handoff
+
+Deliverables:
+
+- Make project and file handoff frictionless:
+  - Continue expanding `xolotl-code://open?path=...` links where they naturally fit.
+  - Add a command-palette action to copy a prompt-ready project context link when a project is active.
+  - Add documentation or in-app affordances for using links from Shortcuts, Raycast, Alfred, and shell scripts without adding noisy onboarding text to the main UI.
+- Improve Finder-originated workflows:
+  - Complete end-to-end manual QA for drag/drop, Open With, and file-url launch using real folders with spaces and package directories.
+  - Consider an AppKit shim only for features Tauri cannot expose cleanly and only after the maintenance cost is clear.
+- Add Mac-friendly import/export surfaces:
+  - Export eval artifacts and generated reports to Finder-visible locations with reveal/copy actions.
+  - Keep file writes explicit and avoid surprise background exports.
+
+Acceptance:
+
+- A Mac user can get from Finder, Raycast, Shortcuts, or Terminal into the exact Xolotl project/folder without duplicate project entries.
+- Copied links survive paths with spaces and Unicode.
+- Automation hooks work without requiring main-branch changes or private user paths in tests.
+
+### C. Mac Work Continuity
+
+Deliverables:
+
+- Restore useful workspace state on reopen:
+  - Last active project.
+  - Last workbench tab.
+  - Terminal dock visibility.
+  - Command palette or modal state only when restoration is clearly helpful.
+- Improve reopen and notification routing:
+  - Keep Dock/app reopen focused on the most useful current task.
+  - Preserve route metadata for chat, eval, and agent contexts.
+  - Revisit direct notification action payloads if the Tauri notification layer exposes reliable click metadata.
+- Add recent-work affordances:
+  - Recent projects stay in the native menu and command palette.
+  - Consider recent files/folders only if it does not clutter the command palette.
+
+Acceptance:
+
+- Quit/reopen feels intentional and does not strand users on an empty screen.
+- Notification and Dock routing never opens the wrong project or loses eval/chat context.
+- State restoration has tests for missing, moved, or inaccessible project paths.
+
+### D. Developer Handoff Features
+
+Deliverables:
+
+- Expand external editor support:
+  - Keep the preferred editor setting.
+  - Add per-action error recovery when the configured editor is missing.
+  - Consider editor-specific deep links for VS Code, Cursor, and Zed if they are installed and if detection is reliable.
+- Expand terminal handoff:
+  - Current embedded terminal actions stay first-class.
+  - Consider optional external terminal launch for Terminal.app, iTerm2, or Warp behind a setting.
+  - Preserve active project/folder cwd and shell profile metadata.
+- Add task-result handoffs:
+  - Reveal artifacts, copy paths, copy deep links, and open folders in editor from eval/agent result surfaces.
+
+Acceptance:
+
+- Handoff actions fail visibly and recoverably when an external app is not installed.
+- Embedded terminal remains the default reliable path.
+- External app support is additive and does not break browser/Vite tests.
+
+### E. Menu Bar and Global Controls
+
+Deliverables:
+
+- Improve the optional menu bar status item:
+  - Show active project and running agent/eval summary.
+  - Add quick commands only when they are stable and already route through native command actions.
+  - Avoid turning the status menu into a second full app navigation tree.
+- Improve global hotkey behavior:
+  - Detect registration failures and show recovery text in Settings.
+  - Validate collisions on a clean Mac account.
+  - Keep the feature disabled by default.
+- Add clearer status feedback:
+  - Use native notifications only for user-enabled events.
+  - Keep in-app status indicators quiet and scan-friendly.
+
+Acceptance:
+
+- Menu bar and global hotkey features are fully optional.
+- Failed registration or permission states are visible in Settings.
+- Status menu commands reuse the tested native command bridge.
+
+### F. Validation and Release Confidence
+
+Deliverables:
+
+- Add targeted regression checks for each Mac feature:
+  - Unit tests for command, URL, path, and settings state.
+  - Browser smoke for frontend rendering after visual changes.
+  - Packaged `.app` smoke for Launch Services, deep links, and release preflight.
+- Build a manual QA checklist for Mac-specific UX:
+  - Apple Silicon current macOS.
+  - Fresh profile and existing profile.
+  - Paths with spaces, Unicode, symlinks, hidden files, and package directories.
+  - Offline launch and missing provider-key states.
+- Keep distribution gates explicit:
+  - Universal build check.
+  - Signing check.
+  - Notarization check.
+  - DMG mount/install check.
+
+Acceptance:
+
+- Each Mac-only feature has at least one focused test or documented manual verification path.
+- Release checks fail with actionable messages.
+- The macOS branch stays isolated until the user explicitly approves pushing or merging to main.
+
 ## Working Implementation Queue
 
 This is the near-term order for this branch.
@@ -328,6 +466,9 @@ This is the near-term order for this branch.
    - Finder/Open With end-to-end smoke harness for packaged app file-url open events. Done via `npm run smoke:mac:open-project`.
    - Optional AppKit Dock menu shim only if the benefit is worth the native-maintenance cost.
 2. Start Phase 2 Mac UI pass:
+   - Audit the current app shell at desktop and compact MacBook widths.
+   - Tighten Settings, command palette, terminal tabs, and result surfaces to match the existing Mac-style sidebar/workbench direction.
+   - Add browser screenshots and focused tests for any layout-affecting changes.
 3. Add Phase 2.5 keyboard parity:
    - Additional file-browser row commands in the command palette. Done for current-folder, Quick Look, New Terminal Here, and visible-entry commands.
    - Tests for menu, palette, and keydown routing. Done for shared command actions, palette native rows, global shortcuts, and terminal-scoped shortcuts.
@@ -335,6 +476,7 @@ This is the near-term order for this branch.
    - Notifications with click-through routing. Done for backend route metadata and macOS app-reopen routing; direct action payload support remains dependent on Tauri desktop notification support.
    - Optional global hotkey. Done for the first opt-in implementation.
    - Optional status/menu bar helper. Done for the first opt-in implementation with active project, agent summary, command palette, terminal, settings, and project-opening actions.
+   - Next pass: add clearer failure/recovery states for hotkey registration, notification permission, and configured external apps.
 5. Harden distribution:
    - Universal build path. Build and package scripts now select the universal app bundle when `MAC_DMG_ARCH=universal`; preflight has a universal architecture gate.
    - Signing and notarization checklist. Done for the first release checklist and strict preflight flags.
