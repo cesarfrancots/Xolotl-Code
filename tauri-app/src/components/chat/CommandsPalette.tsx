@@ -4,7 +4,7 @@ import {
   Hash, Keyboard, Paperclip, FlaskConical, GitBranch, Users, FileText, Settings2,
   DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen, Archive, Gauge,
   MessageSquare, TerminalSquare, TestTubeDiagonal, Sprout, Settings, FolderPlus, ExternalLink, Copy,
-  CornerDownRight, CornerLeftUp, File as FileIcon, Folder, RefreshCw,
+  Code2, CornerDownRight, CornerLeftUp, File as FileIcon, Folder, RefreshCw,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
@@ -25,7 +25,7 @@ import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "..
 import { MAC_COMMANDS, type MacCommandId, type MacCommandSpec } from "../../lib/macCommandModel";
 import { formatMacShortcut } from "../../lib/macShortcuts";
 import { dispatchNativeMenuAction, type NativeMenuAction } from "../../lib/nativeMenu";
-import { copyTextToClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, openPathInExternalEditor, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 
 type CommandAction = () => void | Promise<void>;
 type CommandKind = "slash" | "shortcut" | "file" | "action";
@@ -115,6 +115,7 @@ export function CommandsPalette({
       ...(activeProjectPath ? [
         { id: "project-reveal", kind: "action" as const, label: "Reveal Active Project in Finder", description: macPathLabel(activeProjectPath), icon: ExternalLink, run: () => { void revealPathInFinder(activeProjectPath); onOpenChange(false); } },
         { id: "project-copy-path", kind: "action" as const, label: "Copy Active Project Path", description: macPathLabel(activeProjectPath), icon: Copy, run: () => { void copyTextToClipboard(activeProjectPath); onOpenChange(false); } },
+        { id: "project-open-editor", kind: "action" as const, label: "Open Active Project in Editor", description: macPathLabel(activeProjectPath), icon: Code2, run: () => { void openPathInExternalEditor(activeProjectPath).catch((err) => console.error("open active project in editor failed:", err)); onOpenChange(false); } },
       ] : []),
       ...projects.slice(0, 5).map((project) => ({
         id: `recent-project-${project.path}`,

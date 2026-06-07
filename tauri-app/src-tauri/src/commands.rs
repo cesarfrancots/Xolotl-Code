@@ -2484,6 +2484,11 @@ pub struct ApiKeyProviderStatus {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct MacProductivitySettings {
+    pub external_editor: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ApiKeyStorageSource {
     Environment,
@@ -2594,6 +2599,75 @@ fn config_get(config: &ConfigMap, key: &str) -> Option<String> {
         .and_then(|v| v.as_str())
         .map(normalize_api_key)
         .filter(|s| !s.is_empty())
+}
+
+const EXTERNAL_EDITOR_CONFIG_KEY: &str = "XOLOTL_EXTERNAL_EDITOR";
+
+fn config_string(config: &ConfigMap, key: &str) -> Option<String> {
+    config
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn external_editor_from_config(config: &ConfigMap) -> Option<String> {
+    config_string(config, EXTERNAL_EDITOR_CONFIG_KEY)
+}
+
+fn mac_productivity_settings_from_config(config: &ConfigMap) -> MacProductivitySettings {
+    MacProductivitySettings {
+        external_editor: external_editor_from_config(config),
+    }
+}
+
+fn set_external_editor_in_config(config: &mut ConfigMap, editor: &str) {
+    let editor = editor.trim();
+    if editor.is_empty() {
+        config.remove(EXTERNAL_EDITOR_CONFIG_KEY);
+    } else {
+        config.insert(
+            EXTERNAL_EDITOR_CONFIG_KEY.to_string(),
+            serde_json::Value::String(editor.to_string()),
+        );
+    }
+}
+
+fn external_editor_is_app_bundle(editor: &str) -> bool {
+    editor.to_ascii_lowercase().ends_with(".app")
+}
+
+fn external_editor_has_path_separator(editor: &str) -> bool {
+    editor.contains('/') || editor.contains('\\')
+}
+
+fn external_editor_launch_command(
+    editor: &str,
+    target: &Path,
+) -> Result<(std::ffi::OsString, Vec<std::ffi::OsString>), String> {
+    let editor = editor.trim();
+    if editor.is_empty() {
+        return Err("Set a preferred external editor in Settings first.".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if external_editor_is_app_bundle(editor) || !external_editor_has_path_separator(editor) {
+            return Ok((
+                "/usr/bin/open".into(),
+                vec![
+                    "-a".into(),
+                    editor.into(),
+                    target.as_os_str().to_os_string(),
+                ],
+            ));
+        }
+    }
+
+    Ok((
+        editor.into(),
+        vec![target.as_os_str().to_os_string()],
+    ))
 }
 
 fn env_api_key(env_var: &str) -> Option<String> {
@@ -2909,6 +2983,53 @@ pub fn get_api_key_status() -> HashMap<String, ApiKeyProviderStatus> {
         );
     }
     status
+}
+
+/// Load macOS productivity preferences that are safe to keep in config.json.
+#[tauri::command]
+#[specta::specta]
+pub fn get_mac_productivity_settings() -> MacProductivitySettings {
+    let config = load_config();
+    mac_productivity_settings_from_config(&config)
+}
+
+/// Set the preferred external editor. Use an app name such as "Visual Studio
+/// Code" or "Cursor" on macOS, or a full executable path for CLI launchers.
+#[tauri::command]
+#[specta::specta]
+pub fn set_external_editor(editor: String) -> Result<MacProductivitySettings, String> {
+    let mut config = load_config();
+    set_external_editor_in_config(&mut config, &editor);
+    save_config(&config)?;
+    Ok(mac_productivity_settings_from_config(&config))
+}
+
+/// Open a path in the configured external editor without using a shell.
+#[tauri::command]
+#[specta::specta]
+pub fn open_path_in_external_editor(path: String) -> Result<(), String> {
+    let raw = PathBuf::from(&path);
+    if !raw.exists() {
+        return Err(format!("Path does not exist: {path}"));
+    }
+    let target = std::fs::canonicalize(&raw).unwrap_or(raw);
+    let config = load_config();
+    let editor = external_editor_from_config(&config)
+        .ok_or_else(|| "Set a preferred external editor in Settings first.".to_string())?;
+    let (program, args) = external_editor_launch_command(&editor, &target)?;
+    let status = std::process::Command::new(&program)
+        .args(&args)
+        .status()
+        .map_err(|err| format!("Could not open editor '{}': {err}", editor))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Could not open editor '{}': {} exited with {status}",
+            editor,
+            program.to_string_lossy()
+        ))
+    }
 }
 
 /// Move one legacy config-file API key into macOS Keychain without exposing it
@@ -4895,6 +5016,80 @@ mod config_tests {
         let mut cfg2 = cfg.clone();
         cfg2.insert("KIMI_API_KEY".into(), serde_json::Value::String("".into()));
         assert_eq!(config_get(&cfg2, "KIMI_API_KEY"), None);
+    }
+
+    #[test]
+    fn external_editor_setting_preserves_other_config_fields() {
+        let mut cfg = make_legacy_cli_config();
+
+        set_external_editor_in_config(&mut cfg, "Visual Studio Code");
+        assert_eq!(
+            external_editor_from_config(&cfg),
+            Some("Visual Studio Code".to_string())
+        );
+        assert_eq!(
+            config_get(&cfg, "KIMI_CODING_BASE_URL"),
+            Some("https://api.kimi.com/coding/v1".into())
+        );
+
+        set_external_editor_in_config(&mut cfg, "  ");
+        assert_eq!(external_editor_from_config(&cfg), None);
+        assert_eq!(config_get(&cfg, "ANTHROPIC_API_KEY"), Some("ant-xxx".into()));
+    }
+
+    #[test]
+    fn external_editor_launch_command_uses_macos_open_for_app_names() {
+        let target = std::path::Path::new("/Users/cesar/Project");
+        let (program, args) =
+            external_editor_launch_command("Cursor", target).expect("app name should work");
+
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(program.to_string_lossy(), "/usr/bin/open");
+            assert_eq!(args[0].to_string_lossy(), "-a");
+            assert_eq!(args[1].to_string_lossy(), "Cursor");
+            assert_eq!(args[2], target.as_os_str());
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(program.to_string_lossy(), "Cursor");
+            assert_eq!(args[0], target.as_os_str());
+        }
+    }
+
+    #[test]
+    fn external_editor_launch_command_accepts_executable_paths() {
+        let target = std::path::Path::new("/Users/cesar/Project");
+        let (program, args) =
+            external_editor_launch_command("/usr/local/bin/code", target).expect("executable path should work");
+
+        assert_eq!(program.to_string_lossy(), "/usr/local/bin/code");
+        assert_eq!(args[0], target.as_os_str());
+    }
+
+    #[test]
+    fn external_editor_launch_command_accepts_app_bundle_paths() {
+        let target = std::path::Path::new("/Users/cesar/Project");
+        let (program, args) = external_editor_launch_command(
+            "/Applications/Visual Studio Code.app",
+            target,
+        )
+        .expect("app bundle path should work");
+
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(program.to_string_lossy(), "/usr/bin/open");
+            assert_eq!(args[0].to_string_lossy(), "-a");
+            assert_eq!(args[1].to_string_lossy(), "/Applications/Visual Studio Code.app");
+            assert_eq!(args[2], target.as_os_str());
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(program.to_string_lossy(), "/Applications/Visual Studio Code.app");
+            assert_eq!(args[0], target.as_os_str());
+        }
     }
 
     #[test]

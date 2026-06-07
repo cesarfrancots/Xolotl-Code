@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   CheckCircle, XCircle, Loader2, Eye, EyeOff, Key, Plug, FileCode,
-  RefreshCw, ShieldCheck, AlertCircle,
+  RefreshCw, ShieldCheck, AlertCircle, Monitor, Code2,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -11,6 +11,7 @@ import { Input } from "../ui/input";
 import { commands } from "../../bindings";
 import type {
   ApiKeyProviderStatus,
+  MacProductivitySettings,
   SkillManifest,
   McpServerConfig,
   McpTestResult,
@@ -34,7 +35,7 @@ const PROVIDERS: ProviderConfig[] = [
   { id: "minimax",     label: "MiniMax",                envVar: "MINIMAX_API_KEY",     placeholder: "sk-...", models: "MiniMax-M2.7" },
 ];
 
-type Tab = "providers" | "skills" | "mcp";
+type Tab = "providers" | "macos" | "skills" | "mcp";
 
 export function SettingsDialog({
   open, onOpenChange,
@@ -57,12 +58,14 @@ export function SettingsDialog({
         {/* Tab bar */}
         <div className="flex items-center gap-1 px-3 py-2 border-b border-[oklch(0.22_0.008_240)] bg-[oklch(0.102_0.003_245)]">
           <TabBtn active={tab === "providers"} onClick={() => setTab("providers")} icon={<Key className="w-3.5 h-3.5" />} label="Providers" />
+          <TabBtn active={tab === "macos"} onClick={() => setTab("macos")} icon={<Monitor className="w-3.5 h-3.5" />} label="macOS" />
           <TabBtn active={tab === "skills"} onClick={() => setTab("skills")} icon={<FileCode className="w-3.5 h-3.5" />} label="Skills" />
           <TabBtn active={tab === "mcp"} onClick={() => setTab("mcp")} icon={<Plug className="w-3.5 h-3.5" />} label="MCP Servers" />
         </div>
 
         <div className="max-h-[72vh] overflow-y-auto">
           {tab === "providers" && <ProvidersPanel open={open} />}
+          {tab === "macos" && <MacPanel open={open} />}
           {tab === "skills" && <SkillsPanel open={open} />}
           {tab === "mcp" && <McpPanel open={open} />}
         </div>
@@ -354,6 +357,118 @@ function ProvidersPanel({ open }: { open: boolean }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// macOS
+// ════════════════════════════════════════════════════════════════════════════
+const EMPTY_MAC_SETTINGS: MacProductivitySettings = {
+  external_editor: null,
+};
+
+const EDITOR_PRESETS = ["Visual Studio Code", "Cursor", "Zed", "Sublime Text"];
+
+function MacPanel({ open }: { open: boolean }) {
+  const [settings, setSettings] = useState<MacProductivitySettings>(EMPTY_MAC_SETTINGS);
+  const [editor, setEditor] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const next = await commands.getMacProductivitySettings();
+      setSettings(next);
+      setEditor(next.external_editor ?? "");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (open) void refresh(); }, [open, refresh]);
+
+  async function saveEditor(value = editor) {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    const result = await commands.setExternalEditor(value.trim());
+    if (result.status === "ok") {
+      setSettings(result.data);
+      setEditor(result.data.external_editor ?? "");
+      setMessage(result.data.external_editor ? "External editor saved." : "External editor cleared.");
+    } else {
+      setError(result.error);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="flex flex-col gap-3 p-5">
+      <div className="rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)] px-3 py-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-[oklch(0.90_0.025_220)]">
+          <Code2 className="h-4 w-4 text-[oklch(0.68_0.050_190)]" />
+          Preferred external editor
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-[oklch(0.58_0.012_225)]">
+          Project rows and the command palette use this app name or executable path.
+        </p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={editor}
+            onChange={(e) => {
+              setEditor(e.target.value);
+              setMessage("");
+              setError("");
+            }}
+            placeholder="Visual Studio Code, Cursor, Zed, or /usr/local/bin/code"
+            className="text-sm border-[oklch(0.24_0.010_235)] bg-[oklch(0.105_0.004_245)]"
+          />
+          <Button size="sm" variant="outline" disabled={saving || loading} onClick={() => void saveEditor()} className="gap-1">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={saving || loading || !settings.external_editor} onClick={() => void saveEditor("")}>
+            Clear
+          </Button>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {EDITOR_PRESETS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => {
+                setEditor(preset);
+                setMessage("");
+                setError("");
+              }}
+              className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] px-2 py-1 text-[11px] text-[oklch(0.62_0.016_220)] transition-colors hover:border-[oklch(0.35_0.025_195)] hover:text-[oklch(0.82_0.025_210)]"
+            >
+              {preset}
+            </button>
+          ))}
+        </div>
+        {settings.external_editor && (
+          <p className="mt-2 text-xs text-[oklch(0.62_0.018_205)]">
+            Current: <code className="rounded bg-[oklch(0.15_0.004_245)] px-1 py-0.5 text-[10px]">{settings.external_editor}</code>
+          </p>
+        )}
+        {message && (
+          <p className="mt-2 flex items-center gap-1 text-xs text-emerald-400">
+            <CheckCircle className="h-3 w-3 shrink-0" /> {message}
+          </p>
+        )}
+        {error && (
+          <p className="mt-2 flex items-center gap-1 text-xs text-red-400">
+            <XCircle className="h-3 w-3 shrink-0" /> {error}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

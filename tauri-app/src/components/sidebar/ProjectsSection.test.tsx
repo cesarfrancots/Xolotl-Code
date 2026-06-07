@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectsSection } from "./ProjectsSection";
-import { copyTextToClipboard } from "../../lib/pathActions";
+import { copyTextToClipboard, openPathInExternalEditor } from "../../lib/pathActions";
 import { useProjectStore } from "../../stores/projectStore";
 
 vi.mock("../../lib/pathActions", async () => {
@@ -9,6 +9,7 @@ vi.mock("../../lib/pathActions", async () => {
   return {
     ...actual,
     copyTextToClipboard: vi.fn(() => Promise.resolve()),
+    openPathInExternalEditor: vi.fn(() => Promise.resolve()),
     revealPathInFinder: vi.fn(() => Promise.resolve()),
   };
 });
@@ -44,6 +45,10 @@ describe("ProjectsSection", () => {
 
     fireEvent.click(screen.getByLabelText("Copy POSIX path for Xolotl"));
     expect(copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    expect(onOpenProject).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByLabelText("Open Xolotl in external editor"));
+    expect(openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
     expect(onOpenProject).toHaveBeenCalledTimes(1);
   });
 });

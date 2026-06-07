@@ -29,3 +29,10 @@ export async function revealPathInFinder(path: string) {
     throw new Error(res.error);
   }
 }
+
+export async function openPathInExternalEditor(path: string) {
+  const res = await commands.openPathInExternalEditor(path);
+  if (res.status === "error") {
+    throw new Error(res.error);
+  }
+}

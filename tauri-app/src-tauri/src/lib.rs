@@ -15,16 +15,17 @@ use crate::civilization::{
 use crate::commands::{
     add_project, browse_directory, build_hint_proposals, build_reliability_profiles,
     cancel_chat_turn, chat_turn, cleanup_eval_processes, convert_pdf, delete_eval, delete_session,
-    get_api_key_status, get_worktree_diff, launch_swarm, launch_team, list_agents,
-    list_eval_suites, list_evals, list_hint_proposals, list_models, list_projects,
-    list_prompt_commands, list_reliability_profiles, list_sessions, load_eval, load_session,
-    merge_worktrees, migrate_api_key_to_keychain, pick_directory, remove_project,
-    respond_to_permission, reveal_in_finder, run_agent_turn, run_eval_suite, run_goal_grade,
-    run_llm_judge, save_human_scores, save_manual_reviews, save_session, set_api_key, smoke_test,
-    spawn_agent, start_eval, start_eval_artifact, start_goal_eval, stop_agent, test_api_connection,
-    test_permission_prompt, touch_project, AutoScores, ChatMessage, DirChild, DirListing,
-    EvalArtifactFileInput, EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta, EvalResult,
-    EvalSuite, FileDiff, GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores, JudgeScores,
+    get_api_key_status, get_mac_productivity_settings, get_worktree_diff, launch_swarm,
+    launch_team, list_agents, list_eval_suites, list_evals, list_hint_proposals, list_models,
+    list_projects, list_prompt_commands, list_reliability_profiles, list_sessions, load_eval,
+    load_session, merge_worktrees, migrate_api_key_to_keychain, open_path_in_external_editor,
+    pick_directory, remove_project, respond_to_permission, reveal_in_finder, run_agent_turn,
+    run_eval_suite, run_goal_grade, run_llm_judge, save_human_scores, save_manual_reviews,
+    save_session, set_api_key, set_external_editor, smoke_test, spawn_agent, start_eval,
+    start_eval_artifact, start_goal_eval, stop_agent, test_api_connection, test_permission_prompt,
+    touch_project, AutoScores, ChatMessage, DirChild, DirListing, EvalArtifactFileInput,
+    EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta, EvalResult, EvalSuite, FileDiff,
+    GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores, JudgeScores, MacProductivitySettings,
     ManualReview, ModelEvalResult, ProfileBuildResult, Project, PromptCommand, ProposalBuildResult,
     ReasoningFlag, ReliabilityMetrics, RoleConfig, SessionMeta, SuitePrompt,
 };
@@ -109,8 +110,11 @@ fn make_builder() -> Builder<tauri::Wry> {
             list_mcp_servers,
             test_mcp_server,
             get_api_key_status,
+            get_mac_productivity_settings,
             migrate_api_key_to_keychain,
+            set_external_editor,
             set_api_key,
+            open_path_in_external_editor,
             test_api_connection,
             start_eval_artifact,
             build_reliability_profiles,
@@ -148,6 +152,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<PermissionDecision>()
         .typ::<SessionMeta>()
         .typ::<Project>()
+        .typ::<MacProductivitySettings>()
         .typ::<DirChild>()
         .typ::<DirListing>()
         .typ::<RoleConfig>()

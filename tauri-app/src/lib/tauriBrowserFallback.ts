@@ -30,6 +30,8 @@ const PREVIEW_PROVIDERS = [
   "deepseek",
 ];
 
+const PREVIEW_EXTERNAL_EDITOR_KEY = "xolotl-preview-external-editor";
+
 const PREVIEW_SUITES = [
   {
     id: "reasoning",
@@ -1174,6 +1176,29 @@ function previewPlaceTerrain(resource: string) {
   return "stone";
 }
 
+function readPreviewExternalEditor() {
+  try {
+    const editor = globalThis.localStorage?.getItem(PREVIEW_EXTERNAL_EDITOR_KEY)?.trim();
+    return editor || null;
+  } catch {
+    return null;
+  }
+}
+
+function writePreviewExternalEditor(value: string) {
+  const editor = value.trim();
+  try {
+    if (editor) {
+      globalThis.localStorage?.setItem(PREVIEW_EXTERNAL_EDITOR_KEY, editor);
+    } else {
+      globalThis.localStorage?.removeItem(PREVIEW_EXTERNAL_EDITOR_KEY);
+    }
+  } catch {
+    // Browser preview can run with storage disabled; keep the native API shape.
+  }
+  return editor || null;
+}
+
 function installTauriBrowserFallback() {
   if (!import.meta.env.DEV) return;
   if (typeof window === "undefined") return;
@@ -1259,6 +1284,12 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
           { configured: false, source: "none", error: null },
         ])
       );
+    case "get_mac_productivity_settings":
+      return { external_editor: readPreviewExternalEditor() };
+    case "set_external_editor": {
+      const editor = isRecord(args) && typeof args.editor === "string" ? args.editor : "";
+      return { external_editor: writePreviewExternalEditor(editor) };
+    }
     case "migrate_api_key_to_keychain":
       throw "Preview mode does not migrate keys to macOS Keychain.";
     case "load_session":
@@ -1269,6 +1300,7 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
     case "touch_project":
     case "refresh_native_menu":
     case "reveal_in_finder":
+    case "open_path_in_external_editor":
       return null;
     case "cleanup_eval_processes":
       return 0;

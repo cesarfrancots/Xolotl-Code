@@ -1,7 +1,7 @@
-import { Copy, ExternalLink, Folder, FolderPlus, X } from "lucide-react";
+import { Code2, Copy, ExternalLink, Folder, FolderPlus, X } from "lucide-react";
 import { useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
-import { copyTextToClipboard, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, openPathInExternalEditor, revealPathInFinder } from "../../lib/pathActions";
 
 /**
  * Codex-style quick-access list of working directories. "Open folder" launches
@@ -112,6 +112,18 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     className="xolotl-row-action-button"
                   >
                     <Copy className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void openPathInExternalEditor(project.path).catch((err) => console.error("open project in editor failed:", err));
+                    }}
+                    title="Open in external editor"
+                    aria-label={`Open ${project.name} in external editor`}
+                    className="xolotl-row-action-button"
+                  >
+                    <Code2 className="h-3 w-3" />
                   </button>
                   <button
                     type="button"

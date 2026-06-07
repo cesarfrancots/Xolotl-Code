@@ -6,6 +6,7 @@ import { useProjectStore } from "../../stores/projectStore";
 
 const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn(() => Promise.resolve()),
+  openPathInExternalEditor: vi.fn(() => Promise.resolve()),
   revealPathInFinder: vi.fn(() => Promise.resolve()),
 }));
 
@@ -14,6 +15,7 @@ vi.mock("../../lib/pathActions", async () => {
   return {
     ...actual,
     copyTextToClipboard: pathActionMocks.copyTextToClipboard,
+    openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
     revealPathInFinder: pathActionMocks.revealPathInFinder,
   };
 });
@@ -86,6 +88,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("⌘T")).toBeTruthy();
     expect(screen.getByText("Reveal Active Project in Finder")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Path")).toBeTruthy();
+    expect(screen.getByText("Open Active Project in Editor")).toBeTruthy();
     expect(screen.getByText("Open Recent: Xolotl")).toBeTruthy();
   });
 
@@ -128,6 +131,16 @@ describe("CommandsPalette", () => {
     fireEvent.click(screen.getByRole("button", { name: /Copy Active Project Path/ }));
 
     expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("runs active project editor actions from the palette", () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Active Project in Editor" }));
+
+    expect(pathActionMocks.openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 

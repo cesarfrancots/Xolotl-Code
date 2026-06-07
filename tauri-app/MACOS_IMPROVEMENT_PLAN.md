@@ -37,6 +37,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Legacy config-file provider keys can be moved into Keychain from Settings after a one-time confirmation.
 - Keychain read failures surface in Settings with recovery text instead of looking like missing provider keys.
 - Terminal tabs resolve zsh/bash/fish-aware shell profiles and display shell, cwd, and environment source metadata.
+- macOS Settings include a preferred external editor, and active projects can open in that editor from project rows or the command palette.
 
 ## Phase 1 - Native Mac Shell
 
@@ -208,7 +209,7 @@ Acceptance:
 
 ## Phase 6 - Mac Productivity Features
 
-Status: planned.
+Status: in progress.
 
 Deliverables:
 
@@ -220,7 +221,7 @@ Deliverables:
 - Finder actions:
   - Reveal active project in Finder.
   - Reveal generated eval artifacts in Finder.
-  - Open project folder in the user's preferred external editor if configured.
+  - Open project folder in the user's preferred external editor if configured. Done for active project rows and command palette access.
 - Notification actions for long-running tasks:
   - Agent finished.
   - Eval finished.
@@ -239,6 +240,7 @@ Acceptance:
 Implementation order:
 
 1. Add non-interruptive Finder actions first.
+   - Done for active project external-editor launch with a macOS Settings preference.
 2. Add notification routing for existing long-running work.
 3. Add opt-in global hotkey with settings UI and tests.
 4. Evaluate menu bar helper only after agent/eval status events are stable enough to summarize.

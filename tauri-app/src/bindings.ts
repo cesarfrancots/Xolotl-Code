@@ -90,17 +90,26 @@ export const commands = {
 	testMcpServer: (name: string) => __TAURI_INVOKE<McpTestResult>("test_mcp_server", { name }),
 	/**  Returns which providers have an API key configured and where it came from. */
 	getApiKeyStatus: () => __TAURI_INVOKE<{ [key in string]: ApiKeyProviderStatus }>("get_api_key_status"),
+	/**  Load macOS productivity preferences that are safe to keep in config.json. */
+	getMacProductivitySettings: () => __TAURI_INVOKE<MacProductivitySettings>("get_mac_productivity_settings"),
 	/**
 	 *  Move one legacy config-file API key into macOS Keychain without exposing it
 	 *  to the frontend. Available on macOS only.
 	 */
 	migrateApiKeyToKeychain: (provider: string) => typedError<ApiKeyProviderStatus, string>(__TAURI_INVOKE("migrate_api_key_to_keychain", { provider })),
 	/**
+	 *  Set the preferred external editor. Use an app name such as "Visual Studio
+	 *  Code" or "Cursor" on macOS, or a full executable path for CLI launchers.
+	 */
+	setExternalEditor: (editor: string) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_external_editor", { editor })),
+	/**
 	 *  Save an API key for a provider. Pass an empty string to clear the key.
 	 *  On macOS app-saved keys are stored in Keychain; other config.json fields
 	 *  are still preserved for CLI-written settings.
 	 */
 	setApiKey: (provider: string, key: string) => typedError<null, string>(__TAURI_INVOKE("set_api_key", { provider, key })),
+	/**  Open a path in the configured external editor without using a shell. */
+	openPathInExternalEditor: (path: string) => typedError<null, string>(__TAURI_INVOKE("open_path_in_external_editor", { path })),
 	/**
 	 *  Test connectivity to an AI provider using its configured API key.
 	 *  Returns "Connected to <provider>" on success.
@@ -731,6 +740,10 @@ export type JudgeScores = {
 	scores: { [key in string]: HumanScores },
 	/**  Per-model one-line rationale from the judge. */
 	rationale: { [key in string]: string },
+};
+
+export type MacProductivitySettings = {
+	external_editor: string | null,
 };
 
 /**  User-authored post-eval review, intentionally separate from blind rubric scores. */
