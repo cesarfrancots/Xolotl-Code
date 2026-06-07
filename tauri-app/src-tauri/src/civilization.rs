@@ -44,6 +44,11 @@ const MORPHS: [&str; 12] = [
 const COMMON_MORPHS: [&str; 6] = ["leucistic", "wild", "gold", "axanthic", "copper", "albino"];
 // Rare morphs only reachable through mutation.
 const RARE_MORPHS: [&str; 3] = ["gfp", "firefly", "mystic"];
+// Visible coat pattern alleles (second Mendelian trait, parallel to colour morph).
+// "plain" is recessive (lowest pattern_rank); "marbled" is most dominant.
+const PATTERNS: [&str; 4] = ["plain", "spotted", "striped", "marbled"];
+// Patterns founder colonies carry (gives selection variance).
+const COMMON_PATTERNS: [&str; 4] = ["plain", "spotted", "striped", "marbled"];
 // Equippable accessory ids (match `public/civ/accessories/acc-<id>.png`).
 const ACCESSORIES: [&str; 12] = [
     "flowercrown",
@@ -362,6 +367,9 @@ pub struct CivEntity {
     /// Expressed colour morph (e.g. "leucistic"). Empty for non-axolotls.
     #[serde(default)]
     pub morph: String,
+    /// Expressed pattern (e.g. "spotted"). Empty for non-axolotls. Mirrors `morph`.
+    #[serde(default)]
+    pub pattern: String,
     /// Life stage: "egg" | "hatchling" | "juvenile" | "adult" | "elder".
     #[serde(default)]
     pub stage: String,
@@ -425,6 +433,33 @@ pub struct CivGenes {
     pub fertility: f32,
     pub longevity: f32,
     pub vigor: f32,
+    /// First pattern allele (second Mendelian pair, parallel to allele_a colour).
+    #[serde(default = "default_pattern_allele")]
+    pub pattern_a: String,
+    /// Second pattern allele; expressed via dominance (pattern_rank).
+    #[serde(default = "default_pattern_allele")]
+    pub pattern_b: String,
+    /// Combat/defence contribution; aggregated into civ_strength (closes the Phase-4 seam).
+    #[serde(default = "default_strength")]
+    pub strength: f32,
+    /// Survival under cold pressure (winter / low temp / cold_snap). 0.0..=1.0.
+    #[serde(default = "default_resistance")]
+    pub cold_resistance: f32,
+    /// Survival under disease pressure (plague). 0.0..=1.0.
+    #[serde(default = "default_resistance")]
+    pub disease_resistance: f32,
+}
+
+fn default_pattern_allele() -> String {
+    "plain".to_string()
+}
+
+fn default_strength() -> f32 {
+    1.0
+}
+
+fn default_resistance() -> f32 {
+    0.5
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -2828,6 +2863,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
         entity.age = 0;
         entity.stage = "hatchling".to_string();
         entity.morph = expressed_morph(&genes);
+        entity.pattern = expressed_pattern(&genes);
         entity.sex = if rand_f(&mut rng) < 0.5 { "f" } else { "m" }.to_string();
         entity.size = size_for_stage("hatchling", genes.size_gene);
         entity.role = "juvenile".to_string();
@@ -2897,6 +2933,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
                         role: "egg".to_string(),
                         civ_id: Some(civ_id.to_string()),
                         morph: expressed_morph(&child),
+                        pattern: expressed_pattern(&child),
                         stage: "egg".to_string(),
                         sex: String::new(),
                         age: 0,
@@ -5047,6 +5084,24 @@ fn expressed_morph(genes: &CivGenes) -> String {
     }
 }
 
+/// Higher = more dominant when an axolotl carries two different pattern alleles.
+fn pattern_rank(pattern: &str) -> u8 {
+    match pattern {
+        "marbled" => 4,
+        "striped" => 3,
+        "spotted" => 2,
+        _ => 1, // plain + unknown recessive
+    }
+}
+
+fn expressed_pattern(genes: &CivGenes) -> String {
+    if pattern_rank(&genes.pattern_b) > pattern_rank(&genes.pattern_a) {
+        genes.pattern_b.clone()
+    } else {
+        genes.pattern_a.clone()
+    }
+}
+
 fn stage_for_age(age: u32, longevity: f32) -> String {
     let elder_at = (ELDER_BASE_AGE * longevity) as u32;
     if age < 3 {
@@ -5088,11 +5143,18 @@ fn default_genes() -> CivGenes {
         fertility: 0.7,
         longevity: 1.0,
         vigor: 1.0,
+        pattern_a: "plain".to_string(),
+        pattern_b: "plain".to_string(),
+        strength: 1.0,
+        cold_resistance: 0.5,
+        disease_resistance: 0.5,
     }
 }
 
 fn random_genes(rng: &mut u32, primary: &str) -> CivGenes {
     let carrier = COMMON_MORPHS[(next_rng(rng) as usize) % COMMON_MORPHS.len()];
+    let pat_a = COMMON_PATTERNS[(next_rng(rng) as usize) % COMMON_PATTERNS.len()];
+    let pat_b = COMMON_PATTERNS[(next_rng(rng) as usize) % COMMON_PATTERNS.len()];
     CivGenes {
         allele_a: primary.to_string(),
         allele_b: carrier.to_string(),
@@ -5100,6 +5162,11 @@ fn random_genes(rng: &mut u32, primary: &str) -> CivGenes {
         fertility: rand_range(rng, 0.5, 0.95),
         longevity: rand_range(rng, 0.85, 1.2),
         vigor: rand_range(rng, 0.85, 1.15),
+        pattern_a: pat_a.to_string(),
+        pattern_b: pat_b.to_string(),
+        strength: rand_range(rng, 0.7, 1.4),
+        cold_resistance: rand_range(rng, 0.2, 0.9),
+        disease_resistance: rand_range(rng, 0.2, 0.9),
     }
 }
 
@@ -5109,6 +5176,21 @@ fn pick_allele<'a>(rng: &mut u32, genes: &'a CivGenes) -> &'a str {
     } else {
         &genes.allele_b
     }
+}
+
+fn pick_pattern_allele<'a>(rng: &mut u32, genes: &'a CivGenes) -> &'a str {
+    if next_rng(rng).is_multiple_of(2) {
+        &genes.pattern_a
+    } else {
+        &genes.pattern_b
+    }
+}
+
+/// Quantitative-trait inheritance: parent mean + a small seed-deterministic mutation,
+/// clamped to the trait's sane range. Shared by every f32 gene so the blend math (and
+/// thus the rng draw per trait) is identical across traits.
+fn blend(x: f32, y: f32, rng: &mut u32, lo: f32, hi: f32) -> f32 {
+    ((x + y) / 2.0 + rand_range(rng, -0.08, 0.08)).clamp(lo, hi)
 }
 
 fn cross_genes(a: &CivGenes, b: &CivGenes, rng: &mut u32) -> CivGenes {
@@ -5128,16 +5210,32 @@ fn cross_genes(a: &CivGenes, b: &CivGenes, rng: &mut u32) -> CivGenes {
             allele_b = m;
         }
     }
+    // Pattern alleles: one-from-each parent, with a ~7% mutation flip (mirror colour).
+    let mut pattern_a = pick_pattern_allele(rng, a).to_string();
+    let mut pattern_b = pick_pattern_allele(rng, b).to_string();
+    if rand_f(rng) < 0.07 {
+        let p = PATTERNS[(next_rng(rng) as usize) % PATTERNS.len()].to_string();
+        if next_rng(rng).is_multiple_of(2) {
+            pattern_a = p;
+        } else {
+            pattern_b = p;
+        }
+    }
     CivGenes {
         allele_a,
         allele_b,
-        size_gene: ((a.size_gene + b.size_gene) / 2.0 + rand_range(rng, -0.08, 0.08))
-            .clamp(0.7, 1.4),
-        fertility: ((a.fertility + b.fertility) / 2.0 + rand_range(rng, -0.08, 0.08))
-            .clamp(0.3, 1.0),
-        longevity: ((a.longevity + b.longevity) / 2.0 + rand_range(rng, -0.08, 0.08))
-            .clamp(0.8, 1.35),
-        vigor: ((a.vigor + b.vigor) / 2.0 + rand_range(rng, -0.08, 0.08)).clamp(0.8, 1.25),
+        // Existing 4 quantitative traits — order preserved (size -> fertility ->
+        // longevity -> vigor) so the rng draw stream is byte-identical to before.
+        size_gene: blend(a.size_gene, b.size_gene, rng, 0.7, 1.4),
+        fertility: blend(a.fertility, b.fertility, rng, 0.3, 1.0),
+        longevity: blend(a.longevity, b.longevity, rng, 0.8, 1.35),
+        vigor: blend(a.vigor, b.vigor, rng, 0.8, 1.25),
+        pattern_a,
+        pattern_b,
+        // New quantitative traits appended AFTER the existing four.
+        strength: blend(a.strength, b.strength, rng, 0.5, 1.6),
+        cold_resistance: blend(a.cold_resistance, b.cold_resistance, rng, 0.0, 1.0),
+        disease_resistance: blend(a.disease_resistance, b.disease_resistance, rng, 0.0, 1.0),
     }
 }
 
@@ -5157,6 +5255,7 @@ fn make_axolotl(
     let size = size_for_stage(&stage, genes.size_gene);
     let role = role_for_stage(&stage);
     let morph = expressed_morph(&genes);
+    let pattern = expressed_pattern(&genes);
     CivEntity {
         id,
         kind: "axolotl".to_string(),
@@ -5168,6 +5267,7 @@ fn make_axolotl(
         role,
         civ_id: None,
         morph,
+        pattern,
         stage,
         sex: sex.to_string(),
         age,
@@ -5262,8 +5362,13 @@ fn civ_strength(snapshot: &CivSessionSnapshot, civ_id: &str) -> f32 {
         .iter()
         .filter(|r| r.owner.as_deref() == Some(civ_id))
         .count() as f64;
+    // Aggregate genes.strength over this civ's LIVING (non-egg) axolotls.
+    let gene_str: f32 = civ_entities(snapshot, civ_id)
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg")
+        .filter_map(|e| e.genes.as_ref().map(|g| g.strength))
+        .sum();
     // Phase-5 SEAM: add a `genes.strength` term to this sum here only.
-    round1((pop * 1.0 + tools * 0.2 + tech * 1.5 + owned * 2.0) as f32)
+    round1((pop * 1.0 + tools * 0.2 + tech * 1.5 + owned * 2.0 + f64::from(gene_str) * 0.5) as f32)
 }
 
 /// Living (non-egg) axolotl entities of `civ_id`. Eggs survive a raid — only living
@@ -8481,6 +8586,38 @@ mod tests {
         }
     }
 
+    /// Like `give_civ_axolotls` but every axolotl carries genes with a fixed
+    /// `strength` (and otherwise default genes) — for the civ_strength seam test.
+    fn give_civ_axolotls_with_strength(
+        s: &mut CivSessionSnapshot,
+        civ_id: &str,
+        n: u32,
+        strength: f32,
+    ) {
+        for i in 0..n {
+            let genes = CivGenes {
+                strength,
+                ..default_genes()
+            };
+            s.world.entities.push(CivEntity {
+                id: format!("axo-str-{civ_id}-{i}"),
+                kind: "axolotl".to_string(),
+                name: format!("Strong Axolotl {i}"),
+                x: 12 + i,
+                y: 22,
+                health: 80.0,
+                mood: 70.0,
+                role: "worker".to_string(),
+                civ_id: Some(civ_id.to_string()),
+                stage: "adult".to_string(),
+                sex: if i % 2 == 0 { "f" } else { "m" }.to_string(),
+                age: 10,
+                genes: Some(genes),
+                ..Default::default()
+            });
+        }
+    }
+
     #[test]
     fn civ_strength_monotonic() {
         let base = multi_civ_snapshot(2024, 2);
@@ -8526,6 +8663,232 @@ mod tests {
             civ_strength(&s_owned, &cid) > s0,
             "an owned region must raise strength"
         );
+
+        // Phase-5 seam: more genes.strength over living axolotls -> more civ_strength.
+        let mut s_weak = base.clone();
+        give_civ_axolotls_with_strength(&mut s_weak, &cid, 4, 0.6);
+        let mut s_strong = base.clone();
+        give_civ_axolotls_with_strength(&mut s_strong, &cid, 4, 1.5);
+        let weak = civ_strength(&s_weak, &cid);
+        let strong = civ_strength(&s_strong, &cid);
+        assert!(
+            strong > weak,
+            "axolotls with higher genes.strength must raise civ_strength ({strong} <= {weak})"
+        );
+        // Deterministic: the seam term is a pure read.
+        assert_eq!(strong, civ_strength(&s_strong, &cid));
+    }
+
+    // ---- GEN-01 genetics tests (first-ever genetics unit tests) ----
+
+    /// Build genes with explicit colour + pattern alleles and mid quantitative traits.
+    fn genes_with(allele_a: &str, allele_b: &str, pattern_a: &str, pattern_b: &str) -> CivGenes {
+        CivGenes {
+            allele_a: allele_a.to_string(),
+            allele_b: allele_b.to_string(),
+            pattern_a: pattern_a.to_string(),
+            pattern_b: pattern_b.to_string(),
+            ..default_genes()
+        }
+    }
+
+    #[test]
+    fn expressed_morph_dominance() {
+        // Regression: dominance order holds and is independent of a/b slot.
+        assert!(morph_rank("mystic") > morph_rank("albino"));
+        let g1 = genes_with("albino", "mystic", "plain", "plain");
+        let g2 = genes_with("mystic", "albino", "plain", "plain");
+        assert_eq!(expressed_morph(&g1), "mystic");
+        assert_eq!(expressed_morph(&g2), "mystic");
+        // Unknown morph falls back without panicking and is mid-rank (3).
+        assert_eq!(morph_rank("not-a-real-morph"), 3);
+    }
+
+    #[test]
+    fn expressed_pattern_dominance() {
+        // "marbled" dominant over recessive "plain"; order-independent.
+        assert!(pattern_rank("marbled") > pattern_rank("plain"));
+        let g1 = genes_with("leucistic", "leucistic", "plain", "marbled");
+        let g2 = genes_with("leucistic", "leucistic", "marbled", "plain");
+        assert_eq!(expressed_pattern(&g1), "marbled");
+        assert_eq!(expressed_pattern(&g2), "marbled");
+    }
+
+    #[test]
+    fn pattern_rank_total_and_no_panic() {
+        // Every PATTERNS entry has a rank; "plain" is the lowest (recessive).
+        for p in PATTERNS {
+            assert!(pattern_rank(p) >= 1, "{p} must have a rank");
+        }
+        assert_eq!(pattern_rank("plain"), 1);
+        // Unknown strings are recessive (rank 1), never panic.
+        assert_eq!(pattern_rank("totally-unknown-pattern"), 1);
+        assert_eq!(pattern_rank(""), 1);
+    }
+
+    #[test]
+    fn genes_serde_default_backcompat() {
+        // A legacy CivGenes JSON with ONLY the 6 old fields must still deserialize;
+        // the 5 new fields take their serde defaults.
+        let legacy = r#"{
+            "allele_a": "wild", "allele_b": "gold",
+            "size_gene": 1.1, "fertility": 0.8, "longevity": 1.0, "vigor": 1.0
+        }"#;
+        let g: CivGenes = serde_json::from_str(legacy).expect("legacy genes must deserialize");
+        assert_eq!(g.pattern_a, "plain");
+        assert_eq!(g.pattern_b, "plain");
+        assert!((g.strength - 1.0).abs() < f32::EPSILON);
+        assert!((g.cold_resistance - 0.5).abs() < f32::EPSILON);
+        assert!((g.disease_resistance - 0.5).abs() < f32::EPSILON);
+
+        // A legacy CivEntity JSON WITHOUT a `pattern` key must deserialize (pattern => "").
+        let legacy_entity = r#"{
+            "id": "axo-1", "kind": "axolotl", "name": "Legacy",
+            "x": 1, "y": 2, "health": 80.0, "mood": 70.0, "role": "worker",
+            "morph": "leucistic", "stage": "adult", "sex": "f", "age": 5
+        }"#;
+        let e: CivEntity =
+            serde_json::from_str(legacy_entity).expect("legacy entity must deserialize");
+        assert_eq!(e.pattern, "");
+        assert_eq!(e.morph, "leucistic");
+    }
+
+    #[test]
+    fn cross_genes_pattern_mendelian() {
+        // Parent A only carries "spotted"; parent B only carries "striped".
+        // Every child pattern_a must come from A, pattern_b from B (one-from-each),
+        // unless the ~7% mutation flips an allele to some PATTERNS member.
+        let a = genes_with("leucistic", "leucistic", "spotted", "spotted");
+        let b = genes_with("leucistic", "leucistic", "striped", "striped");
+        let mut mendelian = 0;
+        for seed in 1..200u32 {
+            let mut rng = seed;
+            let child = cross_genes(&a, &b, &mut rng);
+            // pattern_a is sourced from A's alleles (both "spotted") OR a mutation.
+            assert!(PATTERNS.contains(&child.pattern_a.as_str()));
+            assert!(PATTERNS.contains(&child.pattern_b.as_str()));
+            if child.pattern_a == "spotted" && child.pattern_b == "striped" {
+                mendelian += 1;
+            }
+        }
+        // The vast majority (no mutation) follow the one-from-each rule exactly.
+        assert!(
+            mendelian > 150,
+            "most children should inherit one-from-each ({mendelian}/199)"
+        );
+    }
+
+    #[test]
+    fn cross_genes_traits_blend_clamped() {
+        let a = default_genes();
+        let b = default_genes();
+        for seed in 1..300u32 {
+            let mut rng = seed;
+            let c = cross_genes(&a, &b, &mut rng);
+            assert!(
+                (0.0..=1.0).contains(&c.cold_resistance),
+                "cold_resistance out of bounds: {}",
+                c.cold_resistance
+            );
+            assert!(
+                (0.0..=1.0).contains(&c.disease_resistance),
+                "disease_resistance out of bounds: {}",
+                c.disease_resistance
+            );
+            assert!(
+                (0.5..=1.6).contains(&c.strength),
+                "strength out of bounds: {}",
+                c.strength
+            );
+            // Existing traits still clamped.
+            assert!((0.7..=1.4).contains(&c.size_gene));
+            assert!((0.3..=1.0).contains(&c.fertility));
+            // Child of two mid-value parents lands near the parent mean +/- mutation delta.
+            assert!((c.strength - 1.0).abs() <= 0.08 + f32::EPSILON);
+            assert!((c.cold_resistance - 0.5).abs() <= 0.08 + f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn cross_genes_deterministic() {
+        let a = genes_with("wild", "gold", "spotted", "striped");
+        let b = genes_with("albino", "copper", "marbled", "plain");
+        let mut rng1 = 12345u32;
+        let mut rng2 = 12345u32;
+        let c1 = cross_genes(&a, &b, &mut rng1);
+        let c2 = cross_genes(&a, &b, &mut rng2);
+        assert_eq!(
+            serde_json::to_string(&c1).unwrap(),
+            serde_json::to_string(&c2).unwrap(),
+            "cross_genes must be byte-identical for the same rng seed"
+        );
+        // And the rng advanced identically.
+        assert_eq!(rng1, rng2);
+    }
+
+    #[test]
+    fn random_genes_founder_variance() {
+        // Founders should carry pattern + resistance variance for selection to act on.
+        let mut rng = 99u32;
+        let mut patterns = std::collections::HashSet::new();
+        let mut resistances = Vec::new();
+        for _ in 0..40 {
+            let g = random_genes(&mut rng, "leucistic");
+            patterns.insert(expressed_pattern(&g));
+            resistances.insert(0, g.cold_resistance);
+            assert!((0.0..=1.0).contains(&g.cold_resistance));
+            assert!(PATTERNS.contains(&g.pattern_a.as_str()));
+        }
+        assert!(
+            patterns.len() > 1,
+            "founders must express more than one pattern"
+        );
+        let first = resistances[0];
+        assert!(
+            resistances.iter().any(|r| (r - first).abs() > f32::EPSILON),
+            "founder cold_resistance must vary"
+        );
+    }
+
+    #[test]
+    fn hatch_sets_expressed_pattern() {
+        // Place an egg about to hatch with a known dominant pattern; after a life-cycle
+        // tick the resulting axolotl carries pattern == expressed_pattern(genes).
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 4;
+        let cid = civ_id_for(0);
+        let genes = genes_with("leucistic", "leucistic", "plain", "marbled");
+        let expected = expressed_pattern(&genes);
+        s.world.entities.push(CivEntity {
+            id: "egg-hatch-test".to_string(),
+            kind: "egg".to_string(),
+            name: "Egg".to_string(),
+            x: 5,
+            y: 5,
+            health: 100.0,
+            mood: 100.0,
+            role: "egg".to_string(),
+            civ_id: Some(cid.clone()),
+            morph: expressed_morph(&genes),
+            pattern: String::new(),
+            stage: "egg".to_string(),
+            sex: String::new(),
+            age: 0,
+            genes: Some(genes),
+            hatches_in: Some(1),
+            ..Default::default()
+        });
+        run_life_cycle(&mut s, &cid);
+        let hatched = s
+            .world
+            .entities
+            .iter()
+            .find(|e| e.id == "egg-hatch-test")
+            .expect("egg entity must still exist");
+        assert_eq!(hatched.kind, "axolotl", "egg should have hatched");
+        assert_eq!(hatched.pattern, expected);
+        assert_eq!(hatched.pattern, "marbled");
+        assert!(!hatched.pattern.is_empty(), "hatched pattern must be set");
     }
 
     #[test]
