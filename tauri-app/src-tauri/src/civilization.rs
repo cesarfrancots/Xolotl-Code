@@ -5039,7 +5039,9 @@ fn disaster_kinds_for(season: &str, temperature: f32) -> &'static [&'static str]
             }
         }
         "spring" => &["flood", "storm", "predator_incursion"],
-        _ => &["storm", "quake", "drought"], // autumn (and any unknown season)
+        // autumn (and any unknown season): wet-season erosion makes landslides
+        // (terrain-reshape, via apply_disaster_to_tiles) plausible here.
+        _ => &["storm", "quake", "drought", "landslide"],
     }
 }
 
@@ -6710,6 +6712,10 @@ mod tests {
         // Below the heat threshold, summer drops the drought.
         let cool_summer = disaster_kinds_for("summer", 18.0);
         assert!(!cool_summer.contains(&"drought"), "cool summer must not roll drought");
+        // LW-01: autumn allows landslide so the apply_disaster_to_tiles landslide
+        // reshape arm is reachable through the normal tick path (not dead code).
+        let autumn = disaster_kinds_for("autumn", 14.0);
+        assert!(autumn.contains(&"landslide"), "autumn must allow landslide (reshape variety)");
     }
 
     // --- ENV-02: apply_disaster_to_tiles bounded reshape + invariants (03-02 Task 2) ---
@@ -6842,6 +6848,48 @@ mod tests {
             serde_json::to_string(&tb).unwrap(),
             "apply_disaster must be byte-deterministic"
         );
+    }
+
+    #[test]
+    fn landslide_reshapes_like_quake_and_holds_invariants() {
+        // LW-01: landslide is now reachable (autumn eligibility) and its reshape arm
+        // is live. It shares quake's depth-1 sub-surface carve, so for the same
+        // epicenter/radius it must produce a byte-identical reshape — proving the arm
+        // runs (not dead) while keeping the tile-count and bounds invariants.
+        let mk = |kind: &str| CivDisaster {
+            id: format!("dis-1-{kind}"),
+            kind: kind.into(),
+            epicenter_x: 30,
+            radius: 3,
+            intensity: 2.0,
+            remaining_turns: disaster_duration(kind),
+        };
+
+        let mut land = test_snapshot("dis-landslide", "Slide", "mock-model", 42, 1);
+        let mut quake = test_snapshot("dis-quake", "Quake", "mock-model", 42, 1);
+        let width = land.world.width;
+        let before_count = land.world.tiles.len();
+
+        apply_disaster_to_tiles(&mut land.world.tiles, &mk("landslide"), width);
+        apply_disaster_to_tiles(&mut quake.world.tiles, &mk("quake"), width);
+
+        // Landslide reshapes exactly as quake (same depth-1 arm) — proves it is live.
+        assert_eq!(
+            serde_json::to_string(&land.world.tiles).unwrap(),
+            serde_json::to_string(&quake.world.tiles).unwrap(),
+            "landslide must reshape identically to quake (shared depth-1 carve)"
+        );
+        // Tile count invariant + bounds hold after the landslide reshape.
+        assert_eq!(
+            land.world.tiles.len(),
+            before_count,
+            "landslide mutates in place — tile count is invariant"
+        );
+        assert_eq!(before_count, (width * WORLD_HEIGHT) as usize, "world stays width*height");
+        for t in &land.world.tiles {
+            assert!(t.x < width, "x {} escaped width {}", t.x, width);
+            assert!(t.y < WORLD_HEIGHT, "y {} escaped WORLD_HEIGHT", t.y);
+        }
     }
 
     // --- ENV-01/02/03: tick_environment orchestrator (Wave-3 / 03-03 Task 1) ---
