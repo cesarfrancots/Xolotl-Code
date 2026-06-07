@@ -176,6 +176,7 @@ export function CommandsPalette({
     const projectCommands: PaletteCommand[] = [
       ...(activeProjectPath ? [
         { id: "project-reveal", kind: "action" as const, label: "Reveal Active Project in Finder", description: macPathLabel(activeProjectPath), icon: ExternalLink, run: () => runMacHandoff("Reveal in Finder", () => revealPathInFinder(activeProjectPath), "finder") },
+        { id: "project-terminal", kind: "action" as const, label: "New Terminal in Active Project", description: macPathLabel(activeProjectPath), icon: TerminalSquare, run: () => { openTerminalAtPath(activeProjectPath, activeProject?.name); onOpenChange(false); } },
         { id: "project-copy-path", kind: "action" as const, label: "Copy Active Project Path", description: macPathLabel(activeProjectPath), icon: Copy, run: () => runMacHandoff("Copy project path", () => copyTextToClipboard(activeProjectPath), "clipboard") },
         { id: "project-copy-link", kind: "action" as const, label: "Copy Active Project Xolotl Link", description: macPathLabel(activeProjectPath), icon: Link2, run: () => runMacHandoff("Copy Xolotl link", () => copyXolotlCodeOpenUrl(activeProjectPath), "clipboard") },
         { id: "project-copy-shell-open", kind: "action" as const, label: "Copy Active Project Shell Open Command", description: "Terminal/Raycast/Alfred command for opening this project in Xolotl Code.", icon: TerminalSquare, run: () => runMacHandoff("Copy shell open command", () => copyXolotlCodeOpenShellCommand(activeProjectPath), "clipboard") },

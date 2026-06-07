@@ -105,6 +105,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("⌘N")).toBeTruthy();
     expect(screen.getByText("⌘T")).toBeTruthy();
     expect(screen.getByText("Reveal Active Project in Finder")).toBeTruthy();
+    expect(screen.getByText("New Terminal in Active Project")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Path")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Xolotl Link")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Shell Open Command")).toBeTruthy();
@@ -162,6 +163,19 @@ describe("CommandsPalette", () => {
       expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
+  });
+
+  it("opens an embedded terminal from the active project command", () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New Terminal in Active Project" }));
+
+    expect(terminalActionMocks.openTerminalAtPath).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl",
+      "Xolotl",
+    );
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("copies active project Xolotl links from the palette", async () => {

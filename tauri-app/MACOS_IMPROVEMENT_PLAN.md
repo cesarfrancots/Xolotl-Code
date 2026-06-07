@@ -17,7 +17,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Main window uses macOS overlay titlebar chrome with hidden title text, explicit traffic-light positioning, custom drag regions, and safe spacing when the left rail is collapsed.
 - Sidebar projects and file browser use compact Mac navigator rows, count badges, consistent utility icon buttons, and tighter Finder-style metadata labels.
 - Shortcut hints use macOS symbols across workbench, terminal, sidebar footer, composer command button, and command palette rows.
-- Command palette includes native-menu actions, active project Finder/path actions, recent project entries, and terminal actions with Mac shortcut chips.
+- Command palette includes native-menu actions, active-project Finder/terminal/path/context actions, recent project entries, and terminal actions with Mac shortcut chips.
 - Command palette includes a File Browser section for current-folder reveal/copy/refresh/navigation and visible file/folder row actions.
 - Command palette keeps Mac handoff failures visible with recovery guidance for Finder, editor, Quick Look, and clipboard actions.
 - Mac command routing uses a shared command model for global keydown handling, native-menu action normalization, and command-palette action rows.
@@ -147,7 +147,7 @@ Deliverables:
 
 - Command palette:
   - Show Mac symbols for shortcuts where useful: Cmd, Shift, Option, Control. Done for the first palette shortcut-chip pass.
-  - Add project-aware commands for Open Recent, Reveal in Finder, New Terminal Here, and Copy Path. Done for active project and recent project rows.
+  - Add project-aware commands for Open Recent, Reveal in Finder, New Terminal Here, and Copy Path. Done for active project commands and recent project rows.
   - Add file-browser commands for current folder navigation, Finder reveal, Quick Look, New Terminal Here, and visible row copy/path actions. Done for the current listing and non-hidden visible entries.
   - Keep action names short and scan-friendly.
 - Keyboard model:
