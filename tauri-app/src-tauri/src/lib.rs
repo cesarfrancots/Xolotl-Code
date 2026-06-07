@@ -76,6 +76,8 @@ const MENU_OPEN_LATEST_AGENT: &str = "xolotl:open-latest-agent";
 const MENU_REVEAL_LATEST_AGENT_WORKTREE: &str = "xolotl:reveal-latest-agent-worktree";
 const MENU_OPEN_LATEST_AGENT_WORKTREE_EDITOR: &str = "xolotl:open-latest-agent-worktree-editor";
 const MENU_OPEN_LATEST_AGENT_WORKTREE_TERMINAL: &str = "xolotl:open-latest-agent-worktree-terminal";
+const MENU_NEW_LATEST_AGENT_WORKTREE_TERMINAL_TAB: &str =
+    "xolotl:new-latest-agent-worktree-terminal-tab";
 const MENU_COPY_LATEST_AGENT_WORKTREE_PATH: &str = "xolotl:copy-latest-agent-worktree-path";
 const MENU_COPY_LATEST_AGENT_WORKTREE_LINK: &str = "xolotl:copy-latest-agent-worktree-link";
 const MENU_COPY_LATEST_AGENT_WORKTREE_SHELL_OPEN: &str =
@@ -414,6 +416,11 @@ fn build_latest_agent_worktree_menu(app: &tauri::AppHandle) -> tauri::Result<Sub
         "Open in External Terminal",
     )
     .build(app)?;
+    let embedded_terminal = MenuItemBuilder::with_id(
+        MENU_NEW_LATEST_AGENT_WORKTREE_TERMINAL_TAB,
+        "New Embedded Terminal Here",
+    )
+    .build(app)?;
     let copy_path =
         MenuItemBuilder::with_id(MENU_COPY_LATEST_AGENT_WORKTREE_PATH, "Copy POSIX Path")
             .build(app)?;
@@ -430,6 +437,7 @@ fn build_latest_agent_worktree_menu(app: &tauri::AppHandle) -> tauri::Result<Sub
         .item(&reveal)
         .item(&editor)
         .item(&terminal)
+        .item(&embedded_terminal)
         .separator()
         .item(&copy_path)
         .item(&copy_link)
@@ -1071,6 +1079,8 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
         Some(MENU_OPEN_LATEST_AGENT_WORKTREE_EDITOR)
     } else if id == MENU_OPEN_LATEST_AGENT_WORKTREE_TERMINAL {
         Some(MENU_OPEN_LATEST_AGENT_WORKTREE_TERMINAL)
+    } else if id == MENU_NEW_LATEST_AGENT_WORKTREE_TERMINAL_TAB {
+        Some(MENU_NEW_LATEST_AGENT_WORKTREE_TERMINAL_TAB)
     } else if id == MENU_COPY_LATEST_AGENT_WORKTREE_PATH {
         Some(MENU_COPY_LATEST_AGENT_WORKTREE_PATH)
     } else if id == MENU_COPY_LATEST_AGENT_WORKTREE_LINK {
@@ -1331,6 +1341,12 @@ mod tests {
                 MENU_OPEN_LATEST_AGENT_WORKTREE_TERMINAL
             )),
             Some(MENU_OPEN_LATEST_AGENT_WORKTREE_TERMINAL)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(
+                MENU_NEW_LATEST_AGENT_WORKTREE_TERMINAL_TAB
+            )),
+            Some(MENU_NEW_LATEST_AGENT_WORKTREE_TERMINAL_TAB)
         );
         assert_eq!(
             menu_action_for_id(&tauri::menu::MenuId::new(

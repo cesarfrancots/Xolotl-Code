@@ -392,6 +392,15 @@ describe("App tab navigation", () => {
     });
     expect(await screen.findByText("Latest agent worktree revealed in Finder.")).toBeTruthy();
 
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "new-latest-agent-worktree-terminal-tab" }));
+
+    expect(await screen.findByText("Terminal dock")).toBeTruthy();
+    const tabs = useTerminalStore.getState().tabs;
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0].cwd).toBe("/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-executing");
+    expect(useTerminalStore.getState().activeKey).toBe(tabs[0].key);
+    expect(await screen.findByText("Embedded terminal opened at the latest agent worktree.")).toBeTruthy();
+
     fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "copy-latest-agent-worktree-shell-open" }));
 
     await waitFor(() => {

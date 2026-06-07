@@ -175,8 +175,13 @@ export default function App() {
           message: failureMessage,
           hint: `${recoveryHint} ${errorDetail(err)}`,
         });
-      });
+    });
   }, [showNoAgentStatus]);
+
+  const openEmbeddedTerminalAtPath = useCallback(async (path: string) => {
+    useUiStore.getState().setTerminalPanelOpen(true);
+    useTerminalStore.getState().addTab(undefined, path);
+  }, []);
 
   const closeActiveTerminalTab = useCallback(() => {
     const terminal = useTerminalStore.getState();
@@ -313,6 +318,15 @@ export default function App() {
       );
       return;
     }
+    if (action === "new-latest-agent-worktree-terminal-tab") {
+      runLatestAgentWorktreeHandoff(
+        openEmbeddedTerminalAtPath,
+        "Embedded terminal opened at the latest agent worktree.",
+        "Open latest agent worktree in embedded terminal failed.",
+        "Check that the latest agent still has a worktree and that macOS can access it.",
+      );
+      return;
+    }
     if (action === "copy-latest-agent-worktree-path") {
       runLatestAgentWorktreeHandoff(
         copyTextToClipboard,
@@ -394,7 +408,7 @@ export default function App() {
       void loadCivilizationView();
       selectCenterTab("civ");
     }
-  }, [addActiveProjectTerminalTab, addTerminalTab, closeActiveTerminalTab, openLatestAgentOutput, runActiveProjectHandoff, runLatestAgentWorktreeHandoff, selectAdjacentTerminalTab, selectCenterTab]);
+  }, [addActiveProjectTerminalTab, addTerminalTab, closeActiveTerminalTab, openEmbeddedTerminalAtPath, openLatestAgentOutput, runActiveProjectHandoff, runLatestAgentWorktreeHandoff, selectAdjacentTerminalTab, selectCenterTab]);
 
   useEffect(() => listenForNativeMenuActions(handleNativeMenuAction), [handleNativeMenuAction]);
 

@@ -22,6 +22,7 @@ const MENU_ACTION_BY_ID = {
   "xolotl:reveal-latest-agent-worktree": "reveal-latest-agent-worktree",
   "xolotl:open-latest-agent-worktree-editor": "open-latest-agent-worktree-editor",
   "xolotl:open-latest-agent-worktree-terminal": "open-latest-agent-worktree-terminal",
+  "xolotl:new-latest-agent-worktree-terminal-tab": "new-latest-agent-worktree-terminal-tab",
   "xolotl:copy-latest-agent-worktree-path": "copy-latest-agent-worktree-path",
   "xolotl:copy-latest-agent-worktree-link": "copy-latest-agent-worktree-link",
   "xolotl:copy-latest-agent-worktree-shell-open": "copy-latest-agent-worktree-shell-open",
