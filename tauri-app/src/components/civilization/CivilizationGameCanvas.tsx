@@ -3205,6 +3205,70 @@ export function regionOverlayFor(
   return map.get(owner) ?? null;
 }
 
+/**
+ * Axis-aligned bounding box over all LIVING colonies, in whatever unit the caller
+ * passed (the scene passes world pixels). Dead colonies are excluded so a collapse
+ * re-frame drops them; returns null when no colony is alive (T-02-04 — the caller
+ * falls back to `this.colony`). Each side is inflated by `pad`. Pure — no Phaser.
+ */
+export function colonyBounds(
+  colonies: { x: number; y: number; alive: boolean }[],
+  pad: number,
+): { x: number; y: number; w: number; h: number } | null {
+  const live = colonies.filter((c) => c.alive);
+  if (live.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const c of live) {
+    minX = Math.min(minX, c.x);
+    maxX = Math.max(maxX, c.x);
+    minY = Math.min(minY, c.y);
+    maxY = Math.max(maxY, c.y);
+  }
+  return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
+}
+
+/**
+ * Resolve a civ's home point in WORLD-TILE coordinates (the caller multiplies by
+ * TILE_SIZE, mirroring focusRegion's `(rx + width/2) * TILE_SIZE` math). Precedence:
+ *   (a) the civ's home_region matched in `regions` -> that region's centre;
+ *   (b) else the centroid of entities whose civ_id === civId;
+ *   (c) else the civ's spawn_x (with a surface-level y);
+ *   (d) else null (T-02-04 — the caller falls back to frameAll()).
+ * Pure — no Phaser; never throws on missing/malformed input.
+ */
+export function focusTarget(
+  civId: string,
+  civs: { id?: string; spawn_x?: number; home_region?: string }[] | undefined,
+  regions: { id: string; x: number; width: number; height?: number; owner?: string | null }[] | undefined,
+  entities: { civ_id?: string | null; x: number; y: number }[] | undefined,
+): { tx: number; ty: number } | null {
+  const civ = (civs ?? []).find((c) => c.id === civId);
+  if (!civ) return null;
+  // (a) home-region centre.
+  if (civ.home_region) {
+    const region = (regions ?? []).find((r) => r.id === civ.home_region);
+    if (region) {
+      return { tx: region.x + region.width / 2, ty: (region.height ?? 0) / 2 };
+    }
+  }
+  // (b) centroid of the civ's entities.
+  const own = (entities ?? []).filter((e) => e.civ_id === civId);
+  if (own.length > 0) {
+    const sx = own.reduce((a, e) => a + e.x, 0) / own.length;
+    const sy = own.reduce((a, e) => a + e.y, 0) / own.length;
+    return { tx: sx, ty: sy };
+  }
+  // (c) spawn_x with a surface-level y.
+  if (typeof civ.spawn_x === "number") {
+    return { tx: civ.spawn_x, ty: SURFACE_ROWS };
+  }
+  // (d) unresolvable.
+  return null;
+}
+
 function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(ax - bx, ay - by);
 }

@@ -21,6 +21,8 @@ vi.mock("phaser", () => {
 import {
   buildCivColorMap,
   civTintFor,
+  colonyBounds,
+  focusTarget,
   hexToTint,
   regionOverlayFor,
 } from "./CivilizationGameCanvas";
@@ -137,5 +139,91 @@ describe("regionOverlayFor", () => {
 
   it("returns alive:false for a dead owner so the caller can dim it", () => {
     expect(regionOverlayFor("dead", map)).toEqual({ tint: 0x445566, alive: false });
+  });
+});
+
+describe("colonyBounds", () => {
+  it("returns the tight bounding box over living colonies (pad 0)", () => {
+    expect(
+      colonyBounds(
+        [
+          { x: 10, y: 10, alive: true },
+          { x: 30, y: 50, alive: true },
+        ],
+        0,
+      ),
+    ).toEqual({ x: 10, y: 10, w: 20, h: 40 });
+  });
+
+  it("inflates the box by pad on every side", () => {
+    expect(
+      colonyBounds(
+        [
+          { x: 10, y: 10, alive: true },
+          { x: 30, y: 50, alive: true },
+        ],
+        5,
+      ),
+    ).toEqual({ x: 5, y: 5, w: 30, h: 50 });
+  });
+
+  it("excludes dead colonies (collapse re-frame drops them)", () => {
+    expect(
+      colonyBounds(
+        [
+          { x: 10, y: 10, alive: true },
+          { x: 30, y: 50, alive: false },
+        ],
+        0,
+      ),
+    ).toEqual({ x: 10, y: 10, w: 0, h: 0 });
+  });
+
+  it("returns null when there are zero living colonies", () => {
+    expect(colonyBounds([], 6)).toBeNull();
+    expect(colonyBounds([{ x: 1, y: 2, alive: false }], 6)).toBeNull();
+  });
+});
+
+describe("focusTarget", () => {
+  const civs = [
+    { id: "a", spawn_x: 7, home_region: "r-a" },
+    { id: "b", spawn_x: 12 },
+    { id: "c" },
+    { id: "d", spawn_x: 20, home_region: "missing" },
+  ];
+  const regions = [
+    { id: "r-a", x: 4, width: 6, height: 8, owner: "a" },
+  ];
+  const entities = [
+    { civ_id: "b", x: 10, y: 20 },
+    { civ_id: "b", x: 14, y: 24 },
+    { civ_id: "x", x: 99, y: 99 },
+  ];
+
+  it("prefers the civ's home-region centre in world tiles", () => {
+    // region r-a: x=4, width=6 -> cx = 4 + 6/2 = 7; cy = 8/2 = 4.
+    expect(focusTarget("a", civs, regions, entities)).toEqual({ tx: 7, ty: 4 });
+  });
+
+  it("falls back to the centroid of that civ's entities when no home region resolves", () => {
+    // civ b: no home_region; entities (10,20) & (14,24) -> centroid (12, 22).
+    expect(focusTarget("b", civs, regions, entities)).toEqual({ tx: 12, ty: 22 });
+  });
+
+  it("falls back to spawn_x (with a sensible y) when no region and no entities resolve", () => {
+    // civ d: home_region "missing" not in regions; no entities -> spawn_x 20.
+    const t = focusTarget("d", civs, regions, entities);
+    expect(t).not.toBeNull();
+    expect(t?.tx).toBe(20);
+    expect(Number.isFinite(t?.ty as number)).toBe(true);
+  });
+
+  it("returns null when nothing resolves (no region, no entities, no spawn_x)", () => {
+    expect(focusTarget("c", civs, regions, entities)).toBeNull();
+  });
+
+  it("returns null for an unknown civ id", () => {
+    expect(focusTarget("ghost", civs, regions, entities)).toBeNull();
   });
 });
