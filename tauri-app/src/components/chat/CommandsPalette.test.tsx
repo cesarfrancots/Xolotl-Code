@@ -7,6 +7,7 @@ import { useProjectStore } from "../../stores/projectStore";
 const pathActionMocks = vi.hoisted(() => ({
   copyProjectContextHandoff: vi.fn(() => Promise.resolve()),
   copyTextToClipboard: vi.fn(() => Promise.resolve()),
+  copyXolotlCodeOpenShellCommand: vi.fn(() => Promise.resolve()),
   copyXolotlCodeOpenUrl: vi.fn(() => Promise.resolve()),
   openPathInExternalEditor: vi.fn(() => Promise.resolve()),
   openPathInExternalTerminal: vi.fn(() => Promise.resolve()),
@@ -24,6 +25,7 @@ vi.mock("../../lib/pathActions", async () => {
     ...actual,
     copyProjectContextHandoff: pathActionMocks.copyProjectContextHandoff,
     copyTextToClipboard: pathActionMocks.copyTextToClipboard,
+    copyXolotlCodeOpenShellCommand: pathActionMocks.copyXolotlCodeOpenShellCommand,
     copyXolotlCodeOpenUrl: pathActionMocks.copyXolotlCodeOpenUrl,
     openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
     openPathInExternalTerminal: pathActionMocks.openPathInExternalTerminal,
@@ -105,6 +107,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Reveal Active Project in Finder")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Path")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Xolotl Link")).toBeTruthy();
+    expect(screen.getByText("Copy Active Project Shell Open Command")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Context Prompt")).toBeTruthy();
     expect(screen.getByText("Open Active Project in Editor")).toBeTruthy();
     expect(screen.getByText("Open Active Project in External Terminal")).toBeTruthy();
@@ -119,6 +122,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("File Browser")).toBeTruthy();
     expect(screen.getByText("Reveal Current Folder in Finder")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Xolotl Link")).toBeTruthy();
+    expect(screen.getByText("Copy Current Folder Shell Open Command")).toBeTruthy();
     expect(screen.getByText("New Terminal in Current Folder")).toBeTruthy();
     expect(screen.getByText("Open Current Folder in External Terminal")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Relative Path")).toBeTruthy();
@@ -168,6 +172,18 @@ describe("CommandsPalette", () => {
 
     await waitFor(() => {
       expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it("copies active project shell open commands from the palette", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Active Project Shell Open Command" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
   });
@@ -261,6 +277,20 @@ describe("CommandsPalette", () => {
     });
   });
 
+  it("copies current folder shell open commands from the palette", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Current Folder Shell Open Command" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/docs",
+      );
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
   it("runs file-browser row actions from the palette", async () => {
     const browse = vi.fn(() => Promise.resolve());
     const onOpenChange = vi.fn();
@@ -285,6 +315,13 @@ describe("CommandsPalette", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy Xolotl link for src" }));
     await waitFor(() => {
       expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/src");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy shell open command for src" }));
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/docs/src",
+      );
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Quick Look File: README.md" }));

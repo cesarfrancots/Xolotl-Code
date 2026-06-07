@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { projectContextHandoffText, relativePathFromRoot, xolotlCodeOpenUrl } from "./pathActions";
+import {
+  projectContextHandoffText,
+  relativePathFromRoot,
+  xolotlCodeOpenShellCommand,
+  xolotlCodeOpenUrl,
+} from "./pathActions";
 
 describe("relativePathFromRoot", () => {
   it("returns a project-relative path for children", () => {
@@ -23,6 +28,20 @@ describe("xolotlCodeOpenUrl", () => {
   it("encodes project paths for the macOS URL scheme", () => {
     expect(xolotlCodeOpenUrl("/Users/cesar/Documents/Pivot app")).toBe(
       "xolotl-code://open?path=%2FUsers%2Fcesar%2FDocuments%2FPivot+app",
+    );
+  });
+});
+
+describe("xolotlCodeOpenShellCommand", () => {
+  it("formats a Terminal-safe open command for Mac automation", () => {
+    expect(xolotlCodeOpenShellCommand("/Users/cesar/Documents/Pivot app")).toBe(
+      "open 'xolotl-code://open?path=%2FUsers%2Fcesar%2FDocuments%2FPivot+app'",
+    );
+  });
+
+  it("quotes URL arguments defensively for shell handoff", () => {
+    expect(xolotlCodeOpenShellCommand("/Users/cesar/O'Hara/$HOME `test`")).toBe(
+      "open 'xolotl-code://open?path=%2FUsers%2Fcesar%2FO%27Hara%2F%24HOME+%60test%60'",
     );
   });
 });

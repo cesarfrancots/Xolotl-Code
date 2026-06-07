@@ -26,6 +26,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - The macOS bundle registers Finder/Open With document types for project folders plus common source/text documents.
 - The macOS bundle registers `xolotl-code://open?path=...` project links for Shortcuts, Raycast, Alfred, and shell automation.
 - Project rows and the command palette can copy `xolotl-code://open?path=...` links for saved projects, current folders, and visible file-browser entries.
+- The command palette can copy Terminal-safe `open 'xolotl-code://...'` commands for active projects, current folders, and visible file-browser entries.
 - The command palette can copy a prompt-ready active project context block with the POSIX path and `xolotl-code://` link for Shortcuts, Raycast, Alfred, and shell automation.
 - Saved project rows and file browser entries can reveal their target in Finder.
 - File browser entries can copy POSIX paths and project-relative paths.
@@ -268,6 +269,7 @@ Deliverables:
 - Evaluate macOS Services or Shortcuts integration after core workflows are stable.
   - First pass done with `xolotl-code://open?path=...` deep links for Shortcuts, Raycast, Alfred, and shell automation.
   - Link-copying actions are available from saved project rows and the command palette.
+  - Shell open-command copying is available from the command palette for active projects, current folders, and visible file-browser entries.
 
 Acceptance:
 
@@ -369,7 +371,7 @@ Deliverables:
 - Make project and file handoff frictionless:
   - Continue expanding `xolotl-code://open?path=...` links where they naturally fit.
   - Add a command-palette action to copy a prompt-ready project context link when a project is active. Done for active project path + `xolotl-code://` link context blocks.
-  - Add documentation or in-app affordances for using links from Shortcuts, Raycast, Alfred, and shell scripts without adding noisy onboarding text to the main UI.
+  - Add documentation or in-app affordances for using links from Shortcuts, Raycast, Alfred, and shell scripts without adding noisy onboarding text to the main UI. Done for command-palette shell-open command copying.
 - Improve Finder-originated workflows:
   - Complete end-to-end manual QA for drag/drop, Open With, and file-url launch using real folders with spaces and package directories.
   - Consider an AppKit shim only for features Tauri cannot expose cleanly and only after the maintenance cost is clear.
@@ -381,6 +383,7 @@ Acceptance:
 
 - A Mac user can get from Finder, Raycast, Shortcuts, or Terminal into the exact Xolotl project/folder without duplicate project entries.
 - Copied links survive paths with spaces and Unicode.
+- Copied shell commands quote their `xolotl-code://` argument for Terminal, Raycast, Alfred, and shell script handoff.
 - Automation hooks work without requiring main-branch changes or private user paths in tests.
 
 ### C. Mac Work Continuity

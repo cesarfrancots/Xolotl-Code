@@ -29,8 +29,20 @@ export function xolotlCodeOpenUrl(path: string): string {
   return url.href;
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+export function xolotlCodeOpenShellCommand(path: string): string {
+  return `open ${shellQuote(xolotlCodeOpenUrl(path))}`;
+}
+
 export async function copyXolotlCodeOpenUrl(path: string) {
   await copyTextToClipboard(xolotlCodeOpenUrl(path));
+}
+
+export async function copyXolotlCodeOpenShellCommand(path: string) {
+  await copyTextToClipboard(xolotlCodeOpenShellCommand(path));
 }
 
 function projectLabelFromPath(path: string): string {
