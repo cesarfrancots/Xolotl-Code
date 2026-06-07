@@ -158,6 +158,33 @@ interface ArtifactActionStatus {
   artifactDir?: string;
   revealState?: ArtifactRevealState;
   revealMessage?: string;
+  revealHint?: string;
+}
+
+type FinderRevealTarget = "eval-file" | "eval-artifacts" | "generated-artifact";
+
+function finderRevealFailureMessage(target: FinderRevealTarget): string {
+  switch (target) {
+    case "eval-file":
+      return "Reveal saved eval in Finder failed.";
+    case "eval-artifacts":
+      return "Reveal Eval Artifacts in Finder failed.";
+    case "generated-artifact":
+      return "Reveal generated artifact folder in Finder failed.";
+  }
+}
+
+function finderRevealRecoveryHint(target: FinderRevealTarget, error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error ?? "");
+  const suffix = detail ? ` ${detail}` : "";
+  switch (target) {
+    case "eval-file":
+      return `Check that the saved eval still exists and that macOS has allowed Xolotl Code to access it.${suffix}`;
+    case "eval-artifacts":
+      return `Check that Xolotl Code can create and open the eval artifacts folder in your macOS home directory.${suffix}`;
+    case "generated-artifact":
+      return `Check that the generated artifact folder still exists and that macOS has allowed Xolotl Code to access it.${suffix}`;
+  }
 }
 
 type ModelAvatarMeta = {
@@ -505,7 +532,7 @@ function OutcomePreview({
     if (!launched?.artifactDir) return;
     setLaunchStates((prev) => ({
       ...prev,
-      [artifact.id]: { ...launched, revealState: "revealing", revealMessage: "" },
+      [artifact.id]: { ...launched, revealState: "revealing", revealMessage: "", revealHint: undefined },
     }));
     const result = await commands.revealInFinder(launched.artifactDir);
     setLaunchStates((prev) => ({
@@ -513,7 +540,10 @@ function OutcomePreview({
       [artifact.id]: {
         ...(prev[artifact.id] ?? launched),
         revealState: result.status === "ok" ? "ok" : "error",
-        revealMessage: result.status === "ok" ? "Revealed in Finder." : result.error,
+        revealMessage: result.status === "ok"
+          ? "Generated artifact folder revealed in Finder."
+          : finderRevealFailureMessage("generated-artifact"),
+        revealHint: result.status === "ok" ? undefined : finderRevealRecoveryHint("generated-artifact", result.error),
       },
     }));
   };
@@ -552,29 +582,41 @@ function OutcomePreview({
           {artifacts.map((artifact) => {
             const launch = launchStates[artifact.id] ?? { state: "idle" as ArtifactLaunchState, message: "" };
             return (
-              <div key={artifact.id} className="inline-flex min-w-0 items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => void startArtifact(artifact)}
-                  disabled={launch.state === "starting" || launch.state === "ok"}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.66_0.020_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
-                  title={launch.message || artifact.title}
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  {launch.state === "starting" ? "Starting..." : artifact.kind === "python" ? "Start" : "Open"} {artifact.title}
-                </button>
-                {launch.artifactDir && (
+              <div key={artifact.id} className="flex min-w-[220px] max-w-full flex-col gap-1">
+                <div className="inline-flex min-w-0 items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => void revealArtifact(artifact)}
-                    disabled={launch.revealState === "revealing"}
-                    className="inline-flex h-7 items-center gap-1 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.60_0.018_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
-                    title={launch.revealMessage || "Reveal generated artifact folder in Finder"}
-                    aria-label={`Reveal ${artifact.title} artifact in Finder`}
+                    onClick={() => void startArtifact(artifact)}
+                    disabled={launch.state === "starting" || launch.state === "ok"}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.66_0.020_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
+                    title={launch.message || artifact.title}
                   >
-                    <FolderOpen className="h-3 w-3" />
-                    {launch.revealState === "revealing" ? "Revealing..." : "Reveal"}
+                    <ExternalLink className="h-3 w-3" />
+                    {launch.state === "starting" ? "Starting..." : artifact.kind === "python" ? "Start" : "Open"} {artifact.title}
                   </button>
+                  {launch.artifactDir && (
+                    <button
+                      type="button"
+                      onClick={() => void revealArtifact(artifact)}
+                      disabled={launch.revealState === "revealing"}
+                      className="inline-flex h-7 items-center gap-1 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.60_0.018_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
+                      title={launch.revealMessage || "Reveal generated artifact folder in Finder"}
+                      aria-label={`Reveal ${artifact.title} artifact in Finder`}
+                    >
+                      <FolderOpen className="h-3 w-3" />
+                      {launch.revealState === "revealing" ? "Revealing..." : "Reveal"}
+                    </button>
+                  )}
+                </div>
+                {launch.state === "error" && (
+                  <EvalInlineStatus tone="error" message="Could not start artifact." hint={launch.message} />
+                )}
+                {launch.revealMessage && (
+                  <EvalInlineStatus
+                    tone={launch.revealState === "error" ? "error" : "ok"}
+                    message={launch.revealMessage}
+                    hint={launch.revealHint}
+                  />
                 )}
               </div>
             );
@@ -598,6 +640,50 @@ function OutcomePreview({
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function EvalInlineStatus({
+  tone,
+  message,
+  hint,
+  className = "",
+  onDismiss,
+  dismissLabel = "Dismiss eval status",
+}: {
+  tone: "ok" | "error";
+  message: string;
+  hint?: string;
+  className?: string;
+  onDismiss?: () => void;
+  dismissLabel?: string;
+}) {
+  const Icon = tone === "error" ? AlertTriangle : CheckCircle2;
+  const classes = tone === "error"
+    ? "border-[oklch(0.34_0.055_25)] bg-[oklch(0.145_0.018_25)] text-[oklch(0.76_0.080_25)]"
+    : "border-[oklch(0.32_0.045_155)] bg-[oklch(0.14_0.016_155)] text-[oklch(0.72_0.070_155)]";
+
+  return (
+    <div
+      role={tone === "error" ? "alert" : "status"}
+      className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-[11px] ${classes} ${className}`}
+    >
+      <Icon className="mt-0.5 h-3 w-3 flex-none" />
+      <div className="min-w-0 flex-1">
+        <div className="font-medium">{message}</div>
+        {hint && <div className="mt-0.5 break-words leading-relaxed text-[oklch(0.67_0.045_45)]">{hint}</div>}
+      </div>
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="flex-none rounded px-1 text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.18_0.008_245)] hover:text-[oklch(0.86_0.016_220)]"
+          aria-label={dismissLabel}
+        >
+          Dismiss
+        </button>
       )}
     </div>
   );
@@ -1476,7 +1562,7 @@ function BenchmarkLeaderboardPanel() {
 
 function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
   const [items, setItems] = useState<EvalMeta[]>([]);
-  const [actionMessage, setActionMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [actionMessage, setActionMessage] = useState<{ tone: "ok" | "error"; message: string; hint?: string } | null>(null);
   const refresh = useCallback(() => {
     commands.listEvals().then(setItems).catch(console.error);
   }, []);
@@ -1487,8 +1573,12 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
     const result = await commands.revealEvalResultInFinder(id);
     setActionMessage(
       result.status === "ok"
-        ? { tone: "ok", text: "Eval file revealed in Finder." }
-        : { tone: "error", text: result.error }
+        ? { tone: "ok", message: "Eval file revealed in Finder." }
+        : {
+            tone: "error",
+            message: finderRevealFailureMessage("eval-file"),
+            hint: finderRevealRecoveryHint("eval-file", result.error),
+          }
     );
   }
 
@@ -1497,8 +1587,12 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
     const result = await commands.revealEvalArtifactsInFinder();
     setActionMessage(
       result.status === "ok"
-        ? { tone: "ok", text: "Eval artifacts folder revealed in Finder." }
-        : { tone: "error", text: result.error }
+        ? { tone: "ok", message: "Eval artifacts folder revealed in Finder." }
+        : {
+            tone: "error",
+            message: finderRevealFailureMessage("eval-artifacts"),
+            hint: finderRevealRecoveryHint("eval-artifacts", result.error),
+          }
     );
   }
 
@@ -1532,15 +1626,14 @@ function HistoryPanel({ onLoad }: { onLoad: (id: string) => void }) {
         </button>
       </div>
       {actionMessage && (
-        <div
-          className={`mb-1 rounded-md border px-2 py-1.5 text-[11px] ${
-            actionMessage.tone === "ok"
-              ? "border-[oklch(0.32_0.045_155)] bg-[oklch(0.14_0.016_155)] text-[oklch(0.72_0.070_155)]"
-              : "border-[oklch(0.34_0.055_25)] bg-[oklch(0.145_0.018_25)] text-[oklch(0.72_0.090_25)]"
-          }`}
-        >
-          {actionMessage.text}
-        </div>
+        <EvalInlineStatus
+          tone={actionMessage.tone}
+          message={actionMessage.message}
+          hint={actionMessage.hint}
+          className="mb-1"
+          onDismiss={() => setActionMessage(null)}
+          dismissLabel="Dismiss eval handoff status"
+        />
       )}
       {items.map((m) => {
         const reviewBadge = evalReviewModeBadge({
