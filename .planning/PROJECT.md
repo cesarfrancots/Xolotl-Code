@@ -8,6 +8,28 @@ xolotl is a personal AI development ecosystem — a Tauri desktop app plus a CLI
 
 A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
 
+## Current Milestone: v2.1 Living World & Economy
+
+**Goal:** Turn the multi-civ simulation into a fully playable, understandable, and enjoyable axolotl civilization game — an infinite procedural world rich with content, a deep resource→currency→shop economy, true human takeover of a civ, NPCs, and a game-native UI — where every human-play feature also deepens agentic playability.
+
+**Target features:**
+- **Infinite procedural world** — replace the fixed world with procedurally-generated, explorable/expandable terrain (fBm terrain, caves, prospecting, terraform/place — the deferred W10.3–W10.7), seeded with more buildings, mineable items, and resources throughout.
+- **Items & gathering** — tools/items for mining, digging, harvesting, and growing more & better vegetation/resources; a richer resource taxonomy.
+- **Economy & currency** — civs and axolotls gather resources and sell them at fixed prices for currency; **at least 5 distinct currencies** with different uses (shells + others, ocean/pond-themed); researched acquisition rates and sinks so the economy is balanced and fun.
+- **Shop / store with full UI** — buy buffs, resources, buildings, items, and more; a game-native store UI primarily for human takeovers; catalog + prices grounded in economy research.
+- **True human takeover (Game B)** — possessing a civ makes it fully player-controlled and bypasses the LLM; richer human-play controls that also expand the agentic control surface.
+- **NPCs** — interactable non-civ characters (traders / quest-givers / fauna handlers) the world and players engage with.
+- **Asset generation (Gemini)** — generate game images/sprites/resource art via the Gemini image API (`GEMINI_API_KEY`) rather than placeholder art.
+- **Game-native UI refinement** — the Civ UI should read as a game, not as part of the harness app; restyle to fit.
+
+**Guiding constraints (carry into every phase):**
+- Every human-play feature should also benefit agentic playability — keep the arena bridge (`render_game_to_text()`, `civPilotControls`, `codex-play-civ.mjs`) extended, never broken.
+- Keep the engine deterministic/seeded; backend untestable on Windows (WebView2) → verify via `cargo check`/`clippy`/`test --no-run` + frontend `tsc`/vitest.
+- Single-player mechanics are duplicated in `civilization.rs` and `tauriBrowserFallback.ts` — keep in lockstep where touched.
+- v2.0 live UAT is still pending (providers + WebView2) — see MILESTONES.md.
+
+**Spec-of-record:** extends `civ-multi-civ-world-plan.md` (W10.3–W10.7 procedural world) plus new economy / shop / possession / NPC / asset workstreams defined in v2.1 `REQUIREMENTS.md`.
+
 ## Requirements
 
 ### Validated
@@ -60,20 +82,29 @@ These capabilities are already implemented in the Rust codebase (`rust/` folder)
 - ✓ `specta` + `tauri-specta` type generation to `bindings.ts`; `tsc --noEmit` passes — `bindings.ts`
 - ✓ `window-state`, `clipboard-manager`, `fs` plugins registered + capability-granted; all smoke-tested in live window — `lib.rs`, `capabilities/default.json`
 
+### Validated in v1.0: Chat UI, Dashboard & Teams *(Phases 4-6, 2026-05-11)*
+
+- ✓ Tauri shell wrapping the Rust core via IPC — v1.0
+- ✓ Chat-first UI: message thread, streaming responses, tool-use display, inline diffs — v1.0
+- ✓ Agent spawning from UI (model/task selection) + live agent status panel — v1.0
+- ✓ Parallel worktree support (agents on separate git branches, per-worktree activity) — v1.0
+- ✓ Role-based agent teams (Planner/Coder/Reviewer/Tester) + shared-context collaboration — v1.0
+- ✓ Background agents, per-agent model selector, orchestration/team config — v1.0
+
+### Validated in v2.0: Civ Simulation *(Phases 1-5, 2026-06-07)*
+
+- ✓ Multi-model world creation (1-3 AI-model civs, per-civ color/controller) + live leaderboard — CIV-01/02/03
+- ✓ Harness arena: full text state via `render_game_to_text()` + `civPilotControls` drive on a shared scoreboard — ARENA-01/02/03
+- ✓ Renderer multi-civ identity (per-civ color tints) + multi-colony / focus-a-civ camera — REN-01/02
+- ✓ Environment engine: seasons drift temperature, disasters reshape terrain, renewable-only regrowth — ENV-01/02/03
+- ✓ Combat, raids, territory ownership, diplomacy/trades, wild predators (all deterministic/seeded) — WAR-01/02/03/04
+- ✓ Expanded visible Mendelian genetics + environmental selection with measurable evolution — GEN-01/02
+
+*(Implemented + automated-verified; live human UAT of the running sim still pending — see MILESTONES.md verification status.)*
+
 ### Active
 
-Tauri desktop app (Phase 4+):
-
-- [ ] Tauri shell wrapping the Rust core via IPC
-- [ ] Chat-first UI: message thread, streaming responses, tool use display, inline diffs
-- [ ] Agent spawning from UI: create sub-agents with model/task selection
-- [ ] Agent status panel: live view of running agents, progress, output
-- [ ] Parallel worktree support: spawn agents on different git branches, visualize per-worktree activity
-- [ ] Role-based agent teams: orchestrator assigns Planner/Coder/Reviewer/Tester roles, routes context
-- [ ] Shared context window collaboration: multiple agents reading/writing to a shared context object
-- [ ] Background agents: long-running agents that notify on completion
-- [ ] Model selector UI: switch between Anthropic/Kimi/MiniMax/Ollama per agent
-- [ ] Agent orchestration config: define team compositions, swarm strategies, cost budgets
+Defined per milestone — current milestone requirements live in `.planning/REQUIREMENTS.md` (see **Current Milestone** above).
 
 ### Out of Scope
 
@@ -113,6 +144,9 @@ The multi-agent system needs a protocol layer: agents need to communicate task s
 | Chat-first UI (not IDE-lite) | Orchestration view > editing view; agents do the editing | — Pending |
 | Both combined moat: multi-agent + open models | Neither Cursor nor Codex handles both well; the combo is differentiated | — Pending |
 | Child-process sub-agents for isolation | Existing `subagent/spawner.rs` — safe, isolated, simple. Shared-context teams need additional in-process layer | — Pending |
+| Civ sim doubles as a harness eval/arena (v2.0) | One artifact is both a watchable game and a harness scoreboard; arena interface kept strictly additive | ✓ Good |
+| Deterministic, seeded sim engine — combat/env/genetics (v2.0) | Reproducible runs + unit-testable on Windows via `cargo test --no-run` despite WebView2 blocking live backend tests | ✓ Good |
+| v2.0 reset phase numbering (Civ sim = Phases 1-5) | Each milestone's phases stay self-contained; prior milestone archived to `milestones/` | ✓ Good |
 
 ## Evolution
 
@@ -132,4 +166,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-07 after initialization*
+*Last updated: 2026-06-07 after v2.0 Civ Simulation milestone (code-complete; live UAT pending)*

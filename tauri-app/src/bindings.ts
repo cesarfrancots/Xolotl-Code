@@ -224,6 +224,14 @@ export const commands = {
 	loadCivSession: (id: string) => typedError<string, string>(__TAURI_INVOKE("load_civ_session", { id })),
 	deleteCivSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_civ_session", { id })),
 	applyCivIntervention: (id: string, intervention: CivIntervention) => typedError<string, string>(__TAURI_INVOKE("apply_civ_intervention", { id, intervention })),
+	/**
+	 *  Set (or clear) the harness/model controller tag on a civ for ARENA-03 score
+	 *  attribution. The tag is sanitised (trimmed + capped at 64 chars, dropped if
+	 *  empty) so a hostile/overlong label cannot bloat the snapshot or spoof the
+	 *  leaderboard/text-state (threat T-01-02). The tag is a free-form label only —
+	 *  never a provider key.
+	 */
+	setCivController: (id: string, civId: string, controller: string | null) => typedError<string, string>(__TAURI_INVOKE("set_civ_controller", { id, civId, controller })),
 	advanceCivTurn: (id: string) => typedError<string, string>(__TAURI_INVOKE("advance_civ_turn", { id })),
 };
 
@@ -329,6 +337,8 @@ export type CivCivilization = {
 	techs: string[],
 	policies: string[],
 	score: CivScore,
+	/**  Harness/model id driving this civ (ARENA-03 score attribution). None => model plays itself. */
+	controller?: string | null,
 };
 
 export type CivDecisionAction = {
@@ -342,6 +352,16 @@ export type CivDecisionAction = {
 	direction?: string | null,
 	policy?: string | null,
 	event_id?: string | null,
+	/**  Target civ id (attack/diplomacy/trade) or target region id (claim). */
+	target?: string | null,
+	/**  Diplomacy stance for diplomacy/set_stance: "ally|trade|neutral|hostile". */
+	stance?: string | null,
+	/**  trade: the resource wanted in return (the give-resource reuses `resource`). */
+	receive?: string | null,
+	/**  trade: amount of `resource` to give. */
+	amount?: number | null,
+	/**  trade: amount of `receive` to get back. */
+	receive_amount?: number | null,
 };
 
 export type CivDisaster = {
@@ -369,6 +389,8 @@ export type CivEntity = {
 	civ_id?: string | null,
 	/**  Expressed colour morph (e.g. "leucistic"). Empty for non-axolotls. */
 	morph?: string,
+	/**  Expressed pattern (e.g. "spotted"). Empty for non-axolotls. Mirrors `morph`. */
+	pattern?: string,
 	/**  Life stage: "egg" | "hatchling" | "juvenile" | "adult" | "elder". */
 	stage?: string,
 	/**  "f" | "m" | "" (eggs/buildings). */
@@ -422,6 +444,16 @@ export type CivGenes = {
 	fertility: number | null,
 	longevity: number | null,
 	vigor: number | null,
+	/**  First pattern allele (second Mendelian pair, parallel to allele_a colour). */
+	pattern_a?: string,
+	/**  Second pattern allele; expressed via dominance (pattern_rank). */
+	pattern_b?: string,
+	/**  Combat/defence contribution; aggregated into civ_strength (closes the Phase-4 seam). */
+	strength?: number | null,
+	/**  Survival under cold pressure (winter / low temp / cold_snap). 0.0..=1.0. */
+	cold_resistance?: number | null,
+	/**  Survival under disease pressure (plague). 0.0..=1.0. */
+	disease_resistance?: number | null,
 };
 
 export type CivIntervention = {
@@ -447,6 +479,16 @@ export type CivLogEntry = {
 	title: string,
 	body: string,
 	created_at: number,
+	/**
+	 *  Civ this entry is attributed to (e.g. an "ai_decision"). None for
+	 *  world/session-global entries and legacy saves (serde default).
+	 */
+	civ_id?: string | null,
+	/**
+	 *  The model's private reasoning behind a decision (D-12 Option B). None
+	 *  when the model emitted no reasoning or for non-decision entries.
+	 */
+	reasoning?: string | null,
 };
 
 export type CivModelDecision = {
@@ -464,6 +506,12 @@ export type CivModifier = {
 	polarity: string,
 	remaining_turns: number,
 	intensity: number | null,
+};
+
+export type CivParticipant = {
+	name: string,
+	model: string,
+	color?: string | null,
 };
 
 export type CivRegion = {
@@ -490,8 +538,9 @@ export type CivScore = {
 
 export type CivSessionConfig = {
 	name: string,
-	model: string,
 	seed?: number | null,
+	civs?: CivParticipant[],
+	model?: string | null,
 };
 
 export type CivSessionMeta = {

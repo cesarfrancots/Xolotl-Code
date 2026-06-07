@@ -1,7 +1,19 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import type { CivSessionSnapshot } from "../bindings";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CivSessionConfig, CivSessionSnapshot } from "../bindings";
 import { activeCivPlayerTask, cleanCivLogBody } from "../lib/civPlayerTasks";
 import { parseCivSnapshot, primaryCiv, useCivStore } from "./civStore";
+
+const createCivSession = vi.fn();
+const loadCivSession = vi.fn();
+const listCivSessions = vi.fn();
+
+vi.mock("../bindings", () => ({
+  commands: {
+    createCivSession: (config: CivSessionConfig) => createCivSession(config),
+    loadCivSession: (id: string) => loadCivSession(id),
+    listCivSessions: () => listCivSessions(),
+  },
+}));
 
 const sampleSnapshot: CivSessionSnapshot = {
   id: "civ-1",
@@ -50,6 +62,11 @@ const sampleSnapshot: CivSessionSnapshot = {
 };
 
 beforeEach(() => {
+  createCivSession.mockReset();
+  loadCivSession.mockReset();
+  listCivSessions.mockReset();
+  listCivSessions.mockResolvedValue([]);
+  loadCivSession.mockResolvedValue({ status: "ok", data: JSON.stringify(sampleSnapshot) });
   useCivStore.setState({
     sessions: null,
     activeSessionId: null,
@@ -59,6 +76,7 @@ beforeEach(() => {
     turnRunning: false,
     error: null,
     lastEventType: null,
+    selectedCivId: null,
   });
 });
 
@@ -230,6 +248,71 @@ describe("activeCivPlayerTask", () => {
     expect(task?.progress).toBe(2);
     expect(task?.remaining).toBe(0);
     expect(task?.status).toBe("ready");
+  });
+});
+
+describe("useCivStore multi-participant createSession + selectedCivId", () => {
+  it("forwards a multi-participant civs[] config to createCivSession", async () => {
+    createCivSession.mockResolvedValue({ status: "ok", data: "civ-1" });
+
+    await useCivStore.getState().createSession({
+      name: "Test Pond",
+      seed: null,
+      civs: [
+        { name: "Reed", model: "kimi", color: "#7fdfff" },
+        { name: "Coral", model: "deepseek", color: "#ff9ec7" },
+      ],
+    });
+
+    expect(createCivSession).toHaveBeenCalledTimes(1);
+    const config = createCivSession.mock.calls[0][0] as CivSessionConfig;
+    expect(config.civs).toHaveLength(2);
+    expect(config.civs?.[0]).toMatchObject({ name: "Reed", model: "kimi", color: "#7fdfff" });
+    expect(config.civs?.[1]).toMatchObject({ name: "Coral", model: "deepseek", color: "#ff9ec7" });
+  });
+
+  it("setSelectedCivId updates the selected civ", () => {
+    useCivStore.getState().setSelectedCivId("civ-2");
+    expect(useCivStore.getState().selectedCivId).toBe("civ-2");
+    useCivStore.getState().setSelectedCivId(null);
+    expect(useCivStore.getState().selectedCivId).toBeNull();
+  });
+
+  it("resets selectedCivId to null on createSession", async () => {
+    useCivStore.setState({ selectedCivId: "civ-2" });
+    createCivSession.mockResolvedValue({ status: "ok", data: "civ-1" });
+
+    await useCivStore.getState().createSession({
+      name: "Test Pond",
+      seed: null,
+      civs: [{ name: "Reed", model: "kimi" }],
+    });
+
+    expect(useCivStore.getState().selectedCivId).toBeNull();
+  });
+
+  it("resets selectedCivId to null on loadSession", async () => {
+    useCivStore.setState({ selectedCivId: "civ-2" });
+
+    await useCivStore.getState().loadSession("civ-1");
+
+    expect(useCivStore.getState().selectedCivId).toBeNull();
+  });
+});
+
+describe("normalizeCiv controller default", () => {
+  it("defaults controller to null when absent", () => {
+    const parsed = parseCivSnapshot(JSON.stringify(sampleSnapshot));
+    expect(primaryCiv(parsed).controller).toBeNull();
+  });
+
+  it("preserves an explicit controller tag", () => {
+    const withController = {
+      ...sampleSnapshot,
+      civs: [{ ...sampleSnapshot.civs![0], controller: "kimi-harness" }],
+    };
+    const parsed = parseCivSnapshot(JSON.stringify(withController));
+    expect(primaryCiv(parsed).controller).toBe("kimi-harness");
   });
 });
 

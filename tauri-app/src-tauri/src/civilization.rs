@@ -25,6 +25,20 @@ const DEEP_WATER_Y: u32 = 34;
 const EGG_HATCH_TURNS: u32 = 3;
 const ELDER_BASE_AGE: f32 = 22.0;
 
+// GEN-02 selection-pressure tuning. `gene_mortality_modifier` turns a mismatch
+// between an axolotl's resistance genes and the live environment into a bounded
+// extra per-turn death probability. Comfort temp/span are chosen against
+// `season_target_temp` (summer 24 / autumn 14 / winter 4) so winter and a
+// `cold_snap` both bite while autumn/spring are benign. The coefficients and cap
+// keep selection STRONG enough to shift mean resistance within a feasible turn
+// count yet BOUNDED so a civ never collapses in one turn (a >=1-survivor floor in
+// `run_life_cycle` guarantees the rest).
+const COMFORT_TEMP: f32 = 16.0; // at/above this, no cold pressure
+const COMFORT_SPAN: f32 = 14.0; // this far below comfort (≈2°C) = full cold pressure
+const COLD_COEFF: f32 = 0.18; // max extra death prob from cold for a 0-resistance axolotl
+const DISEASE_COEFF: f32 = 0.18; // max extra death prob from plague for a 0-resistance axolotl
+const MORTALITY_CAP: f32 = 0.25; // hard ceiling on per-turn selection death prob
+
 // Colour genetics. Order matches the sprite-sheet variant order on the frontend.
 const MORPHS: [&str; 12] = [
     "leucistic",
@@ -44,6 +58,11 @@ const MORPHS: [&str; 12] = [
 const COMMON_MORPHS: [&str; 6] = ["leucistic", "wild", "gold", "axanthic", "copper", "albino"];
 // Rare morphs only reachable through mutation.
 const RARE_MORPHS: [&str; 3] = ["gfp", "firefly", "mystic"];
+// Visible coat pattern alleles (second Mendelian trait, parallel to colour morph).
+// "plain" is recessive (lowest pattern_rank); "marbled" is most dominant.
+const PATTERNS: [&str; 4] = ["plain", "spotted", "striped", "marbled"];
+// Patterns founder colonies carry (gives selection variance).
+const COMMON_PATTERNS: [&str; 4] = ["plain", "spotted", "striped", "marbled"];
 // Equippable accessory ids (match `public/civ/accessories/acc-<id>.png`).
 const ACCESSORIES: [&str; 12] = [
     "flowercrown",
@@ -249,11 +268,22 @@ const BIOMES: [BiomeDef; 14] = [
 const HOME_BIOME: usize = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct CivSessionConfig {
+pub struct CivParticipant {
     pub name: String,
     pub model: String,
     #[serde(default)]
+    pub color: Option<String>, // None => auto CIV_COLORS[index]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct CivSessionConfig {
+    pub name: String,
+    #[serde(default)]
     pub seed: Option<u32>,
+    #[serde(default)]
+    pub civs: Vec<CivParticipant>,
+    #[serde(default)]
+    pub model: Option<String>, // legacy single-model; mapped to one participant if civs empty
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -351,6 +381,9 @@ pub struct CivEntity {
     /// Expressed colour morph (e.g. "leucistic"). Empty for non-axolotls.
     #[serde(default)]
     pub morph: String,
+    /// Expressed pattern (e.g. "spotted"). Empty for non-axolotls. Mirrors `morph`.
+    #[serde(default)]
+    pub pattern: String,
     /// Life stage: "egg" | "hatchling" | "juvenile" | "adult" | "elder".
     #[serde(default)]
     pub stage: String,
@@ -414,6 +447,33 @@ pub struct CivGenes {
     pub fertility: f32,
     pub longevity: f32,
     pub vigor: f32,
+    /// First pattern allele (second Mendelian pair, parallel to allele_a colour).
+    #[serde(default = "default_pattern_allele")]
+    pub pattern_a: String,
+    /// Second pattern allele; expressed via dominance (pattern_rank).
+    #[serde(default = "default_pattern_allele")]
+    pub pattern_b: String,
+    /// Combat/defence contribution; aggregated into civ_strength (closes the Phase-4 seam).
+    #[serde(default = "default_strength")]
+    pub strength: f32,
+    /// Survival under cold pressure (winter / low temp / cold_snap). 0.0..=1.0.
+    #[serde(default = "default_resistance")]
+    pub cold_resistance: f32,
+    /// Survival under disease pressure (plague). 0.0..=1.0.
+    #[serde(default = "default_resistance")]
+    pub disease_resistance: f32,
+}
+
+fn default_pattern_allele() -> String {
+    "plain".to_string()
+}
+
+fn default_strength() -> f32 {
+    1.0
+}
+
+fn default_resistance() -> f32 {
+    0.5
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -451,6 +511,9 @@ pub struct CivCivilization {
     pub techs: Vec<String>,
     pub policies: Vec<String>,
     pub score: CivScore,
+    /// Harness/model id driving this civ (ARENA-03 score attribution). None => model plays itself.
+    #[serde(default)]
+    pub controller: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -515,6 +578,14 @@ pub struct CivLogEntry {
     pub title: String,
     pub body: String,
     pub created_at: u64,
+    /// Civ this entry is attributed to (e.g. an "ai_decision"). None for
+    /// world/session-global entries and legacy saves (serde default).
+    #[serde(default)]
+    pub civ_id: Option<String>,
+    /// The model's private reasoning behind a decision (D-12 Option B). None
+    /// when the model emitted no reasoning or for non-decision entries.
+    #[serde(default)]
+    pub reasoning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -572,21 +643,81 @@ pub struct CivDecisionAction {
     pub policy: Option<String>,
     #[serde(default)]
     pub event_id: Option<String>,
+    /// Target civ id (attack/diplomacy/trade) or target region id (claim).
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Diplomacy stance for diplomacy/set_stance: "ally|trade|neutral|hostile".
+    #[serde(default)]
+    pub stance: Option<String>,
+    /// trade: the resource wanted in return (the give-resource reuses `resource`).
+    #[serde(default)]
+    pub receive: Option<String>,
+    /// trade: amount of `resource` to give.
+    #[serde(default)]
+    pub amount: Option<u32>,
+    /// trade: amount of `receive` to get back.
+    #[serde(default)]
+    pub receive_amount: Option<u32>,
+}
+
+/// Resolve a `CivSessionConfig` into a validated, colour-assigned participant
+/// list. Explicit `civs` win; otherwise the legacy single `model` maps to one
+/// participant (back-compat, D-05). Enforces 1-3 participants (D-03), non-empty
+/// models, and assigns each civ a concrete colour (auto from the palette when
+/// not overridden).
+fn resolve_participants(config: &CivSessionConfig) -> Result<Vec<CivParticipant>, String> {
+    let mut participants = if !config.civs.is_empty() {
+        config.civs.clone()
+    } else if let Some(model) = config
+        .model
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        vec![CivParticipant {
+            name: clean_name(&config.name),
+            model: model.to_string(),
+            color: None,
+        }]
+    } else {
+        return Err("at least one civilization is required".to_string());
+    };
+
+    // Bound the world: 1-3 participants only (D-03; >=1 guaranteed above).
+    if participants.len() > 3 {
+        return Err("at most 3 civilizations are allowed".to_string());
+    }
+
+    // Each model must be non-empty; resolve each civ's colour (auto from the
+    // palette when not overridden) so initial_snapshot gets concrete colours.
+    for (i, participant) in participants.iter_mut().enumerate() {
+        if participant.model.trim().is_empty() {
+            return Err("model is required".to_string());
+        }
+        participant.model = participant.model.trim().to_string();
+        participant.name = clean_name(&participant.name);
+        let color = participant
+            .color
+            .clone()
+            .unwrap_or_else(|| CIV_COLORS[i % CIV_COLORS.len()].to_string());
+        participant.color = Some(color);
+    }
+
+    Ok(participants)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn create_civ_session(config: CivSessionConfig) -> Result<String, String> {
-    if config.model.trim().is_empty() {
-        return Err("model is required".to_string());
-    }
+    let participants = resolve_participants(&config)?;
+
     let id = uuid::Uuid::new_v4().to_string();
     let seed = config.seed.unwrap_or_else(|| seed_from(&id));
     let now = unix_timestamp_secs();
     let mut snapshot = initial_snapshot(
         id.clone(),
         clean_name(&config.name),
-        config.model.trim().to_string(),
+        &participants,
         seed,
         now,
     );
@@ -676,6 +807,40 @@ pub fn apply_civ_intervention(
     serde_json::to_string(&snapshot).map_err(|e| e.to_string())
 }
 
+/// Set (or clear) the harness/model controller tag on a civ for ARENA-03 score
+/// attribution. The tag is sanitised (trimmed + capped at 64 chars, dropped if
+/// empty) so a hostile/overlong label cannot bloat the snapshot or spoof the
+/// leaderboard/text-state (threat T-01-02). The tag is a free-form label only —
+/// never a provider key.
+#[tauri::command]
+#[specta::specta]
+pub fn set_civ_controller(
+    app_handle: AppHandle,
+    id: String,
+    civ_id: String,
+    controller: Option<String>,
+) -> Result<String, String> {
+    let mut snapshot = load_snapshot(&id)?;
+    let sanitized = controller
+        .map(|s| s.trim().chars().take(64).collect::<String>())
+        .filter(|s| !s.is_empty());
+    let civ = snapshot
+        .civs
+        .iter_mut()
+        .find(|c| c.id == civ_id)
+        .ok_or_else(|| format!("civ {civ_id} not found"))?;
+    civ.controller = sanitized;
+    snapshot.updated_at = unix_timestamp_secs();
+    save_snapshot(&snapshot)?;
+    emit_civ_event(
+        &app_handle,
+        &snapshot.id,
+        "ControllerSet",
+        serde_json::json!({ "snapshot": &snapshot }),
+    );
+    serde_json::to_string(&snapshot).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<String, String> {
@@ -691,10 +856,20 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
         }),
     );
     snapshot.turn = next_turn;
+    // Advance the world's environment at TURN START so each civ observes the freshly
+    // drifted season/forecast and any fired disaster's reshape this same turn; a
+    // fired disaster's CivModifier rides the existing post-loop resolve_environment +
+    // tick_modifiers below.
+    tick_environment(&mut snapshot);
 
     // Each living civ decides and acts, in a deterministic per-turn shuffled order
     // so first-mover advantage on shared resources rotates fairly across civs.
     let turn_order = civ_turn_order(&snapshot);
+
+    // Attacks are QUEUED during the decision loop, not resolved inline, so all attacks
+    // declared this turn resolve together in one deterministic attacker-sorted pass
+    // after the loop (WAR-02, Pitfall 2). Each entry is (attacker_civ_id, target_civ_id).
+    let mut attacks: Vec<(String, String)> = Vec::new();
 
     for civ_id in &turn_order {
         let Some(ci) = civ_index(&snapshot, civ_id) else {
@@ -742,6 +917,7 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
             }
         };
 
+        let reasoning = first.reasoning;
         emit_civ_event(
             &app_handle,
             &snapshot.id,
@@ -750,11 +926,43 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
                 "turn": next_turn,
                 "civ_id": civ_id,
                 "decision": &decision,
-                "reasoning": first.reasoning,
+                "reasoning": &reasoning,
             }),
         );
-        apply_model_decision(&mut snapshot, civ_id, &decision);
+        // Persist the reasoning into the decision log (D-12 Option B); empty
+        // reasoning is stored as None by push_decision_log.
+        let reasoning = if reasoning.is_empty() {
+            None
+        } else {
+            Some(reasoning)
+        };
+        apply_model_decision(&mut snapshot, civ_id, &decision, reasoning);
+
+        // Collect attack/raid intents to resolve in the post-loop combat pass. The
+        // action was already validated in 04-01's validate_action; here we only record
+        // (attacker, target) — resolution is deferred so order is deterministic, not
+        // dependent on the shuffled decision order.
+        for action in &decision.actions {
+            if matches!(action.action_type.as_str(), "attack" | "raid") {
+                if let Some(target) = action.target.as_deref() {
+                    if !target.trim().is_empty() {
+                        attacks.push((civ_id.clone(), target.to_string()));
+                    }
+                }
+            }
+        }
     }
+
+    // COMBAT WORLD PASS — runs AFTER the decision loop and BEFORE resolve_environment,
+    // so casualties (entity removals) land before run_life_cycle re-syncs the
+    // population mirror this same turn (WAR-02).
+    resolve_combat(&mut snapshot, &mut attacks);
+
+    // PREDATOR WORLD PASS — runs AFTER combat and BEFORE resolve_environment (WAR-04),
+    // so predator hunt casualties (entity removals) also land before the population
+    // mirror re-syncs. Order: decision loop → resolve_combat → step_predators →
+    // resolve_environment. Uses its own predator salt (uncorrelated with combat).
+    step_predators(&mut snapshot);
 
     // Resolve each civ's environment, then collapse any that ran out of axolotls.
     for civ_id in &turn_order {
@@ -833,75 +1041,94 @@ async fn call_model_text(
     Ok(ModelTextResult { content, reasoning })
 }
 
+/// Found an N-civ world from resolved participants (each carries a concrete
+/// colour). `name` is the session/world name; per-civ names come from the
+/// participants. The founding (index 0) civ keeps the original centred-colony
+/// behaviour via `generate_world`'s single-civ path when only one participant
+/// is supplied.
 fn initial_snapshot(
     id: String,
     name: String,
-    model: String,
+    participants: &[CivParticipant],
     seed: u32,
     now: u64,
 ) -> CivSessionSnapshot {
-    let world = generate_world(seed, 1);
+    let world = generate_world(seed, participants.len() as u32);
 
-    // Locate the founding civ's home: its pond/nest column and the region it sits in.
-    let spawn_x = world
-        .entities
+    let civs: Vec<CivCivilization> = participants
         .iter()
-        .find(|e| e.civ_id.as_deref() == Some(FIRST_CIV_ID) && e.role == "pond")
-        .or_else(|| {
-            world
+        .enumerate()
+        .map(|(i, participant)| {
+            let civ_id = civ_id_for(i);
+            // Each civ's home: its pond/nest column and the region it sits in,
+            // from the colony `found_colony` placed for this index.
+            let spawn_x = world
                 .entities
                 .iter()
-                .find(|e| e.civ_id.as_deref() == Some(FIRST_CIV_ID) && e.role == "nest")
+                .find(|e| e.civ_id.as_deref() == Some(civ_id.as_str()) && e.role == "pond")
+                .or_else(|| {
+                    world
+                        .entities
+                        .iter()
+                        .find(|e| e.civ_id.as_deref() == Some(civ_id.as_str()) && e.role == "nest")
+                })
+                .map(|e| e.x)
+                .unwrap_or(world.width / 2);
+            let home_region = world
+                .regions
+                .iter()
+                .find(|r| r.owner.as_deref() == Some(civ_id.as_str()))
+                .map(|r| r.id.clone())
+                .unwrap_or_default();
+
+            let mut resources = HashMap::new();
+            resources.insert("food".to_string(), 42);
+            resources.insert("clean_water".to_string(), 38);
+            resources.insert("wood".to_string(), 18);
+            resources.insert("stone".to_string(), 10);
+            resources.insert("clay".to_string(), 8);
+            resources.insert("fiber".to_string(), 12);
+            resources.insert("tools".to_string(), 2);
+            resources.insert("glowshards".to_string(), 0);
+            resources.insert("kelp".to_string(), 0);
+            resources.insert("ore".to_string(), 0);
+            resources.insert("ice".to_string(), 0);
+            resources.insert("coral".to_string(), 0);
+            resources.insert("sulfur".to_string(), 0);
+            resources.insert("amber".to_string(), 0);
+            resources.insert("herbs".to_string(), 0);
+
+            let color = participant
+                .color
+                .clone()
+                .unwrap_or_else(|| CIV_COLORS[i % CIV_COLORS.len()].to_string());
+
+            CivCivilization {
+                id: civ_id,
+                name: participant.name.clone(),
+                model: participant.model.clone(),
+                color,
+                spawn_x,
+                home_region,
+                alive: true,
+                diplomacy: HashMap::new(),
+                era: "pond_camp".to_string(),
+                population: INITIAL_POPULATION,
+                health: 82.0,
+                morale: 76.0,
+                resources,
+                techs: vec!["forage".to_string(), "basic_shelter".to_string()],
+                policies: Vec::new(),
+                score: CivScore {
+                    survival: 0.0,
+                    ethics: 0.0,
+                    intelligence: 0.0,
+                    total: 0.0,
+                },
+                controller: None,
+            }
         })
-        .map(|e| e.x)
-        .unwrap_or(world.width / 2);
-    let home_region = world
-        .regions
-        .iter()
-        .find(|r| r.owner.as_deref() == Some(FIRST_CIV_ID))
-        .map(|r| r.id.clone())
-        .unwrap_or_default();
-
-    let mut resources = HashMap::new();
-    resources.insert("food".to_string(), 42);
-    resources.insert("clean_water".to_string(), 38);
-    resources.insert("wood".to_string(), 18);
-    resources.insert("stone".to_string(), 10);
-    resources.insert("clay".to_string(), 8);
-    resources.insert("fiber".to_string(), 12);
-    resources.insert("tools".to_string(), 2);
-    resources.insert("glowshards".to_string(), 0);
-    resources.insert("kelp".to_string(), 0);
-    resources.insert("ore".to_string(), 0);
-    resources.insert("ice".to_string(), 0);
-    resources.insert("coral".to_string(), 0);
-    resources.insert("sulfur".to_string(), 0);
-    resources.insert("amber".to_string(), 0);
-    resources.insert("herbs".to_string(), 0);
-
-    let civ = CivCivilization {
-        id: FIRST_CIV_ID.to_string(),
-        name: name.clone(),
-        model,
-        color: CIV_COLORS[0].to_string(),
-        spawn_x,
-        home_region,
-        alive: true,
-        diplomacy: HashMap::new(),
-        era: "pond_camp".to_string(),
-        population: INITIAL_POPULATION,
-        health: 82.0,
-        morale: 76.0,
-        resources,
-        techs: vec!["forage".to_string(), "basic_shelter".to_string()],
-        policies: Vec::new(),
-        score: CivScore {
-            survival: 0.0,
-            ethics: 0.0,
-            intelligence: 0.0,
-            total: 0.0,
-        },
-    };
+        .collect();
 
     let mut snapshot = CivSessionSnapshot {
         id,
@@ -912,7 +1139,7 @@ fn initial_snapshot(
         updated_at: now,
         turn: 0,
         world,
-        civs: vec![civ],
+        civs,
         environment: CivEnvironment::new(),
         modifiers: Vec::new(),
         log: Vec::new(),
@@ -1511,6 +1738,7 @@ fn leaderboard(civs: &[CivCivilization]) -> Vec<serde_json::Value> {
                 "population": civ.population,
                 "era": civ.era,
                 "score": civ.score,
+                "controller": civ.controller,
             })
         })
         .collect()
@@ -1892,6 +2120,7 @@ fn build_observation(snapshot: &CivSessionSnapshot, civ_id: &str) -> serde_json:
             "resource_tiles": resource_tiles,
             "biome_regions": snapshot.world.regions.iter()
                 .map(|region| serde_json::json!({
+                    "id": region.id,
                     "name": region.name,
                     "biome": region.biome,
                     "x": region.x,
@@ -1929,6 +2158,10 @@ fn build_decision_prompt(observation: &serde_json::Value) -> String {
          - explore: direction left, right, or down\n\
          - policy: policy one of ration, share_equally, protect_vulnerable, conserve_water, push_growth\n\
          - prepare: event_id matching an active or expected crisis\n\
+         - claim: target = an unclaimed region id (see visible_world.biome_regions[].id) adjacent to your territory; omit target to auto-expand to an adjacent unclaimed region\n\
+         - attack: target = a rival civ id (refused if that civ is your ally); plunders resources and can seize a region on a decisive win\n\
+         - diplomacy: target = a rival civ id, stance one of ally, trade, neutral, hostile\n\
+         - trade: target = a rival civ id, resource + amount to give, receive + receive_amount to get (blocked if either side is hostile)\n\
          Use at most 3 actions.\n\n\
          OBSERVATION JSON:\n{}",
         serde_json::to_string_pretty(observation).unwrap_or_else(|_| "{}".to_string())
@@ -2042,6 +2275,55 @@ fn validate_action(action: &CivDecisionAction) -> Result<(), String> {
                 return Err("prepare.event_id is required".to_string());
             }
         }
+        "claim" => {
+            // target optional: present = a specific region id; absent = deterministic
+            // adjacent expansion. Nothing required to validate here.
+        }
+        "attack" | "raid" => {
+            // The attack RESOLUTION lands in 04-02; validating the target field now
+            // gates it harmlessly so the queue+combat pass only adds resolution.
+            if action
+                .target
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                return Err("attack.target (rival civ id) is required".to_string());
+            }
+        }
+        "diplomacy" | "set_stance" => {
+            let stance = action
+                .stance
+                .as_deref()
+                .ok_or("diplomacy.stance is required")?;
+            if !matches!(stance, "ally" | "trade" | "neutral" | "hostile") {
+                return Err(format!("unknown stance: {stance}"));
+            }
+            if action
+                .target
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                return Err("diplomacy.target (rival civ id) is required".to_string());
+            }
+        }
+        "trade" => {
+            if action
+                .target
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                return Err("trade.target (rival civ id) is required".to_string());
+            }
+            if action.resource.is_none() || action.receive.is_none() {
+                return Err("trade requires resource (to give) and receive (to get)".to_string());
+            }
+        }
         other => return Err(format!("unknown action type: {other}")),
     }
     Ok(())
@@ -2051,17 +2333,16 @@ fn apply_model_decision(
     snapshot: &mut CivSessionSnapshot,
     civ_id: &str,
     decision: &CivModelDecision,
+    reasoning: Option<String>,
 ) {
     reset_activities(snapshot, civ_id);
-    let civ_name = civ_label(snapshot, civ_id);
-    push_log(
+    push_decision_log(
         snapshot,
-        "ai_decision",
-        &format!("{civ_name} intent: {}", decision.intent),
-        &format!(
-            "{}\nEthics: {}",
-            decision.public_rationale, decision.ethics_note
-        ),
+        civ_id,
+        &decision.intent,
+        &decision.public_rationale,
+        &decision.ethics_note,
+        reasoning,
     );
 
     for action in &decision.actions {
@@ -2072,6 +2353,67 @@ fn apply_model_decision(
             "explore" => explore(snapshot, civ_id, action),
             "policy" => policy(snapshot, civ_id, action),
             "prepare" => prepare(snapshot, civ_id, action),
+            "claim" => match claim_region(snapshot, civ_id, action.target.as_deref()) {
+                Ok(region_id) => push_log(
+                    snapshot,
+                    "claim",
+                    &format!("{} claimed territory", civ_label(snapshot, civ_id)),
+                    &format!(
+                        "Region {region_id} is now held by {}.",
+                        civ_label(snapshot, civ_id)
+                    ),
+                ),
+                Err(why) => push_log(
+                    snapshot,
+                    "claim",
+                    &format!("{}'s claim failed", civ_label(snapshot, civ_id)),
+                    &why,
+                ),
+            },
+            "diplomacy" | "set_stance" => {
+                if let (Some(t), Some(st)) = (action.target.as_deref(), action.stance.as_deref()) {
+                    set_stance(snapshot, civ_id, t, st);
+                    push_log(
+                        snapshot,
+                        "diplomacy",
+                        &format!(
+                            "{} set stance {st} toward {}",
+                            civ_label(snapshot, civ_id),
+                            civ_label(snapshot, t)
+                        ),
+                        "Diplomatic posture updated.",
+                    );
+                }
+            }
+            "trade" => {
+                if let (Some(t), Some(give), Some(recv)) = (
+                    action.target.as_deref(),
+                    action.resource.as_deref(),
+                    action.receive.as_deref(),
+                ) {
+                    let give_amt = i32::try_from(action.amount.unwrap_or(0)).unwrap_or(i32::MAX);
+                    let recv_amt =
+                        i32::try_from(action.receive_amount.unwrap_or(0)).unwrap_or(i32::MAX);
+                    match apply_trade(snapshot, civ_id, t, give, give_amt, recv, recv_amt) {
+                        Ok(()) => push_log(
+                            snapshot,
+                            "trade",
+                            &format!(
+                                "{} traded with {}",
+                                civ_label(snapshot, civ_id),
+                                civ_label(snapshot, t)
+                            ),
+                            &format!("Gave {give_amt} {give}, received {recv_amt} {recv}."),
+                        ),
+                        Err(why) => push_log(
+                            snapshot,
+                            "trade",
+                            &format!("{}'s trade failed", civ_label(snapshot, civ_id)),
+                            &why,
+                        ),
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -2476,9 +2818,17 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
     let mut rng = snapshot.seed ^ snapshot.turn.wrapping_mul(0x9E37_79B9) ^ 0x5A5A_5A5A;
     let health = snapshot.civs[ci].health;
     let morale = snapshot.civs[ci].morale;
+    // GEN-02: read the (small) live environment into a local BEFORE the `&mut
+    // entities` borrow so the selection roll can consult it without a borrow
+    // conflict (mirrors the health/morale locals above — Pitfall 3).
+    let env = snapshot.environment.clone();
 
     // 1) Age living axolotls; refresh stage/size/role; sync vitals; elder passing.
+    // `deaths` collects elder deaths; `selection_deaths` collects the GEN-02
+    // env-vs-genes deaths separately so the survivor floor can trim ONLY the
+    // selection ones (never an elder death) when it would otherwise wipe the civ.
     let mut deaths: Vec<String> = Vec::new();
+    let mut selection_deaths: Vec<String> = Vec::new();
     for entity in snapshot
         .world
         .entities
@@ -2504,7 +2854,37 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
         let elder_at = (ELDER_BASE_AGE * longevity) as u32;
         if entity.stage == "elder" && entity.age > elder_at + 6 && rand_f(&mut rng) < 0.35 {
             deaths.push(entity.id.clone());
+            continue; // already doomed this turn; don't also roll selection on it
         }
+        // GEN-02 selection roll: ill-adapted living (non-egg) axolotls die more.
+        // Reuses the SAME seed^turn rng (no reseed — Pitfall 2) and pushes into a
+        // shared deaths set so the existing retain + population mirror handle it.
+        if entity.stage != "egg" {
+            if let Some(g) = entity.genes.as_ref() {
+                let p_die = gene_mortality_modifier(g, &env);
+                if p_die > 0.0 && rand_f(&mut rng) < p_die {
+                    selection_deaths.push(entity.id.clone());
+                }
+            }
+        }
+    }
+    // Survivor floor (T-05-06): selection (plus elders) must never drop this civ's
+    // living non-egg axolotls below 1 this turn. Count current living, subtract the
+    // elder deaths already doomed, then trim selection deaths (deterministically,
+    // from the end of the ordered vec — no rng) until at least one survives.
+    let living_now = snapshot
+        .world
+        .entities
+        .iter()
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg" && e.civ_id.as_deref() == Some(civ_id))
+        .count();
+    let elder_doomed = deaths.len();
+    let after_elders = living_now.saturating_sub(elder_doomed);
+    // At most `after_elders - 1` selection deaths may stand (keep >=1 alive). If
+    // elders already reduced the civ to <=1, no selection death may stand.
+    let allowed_selection = after_elders.saturating_sub(1);
+    if selection_deaths.len() > allowed_selection {
+        selection_deaths.truncate(allowed_selection);
     }
     for id in &deaths {
         push_log(
@@ -2514,6 +2894,15 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
             &format!("An elder axolotl returned to the pond after a long life ({id})."),
         );
     }
+    for id in &selection_deaths {
+        push_log(
+            snapshot,
+            "lifecycle",
+            "An axolotl succumbed to the elements",
+            &format!("An ill-adapted axolotl could not weather the season ({id})."),
+        );
+    }
+    deaths.extend(selection_deaths);
     if !deaths.is_empty() {
         snapshot.world.entities.retain(|e| !deaths.contains(&e.id));
     }
@@ -2537,6 +2926,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
         entity.age = 0;
         entity.stage = "hatchling".to_string();
         entity.morph = expressed_morph(&genes);
+        entity.pattern = expressed_pattern(&genes);
         entity.sex = if rand_f(&mut rng) < 0.5 { "f" } else { "m" }.to_string();
         entity.size = size_for_stage("hatchling", genes.size_gene);
         entity.role = "juvenile".to_string();
@@ -2606,6 +2996,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
                         role: "egg".to_string(),
                         civ_id: Some(civ_id.to_string()),
                         morph: expressed_morph(&child),
+                        pattern: expressed_pattern(&child),
                         stage: "egg".to_string(),
                         sex: String::new(),
                         age: 0,
@@ -3924,6 +4315,150 @@ fn consume(resources: &mut HashMap<String, i32>, resource: &str, amount: i32) ->
     missing
 }
 
+/// Write `civ_id`'s diplomacy stance toward `target` (WAR-03). The stance value is
+/// validated upstream in `validate_action`; here we just persist it. Self-targeting
+/// and unknown targets are defensive no-ops so a malformed model decision can never
+/// corrupt the map or panic (T-04-01).
+fn set_stance(snapshot: &mut CivSessionSnapshot, civ_id: &str, target: &str, stance: &str) {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return;
+    };
+    if target == civ_id || civ_index(snapshot, target).is_none() {
+        return;
+    }
+    snapshot.civs[ci]
+        .diplomacy
+        .insert(target.to_string(), stance.to_string());
+}
+
+/// Claim a region for `civ_id` (WAR-01). Generalizes the home-claim at spawn: a civ
+/// may claim an UNCLAIMED region that is ADJACENT to territory it already owns. With
+/// an explicit `target` region id, that region is claimed (rejected if owned or
+/// non-adjacent); without one, the deterministically-lowest-id adjacent unclaimed
+/// region is claimed. Returns the claimed region id on success. Ownership only ever
+/// flips away from a civ via a raid (04-02), never by claim (T-04-06).
+fn claim_region(
+    snapshot: &mut CivSessionSnapshot,
+    civ_id: &str,
+    target: Option<&str>,
+) -> Result<String, String> {
+    if civ_index(snapshot, civ_id).is_none() {
+        return Err("unknown civ".to_string());
+    }
+    // This civ's owned [x, x+width) intervals, plus its spawn column (the home seed).
+    let owned: Vec<(u32, u32)> = snapshot
+        .world
+        .regions
+        .iter()
+        .filter(|r| r.owner.as_deref() == Some(civ_id))
+        .map(|r| (r.x, r.x + r.width))
+        .collect();
+    let spawn_x = civ_index(snapshot, civ_id).map(|ci| snapshot.civs[ci].spawn_x);
+
+    // A region is adjacent if its interval borders or overlaps any owned interval,
+    // or it contains this civ's spawn column (the first claim from home).
+    let is_adjacent = |r: &CivRegion| -> bool {
+        let (lo, hi) = (r.x, r.x + r.width);
+        if let Some(sx) = spawn_x {
+            if sx >= lo && sx < hi {
+                return true;
+            }
+        }
+        owned.iter().any(|&(olo, ohi)| lo <= ohi && olo <= hi)
+    };
+
+    if let Some(region_id) = target {
+        let region = snapshot
+            .world
+            .regions
+            .iter_mut()
+            .find(|r| r.id == region_id)
+            .ok_or_else(|| format!("no such region: {region_id}"))?;
+        if region.owner.is_some() {
+            return Err(format!("region {region_id} is already owned"));
+        }
+        if !is_adjacent(region) {
+            return Err(format!(
+                "region {region_id} is not adjacent to your territory"
+            ));
+        }
+        region.owner = Some(civ_id.to_string());
+        Ok(region_id.to_string())
+    } else {
+        // Pick the deterministically-lowest-id unclaimed adjacent region.
+        let mut candidates: Vec<String> = snapshot
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.is_none() && is_adjacent(r))
+            .map(|r| r.id.clone())
+            .collect();
+        candidates.sort();
+        let region_id = candidates
+            .into_iter()
+            .next()
+            .ok_or("no adjacent unclaimed region to expand into")?;
+        if let Some(region) = snapshot
+            .world
+            .regions
+            .iter_mut()
+            .find(|r| r.id == region_id)
+        {
+            region.owner = Some(civ_id.to_string());
+        }
+        Ok(region_id)
+    }
+}
+
+/// Deterministic two-civ resource swap (WAR-03). Both gives are capped at the
+/// giver's current holdings, drained via `consume` (clamps >=0) and credited to the
+/// receiver with the SAME capped amount, so totals are conserved and no resource can
+/// go negative (T-04-04). Blocked (returns Err, mutates nothing) when either side has
+/// declared the other hostile (T-04-05). Self-trade is rejected.
+///
+/// Borrow discipline: both holdings are read into copied scalars FIRST, then all of
+/// one civ's map mutations are applied, then the other's — never interleaving a live
+/// `&mut` borrow of `civs[fi]` with one of `civs[ti]`.
+fn apply_trade(
+    snapshot: &mut CivSessionSnapshot,
+    from: &str,
+    to: &str,
+    give: &str,
+    give_amt: i32,
+    recv: &str,
+    recv_amt: i32,
+) -> Result<(), String> {
+    let fi = civ_index(snapshot, from).ok_or("unknown from civ")?;
+    let ti = civ_index(snapshot, to).ok_or("unknown to civ")?;
+    if fi == ti {
+        return Err("cannot trade with self".to_string());
+    }
+    // Block if either side declared the other hostile.
+    let hostile = snapshot.civs[fi].diplomacy.get(to).map(String::as_str) == Some("hostile")
+        || snapshot.civs[ti].diplomacy.get(from).map(String::as_str) == Some("hostile");
+    if hostile {
+        return Err("trade blocked: hostile stance".to_string());
+    }
+    // Read both holdings first (copied i32) so nothing goes negative and totals conserve.
+    let give_have = *snapshot.civs[fi].resources.get(give).unwrap_or(&0);
+    let recv_have = *snapshot.civs[ti].resources.get(recv).unwrap_or(&0);
+    let g = give_amt.max(0).min(give_have);
+    let r = recv_amt.max(0).min(recv_have);
+    // Civ-by-civ mutation: drain `from`'s give + credit its received resource, THEN
+    // drain `to`'s give + credit its received resource. No interleaved &mut borrows.
+    consume(&mut snapshot.civs[fi].resources, give, g);
+    *snapshot.civs[fi]
+        .resources
+        .entry(recv.to_string())
+        .or_insert(0) += r;
+    consume(&mut snapshot.civs[ti].resources, recv, r);
+    *snapshot.civs[ti]
+        .resources
+        .entry(give.to_string())
+        .or_insert(0) += g;
+    Ok(())
+}
+
 fn has_modifier(snapshot: &CivSessionSnapshot, kind: &str) -> bool {
     snapshot
         .modifiers
@@ -4328,6 +4863,37 @@ fn push_log(snapshot: &mut CivSessionSnapshot, kind: &str, title: &str, body: &s
         title: title.to_string(),
         body: body.to_string(),
         created_at: unix_timestamp_secs(),
+        civ_id: None,
+        reasoning: None,
+    });
+    if snapshot.log.len() > 240 {
+        let overflow = snapshot.log.len() - 240;
+        snapshot.log.drain(0..overflow);
+    }
+}
+
+/// Append an "ai_decision" log entry attributed to a civ, persisting the model's
+/// reasoning alongside the public rationale (D-12 Option B). Mirrors `push_log`
+/// but populates `civ_id`/`reasoning`; an empty reasoning string is stored as
+/// `None`.
+fn push_decision_log(
+    snapshot: &mut CivSessionSnapshot,
+    civ_id: &str,
+    intent: &str,
+    rationale: &str,
+    ethics: &str,
+    reasoning: Option<String>,
+) {
+    let civ_name = civ_label(snapshot, civ_id);
+    let reasoning = reasoning.filter(|r| !r.trim().is_empty());
+    snapshot.log.push(CivLogEntry {
+        turn: snapshot.turn,
+        kind: "ai_decision".to_string(),
+        title: format!("{civ_name} intent: {intent}"),
+        body: format!("{rationale}\nEthics: {ethics}"),
+        created_at: unix_timestamp_secs(),
+        civ_id: Some(civ_id.to_string()),
+        reasoning,
     });
     if snapshot.log.len() > 240 {
         let overflow = snapshot.log.len() - 240;
@@ -4581,6 +5147,24 @@ fn expressed_morph(genes: &CivGenes) -> String {
     }
 }
 
+/// Higher = more dominant when an axolotl carries two different pattern alleles.
+fn pattern_rank(pattern: &str) -> u8 {
+    match pattern {
+        "marbled" => 4,
+        "striped" => 3,
+        "spotted" => 2,
+        _ => 1, // plain + unknown recessive
+    }
+}
+
+fn expressed_pattern(genes: &CivGenes) -> String {
+    if pattern_rank(&genes.pattern_b) > pattern_rank(&genes.pattern_a) {
+        genes.pattern_b.clone()
+    } else {
+        genes.pattern_a.clone()
+    }
+}
+
 fn stage_for_age(age: u32, longevity: f32) -> String {
     let elder_at = (ELDER_BASE_AGE * longevity) as u32;
     if age < 3 {
@@ -4622,11 +5206,18 @@ fn default_genes() -> CivGenes {
         fertility: 0.7,
         longevity: 1.0,
         vigor: 1.0,
+        pattern_a: "plain".to_string(),
+        pattern_b: "plain".to_string(),
+        strength: 1.0,
+        cold_resistance: 0.5,
+        disease_resistance: 0.5,
     }
 }
 
 fn random_genes(rng: &mut u32, primary: &str) -> CivGenes {
     let carrier = COMMON_MORPHS[(next_rng(rng) as usize) % COMMON_MORPHS.len()];
+    let pat_a = COMMON_PATTERNS[(next_rng(rng) as usize) % COMMON_PATTERNS.len()];
+    let pat_b = COMMON_PATTERNS[(next_rng(rng) as usize) % COMMON_PATTERNS.len()];
     CivGenes {
         allele_a: primary.to_string(),
         allele_b: carrier.to_string(),
@@ -4634,6 +5225,11 @@ fn random_genes(rng: &mut u32, primary: &str) -> CivGenes {
         fertility: rand_range(rng, 0.5, 0.95),
         longevity: rand_range(rng, 0.85, 1.2),
         vigor: rand_range(rng, 0.85, 1.15),
+        pattern_a: pat_a.to_string(),
+        pattern_b: pat_b.to_string(),
+        strength: rand_range(rng, 0.7, 1.4),
+        cold_resistance: rand_range(rng, 0.2, 0.9),
+        disease_resistance: rand_range(rng, 0.2, 0.9),
     }
 }
 
@@ -4643,6 +5239,21 @@ fn pick_allele<'a>(rng: &mut u32, genes: &'a CivGenes) -> &'a str {
     } else {
         &genes.allele_b
     }
+}
+
+fn pick_pattern_allele<'a>(rng: &mut u32, genes: &'a CivGenes) -> &'a str {
+    if next_rng(rng).is_multiple_of(2) {
+        &genes.pattern_a
+    } else {
+        &genes.pattern_b
+    }
+}
+
+/// Quantitative-trait inheritance: parent mean + a small seed-deterministic mutation,
+/// clamped to the trait's sane range. Shared by every f32 gene so the blend math (and
+/// thus the rng draw per trait) is identical across traits.
+fn blend(x: f32, y: f32, rng: &mut u32, lo: f32, hi: f32) -> f32 {
+    ((x + y) / 2.0 + rand_range(rng, -0.08, 0.08)).clamp(lo, hi)
 }
 
 fn cross_genes(a: &CivGenes, b: &CivGenes, rng: &mut u32) -> CivGenes {
@@ -4662,16 +5273,32 @@ fn cross_genes(a: &CivGenes, b: &CivGenes, rng: &mut u32) -> CivGenes {
             allele_b = m;
         }
     }
+    // Pattern alleles: one-from-each parent, with a ~7% mutation flip (mirror colour).
+    let mut pattern_a = pick_pattern_allele(rng, a).to_string();
+    let mut pattern_b = pick_pattern_allele(rng, b).to_string();
+    if rand_f(rng) < 0.07 {
+        let p = PATTERNS[(next_rng(rng) as usize) % PATTERNS.len()].to_string();
+        if next_rng(rng).is_multiple_of(2) {
+            pattern_a = p;
+        } else {
+            pattern_b = p;
+        }
+    }
     CivGenes {
         allele_a,
         allele_b,
-        size_gene: ((a.size_gene + b.size_gene) / 2.0 + rand_range(rng, -0.08, 0.08))
-            .clamp(0.7, 1.4),
-        fertility: ((a.fertility + b.fertility) / 2.0 + rand_range(rng, -0.08, 0.08))
-            .clamp(0.3, 1.0),
-        longevity: ((a.longevity + b.longevity) / 2.0 + rand_range(rng, -0.08, 0.08))
-            .clamp(0.8, 1.35),
-        vigor: ((a.vigor + b.vigor) / 2.0 + rand_range(rng, -0.08, 0.08)).clamp(0.8, 1.25),
+        // Existing 4 quantitative traits — order preserved (size -> fertility ->
+        // longevity -> vigor) so the rng draw stream is byte-identical to before.
+        size_gene: blend(a.size_gene, b.size_gene, rng, 0.7, 1.4),
+        fertility: blend(a.fertility, b.fertility, rng, 0.3, 1.0),
+        longevity: blend(a.longevity, b.longevity, rng, 0.8, 1.35),
+        vigor: blend(a.vigor, b.vigor, rng, 0.8, 1.25),
+        pattern_a,
+        pattern_b,
+        // New quantitative traits appended AFTER the existing four.
+        strength: blend(a.strength, b.strength, rng, 0.5, 1.6),
+        cold_resistance: blend(a.cold_resistance, b.cold_resistance, rng, 0.0, 1.0),
+        disease_resistance: blend(a.disease_resistance, b.disease_resistance, rng, 0.0, 1.0),
     }
 }
 
@@ -4691,6 +5318,7 @@ fn make_axolotl(
     let size = size_for_stage(&stage, genes.size_gene);
     let role = role_for_stage(&stage);
     let morph = expressed_morph(&genes);
+    let pattern = expressed_pattern(&genes);
     CivEntity {
         id,
         kind: "axolotl".to_string(),
@@ -4702,6 +5330,7 @@ fn make_axolotl(
         role,
         civ_id: None,
         morph,
+        pattern,
         stage,
         sex: sex.to_string(),
         age,
@@ -4758,12 +5387,1023 @@ fn round1(value: f32) -> f32 {
     (value * 10.0).round() / 10.0
 }
 
+// --- Combat engine: pure, seed-deterministic helpers (W6 / WAR-02, WAR-03) ---
+//
+// All combat math is replay-stable: it reads only snapshot state, removes axolotl
+// ENTITIES for casualties (the population counter is a mirror re-synced in
+// `run_life_cycle`, civilization.rs:2897), drains/credits resources via `consume`
+// (clamped >=0), and selects victims by sorted entity id. The combat pass that
+// drives these (in `advance_civ_turn`) seeds one rng with the distinct combat salt
+// `0xC0FF_EE01` and resolves attacks in attacker-sorted order — see `resolve_combat`.
+
+/// Per-attack ceiling on the fraction of either side's living axolotls that can die
+/// in a single strike. A hard cap (plus the >=1-survivor clamp in `bounded_loss`)
+/// guarantees no instant wipeout — a civ can only fall through attrition + the
+/// existing `should_collapse` gate (T-04-02).
+const CASUALTY_CAP: f32 = 0.34;
+/// Strength ratio above which a raid is a DECISIVE win (plunder + region seize).
+const WIN_THRESHOLD: f32 = 1.3;
+/// Fraction of a held resource a decisive raid plunders (bounded + conserved).
+const PLUNDER_FRAC: f32 = 0.20;
+
+/// Deterministic combat strength of `civ_id`. Monotonic in population, the `tools`
+/// resource, tech count, and owned-territory count. THE Phase-5 seam: the genetic
+/// `strength` gene term plugs in HERE and nowhere else. Returns 0.0 for an unknown
+/// civ. `f64` intermediates dodge clippy `cast_precision_loss`; the final `as f32`
+/// passes through `round1` for replay-clean floats.
+fn civ_strength(snapshot: &CivSessionSnapshot, civ_id: &str) -> f32 {
+    let Some(ci) = civ_index(snapshot, civ_id) else {
+        return 0.0;
+    };
+    let c = &snapshot.civs[ci];
+    let pop = f64::from(c.population);
+    let tools = f64::from(*c.resources.get("tools").unwrap_or(&0));
+    let tech = c.techs.len() as f64;
+    let owned = snapshot
+        .world
+        .regions
+        .iter()
+        .filter(|r| r.owner.as_deref() == Some(civ_id))
+        .count() as f64;
+    // Aggregate genes.strength over this civ's LIVING (non-egg) axolotls.
+    let gene_str: f32 = civ_entities(snapshot, civ_id)
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg")
+        .filter_map(|e| e.genes.as_ref().map(|g| g.strength))
+        .sum();
+    // Phase-5 SEAM: add a `genes.strength` term to this sum here only.
+    round1((pop * 1.0 + tools * 0.2 + tech * 1.5 + owned * 2.0 + f64::from(gene_str) * 0.5) as f32)
+}
+
+/// Whether a disaster kind is the first-class `plague` (drives `disease_resistance`
+/// selection in `gene_mortality_modifier`). Kept a named predicate so the kind
+/// string lives in exactly one place.
+fn is_plague_kind(kind: &str) -> bool {
+    kind == "plague"
+}
+
+/// Extra per-turn death probability from environment-vs-genes mismatch (GEN-02).
+/// PURE, bounded to `[0.0, MORTALITY_CAP]`, deterministic (no rng/wall-clock).
+/// Monotonic: lower `cold_resistance` ⇒ higher result under cold (temp below
+/// comfort and/or an active `cold_snap`); lower `disease_resistance` ⇒ higher
+/// result under an active `plague`. Returns 0.0 in a benign environment.
+///
+/// `cold_resistance`/`disease_resistance` are clamped to `0.0..=1.0` at breeding
+/// (cross_genes/random_genes, 05-01), so `1.0 - g.*` is in `[0, 1]` and the result
+/// can neither go negative nor exceed the cap (NaN/extreme env temp is absorbed by
+/// the `clamp` on the cold term — T-05-09).
+fn gene_mortality_modifier(g: &CivGenes, env: &CivEnvironment) -> f32 {
+    let mut p = 0.0_f32;
+    // Cold: how far temperature sits below comfort, floored by an active cold_snap.
+    let cold = ((COMFORT_TEMP - env.temperature) / COMFORT_SPAN)
+        .clamp(0.0, 1.0)
+        .max(if env.disasters.iter().any(|d| d.kind == "cold_snap") {
+            0.6
+        } else {
+            0.0
+        });
+    p += cold * (1.0 - g.cold_resistance) * COLD_COEFF;
+    // Disease: from the first-class plague disaster.
+    let plague = if env.disasters.iter().any(|d| is_plague_kind(&d.kind)) {
+        1.0
+    } else {
+        0.0
+    };
+    p += plague * (1.0 - g.disease_resistance) * DISEASE_COEFF;
+    p.clamp(0.0, MORTALITY_CAP)
+}
+
+/// Living (non-egg) axolotl entities of `civ_id`. Eggs survive a raid — only living
+/// axolotls fight and fall.
+fn living_axolotl_count(snapshot: &CivSessionSnapshot, civ_id: &str) -> u32 {
+    civ_entities(snapshot, civ_id)
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg")
+        .count() as u32
+}
+
+/// Remove up to `n` living axolotl entities of `civ_id`, returning the count killed.
+/// Casualties are entity removals (NOT a `population` decrement — the counter is a
+/// mirror, civilization.rs:2897); the population re-syncs from the survivors in the
+/// next `run_life_cycle`, which is why the combat pass MUST run before
+/// `resolve_environment`. Victims are chosen by sorted entity id for replay
+/// determinism (mirrors the elder-death retain at civilization.rs:2778).
+fn kill_axolotls(snapshot: &mut CivSessionSnapshot, civ_id: &str, n: u32) -> u32 {
+    if n == 0 {
+        return 0;
+    }
+    let mut victims: Vec<String> = snapshot
+        .world
+        .entities
+        .iter()
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg" && e.civ_id.as_deref() == Some(civ_id))
+        .map(|e| e.id.clone())
+        .collect();
+    victims.sort();
+    victims.truncate(n as usize);
+    let killed = victims.len() as u32;
+    if killed > 0 {
+        snapshot.world.entities.retain(|e| !victims.contains(&e.id));
+    }
+    killed
+}
+
+/// Convert a casualty `frac` of `civ_id`'s living axolotls into a count that ALWAYS
+/// leaves at least one survivor (so a single attack can never reach 0 — T-04-02).
+/// `frac` is pre-clamped to `CASUALTY_CAP` by the caller; this clamps the resulting
+/// count to `living - 1`.
+fn bounded_loss(snapshot: &CivSessionSnapshot, civ_id: &str, frac: f32) -> u32 {
+    let living = living_axolotl_count(snapshot, civ_id);
+    if living <= 1 {
+        return 0;
+    }
+    let count = (f64::from(living) * f64::from(frac.clamp(0.0, CASUALTY_CAP))) as u32;
+    count.min(living.saturating_sub(1))
+}
+
+/// Plunder a BOUNDED, CONSERVED share of `defender`'s resources to `attacker` on a
+/// decisive win. For each plundered key the take is `floor(have * PLUNDER_FRAC)`,
+/// drained from the defender via `consume` (clamps >=0) and credited verbatim to the
+/// attacker — so the attacker's gain == the defender's loss and nothing goes negative
+/// (T-04-04). Borrow discipline mirrors `apply_trade`: read the defender's holdings
+/// into copied scalars FIRST, then mutate one civ's map fully, then the other's.
+fn plunder(snapshot: &mut CivSessionSnapshot, attacker: &str, defender: &str) {
+    let Some(ai) = civ_index(snapshot, attacker) else {
+        return;
+    };
+    let Some(di) = civ_index(snapshot, defender) else {
+        return;
+    };
+    if ai == di {
+        return;
+    }
+    // Read phase: copy (key, take) pairs from the defender's holdings, sorted by key
+    // for a deterministic plunder order (no HashMap iteration leaking into state).
+    let mut takes: Vec<(String, i32)> = snapshot.civs[di]
+        .resources
+        .iter()
+        .filter_map(|(key, &have)| {
+            let take = (f64::from(have) * f64::from(PLUNDER_FRAC)) as i32;
+            if take > 0 {
+                Some((key.clone(), take))
+            } else {
+                None
+            }
+        })
+        .collect();
+    takes.sort();
+    // Write phase: drain the defender, then credit the attacker the same amounts.
+    for (key, take) in &takes {
+        consume(&mut snapshot.civs[di].resources, key, *take);
+    }
+    for (key, take) in &takes {
+        *snapshot.civs[ai].resources.entry(key.clone()).or_insert(0) += *take;
+    }
+}
+
+/// Seize ONE of `defender`'s regions for `attacker` on a decisive win (Open Q2:
+/// auto-seize, no extra action field). Prefers a PERIPHERAL region — the defender's
+/// `home_region` is dropped from the candidate set when it owns more than one — so a
+/// raid bites the frontier first. A cornered civ that owns only its home region can
+/// still lose it (territory is fully contestable). Region ids are sorted for
+/// deterministic selection.
+fn seize_region(snapshot: &mut CivSessionSnapshot, attacker: &str, defender: &str) {
+    let home = civ_index(snapshot, defender)
+        .map(|di| snapshot.civs[di].home_region.clone())
+        .unwrap_or_default();
+    let mut owned: Vec<String> = snapshot
+        .world
+        .regions
+        .iter()
+        .filter(|r| r.owner.as_deref() == Some(defender))
+        .map(|r| r.id.clone())
+        .collect();
+    owned.sort();
+    if owned.len() > 1 {
+        owned.retain(|id| id != &home);
+    }
+    if let Some(region_id) = owned.into_iter().next() {
+        if let Some(region) = snapshot
+            .world
+            .regions
+            .iter_mut()
+            .find(|r| r.id == region_id)
+        {
+            region.owner = Some(attacker.to_string());
+        }
+    }
+}
+
+/// Resolve a single deterministic attack of `attacker` against `defender`, returning
+/// whether it was a DECISIVE win. WAR-02 + WAR-03. Invariants (all tested):
+/// - **Ally gate (WAR-03, unilateral):** if the attacker's own stance toward the
+///   defender is `ally`, the attack is a logged no-op — no casualties, plunder, or
+///   flip — and the function returns false. This is the chosen UNILATERAL rule.
+/// - **Determinism:** outcome derives only from `civ_strength` and the seeded `rng`
+///   (a `seed^turn^0xC0FF_EE01` stream threaded by the caller). No clock/uuid.
+/// - **Bounded casualties:** both sides lose entities via `kill_axolotls`, capped at
+///   `CASUALTY_CAP` and always leaving >=1 survivor (no instant wipeout, T-04-02).
+/// - **Conserved plunder + region seize** only on a decisive win.
+///
+/// A missing/collapsed civ on either side is a guarded no-op (returns false, T-04-01).
+fn resolve_attack(
+    snapshot: &mut CivSessionSnapshot,
+    attacker: &str,
+    defender: &str,
+    rng: &mut u32,
+) -> bool {
+    let Some(ai) = civ_index(snapshot, attacker) else {
+        return false;
+    };
+    if civ_index(snapshot, defender).is_none() || attacker == defender {
+        return false;
+    }
+    // Ally gate (WAR-03, UNILATERAL): the attacker refuses to strike a civ it has
+    // itself flagged `ally`. Logged no-op; no mutation of either side's state.
+    let allied = snapshot.civs[ai]
+        .diplomacy
+        .get(defender)
+        .map(String::as_str)
+        == Some("ally");
+    if allied {
+        push_log(
+            snapshot,
+            "combat",
+            &format!(
+                "{} refuses to attack an ally",
+                civ_label(snapshot, attacker)
+            ),
+            &format!(
+                "{} holds an alliance with {} and will not raid it.",
+                civ_label(snapshot, attacker),
+                civ_label(snapshot, defender)
+            ),
+        );
+        return false;
+    }
+
+    let a = civ_strength(snapshot, attacker);
+    // Defender home-territory bonus: a defender fighting on home soil is sturdier.
+    let home_bonus = civ_index(snapshot, defender)
+        .map(|di| {
+            let home = snapshot.civs[di].home_region.clone();
+            let holds_home = snapshot
+                .world
+                .regions
+                .iter()
+                .any(|r| r.id == home && r.owner.as_deref() == Some(defender));
+            if holds_home {
+                2.0
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
+    let d = civ_strength(snapshot, defender) + home_bonus;
+    let roll = rand_range(rng, 0.85, 1.15);
+    let ratio = (a * roll) / d.max(1.0);
+
+    // Bounded casualties on BOTH sides, scaled by the strength ratio.
+    let def_loss = bounded_loss(snapshot, defender, (ratio * 0.10).min(CASUALTY_CAP));
+    let atk_loss = bounded_loss(
+        snapshot,
+        attacker,
+        (0.06 / ratio.max(0.01)).min(CASUALTY_CAP),
+    );
+    kill_axolotls(snapshot, defender, def_loss);
+    kill_axolotls(snapshot, attacker, atk_loss);
+
+    let win = ratio > WIN_THRESHOLD;
+    if win {
+        plunder(snapshot, attacker, defender);
+        seize_region(snapshot, attacker, defender);
+    }
+    win
+}
+
+/// The post-decision COMBAT WORLD PASS (WAR-02). Resolves every attack queued during
+/// the decision loop in one deterministic order: `attacks` is sorted by
+/// `(attacker, target)` so the resolution order never depends on the shuffled
+/// decision order (Pitfall 2), and a SINGLE rng stream seeded with the distinct
+/// combat salt `0xC0FF_EE01` is threaded across all attacks. A civ that collapsed
+/// earlier this pass is skipped defensively (T-04-01). The ally-refusal log is
+/// emitted inside `resolve_attack`; to avoid a contradictory "raid repelled" line for
+/// an ally, this pass detects the same unilateral ally stance and `continue`s without
+/// the generic combat log when the gate would fire.
+fn resolve_combat(snapshot: &mut CivSessionSnapshot, attacks: &mut [(String, String)]) {
+    attacks.sort();
+    let mut rng = (snapshot.seed ^ snapshot.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+    for (attacker, defender) in attacks.iter() {
+        let Some(ai) = civ_index(snapshot, attacker) else {
+            continue;
+        };
+        if civ_index(snapshot, defender).is_none() {
+            continue;
+        }
+        // Ally gate: resolve_attack also enforces this and logs the refusal; detect it
+        // here so the no-op does not also emit a misleading generic "raid" line.
+        let allied = snapshot.civs[ai]
+            .diplomacy
+            .get(defender)
+            .map(String::as_str)
+            == Some("ally");
+        if allied {
+            resolve_attack(snapshot, attacker, defender, &mut rng);
+            continue;
+        }
+        let win = resolve_attack(snapshot, attacker, defender, &mut rng);
+        push_log(
+            snapshot,
+            "combat",
+            &format!(
+                "{} raided {}",
+                civ_label(snapshot, attacker),
+                civ_label(snapshot, defender)
+            ),
+            if win {
+                "The raid broke through — plunder taken and territory may have shifted."
+            } else {
+                "The raid was repelled with losses on both sides."
+            },
+        );
+    }
+}
+
+// --- Predator engine: wild fauna spawned by `predator_incursion` (W6 / WAR-04) ---
+//
+// Predators are the only net-new concept in Phase 4: net-new wild `CivEntity`s
+// (`kind == "predator"`, `civ_id == None`) spawned when Phase 3's
+// `predator_incursion` forecast fires (`tick_environment`), then driven each turn by
+// the predator world pass `step_predators` (called from `advance_civ_turn` AFTER
+// `resolve_combat` and BEFORE `resolve_environment`, so predator casualties — entity
+// removals, never a `population` decrement — land before the population mirror
+// re-syncs). Defense reuses the combat seam `civ_strength`: a strong civ takes less
+// damage and culls more predators (culled predators drop food). Everything is
+// replay-stable: ids are `format!("predator-{turn}-{n}")` (no uuid/clock) and both
+// passes seed one rng with the distinct predator salt `0xBADD_CA75`.
+
+/// Distinct predator RNG salt (vs combat `0xC0FF_EE01`, civ_turn_order `0x51ED_2701`,
+/// env-season `0xE05A_F107`) so predator rolls stay uncorrelated with the other passes.
+const PREDATOR_SALT: u32 = 0xBADD_CA75;
+
+/// Spawn `count` net-new wild predator entities near the colony nearest the disaster
+/// `epicenter_x`. WAR-04. Called from `tick_environment`'s `predator_incursion` fire
+/// branch. Predators are `civ_id == None` wild fauna with deterministic
+/// `predator-{turn}-{n}` ids (no uuid/clock) and `age == 0` (the lifespan counter).
+/// Placement jitter is drawn from `rng` (the predator-salt stream) and clamped to the
+/// world bounds. A no-op if no living civ exists (nothing to hunt).
+fn spawn_predators(snapshot: &mut CivSessionSnapshot, epicenter_x: u32, count: u32, rng: &mut u32) {
+    // Nearest living colony centre to the epicenter (deterministic: min by |dx|, then
+    // by civ id so ties break stably).
+    let mut centers: Vec<(String, (u32, u32))> = snapshot
+        .civs
+        .iter()
+        .filter(|c| c.alive)
+        .map(|c| (c.id.clone(), colony_center(snapshot, &c.id)))
+        .collect();
+    centers.sort_by(|a, b| {
+        let da = (i64::from(a.1 .0) - i64::from(epicenter_x)).unsigned_abs();
+        let db = (i64::from(b.1 .0) - i64::from(epicenter_x)).unsigned_abs();
+        da.cmp(&db).then_with(|| a.0.cmp(&b.0))
+    });
+    let Some((_, (cx, cy))) = centers.into_iter().next() else {
+        return; // no living civ → nothing to hunt
+    };
+    let turn = snapshot.turn;
+    let width = snapshot.world.width;
+    let height = snapshot.world.height;
+    let mut spawned = Vec::new();
+    for n in 0..count {
+        let jitter_x = rand_range(rng, -3.0, 3.0) as i64;
+        let jitter_y = rand_range(rng, -2.0, 2.0) as i64;
+        let px = (i64::from(cx) + jitter_x).clamp(0, i64::from(width) - 1) as u32;
+        let py = (i64::from(cy) + jitter_y).clamp(0, i64::from(height) - 1) as u32;
+        spawned.push(CivEntity {
+            id: format!("predator-{turn}-{n}"),
+            kind: "predator".to_string(),
+            role: "predator".to_string(),
+            name: "Wild predator".to_string(),
+            x: px,
+            y: py,
+            health: 1.0,
+            civ_id: None,
+            stage: "adult".to_string(),
+            age: 0,
+            ..Default::default()
+        });
+    }
+    snapshot.world.entities.extend(spawned);
+}
+
+/// Predator lifespan in turns. Tied to `disaster_duration("predator_incursion")` (3)
+/// plus slack so a spawned wave hunts for a few turns before expiring (T-04-03).
+const PREDATOR_LIFESPAN: u32 = 5;
+/// Squared distance within which a predator is "in range" of a colony and attacks
+/// (and within which a civ's defenders can cull it). ~6 tiles.
+const PREDATOR_RANGE2: u64 = 36;
+/// Food a defending civ gains when it culls a predator (a small, fixed, bounded
+/// credit — conserved-style, can never go negative; T-04-11).
+const PREDATOR_FOOD_DROP: i32 = 3;
+
+/// Per-predator hunt/defense intents collected in the read phase of `step_predators`,
+/// applied (entity removals + food credits) in the write phase to respect the borrow
+/// checker (no aliasing `world.entities` while iterating).
+struct PredatorOutcome {
+    /// New predator positions after moving toward the nearest colony, keyed by id.
+    moves: Vec<(String, u32, u32)>,
+    /// Per-civ axolotl kills to apply (civ_id -> kills), bounded later by `kill_axolotls`.
+    kills: HashMap<String, u32>,
+    /// Per-civ food credits from culled predators (civ_id -> food).
+    food: HashMap<String, i32>,
+    /// Predator ids to remove (culled by defense OR expired by lifespan).
+    dead: Vec<String>,
+    /// Surviving predator ids whose age must be incremented this step.
+    aged: Vec<String>,
+}
+
+/// The post-decision PREDATOR WORLD PASS (WAR-04). One deterministic step: each
+/// predator (processed in stable id-sorted order) moves toward the nearest living
+/// colony; if in range it hunts (kills bounded axolotl entities, reduced by the civ's
+/// `civ_strength` defense) and may be culled by that civ's defenders (a strong civ
+/// culls more); culled predators drop food; predators at `age >= PREDATOR_LIFESPAN`
+/// expire. Casualties REMOVE axolotl entities (never a `population` decrement — the
+/// counter is a mirror) and the pass runs BEFORE `resolve_environment`, so losses land
+/// before the mirror re-syncs. Seeds one rng with the distinct predator salt; reads all
+/// state into local Vecs/maps FIRST, then applies mutations, to avoid aliasing
+/// `world.entities` while iterating (borrow discipline mirrors `plunder`).
+fn step_predators(snapshot: &mut CivSessionSnapshot) {
+    let mut rng = (snapshot.seed ^ snapshot.turn.wrapping_mul(0x9E37_79B9) ^ PREDATOR_SALT).max(1);
+
+    // --- Read phase: collect predators (stable id-sorted) + living colony centres. ---
+    let mut predators: Vec<(String, u32, u32, u32)> = snapshot
+        .world
+        .entities
+        .iter()
+        .filter(|e| e.kind == "predator" && e.civ_id.is_none())
+        .map(|e| (e.id.clone(), e.x, e.y, e.age))
+        .collect();
+    predators.sort();
+    if predators.is_empty() {
+        return;
+    }
+    let centers: Vec<(String, u32, u32, f32)> = snapshot
+        .civs
+        .iter()
+        .filter(|c| c.alive)
+        .map(|c| {
+            let (cx, cy) = colony_center(snapshot, &c.id);
+            (c.id.clone(), cx, cy, civ_strength(snapshot, &c.id))
+        })
+        .collect();
+
+    let mut outcome = PredatorOutcome {
+        moves: Vec::new(),
+        kills: HashMap::new(),
+        food: HashMap::new(),
+        dead: Vec::new(),
+        aged: Vec::new(),
+    };
+
+    for (pid, px, py, page) in &predators {
+        // Expire by lifespan first — an expired predator does not hunt this step.
+        if *page >= PREDATOR_LIFESPAN {
+            outcome.dead.push(pid.clone());
+            continue;
+        }
+        // Nearest living colony (deterministic: min dist2, then by civ id).
+        let Some((cid, cx, cy, strength)) = centers
+            .iter()
+            .min_by(|a, b| {
+                dist2(*px, *py, a.1, a.2)
+                    .cmp(&dist2(*px, *py, b.1, b.2))
+                    .then_with(|| a.0.cmp(&b.0))
+            })
+            .cloned()
+        else {
+            // No living civ to hunt — just age the predator.
+            outcome.aged.push(pid.clone());
+            continue;
+        };
+
+        // Move one step toward the colony centre (clamped to bounds).
+        let nx = step_toward(*px, cx);
+        let ny = step_toward(*py, cy);
+        outcome.moves.push((pid.clone(), nx, ny));
+
+        // In range? Use the post-move position so a predator that just arrived bites.
+        let in_range = dist2(nx, ny, cx, cy) <= PREDATOR_RANGE2;
+        let mut culled = false;
+        if in_range {
+            // Hunt: base damage 1, reduced to 0 once the civ is strong enough (defense).
+            // strength 0 → full damage; scales down to 0 by ~strength 20.
+            let defense = (strength / 20.0).clamp(0.0, 1.0);
+            let damage = if rand_f(&mut rng) >= defense { 1 } else { 0 };
+            if damage > 0 {
+                *outcome.kills.entry(cid.clone()).or_insert(0) += damage;
+            }
+            // Defense cull: stronger civs cull more often. cull chance scales with strength.
+            let cull_chance = (strength / 30.0).clamp(0.0, 0.9);
+            if rand_f(&mut rng) < cull_chance {
+                culled = true;
+                outcome.dead.push(pid.clone());
+                *outcome.food.entry(cid.clone()).or_insert(0) += PREDATOR_FOOD_DROP;
+            }
+        }
+        if !culled {
+            outcome.aged.push(pid.clone());
+        }
+    }
+
+    // --- Write phase: apply moves, then kills (bounded), then culls/expiry + food. ---
+    if !outcome.moves.is_empty() {
+        let move_map: HashMap<&str, (u32, u32)> = outcome
+            .moves
+            .iter()
+            .map(|(id, x, y)| (id.as_str(), (*x, *y)))
+            .collect();
+        for e in &mut snapshot.world.entities {
+            if let Some(&(nx, ny)) = move_map.get(e.id.as_str()) {
+                e.x = nx;
+                e.y = ny;
+            }
+        }
+    }
+
+    let mut hunted_any = false;
+    let mut civ_kills: Vec<(String, u32)> = outcome.kills.into_iter().collect();
+    civ_kills.sort();
+    for (cid, want) in &civ_kills {
+        // Bounded: never remove a civ's last living axolotl (leave >=1).
+        let living = living_axolotl_count(snapshot, cid);
+        let allowed = (*want).min(living.saturating_sub(1));
+        let killed = kill_axolotls(snapshot, cid, allowed);
+        if killed > 0 {
+            hunted_any = true;
+        }
+    }
+
+    // Age survivors (those not removed this step).
+    if !outcome.aged.is_empty() {
+        let age_set: std::collections::HashSet<&str> =
+            outcome.aged.iter().map(String::as_str).collect();
+        for e in &mut snapshot.world.entities {
+            if e.kind == "predator" && age_set.contains(e.id.as_str()) {
+                e.age = e.age.saturating_add(1);
+            }
+        }
+    }
+
+    // Credit culled-predator food drops (a credit can never go negative).
+    let mut food_credits: Vec<(String, i32)> = outcome.food.into_iter().collect();
+    food_credits.sort();
+    let culled_any = !outcome.dead.is_empty();
+    for (cid, food) in &food_credits {
+        if let Some(ci) = civ_index(snapshot, cid) {
+            *snapshot.civs[ci]
+                .resources
+                .entry("food".to_string())
+                .or_insert(0) += *food;
+        }
+    }
+
+    // Remove culled + expired predators in one retain.
+    if !outcome.dead.is_empty() {
+        let dead: std::collections::HashSet<&str> =
+            outcome.dead.iter().map(String::as_str).collect();
+        snapshot
+            .world
+            .entities
+            .retain(|e| !(e.kind == "predator" && dead.contains(e.id.as_str())));
+    }
+
+    if hunted_any || culled_any {
+        push_log(
+            snapshot,
+            "predator",
+            "Wild predators on the prowl",
+            "Predators hunted the colonies; defenders fought back and drove some off.",
+        );
+    }
+}
+
+/// Move one tile from `from` toward `to` (saturating, clamp-free since both are valid
+/// world coords). Used to advance predators toward a colony centre each step.
+fn step_toward(from: u32, to: u32) -> u32 {
+    use std::cmp::Ordering;
+    match from.cmp(&to) {
+        Ordering::Less => from + 1,
+        Ordering::Greater => from - 1,
+        Ordering::Equal => from,
+    }
+}
+
+// --- Environment engine: pure, seed-deterministic helpers (W4) ---
+//
+// These leaf helpers are wired into the turn loop by the Wave-3 orchestrator
+// (`tick_environment`, plan 03-03), which runs them once per turn from
+// `advance_civ_turn`.
+
+/// Turns spent in a season before it wraps to the next one. Claude's discretion
+/// per CONTEXT (Seasons & Temperature).
+const SEASON_LEN: u32 = 8;
+const SEASONS: [&str; 4] = ["spring", "summer", "autumn", "winter"];
+/// Unique env-tick RNG salt (distinct from `civ_turn_order`'s `0x51ED_2701`).
+const ENV_SEASON_SALT: u32 = 0xE05A_F107;
+
+/// Mild/cold/warm baseline the temperature drifts toward each season.
+fn season_target_temp(season: &str) -> f32 {
+    match season {
+        "summer" => 24.0,
+        "autumn" => 14.0,
+        "winter" => 4.0,
+        _ => 14.0, // spring (and any unknown) → mild baseline
+    }
+}
+
+/// Pure: advance the season counter and drift temperature/water_level toward the
+/// new season's target. Same inputs ⇒ identical output (deterministic replay —
+/// all randomness derives from `seed ^ turn ^ ENV_SEASON_SALT`, no SystemTime/uuid).
+/// The caller (`tick_environment`) assigns the returned fields and logs a season
+/// change. Returns `(season, turn_of_season, temperature, water_level)`.
+fn advance_season(
+    season: &str,
+    turn_of_season: u32,
+    temperature: f32,
+    water_level: i32,
+    turn: u32,
+    seed: u32,
+) -> (String, u32, f32, i32) {
+    let mut tos = turn_of_season.saturating_add(1);
+    let mut idx = SEASONS.iter().position(|&s| s == season).unwrap_or(0);
+    if tos >= SEASON_LEN {
+        tos = 0;
+        idx = (idx + 1) % SEASONS.len();
+    }
+    let next_season = SEASONS[idx];
+    let target = season_target_temp(next_season);
+    let mut rng = (seed ^ turn.wrapping_mul(0x9E37_79B9) ^ ENV_SEASON_SALT).max(1);
+    let noise = rand_range(&mut rng, -0.6, 0.6);
+    let temp = temperature + (target - temperature) * 0.25 + noise;
+    let water_delta = match next_season {
+        "winter" => -2,
+        "spring" => 2,
+        _ => 0,
+    };
+    (
+        next_season.to_string(),
+        tos,
+        round1(temp),
+        (water_level + water_delta).clamp(-6, 6),
+    )
+}
+
+/// Renewable resources are the complement of `is_finite_mineral` — reuse the
+/// single classifier rather than re-listing resources (so the two never drift).
+/// Coral is FINITE here (it is mined/depleted like a block), per the code's
+/// `is_finite_mineral`, despite CONTEXT prose listing it as an organic example.
+fn is_renewable(resource: &str) -> bool {
+    !is_finite_mineral(resource)
+}
+
+/// Pure: renewable resource tiles tick their `amount` back toward a cap, at a
+/// rate scaled by season/temperature (zero in winter or when too cold). Finite
+/// minerals are NEVER regrown (ENV-03 sustained scarcity). Mutates in place —
+/// the tile count is invariant (threat T-03-02). A partially-mined finite tile
+/// still carries `resource: Some("ore")` and stays finite, so it is skipped;
+/// a fully-mined finite tile already has `resource: None` and is skipped too.
+fn regrow_resources(tiles: &mut [CivTile], season: &str, temperature: f32) {
+    let rate = match season {
+        "spring" | "summer" => 2,
+        "autumn" => 1,
+        _ => 0, // winter: no regrowth
+    };
+    if rate == 0 || temperature < 2.0 {
+        return;
+    }
+    const REGROW_CAP: i32 = 17; // matches the world-gen renewable ceiling (6 + rng%12 = 6..=17)
+    for tile in tiles.iter_mut() {
+        if let Some(res) = tile.resource.as_deref() {
+            if is_renewable(res) && tile.amount < REGROW_CAP {
+                tile.amount = (tile.amount + rate).min(REGROW_CAP);
+            }
+        }
+    }
+}
+
+/// Forecast lead window: a rolled disaster fires this many turns AFTER it is
+/// announced (CONTEXT "forecast-then-fire", 2-3 turns).
+const DISASTER_FORECAST_LEAD: (u32, u32) = (1, 3);
+/// Cap on disaster blast radius (RESEARCH Pitfall 2: a runaway radius could strip
+/// the whole seabed and soft-brick a colony).
+const DISASTER_RADIUS_MAX: u32 = 8;
+/// Unique env-forecast RNG salt (distinct from `civ_turn_order`'s `0x51ED_2701`
+/// AND 03-01's `ENV_SEASON_SALT`) so the disaster stream never aliases.
+const ENV_FORECAST_SALT: u32 = 0xD15A_57E2;
+
+/// Season-weighted disaster eligibility. `flood`/`quake` reshape terrain
+/// (`apply_disaster_to_tiles`); `drought`/`cold_snap`/`storm`/`predator_incursion`
+/// each reuse an EXISTING `resolve_environment` modifier arm
+/// (drought/cold_snap/fatigue/quarrel_pressure) so every fired kind has a real
+/// effect — no new `CivModifier` kind without a matching arm (Pitfall 5).
+fn disaster_kinds_for(season: &str, temperature: f32) -> &'static [&'static str] {
+    match season {
+        // `plague` (GEN-02): cold-season crowding spreads disease; its mechanical
+        // effect is the gene_mortality_modifier disease branch (no terrain/modifier
+        // arm needed — Pitfall 5), and it is announced via tick_environment's log.
+        "winter" => &["cold_snap", "storm", "quake", "plague"],
+        "summer" => {
+            if temperature >= 22.0 {
+                &["drought", "flood", "storm", "quake"]
+            } else {
+                &["flood", "storm", "quake"]
+            }
+        }
+        "spring" => &["flood", "storm", "predator_incursion"],
+        // autumn (and any unknown season): wet-season erosion makes landslides
+        // (terrain-reshape, via apply_disaster_to_tiles) plausible here, and the
+        // damp cold opens a `plague` window (GEN-02).
+        _ => &["storm", "quake", "drought", "landslide", "plague"],
+    }
+}
+
+/// Pure: deterministically decide whether (and what) the NEXT disaster is, given
+/// `(seed, turn)` and the current env. The returned `CivDisaster.remaining_turns`
+/// is the FORECAST LEAD countdown (turns until it fires) — NOT its active
+/// duration; the caller (`tick_environment`, Wave 3) stores it in `env.forecast`,
+/// decrements it each turn, and resets it to the active duration when it fires.
+/// id/kind/epicenter/radius/intensity all derive from `(seed, turn)` so the whole
+/// roll is replayable — no uuid, no wall-clock (threat T-03-04).
+fn roll_forecast(
+    seed: u32,
+    turn: u32,
+    env: &CivEnvironment,
+    world_width: u32,
+) -> Option<CivDisaster> {
+    let mut rng = (seed ^ turn.wrapping_mul(0x9E37_79B9) ^ ENV_FORECAST_SALT).max(1);
+    // Base chance, modestly higher in the harsh seasons (CONTEXT weighting).
+    let p = rand_f(&mut rng);
+    let chance = match env.season.as_str() {
+        "winter" | "summer" => 0.30,
+        _ => 0.20,
+    };
+    if p >= chance {
+        return None;
+    }
+    let kinds = disaster_kinds_for(&env.season, env.temperature);
+    let kind = kinds[(next_rng(&mut rng) as usize) % kinds.len()];
+    let max_x = world_width.saturating_sub(2).max(1);
+    let epicenter_x = (1 + (next_rng(&mut rng) % max_x)).clamp(1, max_x);
+    let radius = (1 + (next_rng(&mut rng) % DISASTER_RADIUS_MAX)).clamp(1, DISASTER_RADIUS_MAX);
+    let intensity = round1(rand_range(&mut rng, 0.5, 3.0)).clamp(0.1, 3.0);
+    let lead = (DISASTER_FORECAST_LEAD.0
+        + (next_rng(&mut rng) % (DISASTER_FORECAST_LEAD.1 - DISASTER_FORECAST_LEAD.0 + 1)))
+        .clamp(DISASTER_FORECAST_LEAD.0, DISASTER_FORECAST_LEAD.1);
+    Some(CivDisaster {
+        id: format!("dis-{turn}-{kind}"), // seed/turn-derived → replayable, NOT uuid
+        kind: kind.to_string(),
+        epicenter_x,
+        radius,
+        intensity,
+        remaining_turns: lead, // forecast lead countdown (Open Q3 convention)
+    })
+}
+
+/// Pure: physically reshape `tiles` around the disaster epicenter, in place and
+/// boundedly. `flood`/`quake`/`landslide` convert sub-surface substrate to
+/// water/deepwater (mirrors the mining terraform rules); terrain-neutral kinds
+/// (`storm`/`drought`/`cold_snap`/`predator_incursion`) leave tiles untouched —
+/// their effect is a `CivModifier`/one-shot at fire time, not a terrain change.
+///
+/// Invariants (asserted by the determinism/bounds tests, threat T-03-05):
+/// tile count unchanged (mutate in place, never push/remove); `x ∈ [0, width)`;
+/// `y ∈ [WATER_SURFACE_Y, WORLD_HEIGHT)`; never converts a tile at/above the
+/// seabed surface (keeps the colony floor buildable, can't soft-brick a colony).
+fn apply_disaster_to_tiles(tiles: &mut [CivTile], dis: &CivDisaster, width: u32) {
+    // Terrain-only for the physical-reshape kinds; the rest are civ-effect/announce.
+    if !matches!(dis.kind.as_str(), "flood" | "quake" | "landslide") {
+        return;
+    }
+    let cx = dis.epicenter_x.clamp(1, width.saturating_sub(2).max(1));
+    let r = dis.radius.min(DISASTER_RADIUS_MAX);
+    let lo = cx.saturating_sub(r);
+    let hi = (cx + r).min(width.saturating_sub(1));
+    for x in lo..=hi {
+        // Seabed surface for this column (inline `seabed_row_at` over the slice —
+        // the helper takes `&CivWorld`, but here we only have a tile slice).
+        let surface = tiles
+            .iter()
+            .filter(|t| t.x == x && is_substrate(&t.terrain))
+            .map(|t| t.y)
+            .min()
+            .unwrap_or(WORLD_HEIGHT - 2);
+        // How deep to reshape this column — bounded, never the whole column.
+        let depth = match dis.kind.as_str() {
+            "flood" => 2, // raise water over the top 1-2 sub-surface rows
+            _ => 1,       // quake/landslide carve a single sub-surface void
+        };
+        // Only convert BELOW surface+1 (Pitfall 2: keep the surface solid/buildable).
+        let start = (surface + 2).max(WATER_SURFACE_Y);
+        for ty in start..start.saturating_add(depth).min(WORLD_HEIGHT) {
+            if let Some(t) = tiles.iter_mut().find(|t| t.x == x && t.y == ty) {
+                if is_substrate(&t.terrain) && ty > surface + 1 && ty >= WATER_SURFACE_Y {
+                    t.terrain = if ty >= DEEP_WATER_Y {
+                        "deepwater"
+                    } else {
+                        "water"
+                    }
+                    .to_string();
+                    t.resource = None;
+                    t.amount = 0;
+                }
+            }
+        }
+    }
+}
+
+/// Active duration (turns a disaster lingers in `env.disasters` after it fires),
+/// per kind. Bounded so a fired disaster can never outlive a few turns.
+fn disaster_duration(kind: &str) -> u32 {
+    let raw = match kind {
+        "drought" | "cold_snap" => 5,
+        "flood" | "plague" => 4,
+        "predator_incursion" => 3,
+        "quake" | "storm" => 2,
+        _ => 3,
+    };
+    raw.clamp(1, 12)
+}
+
+/// World-level per-turn environment step. Runs once at TURN START (after the turn
+/// increment, before the civ decision loop) so every civ observes the freshly
+/// advanced season/forecast and a fired disaster's reshape this same turn.
+///
+/// The sequence is LOCKED (CONTEXT "Integration & Determinism"): fire any due
+/// forecast (reshape terrain + push a reused `CivModifier` + log) → advance the
+/// season/temperature/water (log on wrap) → regrow renewable resources → tick the
+/// active disasters' countdowns and retire expired ones (log expiry) → roll/refresh
+/// the forecast (log announce). All randomness derives from `seed`+`turn` via the
+/// Wave-1/2 pure helpers; ids are `format!("dis-{turn}-{kind}")` — no uuid, no
+/// wall-clock — so the whole tick is byte-deterministic replay (threat T-03-08).
+fn tick_environment(snapshot: &mut CivSessionSnapshot) {
+    let width = snapshot.world.width;
+
+    // (a) Fire any DUE forecast. The forecast's `remaining_turns` is the lead
+    //     countdown while it sits in `env.forecast` (Open Q3 convention).
+    if let Some(mut forecast) = snapshot.environment.forecast.take() {
+        forecast.remaining_turns = forecast.remaining_turns.saturating_sub(1);
+        if forecast.remaining_turns == 0 {
+            // It fires this turn: reshape terrain, push the reused civ-effect
+            // modifier (only for kinds with an existing resolve_environment arm),
+            // log it, and move it into the active disasters with its active duration.
+            forecast.remaining_turns = disaster_duration(&forecast.kind);
+            apply_disaster_to_tiles(&mut snapshot.world.tiles, &forecast, width);
+            // Reuse an EXISTING CivModifier kind so resolve_environment applies it
+            // (Pitfall 5: never push an unknown kind — it would be a silent no-op).
+            // storm/predator_incursion map to the existing fatigue/quarrel_pressure
+            // morale arms (:2551,:2555) so the most-frequently-rolled kinds have a
+            // real mechanical effect (ENV-02) instead of being cosmetic.
+            let modifier_kind = match forecast.kind.as_str() {
+                "drought" => Some("drought"),
+                "cold_snap" => Some("cold_snap"),
+                "storm" => Some("fatigue"),
+                "predator_incursion" => Some("quarrel_pressure"),
+                _ => None, // flood/quake = terrain-only (reshape, no modifier)
+            };
+            if let Some(mk) = modifier_kind {
+                snapshot.modifiers.push(CivModifier {
+                    // Share the disaster's own id so the fired disaster and its
+                    // companion modifier correlate in logs (LW-03). forecast.id is
+                    // already deterministic (`dis-{roll_turn}-{kind}`, no uuid/clock).
+                    id: forecast.id.clone(),
+                    kind: mk.to_string(),
+                    label: format!("Disaster: {mk}"),
+                    polarity: "debuff".to_string(),
+                    remaining_turns: forecast.remaining_turns,
+                    intensity: forecast.intensity,
+                });
+            }
+            push_log(
+                snapshot,
+                "disaster",
+                &format!("A {} struck", forecast.kind),
+                &format!(
+                    "A {} hit near column {} (radius {}, intensity {:.1}).",
+                    forecast.kind, forecast.epicenter_x, forecast.radius, forecast.intensity
+                ),
+            );
+            // WAR-04: a fired predator_incursion ALSO spawns net-new wild predator
+            // entities near the threatened colony (the quarrel_pressure modifier above
+            // is KEPT — predators are the physical threat, morale pressure the ambient
+            // dread; RESEARCH Open Q3). Self-contained predator-salt rng + format! ids
+            // preserve this tick's byte-determinism (no uuid/clock; T-04-03).
+            if forecast.kind == "predator_incursion" {
+                let mut prng =
+                    (snapshot.seed ^ snapshot.turn.wrapping_mul(0x9E37_79B9) ^ PREDATOR_SALT)
+                        .max(1);
+                let count = 1 + (forecast.intensity.clamp(0.0, 2.0) as u32); // 1-3 predators
+                let epicenter_x = forecast.epicenter_x;
+                spawn_predators(snapshot, epicenter_x, count, &mut prng);
+            }
+            snapshot.environment.disasters.push(forecast);
+        } else {
+            // Not due yet — keep counting down in the forecast slot.
+            snapshot.environment.forecast = Some(forecast);
+        }
+    }
+
+    // (b) Advance season/temperature/water. Read the scalars into locals first so
+    //     the helper call doesn't alias `snapshot.environment` with later mutations.
+    let prev_season = snapshot.environment.season.clone();
+    let (season, turn_of_season, temperature, water_level) = advance_season(
+        &snapshot.environment.season,
+        snapshot.environment.turn_of_season,
+        snapshot.environment.temperature,
+        snapshot.environment.water_level,
+        snapshot.turn,
+        snapshot.seed,
+    );
+    snapshot.environment.season = season.clone();
+    snapshot.environment.turn_of_season = turn_of_season;
+    snapshot.environment.temperature = temperature;
+    snapshot.environment.water_level = water_level;
+    if season != prev_season {
+        push_log(
+            snapshot,
+            "season",
+            &format!("Season turned to {season}"),
+            &format!("The {prev_season} gives way to {season}; temperature settles near {temperature:.1}\u{b0}."),
+        );
+    }
+
+    // (c) Regrow renewable resources using the just-advanced season/temperature.
+    regrow_resources(&mut snapshot.world.tiles, &season, temperature);
+
+    // (d) Tick active disasters' countdowns and retire expired ones (mirror
+    //     tick_modifiers). Collect expiring ids BEFORE retain to avoid a borrow
+    //     conflict with push_log.
+    for disaster in snapshot.environment.disasters.iter_mut() {
+        disaster.remaining_turns = disaster.remaining_turns.saturating_sub(1);
+    }
+    let expired: Vec<(String, String)> = snapshot
+        .environment
+        .disasters
+        .iter()
+        .filter(|d| d.remaining_turns == 0)
+        .map(|d| (d.id.clone(), d.kind.clone()))
+        .collect();
+    snapshot
+        .environment
+        .disasters
+        .retain(|d| d.remaining_turns > 0);
+    for (_, kind) in &expired {
+        push_log(
+            snapshot,
+            "disaster",
+            &format!("The {kind} subsided"),
+            &format!("The {kind} has run its course and the world steadies."),
+        );
+    }
+
+    // (e) Roll/refresh the forecast if none is pending, announcing it ahead of time.
+    if snapshot.environment.forecast.is_none() {
+        if let Some(forecast) =
+            roll_forecast(snapshot.seed, snapshot.turn, &snapshot.environment, width)
+        {
+            let kind = forecast.kind.clone();
+            let lead = forecast.remaining_turns;
+            snapshot.environment.forecast = Some(forecast);
+            push_log(
+                snapshot,
+                "forecast",
+                &format!("A {kind} is forecast"),
+                &format!(
+                    "Signs point to a {kind} in roughly {lead} turn(s); civilizations may prepare."
+                ),
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn first_civ_id(snapshot: &CivSessionSnapshot) -> String {
         snapshot.civs[0].id.clone()
+    }
+
+    /// Single-civ snapshot helper preserving the pre-multi-civ ergonomics for
+    /// the existing tests (one model => one founding civ).
+    fn test_snapshot(id: &str, name: &str, model: &str, seed: u32, now: u64) -> CivSessionSnapshot {
+        initial_snapshot(
+            id.to_string(),
+            name.to_string(),
+            &[CivParticipant {
+                name: name.to_string(),
+                model: model.to_string(),
+                color: None,
+            }],
+            seed,
+            now,
+        )
     }
 
     #[test]
@@ -4782,6 +6422,136 @@ mod tests {
             "founders must be byte-identical (the ore-vein pass must not perturb founder rng)"
         );
         assert!(a.entities.iter().any(|entity| entity.kind == "axolotl"));
+    }
+
+    #[test]
+    fn advance_season_is_deterministic() {
+        // Same (season, turn_of_season, temperature, water_level, turn, seed) ⇒ identical tuple.
+        let a = advance_season("spring", 7, 14.0, 0, 5, 1234);
+        let b = advance_season("spring", 7, 14.0, 0, 5, 1234);
+        assert_eq!(a, b, "pure helper must be deterministic for replay");
+    }
+
+    #[test]
+    fn advance_season_wraps_on_season_len() {
+        // turn_of_season 7 + 1 == SEASON_LEN (8) → wrap to the next season, counter reset to 0.
+        let (season, tos, _, _) = advance_season("spring", 7, 14.0, 0, 5, 1234);
+        assert_eq!(season, "summer");
+        assert_eq!(tos, 0);
+        // Mid-season (no wrap): counter just increments.
+        let (season, tos, _, _) = advance_season("spring", 0, 14.0, 0, 5, 1234);
+        assert_eq!(season, "spring");
+        assert_eq!(tos, 1);
+    }
+
+    #[test]
+    fn advance_season_cycle_order() {
+        // Walk four wraps and confirm spring→summer→autumn→winter→spring.
+        let order = ["summer", "autumn", "winter", "spring"];
+        let mut season = "spring".to_string();
+        for expected in order {
+            let (next, tos, _, _) = advance_season(&season, 7, 14.0, 0, 5, 1234);
+            assert_eq!(next, expected, "season cycle must advance in order");
+            assert_eq!(tos, 0, "counter resets on wrap");
+            season = next;
+        }
+        assert_eq!(season, "spring", "cycle returns to spring after four wraps");
+    }
+
+    #[test]
+    fn advance_season_temp_is_round1_stable_and_water_bounded() {
+        let (_, _, temp, water) = advance_season("spring", 3, 14.0, 0, 5, 1234);
+        // Temperature passes through round1 → byte-stable saved float.
+        assert_eq!(temp, (temp * 10.0).round() / 10.0);
+        // water_level stays within [-6, 6] even after a delta.
+        assert!((-6..=6).contains(&water));
+        // Extreme starting water clamps.
+        let (_, _, _, water_hi) = advance_season("winter", 7, 4.0, 6, 9, 99);
+        assert!((-6..=6).contains(&water_hi));
+    }
+
+    fn renewable_tile(resource: &str, amount: i32) -> CivTile {
+        CivTile {
+            x: 0,
+            y: 60,
+            terrain: "moss_bed".into(),
+            resource: Some(resource.into()),
+            amount,
+            biome: String::new(),
+        }
+    }
+
+    fn finite_tile(resource: &str, amount: i32) -> CivTile {
+        CivTile {
+            x: 0,
+            y: 60,
+            terrain: "stone".into(),
+            resource: Some(resource.into()),
+            amount,
+            biome: String::new(),
+        }
+    }
+
+    #[test]
+    fn regrow_renewable_rises_to_cap() {
+        let mut tiles = vec![renewable_tile("moss", 5), renewable_tile("kelp", 16)];
+        regrow_resources(&mut tiles, "summer", 24.0);
+        assert!(tiles[0].amount > 5, "renewable should gain amount");
+        assert!(tiles[0].amount <= 17, "renewable must not exceed cap");
+        assert_eq!(tiles[1].amount, 17, "near-cap renewable clamps to cap");
+        // Saturate to cap and never exceed it on repeated ticks.
+        for _ in 0..10 {
+            regrow_resources(&mut tiles, "summer", 24.0);
+        }
+        assert_eq!(tiles[0].amount, 17);
+        assert_eq!(tiles[1].amount, 17);
+    }
+
+    #[test]
+    fn finite_resources_never_regrow() {
+        // ENV-03: finite minerals stay depleted (sustained scarcity).
+        let mut tiles = vec![finite_tile("ore", 3)];
+        regrow_resources(&mut tiles, "summer", 24.0);
+        assert_eq!(tiles[0].amount, 3, "finite must never regrow");
+    }
+
+    #[test]
+    fn coral_is_finite_and_never_regrows() {
+        // Micro-decision: coral follows is_finite_mineral (FINITE), not CONTEXT prose.
+        assert!(is_finite_mineral("coral"));
+        assert!(!is_renewable("coral"));
+        let mut tiles = vec![finite_tile("coral", 4)];
+        regrow_resources(&mut tiles, "summer", 24.0);
+        assert_eq!(tiles[0].amount, 4, "coral is finite → no regrowth");
+    }
+
+    #[test]
+    fn regrow_is_zero_in_winter() {
+        let mut tiles = vec![renewable_tile("moss", 5)];
+        regrow_resources(&mut tiles, "winter", 24.0);
+        assert_eq!(tiles[0].amount, 5, "winter rate is 0 → unchanged");
+    }
+
+    #[test]
+    fn regrow_zero_when_too_cold() {
+        let mut tiles = vec![renewable_tile("moss", 5)];
+        regrow_resources(&mut tiles, "summer", 1.0);
+        assert_eq!(
+            tiles[0].amount, 5,
+            "below temperature threshold → unchanged"
+        );
+    }
+
+    #[test]
+    fn regrow_preserves_tile_count() {
+        let mut snapshot = test_snapshot("regrow-count", "Count", "mock-model", 42, 1);
+        let before = snapshot.world.tiles.len();
+        regrow_resources(&mut snapshot.world.tiles, "summer", 24.0);
+        assert_eq!(
+            snapshot.world.tiles.len(),
+            before,
+            "regrow mutates in place — tile count is invariant"
+        );
     }
 
     #[test]
@@ -4909,13 +6679,7 @@ mod tests {
 
     #[test]
     fn initial_snapshot_is_multi_civ_shaped() {
-        let s = initial_snapshot(
-            "shape".to_string(),
-            "Shape".to_string(),
-            "m".to_string(),
-            3,
-            1,
-        );
+        let s = test_snapshot("shape", "Shape", "m", 3, 1);
         assert_eq!(s.version, SCHEMA_VERSION);
         assert_eq!(s.civs.len(), 1);
         assert_eq!(s.civs[0].id, FIRST_CIV_ID);
@@ -4939,13 +6703,7 @@ mod tests {
 
     #[test]
     fn intervention_grants_resources_and_scores() {
-        let mut snapshot = initial_snapshot(
-            "test-session".to_string(),
-            "Test".to_string(),
-            "mock-model".to_string(),
-            42,
-            1,
-        );
+        let mut snapshot = test_snapshot("test-session", "Test", "mock-model", 42, 1);
         let before = snapshot.civs[0].resources["food"];
         apply_intervention_to_snapshot(
             &mut snapshot,
@@ -4970,13 +6728,7 @@ mod tests {
 
     #[test]
     fn player_harvest_depletes_tile_and_grants_yield() {
-        let mut snapshot = initial_snapshot(
-            "harvest-session".to_string(),
-            "Harvest".to_string(),
-            "mock-model".to_string(),
-            42,
-            1,
-        );
+        let mut snapshot = test_snapshot("harvest-session", "Harvest", "mock-model", 42, 1);
         let tile = snapshot
             .world
             .tiles
@@ -5015,13 +6767,7 @@ mod tests {
 
     #[test]
     fn player_mine_and_place_tile_edits_world() {
-        let mut snapshot = initial_snapshot(
-            "terrain-session".to_string(),
-            "Terrain".to_string(),
-            "mock-model".to_string(),
-            42,
-            1,
-        );
+        let mut snapshot = test_snapshot("terrain-session", "Terrain", "mock-model", 42, 1);
         let cid = first_civ_id(&snapshot);
         let axo_id = snapshot
             .world
@@ -5106,13 +6852,7 @@ mod tests {
 
     #[test]
     fn player_move_talk_and_building_use_have_sim_effects() {
-        let mut snapshot = initial_snapshot(
-            "player-session".to_string(),
-            "Player".to_string(),
-            "mock-model".to_string(),
-            42,
-            1,
-        );
+        let mut snapshot = test_snapshot("player-session", "Player", "mock-model", 42, 1);
         let cid = first_civ_id(&snapshot);
         let axo_id = snapshot
             .world
@@ -5289,13 +7029,7 @@ mod tests {
 
     #[test]
     fn scoring_rewards_protective_policies() {
-        let mut snapshot = initial_snapshot(
-            "test-session".to_string(),
-            "Test".to_string(),
-            "mock-model".to_string(),
-            42,
-            1,
-        );
+        let mut snapshot = test_snapshot("test-session", "Test", "mock-model", 42, 1);
         let cid = first_civ_id(&snapshot);
         let base = score_civilization(&snapshot, &cid).ethics;
         snapshot.civs[0]
@@ -5338,13 +7072,7 @@ mod tests {
 
     #[test]
     fn life_cycle_lays_eggs_and_syncs_population() {
-        let mut s = initial_snapshot(
-            "life-test".to_string(),
-            "Life".to_string(),
-            "mock".to_string(),
-            7,
-            1,
-        );
+        let mut s = test_snapshot("life-test", "Life", "mock", 7, 1);
         let cid = first_civ_id(&s);
         let start = s.civs[0].population;
         let mut saw_egg = false;
@@ -5382,13 +7110,7 @@ mod tests {
 
     #[test]
     fn equip_accessory_round_trips() {
-        let mut s = initial_snapshot(
-            "acc-test".to_string(),
-            "Acc".to_string(),
-            "mock".to_string(),
-            5,
-            1,
-        );
+        let mut s = test_snapshot("acc-test", "Acc", "mock", 5, 1);
         let id = s
             .world
             .entities
@@ -5434,7 +7156,11 @@ mod tests {
         let s = initial_snapshot(
             "legacy".to_string(),
             "Old Pond".to_string(),
-            "old-model".to_string(),
+            &[CivParticipant {
+                name: "Old Pond".to_string(),
+                model: "old-model".to_string(),
+                color: None,
+            }],
             9,
             1,
         );
@@ -5478,14 +7204,155 @@ mod tests {
     }
 
     #[test]
-    fn civ_does_not_collapse_while_eggs_remain() {
-        let mut s = initial_snapshot(
-            "collapse".to_string(),
-            "C".to_string(),
-            "m".to_string(),
-            11,
+    fn legacy_single_model_config_founds_one_civ() {
+        // Legacy shape {name, model, seed} with no `civs` deserializes and
+        // resolves to exactly one founding participant (back-compat, D-05).
+        let raw = r#"{"name":"W","model":"kimi","seed":7}"#;
+        let config: CivSessionConfig = serde_json::from_str(raw).unwrap();
+        let participants = resolve_participants(&config).unwrap();
+        assert_eq!(participants.len(), 1);
+        assert_eq!(participants[0].model, "kimi");
+
+        let snapshot = initial_snapshot(
+            "legacy-one".to_string(),
+            "W".to_string(),
+            &participants,
+            7,
             1,
         );
+        assert_eq!(snapshot.civs.len(), 1);
+        assert_eq!(snapshot.civs[0].model, "kimi");
+        // Auto colour from the palette head.
+        assert_eq!(snapshot.civs[0].color, CIV_COLORS[0]);
+    }
+
+    #[test]
+    fn multi_participant_config_founds_n_civs_with_distinct_colors() {
+        let raw = r##"{"name":"W","seed":7,"civs":[{"name":"A","model":"kimi"},{"name":"B","model":"deepseek","color":"#ff0000"}]}"##;
+        let config: CivSessionConfig = serde_json::from_str(raw).unwrap();
+        let participants = resolve_participants(&config).unwrap();
+        assert_eq!(participants.len(), 2);
+        // A gets the auto palette head; B keeps its override.
+        assert_eq!(participants[0].color.as_deref(), Some(CIV_COLORS[0]));
+        assert_eq!(participants[1].color.as_deref(), Some("#ff0000"));
+
+        let snapshot =
+            initial_snapshot("multi-2".to_string(), "W".to_string(), &participants, 7, 1);
+        assert_eq!(snapshot.civs.len(), 2);
+        assert_eq!(snapshot.civs[0].color, CIV_COLORS[0]);
+        assert_eq!(snapshot.civs[1].color, "#ff0000");
+        // Distinct colours and distinct ids.
+        assert_ne!(snapshot.civs[0].color, snapshot.civs[1].color);
+        assert_eq!(snapshot.civs[0].id, "civ-1");
+        assert_eq!(snapshot.civs[1].id, "civ-2");
+        assert_eq!(snapshot.civs[1].name, "B");
+    }
+
+    #[test]
+    fn empty_config_errors() {
+        // No civs and no model at all.
+        let raw = r#"{"name":"W","seed":7}"#;
+        let config: CivSessionConfig = serde_json::from_str(raw).unwrap();
+        let err = resolve_participants(&config).unwrap_err();
+        assert!(err.contains("at least one"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn too_many_participants_errors() {
+        let config = CivSessionConfig {
+            name: "W".to_string(),
+            seed: Some(7),
+            civs: vec![
+                CivParticipant {
+                    name: "A".to_string(),
+                    model: "m".to_string(),
+                    color: None,
+                },
+                CivParticipant {
+                    name: "B".to_string(),
+                    model: "m".to_string(),
+                    color: None,
+                },
+                CivParticipant {
+                    name: "C".to_string(),
+                    model: "m".to_string(),
+                    color: None,
+                },
+                CivParticipant {
+                    name: "D".to_string(),
+                    model: "m".to_string(),
+                    color: None,
+                },
+            ],
+            model: None,
+        };
+        let err = resolve_participants(&config).unwrap_err();
+        assert!(err.contains("at most 3"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn fresh_civ_has_no_controller() {
+        let s = test_snapshot("ctl", "C", "m", 3, 1);
+        assert!(s.civs[0].controller.is_none());
+    }
+
+    #[test]
+    fn leaderboard_includes_controller_key() {
+        let s = test_snapshot("lb", "L", "m", 3, 1);
+        let board = leaderboard(&s.civs);
+        let first = &board[0];
+        assert!(
+            first.as_object().unwrap().contains_key("controller"),
+            "leaderboard entry missing controller key"
+        );
+        assert!(first["controller"].is_null());
+    }
+
+    #[test]
+    fn snapshot_missing_controller_key_deserializes() {
+        // A saved civ JSON lacking "controller" still loads (serde default).
+        let s = test_snapshot("mc", "M", "m", 3, 1);
+        let mut value = serde_json::to_value(&s).unwrap();
+        for civ in value["civs"].as_array_mut().unwrap() {
+            civ.as_object_mut().unwrap().remove("controller");
+        }
+        let raw = serde_json::to_string(&value).unwrap();
+        let loaded: CivSessionSnapshot = serde_json::from_str(&raw).unwrap();
+        assert!(loaded.civs[0].controller.is_none());
+    }
+
+    #[test]
+    fn push_decision_log_persists_civ_id_and_reasoning() {
+        let mut s = test_snapshot("dl", "D", "m", 3, 1);
+        let cid = first_civ_id(&s);
+        push_decision_log(
+            &mut s,
+            &cid,
+            "stabilize",
+            "food first",
+            "share fairly",
+            Some("internal chain of thought".to_string()),
+        );
+        let entry = s.log.last().unwrap();
+        assert_eq!(entry.kind, "ai_decision");
+        assert_eq!(entry.civ_id.as_deref(), Some(cid.as_str()));
+        assert_eq!(
+            entry.reasoning.as_deref(),
+            Some("internal chain of thought")
+        );
+    }
+
+    #[test]
+    fn log_entry_missing_civ_id_reasoning_deserializes() {
+        let raw = r#"{"turn":1,"kind":"session","title":"t","body":"b","created_at":0}"#;
+        let entry: CivLogEntry = serde_json::from_str(raw).unwrap();
+        assert!(entry.civ_id.is_none());
+        assert!(entry.reasoning.is_none());
+    }
+
+    #[test]
+    fn civ_does_not_collapse_while_eggs_remain() {
+        let mut s = test_snapshot("collapse", "C", "m", 11, 1);
         let cid = first_civ_id(&s);
         // Wipe the colony's axolotls but leave its buildings and a single egg.
         s.world.entities.retain(|e| e.kind == "building");
@@ -5524,6 +7391,11 @@ mod tests {
             direction: None,
             policy: None,
             event_id: None,
+            target: None,
+            stance: None,
+            receive: None,
+            amount: None,
+            receive_amount: None,
         }
     }
 
@@ -5567,7 +7439,7 @@ mod tests {
 
     #[test]
     fn mining_caps_yield_and_floods_emptied_block() {
-        let mut s = initial_snapshot("mine".to_string(), "M".to_string(), "m".to_string(), 5, 1);
+        let mut s = test_snapshot("mine", "M", "m", 5, 1);
         let cid = first_civ_id(&s);
         let (cx, _) = colony_center(&s, &cid);
         // Leave exactly one ore block (5 units) on the colony's seabed; clear the
@@ -5616,7 +7488,7 @@ mod tests {
 
     #[test]
     fn renewable_gather_is_not_block_limited() {
-        let mut s = initial_snapshot("ren".to_string(), "R".to_string(), "m".to_string(), 5, 1);
+        let mut s = test_snapshot("ren", "R", "m", 5, 1);
         let cid = first_civ_id(&s);
         // No moss tiles anywhere: food (a renewable) must still yield its flat rate.
         for t in s.world.tiles.iter_mut() {
@@ -5639,7 +7511,7 @@ mod tests {
     fn mining_a_surface_block_keeps_the_ground_solid() {
         // Stripping ore from a seabed-SURFACE block must not flood it — the seabed
         // stays solid/buildable so default building placement can't fall into a hole.
-        let mut s = initial_snapshot("surf".to_string(), "S".to_string(), "m".to_string(), 5, 1);
+        let mut s = test_snapshot("surf", "S", "m", 5, 1);
         let cid = first_civ_id(&s);
         let (cx, _) = colony_center(&s, &cid);
         for t in s.world.tiles.iter_mut() {
@@ -5679,7 +7551,7 @@ mod tests {
 
     #[test]
     fn mining_requires_tools() {
-        let mut s = initial_snapshot("tools".to_string(), "T".to_string(), "m".to_string(), 5, 1);
+        let mut s = test_snapshot("tools", "T", "m", 5, 1);
         let cid = first_civ_id(&s);
         let (cx, _) = colony_center(&s, &cid);
         for t in s.world.tiles.iter_mut() {
@@ -5744,13 +7616,7 @@ mod tests {
     /// (World entities stay tagged to civ-1 — these tests only exercise the civ
     /// list, turn order, and intervention targeting, none of which read entities.)
     fn multi_civ_snapshot(seed: u32, n: usize) -> CivSessionSnapshot {
-        let mut s = initial_snapshot(
-            "multi".to_string(),
-            "Multi".to_string(),
-            "m".to_string(),
-            seed,
-            1,
-        );
+        let mut s = test_snapshot("multi", "Multi", "m", seed, 1);
         let base = s.civs[0].clone();
         for i in 1..n {
             let mut c = base.clone();
@@ -5881,6 +7747,2270 @@ mod tests {
         assert_eq!(
             s.civs[0].resources["food"], before0,
             "the collapsed civ is skipped"
+        );
+    }
+
+    // --- ENV-02: roll_forecast determinism + season-weighting (03-02 Task 1) ---
+
+    fn env_for(season: &str, temperature: f32) -> CivEnvironment {
+        let mut env = CivEnvironment::new();
+        env.season = season.to_string();
+        env.temperature = temperature;
+        env
+    }
+
+    /// Find a (seed, turn) that actually rolls a disaster, so the bound/id tests
+    /// have a Some to inspect regardless of the base-chance gate.
+    fn first_forecast(season: &str, temperature: f32, width: u32) -> CivDisaster {
+        let env = env_for(season, temperature);
+        for turn in 0..256u32 {
+            if let Some(dis) = roll_forecast(1234, turn, &env, width) {
+                return dis;
+            }
+        }
+        panic!("expected at least one forecast within 256 turns");
+    }
+
+    #[test]
+    fn roll_forecast_is_deterministic() {
+        // Same (seed, turn, env, width) ⇒ identical Option<CivDisaster> (replay).
+        let env = env_for("winter", 4.0);
+        for turn in 0..16u32 {
+            let a = roll_forecast(777, turn, &env, WORLD_WIDTH);
+            let b = roll_forecast(777, turn, &env, WORLD_WIDTH);
+            assert_eq!(
+                serde_json::to_string(&a).unwrap(),
+                serde_json::to_string(&b).unwrap(),
+                "pure forecast roll must be byte-stable for replay (turn {turn})"
+            );
+        }
+    }
+
+    #[test]
+    fn roll_forecast_clamps_bounds() {
+        // Whatever the season, a Some forecast stays inside the world/param bounds.
+        for (season, temp) in [
+            ("winter", 4.0),
+            ("summer", 24.0),
+            ("spring", 14.0),
+            ("autumn", 14.0),
+        ] {
+            let env = env_for(season, temp);
+            for turn in 0..256u32 {
+                if let Some(dis) = roll_forecast(4242, turn, &env, WORLD_WIDTH) {
+                    assert!(
+                        (1..=WORLD_WIDTH - 2).contains(&dis.epicenter_x),
+                        "epicenter_x {} out of [1, width-2]",
+                        dis.epicenter_x
+                    );
+                    assert!(
+                        (1..=8).contains(&dis.radius),
+                        "radius {} out of [1, 8]",
+                        dis.radius
+                    );
+                    assert!(
+                        (0.1..=3.0).contains(&dis.intensity),
+                        "intensity {} out of [0.1, 3.0]",
+                        dis.intensity
+                    );
+                    assert!(
+                        (1..=3).contains(&dis.remaining_turns),
+                        "lead {} out of [1, 3]",
+                        dis.remaining_turns
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn roll_forecast_id_is_seed_derived() {
+        // Threat T-03-04: id is `dis-{turn}-{kind}` — no uuid, no wall-clock.
+        let dis = first_forecast("winter", 4.0, WORLD_WIDTH);
+        let turn = forecast_turn_for("winter", 4.0, WORLD_WIDTH);
+        // id is exactly the seed/turn-derived `dis-{turn}-{kind}` — fully replayable.
+        assert_eq!(dis.id, format!("dis-{}-{}", turn, dis.kind));
+        assert!(dis.id.starts_with("dis-"), "id must be seed/turn-derived");
+        // A uuid id would be 36 chars of hex/dashes; a wall-clock id would carry a
+        // 10+ digit unix-second run. The derived id carries neither.
+        assert!(dis.id.len() < 30, "id must not be a uuid");
+    }
+
+    /// Companion to `roll_forecast_id_is_seed_derived`: the turn the first forecast lands on.
+    fn forecast_turn_for(season: &str, temperature: f32, width: u32) -> u32 {
+        let env = env_for(season, temperature);
+        for turn in 0..256u32 {
+            if roll_forecast(1234, turn, &env, width).is_some() {
+                return turn;
+            }
+        }
+        panic!("no forecast");
+    }
+
+    #[test]
+    fn disaster_kinds_are_season_weighted() {
+        // Winter eligibility includes a cold kind; hot summer includes a heat kind.
+        let winter = disaster_kinds_for("winter", 4.0);
+        assert!(
+            winter.contains(&"cold_snap"),
+            "winter must allow a cold disaster"
+        );
+        let summer = disaster_kinds_for("summer", 24.0);
+        assert!(
+            summer.contains(&"drought"),
+            "hot summer must allow a heat disaster"
+        );
+        // Below the heat threshold, summer drops the drought.
+        let cool_summer = disaster_kinds_for("summer", 18.0);
+        assert!(
+            !cool_summer.contains(&"drought"),
+            "cool summer must not roll drought"
+        );
+        // LW-01: autumn allows landslide so the apply_disaster_to_tiles landslide
+        // reshape arm is reachable through the normal tick path (not dead code).
+        let autumn = disaster_kinds_for("autumn", 14.0);
+        assert!(
+            autumn.contains(&"landslide"),
+            "autumn must allow landslide (reshape variety)"
+        );
+    }
+
+    // --- ENV-02: apply_disaster_to_tiles bounded reshape + invariants (03-02 Task 2) ---
+
+    fn flood_at(epicenter_x: u32, radius: u32) -> CivDisaster {
+        CivDisaster {
+            id: "dis-1-flood".into(),
+            kind: "flood".into(),
+            epicenter_x,
+            radius,
+            intensity: 2.0,
+            remaining_turns: 4,
+        }
+    }
+
+    #[test]
+    fn apply_disaster_preserves_tile_count() {
+        let mut snapshot = test_snapshot("dis-count", "Count", "mock-model", 42, 1);
+        let before = snapshot.world.tiles.len();
+        let width = snapshot.world.width;
+        let dis = flood_at(width / 2, 3);
+        apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
+        assert_eq!(
+            snapshot.world.tiles.len(),
+            before,
+            "apply_disaster mutates in place — tile count is invariant"
+        );
+        assert_eq!(
+            before,
+            (width * WORLD_HEIGHT) as usize,
+            "world stays width*height"
+        );
+    }
+
+    #[test]
+    fn flood_reshapes_terrain_to_water() {
+        // ENV-02 hard requirement: terrain is PHYSICALLY reshaped near the epicenter.
+        let mut snapshot = test_snapshot("dis-reshape", "Reshape", "mock-model", 42, 1);
+        let width = snapshot.world.width;
+        let cx = width / 2;
+        // Snapshot the sub-surface substrate tiles in the blast column band BEFORE.
+        let before: Vec<(u32, u32, String)> = snapshot
+            .world
+            .tiles
+            .iter()
+            .map(|t| (t.x, t.y, t.terrain.clone()))
+            .collect();
+        let dis = flood_at(cx, 3);
+        apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
+        let changed =
+            snapshot
+                .world
+                .tiles
+                .iter()
+                .zip(before.iter())
+                .any(|(t, (_, _, terrain_before))| {
+                    &t.terrain != terrain_before
+                        && matches!(t.terrain.as_str(), "water" | "deepwater")
+                });
+        assert!(
+            changed,
+            "flood must convert at least one sub-surface substrate tile to water"
+        );
+    }
+
+    #[test]
+    fn apply_disaster_never_touches_air_band() {
+        // No tile with y < WATER_SURFACE_Y may be modified (keep colony floor buildable).
+        let mut snapshot = test_snapshot("dis-air", "Air", "mock-model", 42, 1);
+        let width = snapshot.world.width;
+        let before: Vec<CivTile> = snapshot.world.tiles.clone();
+        let dis = flood_at(width / 2, 4);
+        apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
+        for (after, prior) in snapshot.world.tiles.iter().zip(before.iter()) {
+            if after.y < WATER_SURFACE_Y {
+                assert_eq!(
+                    serde_json::to_string(after).unwrap(),
+                    serde_json::to_string(prior).unwrap(),
+                    "air band (y < {WATER_SURFACE_Y}) must never be modified"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn apply_disaster_stays_in_bounds() {
+        // Edge epicenters must not panic and must not write outside the world.
+        for ex in [0u32, 1, 200, 250, 255] {
+            let mut snapshot = test_snapshot("dis-edge", "Edge", "mock-model", 42, 1);
+            let width = snapshot.world.width;
+            let dis = flood_at(ex.min(width.saturating_sub(1)), 8);
+            apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
+            for t in &snapshot.world.tiles {
+                assert!(t.x < width, "x {} escaped width {}", t.x, width);
+                assert!(t.y < WORLD_HEIGHT, "y {} escaped WORLD_HEIGHT", t.y);
+            }
+        }
+    }
+
+    #[test]
+    fn terrain_neutral_disaster_leaves_tiles_unchanged() {
+        // storm/drought/cold_snap/predator_incursion are civ-effect/announce — no reshape.
+        for kind in ["storm", "drought", "cold_snap", "predator_incursion"] {
+            let mut snapshot = test_snapshot("dis-neutral", "Neutral", "mock-model", 42, 1);
+            let width = snapshot.world.width;
+            let before = serde_json::to_string(&snapshot.world.tiles).unwrap();
+            let dis = CivDisaster {
+                id: format!("dis-1-{kind}"),
+                kind: kind.into(),
+                epicenter_x: width / 2,
+                radius: 4,
+                intensity: 2.0,
+                remaining_turns: 4,
+            };
+            apply_disaster_to_tiles(&mut snapshot.world.tiles, &dis, width);
+            let after = serde_json::to_string(&snapshot.world.tiles).unwrap();
+            assert_eq!(
+                before, after,
+                "terrain-neutral kind '{kind}' must not reshape tiles"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_disaster_is_deterministic() {
+        // Identical tile vecs + identical disaster ⇒ byte-identical result.
+        let a = test_snapshot("dis-det-a", "A", "mock-model", 42, 1);
+        let b = test_snapshot("dis-det-b", "B", "mock-model", 42, 1);
+        let width = a.world.width;
+        let mut ta = a.world.tiles.clone();
+        let mut tb = b.world.tiles.clone();
+        // Same starting tiles (same seed/world gen).
+        assert_eq!(
+            serde_json::to_string(&ta).unwrap(),
+            serde_json::to_string(&tb).unwrap()
+        );
+        let dis = flood_at(width / 2, 3);
+        apply_disaster_to_tiles(&mut ta, &dis, width);
+        apply_disaster_to_tiles(&mut tb, &dis, width);
+        assert_eq!(
+            serde_json::to_string(&ta).unwrap(),
+            serde_json::to_string(&tb).unwrap(),
+            "apply_disaster must be byte-deterministic"
+        );
+    }
+
+    #[test]
+    fn landslide_reshapes_like_quake_and_holds_invariants() {
+        // LW-01: landslide is now reachable (autumn eligibility) and its reshape arm
+        // is live. It shares quake's depth-1 sub-surface carve, so for the same
+        // epicenter/radius it must produce a byte-identical reshape — proving the arm
+        // runs (not dead) while keeping the tile-count and bounds invariants.
+        let mk = |kind: &str| CivDisaster {
+            id: format!("dis-1-{kind}"),
+            kind: kind.into(),
+            epicenter_x: 30,
+            radius: 3,
+            intensity: 2.0,
+            remaining_turns: disaster_duration(kind),
+        };
+
+        let mut land = test_snapshot("dis-landslide", "Slide", "mock-model", 42, 1);
+        let mut quake = test_snapshot("dis-quake", "Quake", "mock-model", 42, 1);
+        let width = land.world.width;
+        let before_count = land.world.tiles.len();
+
+        apply_disaster_to_tiles(&mut land.world.tiles, &mk("landslide"), width);
+        apply_disaster_to_tiles(&mut quake.world.tiles, &mk("quake"), width);
+
+        // Landslide reshapes exactly as quake (same depth-1 arm) — proves it is live.
+        assert_eq!(
+            serde_json::to_string(&land.world.tiles).unwrap(),
+            serde_json::to_string(&quake.world.tiles).unwrap(),
+            "landslide must reshape identically to quake (shared depth-1 carve)"
+        );
+        // Tile count invariant + bounds hold after the landslide reshape.
+        assert_eq!(
+            land.world.tiles.len(),
+            before_count,
+            "landslide mutates in place — tile count is invariant"
+        );
+        assert_eq!(
+            before_count,
+            (width * WORLD_HEIGHT) as usize,
+            "world stays width*height"
+        );
+        for t in &land.world.tiles {
+            assert!(t.x < width, "x {} escaped width {}", t.x, width);
+            assert!(t.y < WORLD_HEIGHT, "y {} escaped WORLD_HEIGHT", t.y);
+        }
+    }
+
+    // --- ENV-01/02/03: tick_environment orchestrator (Wave-3 / 03-03 Task 1) ---
+
+    /// Build a forecast sitting in `env.forecast` with a given lead countdown.
+    fn pending_forecast(kind: &str, remaining_turns: u32) -> CivDisaster {
+        CivDisaster {
+            id: format!("dis-1-{kind}"),
+            kind: kind.into(),
+            epicenter_x: 30,
+            radius: 3,
+            intensity: 2.0,
+            remaining_turns,
+        }
+    }
+
+    #[test]
+    fn tick_environment_advances_season() {
+        // tick_environment drifts the season counter/temperature and, on a wrap,
+        // logs a "season" entry. Start one tick before the wrap (turn_of_season 7).
+        let mut snapshot = test_snapshot("env-season", "Season", "mock-model", 42, 1);
+        snapshot.environment.turn_of_season = 7; // 7 + 1 == SEASON_LEN → wrap
+        snapshot.environment.season = "spring".to_string();
+        let before_temp = snapshot.environment.temperature;
+        snapshot.turn = 1;
+        tick_environment(&mut snapshot);
+        assert_eq!(snapshot.environment.season, "summer", "season must wrap");
+        assert_eq!(
+            snapshot.environment.turn_of_season, 0,
+            "counter resets on wrap"
+        );
+        assert_ne!(
+            snapshot.environment.temperature, before_temp,
+            "temperature must drift"
+        );
+        assert!(
+            snapshot.log.iter().any(|e| e.kind == "season"),
+            "a season change must be logged"
+        );
+    }
+
+    #[test]
+    fn tick_environment_forecast_then_fire() {
+        // A forecast with remaining_turns==1 fires this tick (moves into disasters[],
+        // remaining_turns reset to its active duration); one with ==3 only decrements.
+        let mut snapshot = test_snapshot("env-fire", "Fire", "mock-model", 42, 1);
+        snapshot.environment.forecast = Some(pending_forecast("flood", 1));
+        snapshot.turn = 1;
+        tick_environment(&mut snapshot);
+        assert!(
+            snapshot
+                .environment
+                .disasters
+                .iter()
+                .any(|d| d.kind == "flood"),
+            "a due forecast must fire into disasters[]"
+        );
+        let fired = snapshot
+            .environment
+            .disasters
+            .iter()
+            .find(|d| d.kind == "flood")
+            .unwrap();
+        assert!(
+            fired.remaining_turns >= 1,
+            "fired disaster's remaining_turns must be reset to its active duration (> 0)"
+        );
+
+        // A non-due forecast (lead 3) only decrements and stays in env.forecast.
+        let mut later = test_snapshot("env-pending", "Pending", "mock-model", 999, 1);
+        later.environment.forecast = Some(pending_forecast("flood", 3));
+        later.turn = 1;
+        tick_environment(&mut later);
+        // It is NOT in disasters[] yet...
+        assert!(
+            !later
+                .environment
+                .disasters
+                .iter()
+                .any(|d| d.kind == "flood"),
+            "a non-due forecast must not fire yet"
+        );
+        // ...and a forecast (the decremented original or a freshly rolled one) is still pending.
+        assert!(
+            later.environment.forecast.is_some(),
+            "a non-due forecast must remain pending"
+        );
+    }
+
+    #[test]
+    fn tick_environment_disaster_logged() {
+        // After a fire, a "disaster" log entry exists.
+        let mut snapshot = test_snapshot("env-log", "Log", "mock-model", 42, 1);
+        snapshot.environment.forecast = Some(pending_forecast("flood", 1));
+        snapshot.turn = 1;
+        tick_environment(&mut snapshot);
+        assert!(
+            snapshot.log.iter().any(|e| e.kind == "disaster"),
+            "a fired disaster must be logged with kind 'disaster'"
+        );
+        // A turn that rolls a forecast logs a "forecast" announcement. Sweep turns
+        // on a calm snapshot until one rolls (the roll is seed/turn-deterministic).
+        let mut calm = test_snapshot("env-forecast-log", "Forecast", "mock-model", 4242, 1);
+        let mut saw_forecast_log = false;
+        for t in 1..=64u32 {
+            calm.turn = t;
+            tick_environment(&mut calm);
+            if calm.log.iter().any(|e| e.kind == "forecast") {
+                saw_forecast_log = true;
+                break;
+            }
+        }
+        assert!(
+            saw_forecast_log,
+            "a rolled forecast must be logged with kind 'forecast'"
+        );
+    }
+
+    #[test]
+    fn tick_environment_disaster_expiry() {
+        // An active disaster with remaining_turns==1 is removed after a tick and an
+        // expiry "disaster" log entry is emitted.
+        let mut snapshot = test_snapshot("env-expiry", "Expiry", "mock-model", 42, 1);
+        snapshot.environment.forecast = None;
+        snapshot.environment.disasters = vec![CivDisaster {
+            id: "dis-0-storm".into(),
+            kind: "storm".into(),
+            epicenter_x: 30,
+            radius: 2,
+            intensity: 1.0,
+            remaining_turns: 1,
+        }];
+        let log_before = snapshot.log.len();
+        snapshot.turn = 1;
+        tick_environment(&mut snapshot);
+        assert!(
+            !snapshot
+                .environment
+                .disasters
+                .iter()
+                .any(|d| d.id == "dis-0-storm"),
+            "a disaster at remaining_turns 0 must be retired"
+        );
+        assert!(
+            snapshot.log.len() > log_before && snapshot.log.iter().any(|e| e.kind == "disaster"),
+            "disaster expiry must be logged"
+        );
+    }
+
+    #[test]
+    fn tick_environment_fired_disaster_pushes_reused_modifier() {
+        // Every fired non-terrain disaster pushes a reused CivModifier whose kind has
+        // a LIVE resolve_environment arm (Pitfall 5: no unknown kind that would
+        // silently no-op). storm→fatigue and predator_incursion→quarrel_pressure give
+        // the most-frequently-rolled kinds a real mechanical effect (MD-01 / ENV-02).
+        for (kind, modifier_kind) in [
+            ("drought", "drought"),
+            ("cold_snap", "cold_snap"),
+            ("storm", "fatigue"),
+            ("predator_incursion", "quarrel_pressure"),
+        ] {
+            let mut snapshot = test_snapshot("env-mod", "Mod", "mock-model", 42, 1);
+            snapshot.environment.forecast = Some(pending_forecast(kind, 1));
+            snapshot.turn = 1;
+            tick_environment(&mut snapshot);
+            assert!(
+                snapshot.modifiers.iter().any(|m| m.kind == modifier_kind),
+                "a fired {kind} must push a reused '{modifier_kind}' modifier"
+            );
+            // The pushed kind must be one resolve_environment actually handles —
+            // assert it is NOT the silent-no-op wildcard set (negative test).
+            assert!(
+                matches!(
+                    modifier_kind,
+                    "drought" | "cold_snap" | "fatigue" | "quarrel_pressure"
+                ),
+                "a fired {kind} must map to a kind with a live resolve_environment arm"
+            );
+        }
+        // A flood (terrain-only) must NOT push any modifier — neither its own kind
+        // nor a reused one (Pitfall 5: no unknown 'flood' kind, and no modifier at all).
+        let mut flood = test_snapshot("env-flood-mod", "Flood", "mock-model", 42, 1);
+        flood.environment.forecast = Some(pending_forecast("flood", 1));
+        flood.turn = 1;
+        tick_environment(&mut flood);
+        assert!(
+            !flood.modifiers.iter().any(|m| m.kind == "flood"),
+            "a flood must not introduce an unknown 'flood' modifier kind"
+        );
+        assert!(
+            flood.modifiers.is_empty(),
+            "a terrain-only flood must push no modifier at all"
+        );
+    }
+
+    #[test]
+    fn tick_environment_regrowth_runs_in_tick() {
+        // A renewable tile below cap gains amount after a summer tick; an ore tile
+        // is unchanged (finite stays depleted).
+        let mut snapshot = test_snapshot("env-regrow", "Regrow", "mock-model", 42, 1);
+        // Force a warm, regrowth-friendly season for the tick.
+        snapshot.environment.season = "summer".to_string();
+        snapshot.environment.turn_of_season = 0;
+        snapshot.environment.temperature = 24.0;
+        // Seed a known renewable + finite tile by overwriting two existing tiles.
+        snapshot.world.tiles[0] = renewable_tile("moss", 5);
+        snapshot.world.tiles[1] = finite_tile("ore", 3);
+        snapshot.turn = 1;
+        tick_environment(&mut snapshot);
+        assert!(
+            snapshot.world.tiles[0].amount > 5,
+            "a renewable tile below cap must regrow during the tick"
+        );
+        assert_eq!(
+            snapshot.world.tiles[1].amount, 3,
+            "a finite ore tile must never regrow"
+        );
+    }
+
+    // --- ENV-01/02/03: full-tick byte-determinism + back-compat (Wave-3 / 03-03 Task 2) ---
+
+    #[test]
+    fn tick_environment_deterministic() {
+        // Threat T-03-08: a single tick on two clones of the same (seed, turn) must
+        // yield serde-identical environment + world.tiles (deterministic replay).
+        let mut a = test_snapshot("det", "Det", "mock-model", 777, 1);
+        let mut b = a.clone();
+        a.turn = 1;
+        b.turn = 1;
+        tick_environment(&mut a);
+        tick_environment(&mut b);
+        assert_eq!(
+            serde_json::to_string(&a.environment).unwrap(),
+            serde_json::to_string(&b.environment).unwrap(),
+            "environment must be byte-deterministic for a given (seed, turn)"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.tiles).unwrap(),
+            serde_json::to_string(&b.world.tiles).unwrap(),
+            "world.tiles must be byte-deterministic for a given (seed, turn)"
+        );
+    }
+
+    #[test]
+    fn tick_environment_multi_turn_deterministic() {
+        // Run a full multi-turn replay on two clones (incrementing turn as
+        // advance_civ_turn does) and assert final environment + tiles serde-equal.
+        // Seed 777 fires at least one disaster within 12 turns (forecast→fire→expiry
+        // cycle), so this also exercises the reshape path under replay.
+        let mut a = test_snapshot("multi", "Multi", "mock-model", 777, 1);
+        let mut b = a.clone();
+        let mut saw_disaster = false;
+        for t in 1..=12u32 {
+            a.turn = t;
+            tick_environment(&mut a);
+            b.turn = t;
+            tick_environment(&mut b);
+            if !a.environment.disasters.is_empty() {
+                saw_disaster = true;
+            }
+        }
+        assert_eq!(
+            serde_json::to_string(&a.environment).unwrap(),
+            serde_json::to_string(&b.environment).unwrap(),
+            "multi-turn environment replay must be byte-identical"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.tiles).unwrap(),
+            serde_json::to_string(&b.world.tiles).unwrap(),
+            "multi-turn world.tiles replay must be byte-identical"
+        );
+        assert!(
+            saw_disaster,
+            "seed 777 must fire at least one disaster within 12 turns (exercises the cycle)"
+        );
+    }
+
+    #[test]
+    fn tile_count_invariant_after_ticks() {
+        // Threat T-03-10: repeated ticks (including disaster fires) never add or
+        // remove tiles — the world stays exactly width * WORLD_HEIGHT.
+        let mut a = test_snapshot("inv", "Inv", "mock-model", 777, 1);
+        let n = a.world.tiles.len();
+        let expected = (a.world.width * WORLD_HEIGHT) as usize;
+        assert_eq!(n, expected, "world starts at width * WORLD_HEIGHT");
+        for t in 1..=24u32 {
+            a.turn = t;
+            tick_environment(&mut a);
+        }
+        assert_eq!(
+            a.world.tiles.len(),
+            n,
+            "tile count must be invariant across many ticks"
+        );
+        assert_eq!(
+            a.world.tiles.len(),
+            expected,
+            "tile count must stay width * WORLD_HEIGHT after ticks"
+        );
+    }
+
+    #[test]
+    fn old_save_loads_calm_spring() {
+        // Threat T-03-09: a save missing the `environment` key still loads, defaulting
+        // to a calm spring via #[serde(default = "default_environment")]. This proves
+        // the no-new-field line held (a non-defaulted new field would fail to parse).
+        let s = test_snapshot("oldsave", "Old", "mock-model", 9, 1);
+        let mut value = serde_json::to_value(&s).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("environment")
+            .expect("snapshot serialized with an environment key");
+        let raw = serde_json::to_string(&value).unwrap();
+        let loaded = parse_snapshot(&raw).expect("old save (no environment) must still load");
+        assert_eq!(
+            loaded.environment.season, "spring",
+            "an env-less save defaults to calm spring"
+        );
+        assert_eq!(loaded.environment.turn_of_season, 0);
+        assert!(loaded.environment.disasters.is_empty());
+        assert!(loaded.environment.forecast.is_none());
+    }
+
+    // ---- W6 (Phase 4) combat/diplomacy surface: CivDecisionAction + validate_action ----
+
+    #[test]
+    fn new_action_fields_deserialize() {
+        // A diplomacy action JSON carries the new target/stance fields.
+        let raw = r#"{"type":"diplomacy","target":"civ-2","stance":"ally"}"#;
+        let action: CivDecisionAction =
+            serde_json::from_str(raw).expect("diplomacy action must deserialize");
+        assert_eq!(action.action_type, "diplomacy");
+        assert_eq!(action.target.as_deref(), Some("civ-2"));
+        assert_eq!(action.stance.as_deref(), Some("ally"));
+        // A trade action carries give/receive resources + amounts.
+        let raw = r#"{"type":"trade","target":"civ-2","resource":"food","amount":10,"receive":"stone","receive_amount":5}"#;
+        let trade: CivDecisionAction =
+            serde_json::from_str(raw).expect("trade action must deserialize");
+        assert_eq!(trade.receive.as_deref(), Some("stone"));
+        assert_eq!(trade.amount, Some(10));
+        assert_eq!(trade.receive_amount, Some(5));
+    }
+
+    #[test]
+    fn old_action_json_still_deserializes() {
+        // Pre-Phase-4 action JSON (no target/stance/receive/amount/receive_amount)
+        // must still load; serde defaults fill the new fields with None.
+        let raw = r#"{"type":"gather","resource":"food","workers":2}"#;
+        let action: CivDecisionAction =
+            serde_json::from_str(raw).expect("old action JSON must still deserialize");
+        assert_eq!(action.action_type, "gather");
+        assert_eq!(action.workers, Some(2));
+        assert!(action.target.is_none());
+        assert!(action.stance.is_none());
+        assert!(action.receive.is_none());
+        assert!(action.amount.is_none());
+        assert!(action.receive_amount.is_none());
+    }
+
+    fn action_json(raw: &str) -> CivDecisionAction {
+        serde_json::from_str(raw).expect("valid action JSON")
+    }
+
+    #[test]
+    fn validate_action_accepts_new_actions() {
+        // claim with no target (deterministic adjacent expansion) is valid.
+        assert!(validate_action(&action_json(r#"{"type":"claim"}"#)).is_ok());
+        // claim with an explicit region target is valid.
+        assert!(validate_action(&action_json(r#"{"type":"claim","target":"region-3"}"#)).is_ok());
+        assert!(validate_action(&action_json(
+            r#"{"type":"diplomacy","target":"civ-2","stance":"ally"}"#
+        ))
+        .is_ok());
+        assert!(validate_action(&action_json(
+            r#"{"type":"trade","target":"civ-2","resource":"food","receive":"stone"}"#
+        ))
+        .is_ok());
+        assert!(validate_action(&action_json(r#"{"type":"attack","target":"civ-2"}"#)).is_ok());
+    }
+
+    #[test]
+    fn validate_action_rejects_malformed_new_actions() {
+        // Unknown stance.
+        assert!(validate_action(&action_json(
+            r#"{"type":"diplomacy","target":"civ-2","stance":"foo"}"#
+        ))
+        .is_err());
+        // Missing target on diplomacy.
+        assert!(validate_action(&action_json(r#"{"type":"diplomacy","stance":"ally"}"#)).is_err());
+        // Empty target on attack.
+        assert!(validate_action(&action_json(r#"{"type":"attack"}"#)).is_err());
+        // Trade missing the give/receive resources.
+        assert!(validate_action(&action_json(r#"{"type":"trade","target":"civ-2"}"#)).is_err());
+    }
+
+    #[test]
+    fn validate_action_still_rejects_unknown_types() {
+        // ARENA-02: the catch-all keeps rejecting unknown action types so existing
+        // gather/build/etc. are unaffected.
+        let err = validate_action(&action_json(r#"{"type":"teleport"}"#)).unwrap_err();
+        assert_eq!(err, "unknown action type: teleport");
+    }
+
+    // ---- W6 (Phase 4) claim_region / set_stance / apply_trade helpers ----
+
+    /// The first region NOT owned by civ-1 (the home region is claimed at spawn).
+    /// Regions tile contiguously, so the neighbour of the home region is adjacent.
+    fn first_unclaimed_region_id(s: &CivSessionSnapshot) -> String {
+        s.world
+            .regions
+            .iter()
+            .find(|r| r.owner.is_none())
+            .map(|r| r.id.clone())
+            .expect("a world has at least one unclaimed region")
+    }
+
+    /// An unclaimed region adjacent to civ-1's owned territory (shares a boundary
+    /// with the home region, since regions tile contiguously across the world).
+    fn adjacent_unclaimed_region_id(s: &CivSessionSnapshot, civ_id: &str) -> String {
+        let owned: Vec<(u32, u32)> = s
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.as_deref() == Some(civ_id))
+            .map(|r| (r.x, r.x + r.width))
+            .collect();
+        s.world
+            .regions
+            .iter()
+            .filter(|r| r.owner.is_none())
+            .find(|r| {
+                let (lo, hi) = (r.x, r.x + r.width);
+                owned.iter().any(|&(olo, ohi)| lo <= ohi && olo <= hi)
+            })
+            .map(|r| r.id.clone())
+            .expect("a contiguous world has an unclaimed region adjacent to home")
+    }
+
+    #[test]
+    fn claim_region_sets_owner_on_adjacent_unclaimed() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(0);
+        let region_id = adjacent_unclaimed_region_id(&s, &cid);
+        let claimed = claim_region(&mut s, &cid, Some(&region_id)).expect("adjacent claim ok");
+        assert_eq!(claimed, region_id);
+        let region = s.world.regions.iter().find(|r| r.id == region_id).unwrap();
+        assert_eq!(region.owner.as_deref(), Some(cid.as_str()));
+    }
+
+    #[test]
+    fn claim_region_auto_expands_when_target_omitted() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(0);
+        let owned_before = s
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.as_deref() == Some(cid.as_str()))
+            .count();
+        let claimed = claim_region(&mut s, &cid, None).expect("auto-expand ok");
+        let region = s.world.regions.iter().find(|r| r.id == claimed).unwrap();
+        assert_eq!(region.owner.as_deref(), Some(cid.as_str()));
+        let owned_after = s
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.as_deref() == Some(cid.as_str()))
+            .count();
+        assert_eq!(owned_after, owned_before + 1);
+    }
+
+    #[test]
+    fn claim_region_rejects_owned_region() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(0);
+        // First give civ-2 an adjacent region of civ-1's, then have civ-1 try to claim it.
+        let region_id = adjacent_unclaimed_region_id(&s, &cid);
+        if let Some(region) = s.world.regions.iter_mut().find(|r| r.id == region_id) {
+            region.owner = Some(civ_id_for(1));
+        }
+        let err = claim_region(&mut s, &cid, Some(&region_id)).unwrap_err();
+        assert!(err.contains("already owned"), "got: {err}");
+        // Owner unchanged (still civ-2).
+        let region = s.world.regions.iter().find(|r| r.id == region_id).unwrap();
+        assert_eq!(region.owner.as_deref(), Some(civ_id_for(1).as_str()));
+    }
+
+    #[test]
+    fn claim_region_rejects_non_adjacent() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(0);
+        // Strip civ-1's owned regions AND its spawn so nothing is adjacent, then
+        // attempt to claim some unclaimed region.
+        for region in &mut s.world.regions {
+            if region.owner.as_deref() == Some(cid.as_str()) {
+                region.owner = None;
+            }
+        }
+        if let Some(ci) = civ_index(&s, &cid) {
+            // Move the spawn far outside every region so no region contains it.
+            s.civs[ci].spawn_x = u32::MAX;
+        }
+        let region_id = first_unclaimed_region_id(&s);
+        let err = claim_region(&mut s, &cid, Some(&region_id)).unwrap_err();
+        assert!(err.contains("not adjacent"), "got: {err}");
+        let region = s.world.regions.iter().find(|r| r.id == region_id).unwrap();
+        assert!(
+            region.owner.is_none(),
+            "non-adjacent claim must not mutate owner"
+        );
+    }
+
+    #[test]
+    fn set_stance_writes_diplomacy_map() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let a = civ_id_for(0);
+        let b = civ_id_for(1);
+        set_stance(&mut s, &a, &b, "ally");
+        let ci = civ_index(&s, &a).unwrap();
+        assert_eq!(
+            s.civs[ci].diplomacy.get(&b).map(String::as_str),
+            Some("ally")
+        );
+        // Self-targeting is ignored.
+        set_stance(&mut s, &a, &a, "hostile");
+        assert!(s.civs[ci].diplomacy.get(&a).is_none());
+    }
+
+    #[test]
+    fn apply_trade_swaps_and_conserves_resources() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let a = civ_id_for(0);
+        let b = civ_id_for(1);
+        let ai = civ_index(&s, &a).unwrap();
+        let bi = civ_index(&s, &b).unwrap();
+        // Known starting holdings (initial_snapshot seeds food=42, stone=10).
+        let a_food0 = s.civs[ai].resources["food"];
+        let a_stone0 = s.civs[ai].resources["stone"];
+        let b_food0 = s.civs[bi].resources["food"];
+        let b_stone0 = s.civs[bi].resources["stone"];
+        apply_trade(&mut s, &a, &b, "food", 10, "stone", 5).expect("trade ok");
+        assert_eq!(s.civs[ai].resources["food"], a_food0 - 10);
+        assert_eq!(s.civs[ai].resources["stone"], a_stone0 + 5);
+        assert_eq!(s.civs[bi].resources["food"], b_food0 + 10);
+        assert_eq!(s.civs[bi].resources["stone"], b_stone0 - 5);
+        // Conservation: total food and total stone across both civs is unchanged.
+        assert_eq!(
+            s.civs[ai].resources["food"] + s.civs[bi].resources["food"],
+            a_food0 + b_food0
+        );
+        assert_eq!(
+            s.civs[ai].resources["stone"] + s.civs[bi].resources["stone"],
+            a_stone0 + b_stone0
+        );
+    }
+
+    #[test]
+    fn apply_trade_clamps_over_ask_and_never_negative() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let a = civ_id_for(0);
+        let b = civ_id_for(1);
+        let ai = civ_index(&s, &a).unwrap();
+        let bi = civ_index(&s, &b).unwrap();
+        let a_food0 = s.civs[ai].resources["food"];
+        let b_food0 = s.civs[bi].resources["food"];
+        // Ask civ-1 to give 1_000_000 food (far more than it holds) for nothing back.
+        apply_trade(&mut s, &a, &b, "food", 1_000_000, "stone", 0).expect("clamped trade ok");
+        // Giver is drained to 0 (never negative); receiver gains exactly the giver's holdings.
+        assert_eq!(s.civs[ai].resources["food"], 0);
+        assert_eq!(s.civs[bi].resources["food"], b_food0 + a_food0);
+        assert!(s.civs[ai].resources.values().all(|&v| v >= 0));
+        assert!(s.civs[bi].resources.values().all(|&v| v >= 0));
+    }
+
+    #[test]
+    fn apply_trade_blocked_when_hostile() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let a = civ_id_for(0);
+        let b = civ_id_for(1);
+        let ai = civ_index(&s, &a).unwrap();
+        let bi = civ_index(&s, &b).unwrap();
+        // civ-2 declares civ-1 hostile; the trade must be refused and mutate nothing.
+        set_stance(&mut s, &b, &a, "hostile");
+        let snap_before = serde_json::to_string(&s.civs).unwrap();
+        let err = apply_trade(&mut s, &a, &b, "food", 10, "stone", 5).unwrap_err();
+        assert!(err.contains("hostile"), "got: {err}");
+        assert_eq!(
+            serde_json::to_string(&s.civs).unwrap(),
+            snap_before,
+            "a hostile-blocked trade must mutate nothing"
+        );
+        let _ = (ai, bi);
+    }
+
+    #[test]
+    fn apply_trade_rejects_self_trade() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let a = civ_id_for(0);
+        let err = apply_trade(&mut s, &a, &a, "food", 10, "stone", 5).unwrap_err();
+        assert!(err.contains("self"), "got: {err}");
+    }
+
+    // --- WAR-02 / WAR-03 combat tests (04-02) ---
+    //
+    // multi_civ_snapshot only seeds axolotl ENTITIES for civ-1; the cloned civ-2
+    // struct has a population counter but no entities. `give_civ_axolotls` pushes
+    // adult axolotl entities tagged with a civ id so the DEFENDER can lose entities.
+
+    fn give_civ_axolotls(s: &mut CivSessionSnapshot, civ_id: &str, n: u32) {
+        for i in 0..n {
+            s.world.entities.push(CivEntity {
+                id: format!("axo-{civ_id}-test-{i}"),
+                kind: "axolotl".to_string(),
+                name: format!("Test Axolotl {i}"),
+                x: 10 + i,
+                y: 20,
+                health: 80.0,
+                mood: 70.0,
+                role: "worker".to_string(),
+                civ_id: Some(civ_id.to_string()),
+                stage: "adult".to_string(),
+                sex: if i % 2 == 0 { "f" } else { "m" }.to_string(),
+                age: 10,
+                ..Default::default()
+            });
+        }
+    }
+
+    /// Like `give_civ_axolotls` but every axolotl carries genes with a fixed
+    /// `strength` (and otherwise default genes) — for the civ_strength seam test.
+    fn give_civ_axolotls_with_strength(
+        s: &mut CivSessionSnapshot,
+        civ_id: &str,
+        n: u32,
+        strength: f32,
+    ) {
+        for i in 0..n {
+            let genes = CivGenes {
+                strength,
+                ..default_genes()
+            };
+            s.world.entities.push(CivEntity {
+                id: format!("axo-str-{civ_id}-{i}"),
+                kind: "axolotl".to_string(),
+                name: format!("Strong Axolotl {i}"),
+                x: 12 + i,
+                y: 22,
+                health: 80.0,
+                mood: 70.0,
+                role: "worker".to_string(),
+                civ_id: Some(civ_id.to_string()),
+                stage: "adult".to_string(),
+                sex: if i % 2 == 0 { "f" } else { "m" }.to_string(),
+                age: 10,
+                genes: Some(genes),
+                ..Default::default()
+            });
+        }
+    }
+
+    /// Seed a civ with `n` adult axolotls whose `cold_resistance` (and
+    /// `disease_resistance`) span a SPREAD, so the GEN-02 selection roll has
+    /// variance to act on. Axolotl `i` gets `(base + i*spread).clamp(0,1)`.
+    /// Longevity is set high so the cohort stays adult across a multi-turn run —
+    /// isolating SELECTION mortality from the age-based elder roll.
+    fn give_civ_axolotls_with_genes(
+        s: &mut CivSessionSnapshot,
+        civ_id: &str,
+        n: u32,
+        base: f32,
+        spread: f32,
+    ) {
+        for i in 0..n {
+            let res = (base + (i as f32) * spread).clamp(0.0, 1.0);
+            let genes = CivGenes {
+                cold_resistance: res,
+                disease_resistance: res,
+                longevity: 100.0,
+                ..default_genes()
+            };
+            s.world.entities.push(CivEntity {
+                id: format!("axo-gen-{civ_id}-{i}"),
+                kind: "axolotl".to_string(),
+                name: format!("Gene Axolotl {i}"),
+                x: 14 + i,
+                y: 24,
+                health: 80.0,
+                mood: 70.0,
+                role: "worker".to_string(),
+                civ_id: Some(civ_id.to_string()),
+                stage: "adult".to_string(),
+                sex: if i % 2 == 0 { "f" } else { "m" }.to_string(),
+                age: 10,
+                genes: Some(genes),
+                ..Default::default()
+            });
+        }
+    }
+
+    #[test]
+    fn civ_strength_monotonic() {
+        let base = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(0);
+        let ci = civ_index(&base, &cid).unwrap();
+        let s0 = civ_strength(&base, &cid);
+        // Deterministic: same input -> same f32.
+        assert_eq!(s0, civ_strength(&base, &cid));
+
+        // Population up -> strength up.
+        let mut s_pop = base.clone();
+        s_pop.civs[ci].population += 5;
+        assert!(
+            civ_strength(&s_pop, &cid) > s0,
+            "more population must raise strength"
+        );
+
+        // Tools up -> strength up.
+        let mut s_tools = base.clone();
+        *s_tools.civs[ci]
+            .resources
+            .entry("tools".to_string())
+            .or_insert(0) += 50;
+        assert!(
+            civ_strength(&s_tools, &cid) > s0,
+            "more tools must raise strength"
+        );
+
+        // A new tech -> strength up.
+        let mut s_tech = base.clone();
+        s_tech.civs[ci].techs.push("a_brand_new_tech".to_string());
+        assert!(
+            civ_strength(&s_tech, &cid) > s0,
+            "an added tech must raise strength"
+        );
+
+        // An owned region -> strength up.
+        let mut s_owned = base.clone();
+        if let Some(region) = s_owned.world.regions.iter_mut().find(|r| r.owner.is_none()) {
+            region.owner = Some(cid.clone());
+        }
+        assert!(
+            civ_strength(&s_owned, &cid) > s0,
+            "an owned region must raise strength"
+        );
+
+        // Phase-5 seam: more genes.strength over living axolotls -> more civ_strength.
+        let mut s_weak = base.clone();
+        give_civ_axolotls_with_strength(&mut s_weak, &cid, 4, 0.6);
+        let mut s_strong = base.clone();
+        give_civ_axolotls_with_strength(&mut s_strong, &cid, 4, 1.5);
+        let weak = civ_strength(&s_weak, &cid);
+        let strong = civ_strength(&s_strong, &cid);
+        assert!(
+            strong > weak,
+            "axolotls with higher genes.strength must raise civ_strength ({strong} <= {weak})"
+        );
+        // Deterministic: the seam term is a pure read.
+        assert_eq!(strong, civ_strength(&s_strong, &cid));
+    }
+
+    // ---- GEN-01 genetics tests (first-ever genetics unit tests) ----
+
+    /// Build genes with explicit colour + pattern alleles and mid quantitative traits.
+    fn genes_with(allele_a: &str, allele_b: &str, pattern_a: &str, pattern_b: &str) -> CivGenes {
+        CivGenes {
+            allele_a: allele_a.to_string(),
+            allele_b: allele_b.to_string(),
+            pattern_a: pattern_a.to_string(),
+            pattern_b: pattern_b.to_string(),
+            ..default_genes()
+        }
+    }
+
+    #[test]
+    fn expressed_morph_dominance() {
+        // Regression: dominance order holds and is independent of a/b slot.
+        assert!(morph_rank("mystic") > morph_rank("albino"));
+        let g1 = genes_with("albino", "mystic", "plain", "plain");
+        let g2 = genes_with("mystic", "albino", "plain", "plain");
+        assert_eq!(expressed_morph(&g1), "mystic");
+        assert_eq!(expressed_morph(&g2), "mystic");
+        // Unknown morph falls back without panicking and is mid-rank (3).
+        assert_eq!(morph_rank("not-a-real-morph"), 3);
+    }
+
+    #[test]
+    fn expressed_pattern_dominance() {
+        // "marbled" dominant over recessive "plain"; order-independent.
+        assert!(pattern_rank("marbled") > pattern_rank("plain"));
+        let g1 = genes_with("leucistic", "leucistic", "plain", "marbled");
+        let g2 = genes_with("leucistic", "leucistic", "marbled", "plain");
+        assert_eq!(expressed_pattern(&g1), "marbled");
+        assert_eq!(expressed_pattern(&g2), "marbled");
+    }
+
+    #[test]
+    fn pattern_rank_total_and_no_panic() {
+        // Every PATTERNS entry has a rank; "plain" is the lowest (recessive).
+        for p in PATTERNS {
+            assert!(pattern_rank(p) >= 1, "{p} must have a rank");
+        }
+        assert_eq!(pattern_rank("plain"), 1);
+        // Unknown strings are recessive (rank 1), never panic.
+        assert_eq!(pattern_rank("totally-unknown-pattern"), 1);
+        assert_eq!(pattern_rank(""), 1);
+    }
+
+    #[test]
+    fn genes_serde_default_backcompat() {
+        // A legacy CivGenes JSON with ONLY the 6 old fields must still deserialize;
+        // the 5 new fields take their serde defaults.
+        let legacy = r#"{
+            "allele_a": "wild", "allele_b": "gold",
+            "size_gene": 1.1, "fertility": 0.8, "longevity": 1.0, "vigor": 1.0
+        }"#;
+        let g: CivGenes = serde_json::from_str(legacy).expect("legacy genes must deserialize");
+        assert_eq!(g.pattern_a, "plain");
+        assert_eq!(g.pattern_b, "plain");
+        assert!((g.strength - 1.0).abs() < f32::EPSILON);
+        assert!((g.cold_resistance - 0.5).abs() < f32::EPSILON);
+        assert!((g.disease_resistance - 0.5).abs() < f32::EPSILON);
+
+        // A legacy CivEntity JSON WITHOUT a `pattern` key must deserialize (pattern => "").
+        let legacy_entity = r#"{
+            "id": "axo-1", "kind": "axolotl", "name": "Legacy",
+            "x": 1, "y": 2, "health": 80.0, "mood": 70.0, "role": "worker",
+            "morph": "leucistic", "stage": "adult", "sex": "f", "age": 5
+        }"#;
+        let e: CivEntity =
+            serde_json::from_str(legacy_entity).expect("legacy entity must deserialize");
+        assert_eq!(e.pattern, "");
+        assert_eq!(e.morph, "leucistic");
+    }
+
+    #[test]
+    fn cross_genes_pattern_mendelian() {
+        // Parent A only carries "spotted"; parent B only carries "striped".
+        // Every child pattern_a must come from A, pattern_b from B (one-from-each),
+        // unless the ~7% mutation flips an allele to some PATTERNS member.
+        let a = genes_with("leucistic", "leucistic", "spotted", "spotted");
+        let b = genes_with("leucistic", "leucistic", "striped", "striped");
+        let mut mendelian = 0;
+        for seed in 1..200u32 {
+            let mut rng = seed;
+            let child = cross_genes(&a, &b, &mut rng);
+            // pattern_a is sourced from A's alleles (both "spotted") OR a mutation.
+            assert!(PATTERNS.contains(&child.pattern_a.as_str()));
+            assert!(PATTERNS.contains(&child.pattern_b.as_str()));
+            if child.pattern_a == "spotted" && child.pattern_b == "striped" {
+                mendelian += 1;
+            }
+        }
+        // The vast majority (no mutation) follow the one-from-each rule exactly.
+        assert!(
+            mendelian > 150,
+            "most children should inherit one-from-each ({mendelian}/199)"
+        );
+    }
+
+    #[test]
+    fn cross_genes_traits_blend_clamped() {
+        let a = default_genes();
+        let b = default_genes();
+        for seed in 1..300u32 {
+            let mut rng = seed;
+            let c = cross_genes(&a, &b, &mut rng);
+            assert!(
+                (0.0..=1.0).contains(&c.cold_resistance),
+                "cold_resistance out of bounds: {}",
+                c.cold_resistance
+            );
+            assert!(
+                (0.0..=1.0).contains(&c.disease_resistance),
+                "disease_resistance out of bounds: {}",
+                c.disease_resistance
+            );
+            assert!(
+                (0.5..=1.6).contains(&c.strength),
+                "strength out of bounds: {}",
+                c.strength
+            );
+            // Existing traits still clamped.
+            assert!((0.7..=1.4).contains(&c.size_gene));
+            assert!((0.3..=1.0).contains(&c.fertility));
+            // Child of two mid-value parents lands near the parent mean +/- mutation delta.
+            assert!((c.strength - 1.0).abs() <= 0.08 + f32::EPSILON);
+            assert!((c.cold_resistance - 0.5).abs() <= 0.08 + f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn cross_genes_deterministic() {
+        let a = genes_with("wild", "gold", "spotted", "striped");
+        let b = genes_with("albino", "copper", "marbled", "plain");
+        let mut rng1 = 12345u32;
+        let mut rng2 = 12345u32;
+        let c1 = cross_genes(&a, &b, &mut rng1);
+        let c2 = cross_genes(&a, &b, &mut rng2);
+        assert_eq!(
+            serde_json::to_string(&c1).unwrap(),
+            serde_json::to_string(&c2).unwrap(),
+            "cross_genes must be byte-identical for the same rng seed"
+        );
+        // And the rng advanced identically.
+        assert_eq!(rng1, rng2);
+    }
+
+    #[test]
+    fn random_genes_founder_variance() {
+        // Founders should carry pattern + resistance variance for selection to act on.
+        let mut rng = 99u32;
+        let mut patterns = std::collections::HashSet::new();
+        let mut resistances = Vec::new();
+        for _ in 0..40 {
+            let g = random_genes(&mut rng, "leucistic");
+            patterns.insert(expressed_pattern(&g));
+            resistances.insert(0, g.cold_resistance);
+            assert!((0.0..=1.0).contains(&g.cold_resistance));
+            assert!(PATTERNS.contains(&g.pattern_a.as_str()));
+        }
+        assert!(
+            patterns.len() > 1,
+            "founders must express more than one pattern"
+        );
+        let first = resistances[0];
+        assert!(
+            resistances.iter().any(|r| (r - first).abs() > f32::EPSILON),
+            "founder cold_resistance must vary"
+        );
+    }
+
+    #[test]
+    fn hatch_sets_expressed_pattern() {
+        // Place an egg about to hatch with a known dominant pattern; after a life-cycle
+        // tick the resulting axolotl carries pattern == expressed_pattern(genes).
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 4;
+        let cid = civ_id_for(0);
+        let genes = genes_with("leucistic", "leucistic", "plain", "marbled");
+        let expected = expressed_pattern(&genes);
+        s.world.entities.push(CivEntity {
+            id: "egg-hatch-test".to_string(),
+            kind: "egg".to_string(),
+            name: "Egg".to_string(),
+            x: 5,
+            y: 5,
+            health: 100.0,
+            mood: 100.0,
+            role: "egg".to_string(),
+            civ_id: Some(cid.clone()),
+            morph: expressed_morph(&genes),
+            pattern: String::new(),
+            stage: "egg".to_string(),
+            sex: String::new(),
+            age: 0,
+            genes: Some(genes),
+            hatches_in: Some(1),
+            ..Default::default()
+        });
+        run_life_cycle(&mut s, &cid);
+        let hatched = s
+            .world
+            .entities
+            .iter()
+            .find(|e| e.id == "egg-hatch-test")
+            .expect("egg entity must still exist");
+        assert_eq!(hatched.kind, "axolotl", "egg should have hatched");
+        assert_eq!(hatched.pattern, expected);
+        assert_eq!(hatched.pattern, "marbled");
+        assert!(!hatched.pattern.is_empty(), "hatched pattern must be set");
+    }
+
+    // ---- GEN-02 selection-pressure tests ----
+
+    /// Build a `CivEnvironment` with a given temperature and optional disaster kinds.
+    fn env_with(temperature: f32, disaster_kinds: &[&str]) -> CivEnvironment {
+        let disasters = disaster_kinds
+            .iter()
+            .enumerate()
+            .map(|(i, k)| CivDisaster {
+                id: format!("dis-test-{i}-{k}"),
+                kind: (*k).to_string(),
+                epicenter_x: 5,
+                radius: 2,
+                intensity: 1.0,
+                remaining_turns: 99,
+            })
+            .collect();
+        CivEnvironment {
+            season: "winter".to_string(),
+            turn_of_season: 0,
+            temperature,
+            water_level: 0,
+            disasters,
+            forecast: None,
+        }
+    }
+
+    /// Genes carrying explicit cold/disease resistances (otherwise default).
+    fn genes_res(cold: f32, disease: f32) -> CivGenes {
+        CivGenes {
+            cold_resistance: cold,
+            disease_resistance: disease,
+            ..default_genes()
+        }
+    }
+
+    #[test]
+    fn gene_mortality_monotonic_cold() {
+        // Cold via low temperature: low cold_resistance dies more than high.
+        let cold_env = env_with(2.0, &[]);
+        let weak = gene_mortality_modifier(&genes_res(0.1, 0.5), &cold_env);
+        let strong = gene_mortality_modifier(&genes_res(0.9, 0.5), &cold_env);
+        assert!(
+            weak > strong,
+            "low cold_resistance must die more under cold ({weak} <= {strong})"
+        );
+        assert!(strong >= 0.0, "the resistant axolotl is still non-negative");
+
+        // Cold via an active cold_snap disaster (even at a benign temperature).
+        let snap_env = env_with(COMFORT_TEMP, &["cold_snap"]);
+        let weak_snap = gene_mortality_modifier(&genes_res(0.1, 0.5), &snap_env);
+        let strong_snap = gene_mortality_modifier(&genes_res(0.9, 0.5), &snap_env);
+        assert!(
+            weak_snap > strong_snap,
+            "a cold_snap must raise mortality more for low cold_resistance"
+        );
+        assert!(
+            weak_snap > 0.0,
+            "an active cold_snap must produce some cold pressure even at comfort temp"
+        );
+    }
+
+    #[test]
+    fn gene_mortality_bounds_and_disease() {
+        // Benign: comfortable temperature, no disasters -> exactly 0.0.
+        let benign = env_with(COMFORT_TEMP + 5.0, &[]);
+        assert_eq!(
+            gene_mortality_modifier(&genes_res(0.0, 0.0), &benign),
+            0.0,
+            "a benign environment must produce zero extra mortality"
+        );
+
+        // Disease under plague: low disease_resistance dies more than high.
+        let plague_env = env_with(COMFORT_TEMP, &["plague"]);
+        let weak = gene_mortality_modifier(&genes_res(0.5, 0.1), &plague_env);
+        let strong = gene_mortality_modifier(&genes_res(0.5, 0.9), &plague_env);
+        assert!(
+            weak > strong,
+            "low disease_resistance must die more under plague ({weak} <= {strong})"
+        );
+
+        // No plague -> disease_resistance is irrelevant (no disease term).
+        let no_plague = env_with(COMFORT_TEMP, &["storm"]);
+        assert_eq!(
+            gene_mortality_modifier(&genes_res(0.5, 0.1), &no_plague),
+            gene_mortality_modifier(&genes_res(0.5, 0.9), &no_plague),
+            "without a plague, disease_resistance must not change mortality"
+        );
+
+        // Always within [0.0, MORTALITY_CAP], even combined cold + plague + extremes.
+        let worst = env_with(-50.0, &["cold_snap", "plague"]);
+        let p = gene_mortality_modifier(&genes_res(0.0, 0.0), &worst);
+        assert!(
+            (0.0..=MORTALITY_CAP).contains(&p),
+            "combined worst-case mortality must clamp to [0, {MORTALITY_CAP}], got {p}"
+        );
+        assert!(p.is_finite(), "mortality must never be NaN/inf");
+        // The cap actually binds under the worst case (selection math is meaningful).
+        assert_eq!(p, MORTALITY_CAP, "the worst case must hit the cap exactly");
+    }
+
+    #[test]
+    fn plague_is_first_class_disaster() {
+        // Forecastable: appears in the season kind lists.
+        assert!(
+            disaster_kinds_for("winter", 4.0).contains(&"plague"),
+            "plague must be a winter-eligible disaster kind"
+        );
+        assert!(
+            disaster_kinds_for("autumn", 14.0).contains(&"plague"),
+            "plague must be an autumn-eligible disaster kind"
+        );
+        // Bounded duration.
+        let d = disaster_duration("plague");
+        assert!(
+            (1..=12).contains(&d),
+            "plague duration must be in [1, 12], got {d}"
+        );
+        // Predicate identifies only plague.
+        assert!(is_plague_kind("plague"));
+        assert!(!is_plague_kind("cold_snap"));
+        assert!(!is_plague_kind("storm"));
+    }
+
+    /// Mean cold_resistance of a civ's living non-egg axolotls (0.0 if none).
+    fn mean_cold_resistance(s: &CivSessionSnapshot, civ_id: &str) -> f32 {
+        let vals: Vec<f32> = s
+            .world
+            .entities
+            .iter()
+            .filter(|e| {
+                e.kind == "axolotl" && e.stage != "egg" && e.civ_id.as_deref() == Some(civ_id)
+            })
+            .filter_map(|e| e.genes.as_ref().map(|g| g.cold_resistance))
+            .collect();
+        if vals.is_empty() {
+            0.0
+        } else {
+            vals.iter().sum::<f32>() / vals.len() as f32
+        }
+    }
+
+    /// THE GEN-02 PROOF: under sustained cold, mean cold_resistance of the surviving
+    /// population RISES from turn 0 to turn N. Selection removes the ill-adapted, so
+    /// trait frequency measurably shifts. Deterministic for a fixed (seed, turn).
+    #[test]
+    fn selection_raises_cold_resistance_over_run() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        // civ-1 (index 1) has NO founder entities and no nests -> breeding never fires
+        // (can_breed needs nests > 0), so the population only SHRINKS via selection
+        // and the mean shift is pure selection, not breeding dilution.
+        let cid = civ_id_for(1);
+        // A large founding population with a full spread of cold_resistance.
+        give_civ_axolotls_with_genes(&mut s, &cid, 60, 0.0, 1.0 / 60.0);
+        // Pin the environment cold AND inject a lingering cold_snap so pressure bites.
+        s.environment.temperature = 2.0;
+        s.environment.disasters.push(CivDisaster {
+            id: "dis-test-coldsnap".to_string(),
+            kind: "cold_snap".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 2.0,
+            remaining_turns: 999,
+        });
+
+        let mean_0 = mean_cold_resistance(&s, &cid);
+        for _ in 0..30 {
+            s.turn += 1;
+            run_life_cycle(&mut s, &cid);
+        }
+        let mean_n = mean_cold_resistance(&s, &cid);
+
+        assert!(
+            mean_n > mean_0,
+            "sustained cold must RAISE mean cold_resistance (turn0 {mean_0} -> turnN {mean_n})"
+        );
+        // Selection left survivors (the floor held).
+        assert!(
+            living_axolotl_count(&s, &cid) >= 1,
+            "the population must not be wiped out"
+        );
+
+        // Deterministic: a fresh identical run reproduces the same trajectory.
+        let mut s2 = multi_civ_snapshot(2024, 2);
+        give_civ_axolotls_with_genes(&mut s2, &cid, 60, 0.0, 1.0 / 60.0);
+        s2.environment.temperature = 2.0;
+        s2.environment.disasters.push(CivDisaster {
+            id: "dis-test-coldsnap".to_string(),
+            kind: "cold_snap".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 2.0,
+            remaining_turns: 999,
+        });
+        for _ in 0..30 {
+            s2.turn += 1;
+            run_life_cycle(&mut s2, &cid);
+        }
+        assert_eq!(
+            mean_n,
+            mean_cold_resistance(&s2, &cid),
+            "selection trajectory must be deterministic for a fixed (seed, turn)"
+        );
+    }
+
+    /// The survivor floor holds even under the harshest possible environment for
+    /// many turns: a civ NEVER drops below 1 living axolotl from selection.
+    #[test]
+    fn selection_leaves_survivors() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(1);
+        // A small, uniformly LOWEST-resistance population — maximal selection
+        // mortality (the helper gives high longevity so the elder roll, a separate
+        // mechanic, doesn't confound the SELECTION floor under test).
+        give_civ_axolotls_with_genes(&mut s, &cid, 5, 0.0, 0.0);
+        // Harshest env: extreme cold + cold_snap + plague.
+        s.environment.temperature = -50.0;
+        s.environment.disasters.push(CivDisaster {
+            id: "dis-test-snap".to_string(),
+            kind: "cold_snap".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 3.0,
+            remaining_turns: 999,
+        });
+        s.environment.disasters.push(CivDisaster {
+            id: "dis-test-plague".to_string(),
+            kind: "plague".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 3.0,
+            remaining_turns: 999,
+        });
+        for _ in 0..50 {
+            s.turn += 1;
+            run_life_cycle(&mut s, &cid);
+            assert!(
+                living_axolotl_count(&s, &cid) >= 1,
+                "selection must never wipe the civ to 0 (turn {})",
+                s.turn
+            );
+        }
+    }
+
+    /// run_life_cycle selection is byte-deterministic: two clones run through the
+    /// same turns produce identical entity sets (no wall-clock/uuid/rand drift).
+    #[test]
+    fn life_cycle_mortality_deterministic() {
+        let mut base = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(1);
+        give_civ_axolotls_with_genes(&mut base, &cid, 40, 0.0, 1.0 / 40.0);
+        base.environment.temperature = 3.0;
+        base.environment.disasters.push(CivDisaster {
+            id: "dis-test-plague".to_string(),
+            kind: "plague".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 2.0,
+            remaining_turns: 999,
+        });
+        let mut a = base.clone();
+        let mut b = base.clone();
+        for _ in 0..12 {
+            a.turn += 1;
+            b.turn += 1;
+            run_life_cycle(&mut a, &cid);
+            run_life_cycle(&mut b, &cid);
+        }
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "selection deaths must be byte-identical across clones"
+        );
+    }
+
+    /// The population mirror stays consistent after a selection turn: the civ's
+    /// `population` counter equals the count of living non-egg axolotl entities
+    /// (selection REMOVES entities — it never decrements the counter — Pitfall 1).
+    #[test]
+    fn selection_keeps_population_mirror_consistent() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(1);
+        let ci = civ_index(&s, &cid).unwrap();
+        give_civ_axolotls_with_genes(&mut s, &cid, 30, 0.0, 1.0 / 30.0);
+        s.environment.temperature = 2.0;
+        s.environment.disasters.push(CivDisaster {
+            id: "dis-test-snap".to_string(),
+            kind: "cold_snap".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 2.0,
+            remaining_turns: 999,
+        });
+        for _ in 0..8 {
+            s.turn += 1;
+            run_life_cycle(&mut s, &cid);
+        }
+        let living = living_axolotl_count(&s, &cid);
+        assert_eq!(
+            s.civs[ci].population, living,
+            "population mirror must equal the living entity count after selection"
+        );
+    }
+
+    /// In a benign environment the selection roll adds NO deaths beyond the elder
+    /// roll — gene_mortality_modifier returns 0.0, so no extra removals occur.
+    #[test]
+    fn selection_no_op_in_benign_environment() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(1);
+        // Young adults (no elder deaths) in a warm, disaster-free pond.
+        give_civ_axolotls_with_genes(&mut s, &cid, 20, 0.2, 0.02);
+        s.environment.temperature = COMFORT_TEMP + 6.0;
+        s.environment.disasters.clear();
+        let before = living_axolotl_count(&s, &cid);
+        for _ in 0..10 {
+            s.turn += 1;
+            run_life_cycle(&mut s, &cid);
+        }
+        assert_eq!(
+            living_axolotl_count(&s, &cid),
+            before,
+            "a benign environment must not trigger any selection deaths"
+        );
+    }
+
+    #[test]
+    fn resolve_attack_is_deterministic() {
+        let mut base = multi_civ_snapshot(2024, 2);
+        base.turn = 5;
+        give_civ_axolotls(&mut base, &civ_id_for(1), 8);
+        let mut a = base.clone();
+        let mut b = base.clone();
+        let mut ra = (a.seed ^ a.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        let mut rb = (b.seed ^ b.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        let oa = resolve_attack(&mut a, &civ_id_for(0), &civ_id_for(1), &mut ra);
+        let ob = resolve_attack(&mut b, &civ_id_for(0), &civ_id_for(1), &mut rb);
+        assert_eq!(oa, ob, "outcome must be identical for a fixed (seed, turn)");
+        assert_eq!(
+            serde_json::to_string(&a.civs).unwrap(),
+            serde_json::to_string(&b.civs).unwrap(),
+            "civs JSON must be byte-identical across clones"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "entity casualties must be byte-identical across clones"
+        );
+    }
+
+    #[test]
+    fn combat_casualties_remove_entities() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 3;
+        // civ-1 is the defender (it has founder axolotl entities). Make the attacker
+        // (civ-2) far stronger so the defender takes losses.
+        let attacker = civ_id_for(1);
+        let defender = civ_id_for(0);
+        let ai = civ_index(&s, &attacker).unwrap();
+        s.civs[ai].population += 40;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 200;
+        let before = living_axolotl_count(&s, &defender);
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        let after_entities = living_axolotl_count(&s, &defender);
+        assert!(
+            after_entities < before,
+            "the defender must lose living axolotl entities ({before} -> {after_entities})"
+        );
+        // The population mirror re-syncs from surviving entities in resolve_environment.
+        resolve_environment(&mut s, &defender);
+        let di = civ_index(&s, &defender).unwrap();
+        assert_eq!(
+            s.civs[di].population, after_entities,
+            "population mirror must reflect the reduced entity count, not the pre-attack number"
+        );
+    }
+
+    #[test]
+    fn attack_no_instant_wipeout() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 7;
+        // A 1-population defender vs a vastly stronger attacker.
+        let attacker = civ_id_for(0); // has founder entities + we boost it
+        let defender = civ_id_for(1);
+        let ai = civ_index(&s, &attacker).unwrap();
+        s.civs[ai].population += 100;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 500;
+        give_civ_axolotls(&mut s, &defender, 1); // exactly one living defender
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        assert!(
+            living_axolotl_count(&s, &defender) >= 1,
+            "a single attack must never reduce a defender to 0 living axolotls"
+        );
+    }
+
+    #[test]
+    fn plunder_is_bounded_and_conserved() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 2;
+        let attacker = civ_id_for(0); // founder entities; boosted to force a decisive win
+        let defender = civ_id_for(1);
+        let ai = civ_index(&s, &attacker).unwrap();
+        let di = civ_index(&s, &defender).unwrap();
+        s.civs[ai].population += 200;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 1000;
+        give_civ_axolotls(&mut s, &defender, 6);
+        // Known defender holdings to track conservation.
+        let def_food0 = s.civs[di].resources.get("food").copied().unwrap_or(0);
+        let atk_food0 = s.civs[ai].resources.get("food").copied().unwrap_or(0);
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        let win = resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        assert!(win, "the overwhelming attacker must score a decisive win");
+        let def_food1 = s.civs[di].resources.get("food").copied().unwrap_or(0);
+        let atk_food1 = s.civs[ai].resources.get("food").copied().unwrap_or(0);
+        // Conservation: attacker's food gain == defender's food loss.
+        assert_eq!(
+            atk_food1 - atk_food0,
+            def_food0 - def_food1,
+            "attacker gain must equal defender loss (conserved)"
+        );
+        // Bounded: at most PLUNDER_FRAC of the original holding was taken.
+        let taken = def_food0 - def_food1;
+        assert!(
+            taken <= (def_food0 as f32 * PLUNDER_FRAC).ceil() as i32,
+            "plunder must be bounded by the cap fraction (took {taken} of {def_food0})"
+        );
+        // No negative resources anywhere.
+        assert!(s.civs[ai].resources.values().all(|&v| v >= 0));
+        assert!(s.civs[di].resources.values().all(|&v| v >= 0));
+    }
+
+    #[test]
+    fn attack_no_negative_resources() {
+        // A defender with tiny holdings raided decisively must never go negative.
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 4;
+        let attacker = civ_id_for(0);
+        let defender = civ_id_for(1);
+        let ai = civ_index(&s, &attacker).unwrap();
+        let di = civ_index(&s, &defender).unwrap();
+        s.civs[ai].population += 200;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 1000;
+        // Drain the defender to near-empty.
+        for v in s.civs[di].resources.values_mut() {
+            *v = 1;
+        }
+        give_civ_axolotls(&mut s, &defender, 6);
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        assert!(
+            s.civs[di].resources.values().all(|&v| v >= 0),
+            "defender resources must never go negative after a raid"
+        );
+        assert!(s.civs[ai].resources.values().all(|&v| v >= 0));
+    }
+
+    #[test]
+    fn raid_transfers_owner() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 6;
+        let attacker = civ_id_for(0);
+        let defender = civ_id_for(1);
+        let ai = civ_index(&s, &attacker).unwrap();
+        s.civs[ai].population += 200;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 1000;
+        give_civ_axolotls(&mut s, &defender, 6);
+        // Give the defender its home region plus a peripheral region (>1 owned).
+        let home = s.civs[civ_index(&s, &defender).unwrap()]
+            .home_region
+            .clone();
+        let mut peripheral = String::new();
+        for region in &mut s.world.regions {
+            if region.id == home {
+                region.owner = Some(defender.clone());
+            } else if region.owner.is_none() && peripheral.is_empty() {
+                region.owner = Some(defender.clone());
+                peripheral = region.id.clone();
+            }
+        }
+        assert!(!peripheral.is_empty(), "test needs a peripheral region");
+        let owned_before = s
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.as_deref() == Some(defender.as_str()))
+            .count();
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        let win = resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        assert!(win, "decisive win required to seize a region");
+        let owned_after = s
+            .world
+            .regions
+            .iter()
+            .filter(|r| r.owner.as_deref() == Some(defender.as_str()))
+            .count();
+        assert_eq!(
+            owned_after,
+            owned_before - 1,
+            "exactly one region must flip"
+        );
+        // The peripheral (non-home) region was taken; the home was spared (it owned >1).
+        let peripheral_owner = s
+            .world
+            .regions
+            .iter()
+            .find(|r| r.id == peripheral)
+            .and_then(|r| r.owner.clone());
+        assert_eq!(
+            peripheral_owner.as_deref(),
+            Some(attacker.as_str()),
+            "the peripheral region must flip to the attacker"
+        );
+        let home_owner = s
+            .world
+            .regions
+            .iter()
+            .find(|r| r.id == home)
+            .and_then(|r| r.owner.clone());
+        assert_eq!(
+            home_owner.as_deref(),
+            Some(defender.as_str()),
+            "the defender's home region is preferentially spared"
+        );
+    }
+
+    #[test]
+    fn allies_do_not_fight() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 8;
+        let attacker = civ_id_for(0);
+        let defender = civ_id_for(1);
+        let ai = civ_index(&s, &attacker).unwrap();
+        s.civs[ai].population += 200;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 1000;
+        give_civ_axolotls(&mut s, &defender, 6);
+        // UNILATERAL rule: the attacker flags the defender as an ally.
+        set_stance(&mut s, &attacker, &defender, "ally");
+        let before = serde_json::to_string(&s.civs).unwrap();
+        let before_entities = serde_json::to_string(&s.world.entities).unwrap();
+        let logs_before = s.log.len();
+        let mut rng = (s.seed ^ s.turn.wrapping_mul(0x9E37_79B9) ^ 0xC0FF_EE01).max(1);
+        let win = resolve_attack(&mut s, &attacker, &defender, &mut rng);
+        assert!(!win, "an attack on an ally is never a win");
+        assert_eq!(
+            serde_json::to_string(&s.civs).unwrap(),
+            before,
+            "no casualties, plunder, or flip when attacking an ally"
+        );
+        assert_eq!(
+            serde_json::to_string(&s.world.entities).unwrap(),
+            before_entities,
+            "no entity removal when attacking an ally"
+        );
+        assert!(s.log.len() > logs_before, "the ally refusal must be logged");
+    }
+
+    // --- WAR-02 combat world pass (resolve_combat) tests (04-02 Task 2) ---
+
+    #[test]
+    fn turn_with_combat_is_replay_stable() {
+        let mut base = multi_civ_snapshot(2024, 2);
+        base.turn = 5;
+        // civ-2 hostile toward civ-1, with its own entities to lose; queue civ-1→civ-2.
+        give_civ_axolotls(&mut base, &civ_id_for(1), 8);
+        set_stance(&mut base, &civ_id_for(1), &civ_id_for(0), "hostile");
+        let mut a = base.clone();
+        let mut b = base.clone();
+        let mut qa = vec![(civ_id_for(0), civ_id_for(1))];
+        let mut qb = vec![(civ_id_for(0), civ_id_for(1))];
+        resolve_combat(&mut a, &mut qa);
+        resolve_combat(&mut b, &mut qb);
+        // Compare the combat-mutated state (civs + entities + regions). The log carries
+        // a wall-clock `created_at`, so the established determinism tests compare the
+        // load-bearing state, not the full snapshot — see tick_environment_deterministic.
+        assert_eq!(
+            serde_json::to_string(&a.civs).unwrap(),
+            serde_json::to_string(&b.civs).unwrap(),
+            "civs must be byte-identical across the replayed combat pass"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "entity casualties must be byte-identical across the replayed combat pass"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.regions).unwrap(),
+            serde_json::to_string(&b.world.regions).unwrap(),
+            "region ownership must be byte-identical across the replayed combat pass"
+        );
+    }
+
+    #[test]
+    fn resolve_combat_sorts_attacks_into_fixed_order() {
+        // Two attacks queued in opposite orders must produce identical state, proving
+        // the pass sorts the queue before resolving (order-independent of decision order).
+        let mut base = multi_civ_snapshot(2024, 3);
+        base.turn = 9;
+        give_civ_axolotls(&mut base, &civ_id_for(1), 8);
+        give_civ_axolotls(&mut base, &civ_id_for(2), 8);
+        // civ-1 attacks civ-2; civ-3 attacks civ-2. Boost both attackers.
+        for cid in [civ_id_for(0), civ_id_for(2)] {
+            let i = civ_index(&base, &cid).unwrap();
+            base.civs[i].population += 60;
+            *base.civs[i]
+                .resources
+                .entry("tools".to_string())
+                .or_insert(0) += 200;
+        }
+        let mut a = base.clone();
+        let mut b = base.clone();
+        // Queue in one order on `a`, the reverse on `b`.
+        let mut qa = vec![
+            (civ_id_for(0), civ_id_for(1)),
+            (civ_id_for(2), civ_id_for(1)),
+        ];
+        let mut qb = vec![
+            (civ_id_for(2), civ_id_for(1)),
+            (civ_id_for(0), civ_id_for(1)),
+        ];
+        resolve_combat(&mut a, &mut qa);
+        resolve_combat(&mut b, &mut qb);
+        assert_eq!(
+            serde_json::to_string(&a.civs).unwrap(),
+            serde_json::to_string(&b.civs).unwrap(),
+            "resolution must be independent of the queued (decision) order"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "casualties must be independent of the queued order"
+        );
+        // The pass sorts the slice in place to a fixed (attacker, target) order.
+        assert_eq!(qa, qb, "both queues must sort to the same fixed order");
+        assert!(
+            qa.windows(2).all(|w| w[0] <= w[1]),
+            "the queue must be sorted ascending after the pass"
+        );
+    }
+
+    #[test]
+    fn combat_pass_runs_before_population_mirror_resync() {
+        // Simulate the advance_civ_turn ordering: combat pass, THEN resolve_environment.
+        // The defender's population mirror must reflect the casualties.
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 3;
+        // civ-1 is the defender (it has founder entities); boost the attacker (civ-2).
+        let attacker = civ_id_for(1);
+        let defender = civ_id_for(0);
+        let ai = civ_index(&s, &attacker).unwrap();
+        s.civs[ai].population += 80;
+        *s.civs[ai].resources.entry("tools".to_string()).or_insert(0) += 400;
+        let before = living_axolotl_count(&s, &defender);
+        let mut queue = vec![(attacker.clone(), defender.clone())];
+        resolve_combat(&mut s, &mut queue);
+        let after_entities = living_axolotl_count(&s, &defender);
+        assert!(
+            after_entities < before,
+            "the combat pass must remove defender entities ({before} -> {after_entities})"
+        );
+        // Now resolve_environment re-syncs the mirror — it must equal the survivor count.
+        resolve_environment(&mut s, &defender);
+        let di = civ_index(&s, &defender).unwrap();
+        assert_eq!(
+            s.civs[di].population, after_entities,
+            "population mirror (re-synced after combat) must reflect the casualties"
+        );
+    }
+
+    // --- WAR-04 wild predators (spawn_predators + step_predators) tests (04-03) ---
+
+    /// Count the wild predator entities currently in the world.
+    fn predator_count(s: &CivSessionSnapshot) -> usize {
+        s.world
+            .entities
+            .iter()
+            .filter(|e| e.kind == "predator" && e.civ_id.is_none())
+            .count()
+    }
+
+    /// Push `n` wild predator entities adjacent to `civ_id`'s colony centre (for the
+    /// step_predators tests — bypasses the forecast-fire spawn path).
+    fn give_predators_near(s: &mut CivSessionSnapshot, civ_id: &str, n: u32) {
+        let (cx, cy) = colony_center(s, civ_id);
+        for i in 0..n {
+            s.world.entities.push(CivEntity {
+                id: format!("predator-test-{i}"),
+                kind: "predator".to_string(),
+                role: "predator".to_string(),
+                name: "Wild predator".to_string(),
+                x: cx,
+                y: cy,
+                health: 1.0,
+                civ_id: None,
+                stage: "adult".to_string(),
+                age: 0,
+                ..Default::default()
+            });
+        }
+    }
+
+    #[test]
+    fn predator_incursion_spawns_predators() {
+        // A fired predator_incursion forecast spawns >=1 wild predator entity
+        // (kind=="predator", civ_id==None) with the deterministic predator-{turn}-{n}
+        // id, while STILL pushing the quarrel_pressure modifier (Open Q3).
+        let mut s = multi_civ_snapshot(2024, 2);
+        give_civ_axolotls(&mut s, &civ_id_for(0), 6);
+        s.environment.forecast = Some(pending_forecast("predator_incursion", 1));
+        s.turn = 3;
+        let before = predator_count(&s);
+        tick_environment(&mut s);
+        let after = predator_count(&s);
+        assert!(
+            after > before,
+            "a fired predator_incursion must spawn net-new predator entities ({before} -> {after})"
+        );
+        // Every spawned predator is wild (civ_id None) with a deterministic id.
+        let preds: Vec<&CivEntity> = s
+            .world
+            .entities
+            .iter()
+            .filter(|e| e.kind == "predator")
+            .collect();
+        assert!(
+            preds.iter().all(|p| p.civ_id.is_none()),
+            "predators must be wild fauna (civ_id == None)"
+        );
+        assert!(
+            preds.iter().all(|p| p.id.starts_with("predator-3-")),
+            "predator ids must follow predator-{{turn}}-{{n}} (deterministic, no uuid/clock)"
+        );
+        // Open Q3: the quarrel_pressure morale modifier still fires alongside the predators.
+        assert!(
+            s.modifiers.iter().any(|m| m.kind == "quarrel_pressure"),
+            "the existing quarrel_pressure modifier must STILL fire with predators (Open Q3)"
+        );
+    }
+
+    #[test]
+    fn predator_spawn_is_deterministic() {
+        // Firing predator_incursion at the same (seed, turn) on two clones yields
+        // byte-identical world.entities (predator ids + positions identical).
+        let mut base = multi_civ_snapshot(2024, 2);
+        give_civ_axolotls(&mut base, &civ_id_for(0), 6);
+        base.environment.forecast = Some(pending_forecast("predator_incursion", 1));
+        base.turn = 4;
+        let mut a = base.clone();
+        let mut b = base.clone();
+        tick_environment(&mut a);
+        tick_environment(&mut b);
+        assert!(
+            predator_count(&a) > 0,
+            "the test must actually spawn predators"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "predator spawn must be byte-identical across clones at a fixed (seed, turn)"
+        );
+    }
+
+    #[test]
+    fn non_predator_disaster_spawns_no_predators() {
+        // A non-predator disaster (drought) must NOT spawn any predator entities.
+        let mut s = multi_civ_snapshot(2024, 2);
+        give_civ_axolotls(&mut s, &civ_id_for(0), 6);
+        s.environment.forecast = Some(pending_forecast("drought", 1));
+        s.turn = 3;
+        tick_environment(&mut s);
+        assert_eq!(
+            predator_count(&s),
+            0,
+            "a non-predator disaster must not spawn predators"
+        );
+    }
+
+    #[test]
+    fn step_predators_hunt_and_expire() {
+        // Predators near a colony reduce its living axolotls (hunt); the loss is
+        // reflected in the population mirror after resolve_environment; predators at
+        // age >= lifespan are removed and survivors' age is incremented.
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 5;
+        let defender = civ_id_for(0);
+        give_civ_axolotls(&mut s, &defender, 12);
+        // A young hunting wave + one already at its lifespan (must expire this step).
+        give_predators_near(&mut s, &defender, 4);
+        s.world.entities.push(CivEntity {
+            id: "predator-old".to_string(),
+            kind: "predator".to_string(),
+            role: "predator".to_string(),
+            name: "Wild predator".to_string(),
+            x: colony_center(&s, &defender).0,
+            y: colony_center(&s, &defender).1,
+            health: 1.0,
+            civ_id: None,
+            stage: "adult".to_string(),
+            age: PREDATOR_LIFESPAN, // already expired
+            ..Default::default()
+        });
+        let axos_before = living_axolotl_count(&s, &defender);
+        let preds_before = predator_count(&s);
+        step_predators(&mut s);
+        let axos_after = living_axolotl_count(&s, &defender);
+        assert!(
+            axos_after < axos_before,
+            "predators must reduce the colony's living axolotls ({axos_before} -> {axos_after})"
+        );
+        // The expired predator is gone; some young hunters may have been culled too.
+        assert!(
+            !s.world.entities.iter().any(|e| e.id == "predator-old"),
+            "a predator at age >= lifespan must be removed (expired)"
+        );
+        assert!(
+            predator_count(&s) < preds_before,
+            "at least the expired predator must be removed"
+        );
+        // Any surviving young predator had its age incremented (0 -> 1).
+        assert!(
+            s.world
+                .entities
+                .iter()
+                .filter(|e| e.kind == "predator")
+                .all(|p| p.age >= 1),
+            "surviving predators must have aged this step"
+        );
+        // The mirror reflects the hunt after resolve_environment.
+        resolve_environment(&mut s, &defender);
+        let di = civ_index(&s, &defender).unwrap();
+        assert_eq!(
+            s.civs[di].population,
+            living_axolotl_count(&s, &defender),
+            "the population mirror must reflect the predator hunt losses"
+        );
+    }
+
+    #[test]
+    fn strength_defends_against_predators() {
+        // A strong civ loses fewer axolotls AND culls more predators than a weak civ
+        // facing the same predator count at the same (seed, turn).
+        fn run(strong: bool) -> (u32, usize) {
+            let mut s = multi_civ_snapshot(2024, 2);
+            s.turn = 6;
+            let cid = civ_id_for(0);
+            give_civ_axolotls(&mut s, &cid, 20);
+            if strong {
+                let ci = civ_index(&s, &cid).unwrap();
+                s.civs[ci].population += 200;
+                *s.civs[ci].resources.entry("tools".to_string()).or_insert(0) += 1000;
+                s.civs[ci].techs.push("def_tech_a".to_string());
+                s.civs[ci].techs.push("def_tech_b".to_string());
+            }
+            give_predators_near(&mut s, &cid, 6);
+            let axos_before = living_axolotl_count(&s, &cid);
+            let preds_before = predator_count(&s);
+            step_predators(&mut s);
+            let lost = axos_before - living_axolotl_count(&s, &cid);
+            let culled = preds_before - predator_count(&s);
+            (lost, culled)
+        }
+        let (weak_lost, weak_culled) = run(false);
+        let (strong_lost, strong_culled) = run(true);
+        assert!(
+            strong_lost <= weak_lost,
+            "a strong civ must lose no more axolotls than a weak one ({strong_lost} vs {weak_lost})"
+        );
+        assert!(
+            strong_culled >= weak_culled,
+            "a strong civ must cull at least as many predators as a weak one ({strong_culled} vs {weak_culled})"
+        );
+        // The defense must be MEANINGFUL: strong does strictly better on at least one axis.
+        assert!(
+            strong_lost < weak_lost || strong_culled > weak_culled,
+            "civ_strength must measurably help (fewer losses or more culls)"
+        );
+    }
+
+    #[test]
+    fn culled_predator_drops_food() {
+        // When step_predators culls a predator via defense, the defending civ's "food"
+        // resource increases (bounded, conserved-style credit).
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 6;
+        let cid = civ_id_for(0);
+        give_civ_axolotls(&mut s, &cid, 20);
+        // Strong civ → high cull chance.
+        let ci = civ_index(&s, &cid).unwrap();
+        s.civs[ci].population += 300;
+        *s.civs[ci].resources.entry("tools".to_string()).or_insert(0) += 1500;
+        let food_before = s.civs[ci].resources.get("food").copied().unwrap_or(0);
+        give_predators_near(&mut s, &cid, 6);
+        let preds_before = predator_count(&s);
+        step_predators(&mut s);
+        let culled = preds_before - predator_count(&s);
+        assert!(culled > 0, "a strong civ must cull at least one predator");
+        let ci = civ_index(&s, &cid).unwrap();
+        let food_after = s.civs[ci].resources.get("food").copied().unwrap_or(0);
+        assert_eq!(
+            food_after - food_before,
+            culled as i32 * PREDATOR_FOOD_DROP,
+            "each culled predator must drop exactly PREDATOR_FOOD_DROP food"
+        );
+        assert!(
+            s.civs[civ_index(&s, &cid).unwrap()]
+                .resources
+                .values()
+                .all(|&v| v >= 0),
+            "food credit must never make a resource negative"
+        );
+    }
+
+    #[test]
+    fn step_predators_is_deterministic() {
+        // step_predators on two clones at the same (seed, turn) yields byte-identical
+        // world.entities + civ resources.
+        let mut base = multi_civ_snapshot(2024, 2);
+        base.turn = 7;
+        let cid = civ_id_for(0);
+        give_civ_axolotls(&mut base, &cid, 16);
+        give_predators_near(&mut base, &cid, 5);
+        let mut a = base.clone();
+        let mut b = base.clone();
+        step_predators(&mut a);
+        step_predators(&mut b);
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "predator pass entities must be byte-identical across clones"
+        );
+        assert_eq!(
+            serde_json::to_string(&a.civs).unwrap(),
+            serde_json::to_string(&b.civs).unwrap(),
+            "predator pass civ resources must be byte-identical across clones"
+        );
+    }
+
+    #[test]
+    fn step_predators_no_instant_wipeout() {
+        // step_predators must never reduce a civ to 0 living axolotls in one step
+        // (same bounded discipline as combat — leave >=1).
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 5;
+        let cid = civ_id_for(0);
+        give_civ_axolotls(&mut s, &cid, 2); // very small colony
+        give_predators_near(&mut s, &cid, 20); // overwhelming swarm
+        step_predators(&mut s);
+        assert!(
+            living_axolotl_count(&s, &cid) >= 1,
+            "a single predator step must never reduce a colony to 0 living axolotls"
+        );
+    }
+
+    #[test]
+    fn step_predators_runs_in_advance_turn_window() {
+        // Sanity: step_predators is a real world pass that reduces a colony's living
+        // axolotls and the mirror reflects it after resolve_environment (mirrors the
+        // advance_civ_turn ordering: ... -> step_predators -> resolve_environment).
+        let mut s = multi_civ_snapshot(2024, 2);
+        s.turn = 4;
+        let cid = civ_id_for(0);
+        give_civ_axolotls(&mut s, &cid, 14);
+        give_predators_near(&mut s, &cid, 5);
+        let before = living_axolotl_count(&s, &cid);
+        step_predators(&mut s);
+        let after = living_axolotl_count(&s, &cid);
+        resolve_environment(&mut s, &cid);
+        let di = civ_index(&s, &cid).unwrap();
+        assert!(
+            after < before,
+            "predators must hunt before the mirror re-syncs"
+        );
+        assert_eq!(
+            s.civs[di].population, after,
+            "the mirror (re-synced after the predator pass) must equal the survivor count"
         );
     }
 }

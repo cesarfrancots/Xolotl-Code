@@ -1,382 +1,162 @@
-# Technology Stack: xolotl Tauri UI Layer
+# Stack Research — Milestone v2.1 "Living World & Economy" (ADDITIONS)
 
-**Project:** xolotl — Tauri desktop app + React/TS frontend over existing Rust CLI backend
-**Researched:** 2026-05-07
-**Scope:** UI layer only. The Rust backend stack is already documented in `.planning/codebase/STACK.md`.
-**Confidence note:** WebSearch, WebFetch, and Bash were all unavailable in this session. All findings are from training data (cutoff August 2025). Tauri 2.0 stable shipped October 2024 — fully within the training window and HIGH confidence. React/Zustand/Vite versions are verified as of August 2025; check npmjs.com for patch releases before pinning.
+**Domain:** Turn-based, deterministic-seeded civilization game inside an existing Tauri + Rust + Phaser app
+**Researched:** 2026-06-07
+**Confidence:** HIGH (existing pipelines verified in-repo; crate/model versions verified via ctx7 + official docs 2026-06)
 
----
-
-## Recommended Stack
-
-### Tauri Core
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `tauri` (Rust crate) | 2.1.x | Desktop shell, IPC, window management | The only production-grade Tauri version for new projects. 1.x is in maintenance mode. 2.x introduced the `Channel` type — the correct primitive for streaming SSE from Rust to the WebView, which is the core IPC pattern for this project. |
-| `@tauri-apps/api` (npm) | 2.x (currently ~2.1) | Frontend JS bindings for Tauri IPC | The official JS counterpart. Use `invoke()` for commands and `Channel` for streams. Do not use the legacy `event.listen()` approach for high-frequency streaming — Channel is significantly lower overhead. |
-| `@tauri-apps/cli` (npm, devDep) | 2.x | Build tooling: `tauri dev`, `tauri build` | Installed as a dev dependency, not globally. Pin to the same major version as the Rust crate. |
-
-**Why Tauri over Electron:** The Rust agent runtime (`ConversationRuntime`, `ApiClient`, `ToolExecutor`) is already compiled Rust. Tauri exposes it via `#[tauri::command]` with zero FFI friction — no Node.js bridge, no `napi-rs`, no IPC serialization across a process boundary that doesn't need to exist. Electron would add ~150 MB to the bundle and require rewriting or wrapping the entire backend in Node.js bindings. Tauri's Rust integration is the decisive advantage here.
+> **Scope:** This is a *subsequent* milestone on an existing, working game. The v2.0
+> stack (Tauri 2.11, React 19, Zustand 5, Phaser 4, the seeded Rust civ engine) stays
+> exactly as-is. This file lists only the **minimal additions/techniques** for the
+> NET-NEW v2.1 features (infinite procedural world, economy + ≥5 currencies, shop UI,
+> civ-level possession, Gemini art, game-native restyle) and an explicit **do-NOT-add** list.
+> **Headline finding: almost nothing new is required.** The two "new" capabilities people
+> assume need libraries — procedural noise and Gemini art — are both better served by code
+> already in the repo. Net new third-party dependencies recommended: **zero to one** (one
+> optional Rust crate, only if W10.6 fBm is pursued).
 
 ---
 
-### Frontend Framework
+## The two load-bearing decisions
 
-**Recommendation: React 19 with TypeScript.**
+### 1. Procedural infinite world: **hand-roll value-noise/fBm on the existing integer RNG. Do NOT add a noise crate.** (backend, Rust)
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `react` + `react-dom` | 19.x (currently 19.0) | UI component framework | See rationale below. |
-| `typescript` | 5.x (currently 5.5+) | Type safety across IPC boundary | The Tauri command types (`invoke<ReturnType>()`, `Channel<EventType>`) need TypeScript generics to be safe. Untyped JS is untenable when the IPC boundary is the primary failure surface. |
+The engine's determinism contract is the single most important constraint in the codebase
+and it is **integer-based**, not float-based:
 
-**React over Svelte:** Svelte 5 (with runes) is excellent for reactivity, but its ecosystem for complex state management (multi-agent status, streaming text, permission queues) is thinner. The React ecosystem has `@tanstack/react-virtual` for message list virtualization, `zustand` for agent state, and `@tanstack/react-query` if needed — all mature and specifically relevant to this project's UI complexity. Svelte would require more custom primitives for the agent dashboard.
+- All world placement runs through `next_rng(&mut u32)` — a xorshift32 (`x^=x<<13; x^=x>>17; x^=x<<5`) threaded as `&mut u32`, seeded via FNV-1a (`seed_from`). See `civilization.rs:5106` and `:5097`.
+- Determinism tests (`world_generation_is_deterministic_by_seed`, `world_scales_and_spawns_are_disjoint_per_civ`) assert **byte-identical** founders/tiles across runs, and CI re-serializes tiles on Linux/Windows/macOS (gotcha #5: backend tests run on Linux/macOS only).
+- Existing terrain shape (`seabed_ripple`, `civilization.rs:1184`) is already a hand-rolled sum-of-sines on f32 with `.round() as i32` — i.e. the codebase already does deterministic value-noise without a crate.
 
-**React over Solid:** SolidJS is the most reactive option with fine-grained updates, which would help with the streaming re-render problem (see PITFALLS.md Pitfall 9). However, Solid's ecosystem is smaller, and the streaming problem is solvable in React 19 with `useTransition` + ref-based buffering. Solid is a valid alternative if the React streaming performance proves inadequate, but start with React.
+A third-party noise crate (`noise` 0.9.0, `bracket-noise` 0.8.7, `fastnoise-lite`) would:
+- introduce its **own RNG/permutation seeding** that does not compose with `next_rng`, forcing a parallel determinism story;
+- raise the **cross-platform f32 reproducibility** risk the spec already flags for W10.6 (different SIMD/FMA/rounding across the three CI OSes can diverge a raw f32 lattice). The repo's own W10.6 note: *"Cross-platform f32-determinism caveat … keep off the critical mining path."*;
+- add a dependency + clippy-pedantic surface for ~40 lines of code you can write inline.
 
-**React 19 specifically:** React 19 ships with the Actions API and improved concurrent features. The `useTransition` hook is the recommended mechanism for batching rapid streaming state updates without blocking user input. This directly addresses the 60–100 events/sec streaming problem.
+**Recommended technique (W10.6 + W10.7):** deterministic **1-D and 2-D value-noise / fBm built on a hashed integer lattice**, snapped to integers at the boundary:
+- Lattice hash = a small integer mix of `(seed, ix, iy)` (reuse the `next_rng`/FNV-1a mixing style), producing a `u32`; map to `f32` in `[0,1)` exactly like `rand_f` does (`% 100_000 as f32 / 100_000.0`) so the float domain is **discretized and identical on every platform**.
+- fBm = 3–4 octaves of that lattice + smoothstep interpolation, per-biome amplitude/roughness on `BiomeDef` (W10.6), keeping the existing `floor_y_at` clamp.
+- Caves (W10.7) = the same 2-D hash thresholded into voids **below a mandatory `CAVE_CAP`** of solid rows under `col_floor` (the spec's hard rule — `seabed_row_at` is load-bearing).
+- "Infinite/expandable" world = keep generation **deterministic per `(seed, chunk_x)`**: a tile's terrain is a pure function of seed + coordinate, so expanding the world right/down re-derives identical tiles without storing them. This fits the turn-based model — no streaming thread, no async chunk loader needed on the backend; generation stays a synchronous pure function called from `generate_world`.
 
----
+**Verification:** `cargo build` + `cargo clippy --all-features -- -D warnings` + `cargo test --no-run` (Windows), full `cargo test` on CI. Re-baseline the determinism golden once when fBm lands (the spec already plans this).
 
-### State Management
+### 2. Gemini art assets: **REUSE the existing in-repo pipeline. Do NOT add a new image lib or change the runtime.** (build-time tooling, Node + Python)
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `zustand` | 5.x (currently 5.0) | Global agent registry + session state | See rationale below. |
-| React `useRef` + `useState` pattern | — | Per-message streaming buffer | NOT a library — a pattern. See below. |
+A complete, working Gemini asset pipeline already exists at `output/civ-gen/gemini/` and produced the current committed art. It is **build-time only** — generated PNGs are committed to `tauri-app/public/civ/`, so there is **zero per-run / per-play API cost**. The Phaser renderer loads them as plain static files; it never calls Gemini.
 
-**Zustand over Jotai:** Jotai's atom model is elegant but verbose for the multi-agent use case. An agent registry with N agents each having `{ id, state, messages, cost }` maps naturally to a single Zustand store with a `Record<AgentId, AgentSlice>`. Zustand's `subscribeWithSelector` lets components subscribe to exactly the slice they need (one agent's state) without re-rendering when other agents update — critical for the N-agent dashboard.
+Pipeline (already built — extend, don't rebuild):
+1. **Job specs** — `jobs-{tiles,resources,buildings,accessories,axolotls,maps,stages}.json`: `[{ id, prompt, aspect? }]`. For v2.1 you add new entries (new tiles `tile-basalt/ice/coral/lava/...`, new resources `res-kelp/ore/sulfur/amber/herbs`, **currency icons** `cur-shell/pearl/...`, new items, the `bld-palisade` building, NPC sprites). Prompts already follow a good "seamless tileable top-down pixel-art … no border, no frame" recipe — copy it.
+2. **Generate** — `node gen.mjs jobs-X.json` with `GEMINI_API_KEY` set. `gen.mjs` calls the **Vertex AI express REST endpoint** (`aiplatform.googleapis.com/v1/publishers/google/models/<model>:generateContent?key=…`) with `responseModalities:["Image"]`, model `gemini-2.5-flash-image` (still current; `gemini-3.1-flash-image` exists as a faster successor but the existing model works — no change needed). Raw PNGs land in `raw/`. Built-in retry/backoff + concurrency.
+3. **Post-process** — `postprocess.py` (Pillow): flood-fills the flat-grey background to transparent, trims to bbox, fits sprites into 256px boxes, resizes tiles to 128px, and assembles the **axolotl animation spritesheet** (`axolotl-animated-seeds.png`, 16×3 grid of 64px frames) that `CivilizationGameCanvas.tsx:465` loads. Writes straight into `tauri-app/public/civ/{tiles,resources,buildings,accessories,axolotls,...}/`.
+4. **Commit** the resulting PNGs → one-time cost.
 
-**Zustand over XState:** XState is the right tool for the Rust side (the `AgentState` enum in ARCHITECTURE.md is effectively a state machine). On the frontend, however, XState adds significant boilerplate for what is essentially a read-mostly view of state that originates in Rust. The Rust backend is the source of truth for agent state — the frontend receives `StateChanged` events via Tauri Channel and reflects them. A state machine in the frontend as well creates a dual source of truth. Use Zustand to mirror Rust state; don't re-implement the state machine logic in JS.
+**Loading into Phaser (no atlas library needed):** the renderer loads **one `this.load.image(key, "/civ/<sub>/<key>.png")` per asset** in `preload()` (`CivilizationGameCanvas.tsx:466–471`), driven by the `TERRAIN_TILES` / `RESOURCE_KEYS` / `BUILDING_KEYS` / `ACCESSORIES` maps. For v2.1, adding art = add the file under `public/civ/...` and add the key to the relevant map. **Do not introduce texture-atlas packing tooling** (TexturePacker, `phaser3-rex-plugins`): a few dozen small static PNGs over Tauri's local protocol load instantly; atlasing is premature optimization here. (If sprite count ever explodes, Phaser's built-in `this.load.atlas` + a free packer is the in-place upgrade — no new runtime dep.)
 
-**Zustand over Redux:** Redux is categorically over-engineered for this use case. No action creators, no reducers, no middleware for a single-user desktop app.
-
-**Streaming text pattern (not a library):**
-```typescript
-// DO NOT: setState on every token — causes 60-100 renders/sec
-// DO: buffer in ref, flush at 60fps
-const bufferRef = useRef<string>('');
-const [displayText, setDisplayText] = useState('');
-
-useEffect(() => {
-  let animFrameId: number;
-  const flush = () => {
-    if (bufferRef.current.length > 0) {
-      setDisplayText(prev => prev + bufferRef.current);
-      bufferRef.current = '';
-    }
-    animFrameId = requestAnimationFrame(flush);
-  };
-  animFrameId = requestAnimationFrame(flush);
-  return () => cancelAnimationFrame(animFrameId);
-}, []);
-
-// In Channel listener:
-channel.onmessage = (event: AgentEvent) => {
-  if (event.type === 'token') bufferRef.current += event.text;
-  // other event types go directly to setState/zustand
-};
-```
-
-This is the pattern for streaming. It is not exotic — it is `requestAnimationFrame` throttling, a well-established browser performance technique.
+**Cost (verified, ai.google.dev/gemini-api/docs/pricing):** `gemini-2.5-flash-image` ≈ **$0.039/image** standard, **$0.0195/image** batch. The full v2.1 asset set (~40–60 images incl. currencies/items/NPCs) is a **one-time ~$1–2.50** spend, then free forever (committed).
 
 ---
 
-### Build Tooling
+## Recommended Stack — additions only
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `vite` | 6.x (currently 6.0) | Frontend dev server + bundler | Tauri's official frontend recommendation. `tauri dev` wraps `vite dev`. Fast HMR during development is critical — the Rust side takes 5–30 seconds to rebuild; the frontend should reload in < 100ms. |
-| `pnpm` | 9.x | Package manager | Faster installs than npm, strict dependency isolation, and disk-efficient for a workspace that may grow. More importantly: pnpm's `node_modules` layout prevents accidental access to undeclared dependencies — relevant since Tauri's security model depends on explicit capability declarations. |
-| `@vitejs/plugin-react` | 4.x | Vite plugin for React (SWC) | Use the SWC variant (`@vitejs/plugin-react-swc`) — 10-20x faster than Babel for HMR. No practical downside for a new project. |
+### Core Technologies (NEW for v2.1)
 
-**Turborepo: Not needed.** The project is a single Cargo workspace (Rust) + a single Tauri app (frontend). Turbo adds value for monorepos with multiple independent JS packages. Adding it now is premature complexity.
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| Inline value-noise/fBm in `civilization.rs` | n/a (hand-rolled) | Organic terrain (W10.6), caves (W10.7), prospecting strata | Composes with the existing integer `next_rng`; preserves byte-determinism + cross-OS reproducibility a noise crate would jeopardize; ~40 LOC, no new dep, clippy-clean. |
+| Existing Gemini pipeline `output/civ-gen/gemini/` | model `gemini-2.5-flash-image` via `@google/genai ^2.8.0` (REST in `gen.mjs`) | Generate sprites/tiles/resource/building/item/**currency** art | Already built, already produced shipped art, build-time only → zero per-run cost; outputs drop straight into the dirs Phaser already loads. |
+| Pillow (Python) | already used (`postprocess.py`) | Background-key, trim, fit, spritesheet assembly | Existing post-processor; extend its id lists for new categories (currencies/items/NPCs). |
 
----
+### Supporting Libraries (already present — reuse, do not re-add)
 
-### Tauri Plugins
+| Library | Version (in repo) | Purpose | Use For (v2.1) |
+|---------|-------------------|---------|----------------|
+| Phaser | `^4.1.0` | Game renderer | Tile chunking (W8), new tiles/resources/buildings, possession visuals, store-anchored world UI. Has built-in `RenderTexture` (chunked baking the spec already plans) + `this.load.atlas` if ever needed. |
+| Zustand | `^5.0.13` | Frontend state | Economy/currency balances, shop catalog state, possession mode, inventory — extend `civStore.ts`; no new state lib. |
+| Tailwind v4 + shadcn + radix-ui + lucide-react + cmdk | `4.3.0` / `4.7.0` / `1.4.3` / `1.14.0` / `1.1.1` | UI primitives | Build the **shop/store + inventory UI** entirely from these. Dialog/sheet/tabs/scroll-area (radix/shadcn) = store modal; `lucide` for currency/item glyphs (or Gemini PNG icons); `cmdk` for a buy palette. No game-UI library needed. |
+| `@tanstack/react-virtual` | `^3.13.24` | Virtualized lists | Long shop catalogs / inventory grids if they get big — already a dep. |
+| serde / serde_json | `1` | Snapshot serialization across IPC | New economy/currency/item/possession fields are additive `#[serde(default)]` struct fields; snapshot still crosses IPC as a serialized String (per the spec) — minimizes `bindings.ts` drift. |
 
-Tauri 2.x has a granular plugin system. Each plugin requires a Rust crate (`tauri-plugin-*`) + npm package (`@tauri-apps/plugin-*`) + capability declaration.
+### Development Tools (process, not deps)
 
-| Plugin | npm Package | Rust Crate | Why Needed | Priority |
-|--------|------------|------------|------------|----------|
-| `fs` | `@tauri-apps/plugin-fs` | `tauri-plugin-fs` | Read/write config files, session files from the frontend | P1 — needed for settings UI and session loading |
-| `shell` | `@tauri-apps/plugin-shell` | `tauri-plugin-shell` | Open external links (docs, provider dashboards) in the system browser | P2 — needed for any `href` that should not load inside the WebView |
-| `notification` | `@tauri-apps/plugin-notification` | `tauri-plugin-notification` | Background agent completion notifications | P2 — needed for background agent UX |
-| `window-state` | `@tauri-apps/plugin-window-state` | `tauri-plugin-window-state` | Persist window size/position across restarts | P1 — add from day one, trivial to set up |
-| `dialog` | `@tauri-apps/plugin-dialog` | `tauri-plugin-dialog` | Native file/folder picker for project directory selection | P2 — needed for onboarding / new session UI |
-| `clipboard-manager` | `@tauri-apps/plugin-clipboard-manager` | `tauri-plugin-clipboard-manager` | Copy code blocks to clipboard | P1 — table stakes (copy button on code blocks) |
-| `process` | `@tauri-apps/plugin-process` | `tauri-plugin-process` | Graceful app restart after config changes | P3 — nice-to-have |
-| `store` | `@tauri-apps/plugin-store` | `tauri-plugin-store` | Lightweight key-value persistence for UI preferences | P2 — alternative to rolling custom config |
-| `updater` | NOT recommended | — | Auto-updates | Skip for personal use. Requires code signing infrastructure. See PITFALLS.md Pitfall 7. |
-| `deep-link` | NOT needed | — | URL protocol handling | No use case for this project. |
-
-**Capability configuration is mandatory.** Every plugin requires an explicit grant in `src-tauri/capabilities/default.json`. Missing this causes silent permission denial at runtime with no error message — the most common Tauri 2.x pitfall (PITFALLS.md Pitfall 13).
-
----
-
-### UI Component Library
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `tailwindcss` | 4.x (v4 stable as of 2025) | Utility-first styling | Fastest path to a polished dark-mode-first coding tool UI. No design system overhead. Tauri apps with Tailwind look native-quality with minimal effort. |
-| `shadcn/ui` | Current (not versioned — copy-paste) | Accessible component primitives | NOT a dependency — you copy component source into the project. Built on Radix UI primitives. Provides: Dialog, DropdownMenu, Tooltip, Tabs, ScrollArea — exactly the components needed for agent panels, model selectors, and permission prompts. Use it as a starting point, not as a locked-in library. |
-| `@radix-ui/react-*` | Latest | Accessible primitives under shadcn | shadcn components depend on these directly. Radix handles focus management, keyboard navigation, and ARIA correctly — critical for the permission prompt modal which must be keyboard-accessible when agents are actively running. |
-| `lucide-react` | Latest | Icon set | The icon set shadcn ships with. Consistent, minimal, works well in dark mode. |
-
-**Avoid:** Material UI, Ant Design, Chakra — all too opinionated in their visual language for a dev tool that should feel native and minimal. Component override complexity exceeds the benefit.
-
----
-
-### Markdown and Code Rendering
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `react-markdown` | 9.x | Render markdown in chat messages | Correct choice: handles streaming partial markdown (incomplete code fences, partial headers) gracefully. Works incrementally — you can re-render on each `token` event without visual glitches. |
-| `rehype-highlight` | Latest | Syntax highlighting in code blocks | Pairs with `react-markdown`. Uses `highlight.js` under the hood. Provides CSS class-based highlighting — easy to theme with Tailwind's dark mode. |
-| `rehype-raw` | Latest | Allow HTML in markdown if needed | Only needed if tool outputs include raw HTML fragments. Optional. |
-
-**Alternative considered:** `marked` + a custom renderer. Rejected because `react-markdown` handles the React component tree correctly (allowing the copy-button component to be inserted as a React component inside code blocks). `marked` produces HTML strings that require `dangerouslySetInnerHTML` — bad practice in a Tauri app where the content may include bash output.
-
-**Diff rendering:** For inline diffs (before/after file content), use `react-diff-viewer-continued` (the maintained fork of `react-diff-viewer`). It handles unified and split diff formats, dark mode, and large files via line virtualization.
-
----
-
-### Terminal Output Display
-
-**Recommendation: Do NOT embed a full terminal emulator (xterm.js, wezterm).**
-
-Rationale from FEATURES.md: A built-in terminal emulator is an anti-feature for this project. xolotl is a chat-first orchestration tool — agents run bash via the backend's `bash.rs` tool and results appear as tool-call blocks in the chat UI. Users do not need a raw terminal.
-
-For tool output display:
-- Bash output → render as a `<pre>` block with ANSI color stripping (use the `ansi-to-html` npm package to convert ANSI escape codes to HTML spans with CSS color classes).
-- Long outputs → virtualized collapsible block (collapsed by default, expand on click, virtualized list for outputs > 100 lines).
-- Streaming bash output → follow the same ref-buffer pattern as streaming text.
-
-If a future requirement emerges for an actual terminal (debugging, interactive shells), add `xterm.js` at that point. `xterm.js` is 300+ KB gzipped and adds significant complexity to the Tauri WebView sandbox. Don't pre-optimize for a requirement that's explicitly out of scope.
-
----
-
-### Virtualization (Message List)
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `@tanstack/react-virtual` | 3.x | Virtualize long conversation histories | A chat session with 200 turns of multi-tool agentic output can exceed 10,000 DOM nodes. Without virtualization, React layout + paint times exceed 16ms and the UI stutters. `@tanstack/react-virtual` renders only the visible window of messages. Essential for the agent dashboard with N concurrent agent views. |
-
----
-
-### IPC Type Safety
-
-**Recommendation: Generate TypeScript types from Rust structs using `specta` + `tauri-specta`.**
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `specta` | 2.x | Rust → TypeScript type generation | Generates `.ts` type definitions from Rust structs. Ensures the `AgentEvent` enum, `SpawnRequest`, `AgentState` etc. have exact TypeScript counterparts. Eliminates an entire class of IPC bugs where the frontend uses wrong field names or wrong types. |
-| `tauri-specta` | 2.x | Tauri-specific bindings for specta | Generates `invoke()` wrappers with correct TypeScript signatures. Instead of `invoke<AgentId>("spawn_agent", { request })` (no type safety), you get a generated `commands.spawnAgent(request)` function with full type checking. |
-
-**Confidence: MEDIUM.** `specta` + `tauri-specta` are the community-standard approach as of the training cutoff, actively maintained, and officially recommended in Tauri community resources. Verify current package versions before adopting.
-
----
-
-### Versions Summary (as of August 2025 training data — verify before pinning)
-
-| Package | Version | npm / crates.io |
-|---------|---------|----------------|
-| `tauri` (Rust) | 2.1.x | crates.io |
-| `@tauri-apps/api` | 2.1.x | npm |
-| `@tauri-apps/cli` | 2.1.x | npm |
-| `react` | 19.0.x | npm |
-| `react-dom` | 19.0.x | npm |
-| `typescript` | 5.5.x | npm |
-| `vite` | 6.0.x | npm |
-| `@vitejs/plugin-react-swc` | 3.x | npm |
-| `tailwindcss` | 4.x | npm |
-| `zustand` | 5.0.x | npm |
-| `@tanstack/react-virtual` | 3.x | npm |
-| `react-markdown` | 9.x | npm |
-| `rehype-highlight` | 7.x | npm |
-| `react-diff-viewer-continued` | 3.x | npm |
-| `specta` | 2.x | crates.io |
-| `tauri-specta` | 2.x | crates.io |
-
----
-
-## Alternatives Considered and Rejected
-
-| Category | Recommended | Alternative | Why Rejected |
-|----------|-------------|-------------|--------------|
-| Desktop framework | Tauri 2.x | Electron | 150 MB overhead; requires Node.js bridge for Rust backend; no integration advantage |
-| Frontend framework | React 19 | Svelte 5 | Thinner ecosystem for complex state; fewer ready-made libraries for agent dashboard use case |
-| Frontend framework | React 19 | SolidJS | Smaller ecosystem; streaming perf problem solvable in React 19 |
-| State management | Zustand 5 | Jotai | Atom model less natural for N-agent registry with subscribeWithSelector |
-| State management | Zustand 5 | XState (frontend) | Dual source of truth — Rust is the authoritative state machine |
-| State management | Zustand 5 | Redux | Over-engineered; no multi-user requirements |
-| Package manager | pnpm | npm | Slower; no strict dependency isolation |
-| Package manager | pnpm | yarn | No significant advantage over pnpm for this use case |
-| Monorepo tooling | (none) | Turborepo | Premature; single Tauri app doesn't need it |
-| Component library | shadcn/ui | Material UI | Too opinionated visually; large override burden |
-| Component library | shadcn/ui | Ant Design | Same issue + Chinese ecosystem (i18n assumptions) |
-| Terminal emulator | (not added) | xterm.js | Anti-feature per FEATURES.md; 300 KB overhead for out-of-scope capability |
-| Type generation | specta | Manual type sync | Error-prone; IPC boundary divergence causes hard-to-debug runtime failures |
-| Build tool | Vite 6 | webpack | Slower HMR; no benefit over Vite for this use case |
-
----
-
-## Tauri IPC Pattern: Commands vs Events vs Channels
-
-These are three distinct IPC mechanisms in Tauri 2.x. Use each for the right purpose:
-
-**`#[tauri::command]` (request/response):** For user-initiated actions where the frontend awaits a result. Examples: `spawn_agent(request)` → returns `AgentId`; `list_worktrees()` → returns `Vec<WorktreeInfo>`; `respond_to_permission(decision)` → returns `()`. Keep command responses small (< 64 KB). Never return full session histories.
-
-**`Channel<T>` (streaming, Rust → frontend):** For ongoing data streams from a specific Rust task to a specific frontend consumer. One Channel per agent. The frontend passes a Channel handle to `spawn_agent`; the Rust backend holds the `Channel<AgentEvent>` sender in `AgentHandle`. This is the correct primitive for token streaming. HIGH confidence — Channel was introduced specifically in Tauri 2.0 to replace the old event system for this exact use case.
-
-**`app_handle.emit()` (broadcast events, Rust → all windows):** For global state changes that all windows need to know about. Examples: app update available, global error, background agent completing when the main window is minimized. Do not use for per-agent streaming — use Channel for that.
-
-**`app_handle.emit_to(window_label, ...)` (targeted events):** For sending to a specific window without a Channel. Use sparingly; Channel is preferred for typed streaming.
-
----
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| `cargo test --no-run` + `clippy --all-features -- -D warnings` | Verify backend on Windows | Mandatory: WebView2 blocks live backend tests on Windows (gotcha #5). Add 0 new clippy warnings (pedantic + `unsafe_code=forbid`). |
+| `npm run tauri dev` (once) | Regenerate `bindings.ts` | Only when the IPC command surface changes (new possession/shop commands). Mind the drift trap (gotcha #1 / MEMORY). Prefer keeping new data inside the serialized snapshot String to avoid regen. |
+| `vitest` + `tsc --noEmit` | Frontend gate | Test economy math, shop catalog, possession-mode store logic; keep `civilization.rs` ↔ `tauriBrowserFallback.ts` single-player logic in lockstep (PROJECT constraint). |
 
 ## Installation
 
 ```bash
-# Create Tauri project inside existing Cargo workspace
-cd rust
-pnpm create tauri-app xolotl-ui -- --template react-ts
+# Backend (Rust): NOTHING required for the recommended path (hand-rolled noise).
+#   Optional ONLY if you deliberately choose a crate over hand-rolling fBm:
+#   cargo add noise@0.9        # in tauri-app/src-tauri/Cargo.toml — see "Alternatives"
 
-# Or manually scaffold:
-mkdir src-tauri
-# Add to rust/Cargo.toml workspace.members
+# Asset generation (build-time, already scaffolded):
+cd output/civ-gen/gemini && npm install      # @google/genai already pinned
+$env:GEMINI_API_KEY = "..."                   # PowerShell; AI Studio key
+node gen.mjs jobs-tiles.json                   # repeat per new job file
+python postprocess.py                          # writes into tauri-app/public/civ/**
+# then: git add tauri-app/public/civ && commit  (one-time)
 
-# Frontend packages
-pnpm add @tauri-apps/api react react-dom zustand @tanstack/react-virtual
-pnpm add react-markdown rehype-highlight react-diff-viewer-continued
-pnpm add @radix-ui/react-dialog @radix-ui/react-dropdown-menu lucide-react
-pnpm add ansi-to-html
-
-# Dev dependencies
-pnpm add -D @tauri-apps/cli typescript vite @vitejs/plugin-react-swc tailwindcss
-
-# Tauri plugins (Rust crates added to src-tauri/Cargo.toml):
-# tauri-plugin-fs
-# tauri-plugin-shell
-# tauri-plugin-notification
-# tauri-plugin-window-state
-# tauri-plugin-dialog
-# tauri-plugin-clipboard-manager
-# tauri-plugin-store
-# specta
-# tauri-specta
-
-# Tauri plugin npm packages:
-pnpm add @tauri-apps/plugin-fs @tauri-apps/plugin-shell
-pnpm add @tauri-apps/plugin-notification @tauri-apps/plugin-window-state
-pnpm add @tauri-apps/plugin-dialog @tauri-apps/plugin-clipboard-manager
-pnpm add @tauri-apps/plugin-store
+# Frontend (shop/inventory/possession UI): NOTHING new — all primitives already in package.json.
 ```
 
----
+## Alternatives Considered
 
-## Project Structure (Tauri Layer)
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| Hand-rolled integer-lattice fBm | `noise` crate 0.9.0 (`Fbm::<Perlin>::new(seed)`) | Only if you accept a separate determinism story AND verify byte-stable f32 across Linux/Win/macOS CI (risky — the spec warns against exactly this). Not worth it for ~40 LOC. |
+| Hand-rolled integer-lattice fBm | `bracket-noise` 0.8.7 / `fastnoise-lite` | Same caveat; useful in real-time roguelikes, but this engine is turn-based + integer-deterministic. |
+| Existing REST `gen.mjs` | `@google/generative-ai` (skill's SDK example, `gemini-2.0-flash-exp`) | The skill's example uses an older model + the AI-Studio `generativelanguage` endpoint, which the repo notes is **blocked** for this project (Vertex express is enabled). Prefer the repo's working `gen.mjs`. |
+| Per-file `this.load.image` | `this.load.atlas` + free packer (e.g. `free-tex-packer`) | Only if sprite count grows into the hundreds and load time/draw calls measurably suffer. Phaser supports it natively — still no runtime dep. |
+| Tailwind/shadcn/radix shop UI | A game-UI lib | Never for this scope; see "What NOT to Use". |
 
-```
-rust/
-  src-tauri/               # New Tauri crate (part of Cargo workspace)
-    src/
-      main.rs              # Tauri builder, managed state, command registration
-      lib.rs               # Library root for specta type export
-      commands/
-        agent_commands.rs  # spawn_agent, kill_agent, send_message, respond_to_permission
-        worktree_commands.rs # create_worktree, list_worktrees, delete_worktree
-        session_commands.rs  # list_sessions, load_session
-        config_commands.rs   # get_config, set_config
-      state/
-        supervisor.rs      # AgentSupervisor (thin re-export from orchestrator crate)
-    Cargo.toml             # tauri 2.x + all tauri-plugin-* + specta + tauri-specta
-    tauri.conf.json        # Window config, bundle ID, plugin list
-    capabilities/
-      default.json         # Core permissions + per-plugin grants
-    icons/                 # App icons
+## What NOT to Use
 
-frontend/                  # Vite/React project (sibling to rust/, or inside rust/)
-  src/
-    main.tsx
-    App.tsx
-    store/
-      agentStore.ts        # Zustand store: agent registry, messages, cost
-      sessionStore.ts      # Session list, current session
-    hooks/
-      useAgentStream.ts    # Channel subscription per agent_id
-      useAgentList.ts      # Zustand selector for agent registry
-    components/
-      chat/
-        ChatPanel.tsx      # Message thread for one agent
-        MessageBubble.tsx  # Single turn (user/assistant)
-        ToolCallBlock.tsx  # Collapsible tool invocation + result
-        DiffBlock.tsx      # Before/after file diff
-        CodeBlock.tsx      # Syntax-highlighted code + copy button
-      agents/
-        AgentRoster.tsx    # Dashboard: list of all active agents
-        AgentCard.tsx      # One agent: status, model, cost, last output
-        SpawnAgentDialog.tsx # Form to create a new agent
-        PermissionPrompt.tsx # Inline allow/deny card
-      layout/
-        Sidebar.tsx        # Session list + navigation
-        TopBar.tsx         # Model indicator, cost display, controls
-      shared/
-        CostMeter.tsx      # Token/cost display
-        ModelBadge.tsx     # Model name chip
-    bindings/
-      commands.ts          # Generated by tauri-specta — DO NOT EDIT manually
-      types.ts             # Generated by specta — DO NOT EDIT manually
-  vite.config.ts
-  tsconfig.json
-  tailwind.config.ts
-  package.json
-```
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| `noise` / `bracket-noise` / `fastnoise-lite` (Rust) | Own RNG seeding won't compose with `next_rng`; cross-OS f32 nondeterminism risk the determinism tests + CI would catch as flaky goldens; needless dep under clippy-pedantic | Inline integer-lattice value-noise/fBm discretized to `[0,1)` like `rand_f` |
+| `@google/generative-ai` w/ `gemini-2.0-flash-exp` (the skill's snippet) | Older model; AI-Studio endpoint is blocked for this project; would fork the working pipeline | Existing `output/civ-gen/gemini/gen.mjs` (Vertex express, `gemini-2.5-flash-image`) |
+| Texture-atlas packing tooling (TexturePacker, rexUI atlas plugins) | Premature optimization for a few dozen small local PNGs; adds build/runtime complexity | Per-file `this.load.image` (current pattern); upgrade to built-in `this.load.atlas` later if ever needed |
+| A game-UI framework (e.g. a Phaser DOM-UI plugin, PixiUI, `phaser3-rex-plugins`) for the shop/inventory | The store/inventory is best as **React DOM over the canvas** (forms, scroll, search, accessibility) — already have Tailwind/shadcn/radix/cmdk | React + Tailwind + shadcn/radix; Phaser only for in-world buy markers/possession highlights |
+| `react-dnd` / a drag-drop lib for inventory | Heavy for a click-to-buy/sell shop; HTML5 DnD or click handlers suffice | Native pointer/click handlers; revisit only if true drag-rearrange inventory is specced |
+| A dedicated state-machine/ECS lib for economy or possession | Engine is a turn-resolved snapshot; economy is plain fields + per-turn functions; possession is a `controller`/flag bypassing `call_model_text` | Plain Rust structs/functions in `civilization.rs` + Zustand on the frontend |
+| `decimal`/big-money crate for currencies | Game currencies are small integers (shells, pearls…), not financial money | `i64`/`u32` integer balances (also keeps determinism + IPC simple) |
+| A real-time chunk-streaming/async world loader | Turn-based engine; tiles are a pure function of `(seed, coord)` so "infinite" = re-derive, not stream | Synchronous deterministic generation in `generate_world`; chunked *rendering* via Phaser `RenderTexture` (W8, no new dep) |
 
----
+## Stack Patterns by Variant
 
-## Windows Build Notes (Development Platform)
+**If pursuing W10.6/W10.7 (organic terrain + caves):**
+- Add an inline fBm helper near `seabed_ripple`; consume rng **strictly after `found_colony`** (the W10.1 determinism rule); add a mandatory `CAVE_CAP`; re-baseline the determinism golden once.
+- Because: keeps the founder rng sequence the tests lock in, and keeps f32 off any byte-compared path by discretizing.
 
-The existing `rust/.cargo/config.toml` sets up WinLibs + GNU toolchain to work around the Git `link.exe` collision with MSVC. When adding the Tauri crate to the workspace:
+**If the shop/inventory needs to feel "in-world" rather than a modal:**
+- Render it as a React/Tailwind panel positioned over the Phaser canvas (DOM overlay), with Phaser only drawing in-world buy markers/glow.
+- Because: forms, search (cmdk), scrolling, and a11y are far cheaper in DOM than in canvas; the app already composes React + Phaser this way.
 
-- Tauri 2.x on Windows requires **WebView2** (ships with Windows 11 — no separate install needed).
-- The `tauri build` command requires either the MSVC toolchain or the GNU toolchain consistently. The existing GNU override (`stable-x86_64-pc-windows-gnu`) should work but verify that Tauri's build scripts don't require MSVC-specific flags.
-- On Windows, `tauri dev` launches the WebView2-based window. The existing `RUST_LOG` env var for tracing will work normally.
-- The build output directory is already overridden in `.cargo/config.toml` to `C:\Users\zazuk\claw-build` — Tauri's build artifacts will land there as well.
+**If currency/item icons should match the art style:**
+- Generate them through the same Gemini pipeline (`cur-*`, `item-*` ids) and commit; reference by key in a `CURRENCY_KEYS` / `ITEM_KEYS` map mirroring `RESOURCE_KEYS`.
+- Because: one consistent art source, zero runtime cost, same loader path.
 
----
+## Version Compatibility
 
-## Confidence Assessment
-
-| Area | Confidence | Basis |
-|------|------------|-------|
-| Tauri 2.x + Channel IPC | HIGH | Tauri 2.0 stable (Oct 2024) within training window; Channel is the documented streaming primitive |
-| Tauri plugin list and versions | MEDIUM | Plugin APIs are stable; specific versions may have patch releases since August 2025 |
-| React 19 recommendation | HIGH | React 19 released Dec 2024, stable; useTransition + concurrent features are the documented streaming solution |
-| Zustand 5 recommendation | HIGH | Zustand 5 released Oct 2024, stable; subscribeWithSelector is established |
-| Vite 6 recommendation | HIGH | Vite 6 released Nov 2024, stable; @vitejs/plugin-react-swc is the standard Tauri template |
-| pnpm recommendation | HIGH | Standard practice for Tauri projects; no ecosystem risk |
-| specta + tauri-specta | MEDIUM | Community standard but not "official" Tauri tooling; verify active maintenance |
-| Tailwind 4 | MEDIUM | v4 was in beta/RC as of training cutoff; verify stable release |
-| react-diff-viewer-continued | MEDIUM | Fork of unmaintained original; verify maintenance status |
-| Terminal emulator (not recommended) | HIGH | Anti-feature per documented product scope; no research needed |
-| shadcn/ui recommendation | HIGH | Well-established for dark-mode dev tools; zero lock-in risk (copy-paste model) |
-
----
+| Package A | Compatible With | Notes |
+|-----------|-----------------|-------|
+| `@google/genai ^2.8.0` | Node 18+ | Build-time only; `gen.mjs` uses plain `fetch` REST so even the SDK is optional. |
+| `gemini-2.5-flash-image` | Vertex express endpoint (`aiplatform.googleapis.com`) | Still current 2026-06; AI-Studio `generativelanguage` endpoint is blocked for this project. `gemini-3.1-flash-image` is a drop-in faster successor if desired. |
+| `noise` 0.9.0 (only if chosen) | Rust 1.95 workspace | Would need verifying against clippy-pedantic + cross-OS f32 goldens — the reason it's *not* recommended. |
+| Phaser `^4.1.0` | React 19 / Vite 7 (current) | `RenderTexture` + `load.atlas` are built-in; no plugin needed for chunking or atlases. |
 
 ## Sources
 
-- Tauri 2.0 architecture and IPC: training knowledge from Tauri 2.0 stable release (October 2024) — verify at https://v2.tauri.app
-- Tauri Channel API: specifically documented in https://v2.tauri.app/develop/calling-rust/#channels
-- Tauri plugin list: https://v2.tauri.app/plugin/
-- Tauri capabilities/permissions: https://v2.tauri.app/security/capabilities/
-- React 19 release: training knowledge from December 2024
-- Zustand 5 release: training knowledge from October 2024
-- Vite 6 release: training knowledge from November 2024
-- specta/tauri-specta: https://github.com/oscartbeaumont/tauri-specta
-- shadcn/ui: https://ui.shadcn.com
-- Project context: `.planning/PROJECT.md`, `.planning/codebase/STACK.md`, `.planning/codebase/ARCHITECTURE.md`
-- Existing research: `.planning/research/ARCHITECTURE.md` (IPC patterns), `.planning/research/PITFALLS.md` (streaming + blocking pitfalls)
+- In-repo (HIGH): `tauri-app/src-tauri/src/civilization.rs` — `next_rng`/`seed_from` (xorshift32 + FNV-1a), `seabed_ripple`/`floor_y_at` (existing hand-rolled value-noise), `seed_underground_veins` (rng-after-founders determinism rule), determinism tests.
+- In-repo (HIGH): `output/civ-gen/gemini/{gen.mjs,postprocess.py,jobs-*.json,package.json}` — complete working Gemini→PNG→public/civ pipeline; `gemini-2.5-flash-image` via Vertex express REST; build-time/committed.
+- In-repo (HIGH): `tauri-app/src/components/civilization/CivilizationGameCanvas.tsx:465–471` — per-file `this.load.image` loader; `TERRAIN_TILES/RESOURCE_KEYS/BUILDING_KEYS/ACCESSORIES` maps.
+- In-repo (HIGH): `tauri-app/package.json` — Phaser 4.1, Zustand 5, Tailwind 4 + shadcn + radix-ui + lucide + cmdk + @tanstack/react-virtual already present (covers shop/inventory UI).
+- ctx7 + crates.io (HIGH): `noise` 0.9.0 (`Fbm::<Perlin>::new(seed)`), `bracket-noise` 0.8.7, `fastnoise-lite` — verified latest versions; recommended *against*.
+- ai.google.dev/gemini-api/docs/pricing (HIGH, 2026-06): `gemini-2.5-flash-image` current; ~$0.039/image standard, ~$0.0195/image batch, 1290 tokens/1024px image; `gemini-3.1-flash-image`/`gemini-3-pro-image`/`imagen-4.0` exist as alternatives.
+- civ-multi-civ-world-plan.md §W10.6/W10.7 (HIGH): explicit cross-platform f32-determinism caveat + `CAVE_CAP` + rng-after-founders rules this stack respects.
 
-**CRITICAL:** Verify all npm package versions at npmjs.com and Rust crate versions at crates.io before pinning. All versions stated here are as of August 2025.
+---
+*Stack research for: xolotl v2.1 Living World & Economy (additions to an existing engine)*
+*Researched: 2026-06-07*

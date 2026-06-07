@@ -1,5 +1,63 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { chooseCivPilotDecision, createCivPilotMemory, type CivPilotTextState } from "./civPilot";
+
+// renderSnapshotToText lives in the canvas module, which imports Phaser at module
+// load (Phaser's ESM init touches a canvas and crashes under jsdom). The render
+// function itself is pure (no Phaser), so stub the module to import it safely.
+vi.mock("phaser", () => {
+  class Scene {}
+  return { default: { Scene, Game: class {}, AUTO: 0, Scale: { RESIZE: 0, NO_CENTER: 0 } }, Scene };
+});
+
+import { renderSnapshotToText } from "../components/civilization/CivilizationGameCanvas";
+import type { CivCivilization, CivSessionSnapshot } from "../bindings";
+
+function fixtureCiv(overrides: Partial<CivCivilization> = {}): CivCivilization {
+  return {
+    id: "civ-1",
+    name: "Pondfolk",
+    model: "claude",
+    color: "#6dd6a7",
+    spawn_x: 0,
+    home_region: "",
+    alive: true,
+    diplomacy: {},
+    era: "pond_camp",
+    population: 12,
+    health: 80,
+    morale: 70,
+    resources: { food: 5, stone: 3 },
+    techs: [],
+    policies: [],
+    score: { survival: 10, ethics: 5, intelligence: 8, total: 23 },
+    controller: null,
+    ...overrides,
+  };
+}
+
+function multiCivSnapshot(civs: CivCivilization[]): CivSessionSnapshot {
+  return {
+    id: "sess-1",
+    name: "Arena",
+    seed: 1,
+    version: 2,
+    created_at: 0,
+    updated_at: 0,
+    turn: 3,
+    world: { width: 64, height: 36, tiles: [], entities: [], regions: [] },
+    civs,
+    environment: {
+      season: "spring",
+      turn_of_season: 1,
+      temperature: 14,
+      water_level: 0,
+      disasters: [],
+      forecast: null,
+    },
+    modifiers: [],
+    log: [],
+  };
+}
 
 function rescueTask(overrides: Partial<NonNullable<CivPilotTextState["player_task"]>> = {}): NonNullable<CivPilotTextState["player_task"]> {
   return {
@@ -940,5 +998,55 @@ describe("chooseCivPilotDecision", () => {
     if (decision.action !== "interact") return;
     expect(decision.tool).toBe("use");
     expect(decision.target?.targetId).toBe("axo-1");
+  });
+});
+
+describe("renderSnapshotToText arena contract", () => {
+  const civs = [
+    fixtureCiv({ id: "civ-1", name: "Pondfolk", model: "claude", controller: null, score: { survival: 10, ethics: 5, intelligence: 8, total: 23 } }),
+    fixtureCiv({ id: "civ-2", name: "Mudborn", model: "gpt", controller: "codex", color: "#d68a6d", resources: { food: 9 }, score: { survival: 20, ethics: 9, intelligence: 12, total: 41 } }),
+    fixtureCiv({ id: "civ-3", name: "Reedkin", model: "kimi", controller: null, color: "#6d9fd6", resources: { stone: 2 }, score: { survival: 4, ethics: 2, intelligence: 3, total: 9 } }),
+  ];
+
+  it("preserves the legacy single-civ keys the codex harness parses", () => {
+    const state = JSON.parse(renderSnapshotToText(multiCivSnapshot(civs))) as CivPilotTextState & {
+      civilization?: { resources?: unknown };
+    };
+
+    // codex-play-civ.mjs contract (readState/progressSignature): civilization.resources object.
+    expect(state.civilization?.resources).toBeTypeOf("object");
+    expect((state.civilization as { resources: Record<string, number> }).resources).toMatchObject({ food: 5, stone: 3 });
+    // player + player_task + visible_entities keys must remain present.
+    expect(state.player).toBeDefined();
+    expect("player_task" in state).toBe(true);
+    expect(Array.isArray(state.visible_entities)).toBe(true);
+  });
+
+  it("additively exposes civs[], a score-sorted leaderboard, and environment", () => {
+    const state = JSON.parse(renderSnapshotToText(multiCivSnapshot(civs))) as CivPilotTextState;
+
+    expect(Array.isArray(state.civs)).toBe(true);
+    expect(state.civs).toHaveLength(civs.length);
+    const first = state.civs![0];
+    expect(first).toMatchObject({ id: "civ-1", name: "Pondfolk", model: "claude", color: "#6dd6a7", controller: null });
+    expect(typeof first.alive).toBe("boolean");
+    expect(first.resources).toMatchObject({ food: 5, stone: 3 });
+    expect(first.score).toMatchObject({ survival: 10, ethics: 5, intelligence: 8, total: 23 });
+
+    expect(Array.isArray(state.leaderboard)).toBe(true);
+    expect(state.leaderboard).toHaveLength(civs.length);
+    const totals = state.leaderboard!.map((entry) => entry.score.total);
+    expect(totals).toEqual([41, 23, 9]);
+    expect(state.leaderboard![0].id).toBe("civ-2");
+    expect(state.leaderboard![0].controller).toBe("codex");
+
+    expect(state.environment).toBeDefined();
+    expect((state.environment as { season: string }).season).toBe("spring");
+  });
+
+  it("never leaks provider config / key material into the text-state", () => {
+    const raw = renderSnapshotToText(multiCivSnapshot(civs));
+    expect(raw).not.toMatch(/API_KEY/i);
+    expect(raw).not.toMatch(/ANTHROPIC|AWS_|BASE_URL/);
   });
 });

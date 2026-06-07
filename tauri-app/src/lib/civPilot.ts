@@ -94,6 +94,28 @@ export type CivPilotTextState = {
   };
   player_task?: CivPlayerTask | null;
   visible_entities?: CivPilotVisibleEntity[];
+  civs?: Array<{
+    id: string;
+    name: string;
+    model: string;
+    color: string;
+    alive: boolean;
+    population: number;
+    era: string;
+    score: { survival: number; ethics: number; intelligence: number; total: number };
+    controller: string | null;
+    resources: Record<string, number>;
+  }>;
+  leaderboard?: Array<{
+    id: string;
+    name: string;
+    model: string;
+    color: string;
+    alive: boolean;
+    score: { survival: number; ethics: number; intelligence: number; total: number };
+    controller: string | null;
+  }>;
+  environment?: unknown;
 };
 
 export function createCivPilotMemory(): CivPilotMemory {

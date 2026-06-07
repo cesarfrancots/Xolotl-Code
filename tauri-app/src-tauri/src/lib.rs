@@ -12,9 +12,10 @@ use tauri_specta::{collect_commands, Builder};
 
 use crate::civilization::{
     advance_civ_turn, apply_civ_intervention, create_civ_session, delete_civ_session,
-    list_civ_sessions, load_civ_session, CivCivilization, CivDecisionAction, CivEntity, CivGenes,
-    CivIntervention, CivLogEntry, CivModelDecision, CivModifier, CivRegion, CivScore,
-    CivSessionConfig, CivSessionMeta, CivSessionSnapshot, CivTile, CivWorld,
+    list_civ_sessions, load_civ_session, set_civ_controller, CivCivilization, CivDecisionAction,
+    CivEntity, CivGenes, CivIntervention, CivLogEntry, CivModelDecision, CivModifier,
+    CivParticipant, CivRegion, CivScore, CivSessionConfig, CivSessionMeta, CivSessionSnapshot,
+    CivTile, CivWorld,
 };
 use crate::commands::{
     add_project, browse_directory, build_hint_proposals, build_reliability_profiles,
@@ -226,6 +227,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             load_civ_session,
             delete_civ_session,
             apply_civ_intervention,
+            set_civ_controller,
             advance_civ_turn,
         ])
         .typ::<AgentId>()
@@ -274,6 +276,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<McpTestResult>()
         .typ::<TerminalInfo>()
         .typ::<CivSessionConfig>()
+        .typ::<CivParticipant>()
         .typ::<CivSessionMeta>()
         .typ::<CivSessionSnapshot>()
         .typ::<CivWorld>()

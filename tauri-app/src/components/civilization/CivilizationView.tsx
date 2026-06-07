@@ -45,14 +45,15 @@ import {
   type CivPilotMemory,
   type CivPilotTarget,
 } from "../../lib/civPilot";
-import type {
-  CivCivilization,
-  CivEntity,
-  CivIntervention,
-  CivLogEntry,
-  CivModifier,
-  CivRegion,
-  CivSessionSnapshot,
+import {
+  commands,
+  type CivCivilization,
+  type CivEntity,
+  type CivIntervention,
+  type CivLogEntry,
+  type CivModifier,
+  type CivRegion,
+  type CivSessionSnapshot,
 } from "../../bindings";
 
 declare global {
@@ -63,9 +64,22 @@ declare global {
       recenter(): void;
       toggleFollow(): void;
       focusRegion(x: number, width: number): void;
+      // Additive (REN-02): the four above remain (ARENA-02 extend-only contract).
+      focusCiv?(civId: string): void;
+      frameAll?(): void;
     };
     civPilotControls?: {
-      start(options?: { goal?: CivPilotGoal; possessId?: string; requesterId?: string; continueAfterTask?: boolean }): void;
+      start(options?: {
+        goal?: CivPilotGoal;
+        possessId?: string;
+        requesterId?: string;
+        continueAfterTask?: boolean;
+        // Additive (ARENA-02): scope the harness to one civ by id and tag its
+        // controller for leaderboard attribution. Both optional — existing
+        // start({goal, possessId, …}) callers are unaffected.
+        civId?: string;
+        controller?: string;
+      }): void;
       stop(): void;
     };
   }
@@ -134,6 +148,26 @@ type PersistedCivPlayerSessionState = {
 const STAGE_LABEL: Record<string, string> = {
   egg: "Egg", hatchling: "Hatchling", juvenile: "Juvenile", adult: "Adult", elder: "Elder",
 };
+// Auto-assigned per-civ palette, mirroring the backend CIV_COLORS ordering
+// (civilization.rs:66-68) so creation-time chips match the founded civ colors.
+const CIV_PALETTE = [
+  "#7fdfff", "#ff9ec7", "#9bffa0", "#ffd66e", "#c79cff", "#ff8f6e", "#6ee0c7", "#f4f59a",
+];
+const MAX_PARTICIPANTS = 3;
+
+type CivParticipantDraft = { name: string; model: string; color: string };
+
+function paletteColor(index: number) {
+  return CIV_PALETTE[index % CIV_PALETTE.length];
+}
+
+function makeParticipant(index: number, model: string): CivParticipantDraft {
+  return { name: `Civ ${index + 1}`, model, color: paletteColor(index) };
+}
+
+function preferredModel(models: string[]) {
+  return models.find((m) => m.toLowerCase().includes("kimi")) ?? models[0] ?? "";
+}
 
 type PilotReadout = {
   label: string;
@@ -166,6 +200,7 @@ export function CivilizationView() {
   const sessions = useCivStore((s) => s.sessions);
   const activeSessionId = useCivStore((s) => s.activeSessionId);
   const snapshot = useCivStore((s) => s.activeSnapshot);
+  const selectedCivId = useCivStore((s) => s.selectedCivId);
   const models = useCivStore((s) => s.models);
   const loading = useCivStore((s) => s.loading);
   const turnRunning = useCivStore((s) => s.turnRunning);
@@ -179,9 +214,10 @@ export function CivilizationView() {
   const applyIntervention = useCivStore((s) => s.applyIntervention);
   const hydrateSnapshot = useCivStore((s) => s.hydrateSnapshot);
   const setError = useCivStore((s) => s.setError);
+  const setSelectedCivId = useCivStore((s) => s.setSelectedCivId);
 
   const [name, setName] = useState("Axolotl Colony");
-  const [selectedModel, setSelectedModel] = useState("");
+  const [participants, setParticipants] = useState<CivParticipantDraft[]>([makeParticipant(0, "")]);
   const [resource, setResource] = useState("food");
   const [amount, setAmount] = useState(10);
   const [modifier, setModifier] = useState("abundant_moss");
@@ -213,12 +249,17 @@ export function CivilizationView() {
     void loadSessions();
   }, [loadModels, loadSessions]);
 
+  // Once models load, backfill any participant row that has no model yet
+  // (the initial row starts blank because models arrive asynchronously).
   useEffect(() => {
-    if (!selectedModel && models.length > 0) {
-      const preferred = models.find((m) => m.toLowerCase().includes("kimi")) ?? models[0];
-      setSelectedModel(preferred);
-    }
-  }, [models, selectedModel]);
+    if (models.length === 0) return;
+    const fallback = preferredModel(models);
+    setParticipants((rows) => (
+      rows.some((row) => !row.model)
+        ? rows.map((row) => (row.model ? row : { ...row, model: fallback }))
+        : rows
+    ));
+  }, [models]);
 
   useEffect(() => {
     if (!activeSessionId && sessions && sessions.length > 0) {
@@ -252,8 +293,22 @@ export function CivilizationView() {
     return () => window.clearTimeout(timer);
   }, [autoplay, turnRunning, snapshot?.turn, advanceTurn, snapshot]);
 
-  const recentLog = useMemo(() => [...(snapshot?.log ?? [])].reverse().slice(0, 12), [snapshot?.log]);
-  const activeCiv = snapshot ? primaryCiv(snapshot) : null;
+  const activeCiv = snapshot
+    ? (snapshot.civs?.find((c) => c.id === selectedCivId) ?? primaryCiv(snapshot))
+    : null;
+  // One combined chronological stream; when a civ is selected, scope it to that
+  // civ via the robust civ_id field (Plan 01), never name-string matching.
+  const recentLog = useMemo(() => {
+    const all = [...(snapshot?.log ?? [])].reverse();
+    const scoped = selectedCivId ? all.filter((entry) => entry.civ_id === selectedCivId) : all;
+    return scoped.slice(0, 12);
+  }, [snapshot?.log, selectedCivId]);
+  // Drive the camera from the selection signal (REN-02): a selected civ (e.g. a
+  // leaderboard row click, Phase 1) focuses that civ; clearing it frames all civs.
+  useEffect(() => {
+    if (selectedCivId) window.civCamera?.focusCiv?.(selectedCivId);
+    else window.civCamera?.frameAll?.();
+  }, [selectedCivId]);
   const mvpStatus = snapshot ? getMvpStatus(snapshot, activeCiv) : null;
   const activePlayerTask = useMemo(
     () => (snapshot ? activeCivPlayerTask(snapshot, activeCiv) : null),
@@ -408,6 +463,17 @@ export function CivilizationView() {
   useEffect(() => {
     const controls: NonNullable<Window["civPilotControls"]> = {
       start: (options = {}) => {
+        // Additive scoping (ARENA-02/03, A1): when the harness names a civ, make
+        // it the selected/observed one and tag its controller for leaderboard
+        // attribution. The controller value is a free-form harness label, never a
+        // provider key — the backend (set_civ_controller, Plan 01) sanitizes it
+        // (threat T-04-01). Possession behavior below is unchanged.
+        if (options.civId) {
+          setSelectedCivId(options.civId);
+          if (options.controller !== undefined && activeSessionId) {
+            void commands.setCivController(activeSessionId, options.civId, options.controller);
+          }
+        }
         const nextGoal = options.goal ?? pilotGoal;
         const nextPossessedId = options.possessId && possessableAxos.some((entity) => entity.id === options.possessId)
           ? options.possessId
@@ -442,7 +508,7 @@ export function CivilizationView() {
     return () => {
       if (window.civPilotControls === controls) delete window.civPilotControls;
     };
-  }, [pilotGoal, possessableAxos, selectedPlayerId]);
+  }, [pilotGoal, possessableAxos, selectedPlayerId, setSelectedCivId, activeSessionId]);
 
   useEffect(() => {
     if (!codexPilot || !snapshot) {
@@ -531,9 +597,35 @@ export function CivilizationView() {
     return () => window.clearInterval(timer);
   }, [advanceTurn, codexPilot, snapshot, selectedPlayerId, pilotGoal, possessableAxos, turnRunning]);
 
+  function addParticipant() {
+    setParticipants((rows) => (
+      rows.length >= MAX_PARTICIPANTS
+        ? rows
+        : [...rows, makeParticipant(rows.length, preferredModel(models))]
+    ));
+  }
+
+  function removeParticipant(index: number) {
+    setParticipants((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== index)));
+  }
+
+  function updateParticipant(index: number, patch: Partial<CivParticipantDraft>) {
+    setParticipants((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  const canFound = !loading && participants.every((p) => Boolean(p.model));
+
   async function handleCreate() {
-    const model = selectedModel || models[0] || "";
-    await createSession({ name, model, seed: null });
+    if (!canFound) return;
+    const fallback = preferredModel(models);
+    const civs = participants.map((p, i) => ({
+      name: p.name.trim() || `Civ ${i + 1}`,
+      model: p.model || fallback,
+      color: p.color,
+    }));
+    await createSession({ name, seed: null, civs });
+    // Reset selection to the founding colony so the observer panel has a focus.
+    setSelectedCivId(null);
     setLeftOpen(false);
   }
 
@@ -815,18 +907,14 @@ export function CivilizationView() {
               </p>
               <div className="space-y-2">
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Colony name" />
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="civ-select"
-                >
-                  {models.length ? (
-                    models.map((m) => <option key={m} value={m}>{m}</option>)
-                  ) : (
-                    <option value="" disabled>No models available</option>
-                  )}
-                </select>
-                <Button className="w-full" disabled={loading || !selectedModel} onClick={() => void handleCreate()}>
+                <ParticipantPicker
+                  participants={participants}
+                  models={models}
+                  onAdd={addParticipant}
+                  onRemove={removeParticipant}
+                  onChange={updateParticipant}
+                />
+                <Button className="w-full" disabled={!canFound} onClick={() => void handleCreate()}>
                   <Sprout className="h-3.5 w-3.5" />
                   Found Colony
                 </Button>
@@ -840,6 +928,15 @@ export function CivilizationView() {
           </div>
         )}
       </div>
+
+      {/* ── persistent top-bar leaderboard (above the canvas) ──────────── */}
+      {!uiHidden && snapshot && (
+        <Leaderboard
+          civs={snapshot.civs ?? []}
+          selectedCivId={selectedCivId}
+          onSelect={setSelectedCivId}
+        />
+      )}
 
       {/* ── persistent corner control: hide / reveal the HUD ───────────── */}
       <button
@@ -941,14 +1038,16 @@ export function CivilizationView() {
           <div className="civ-drawer-body">
             <Section label="New colony" icon={<Plus className="h-3.5 w-3.5" />}>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Colony name" />
-              <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} className="civ-select mt-2">
-                {models.length ? (
-                  models.map((m) => <option key={m} value={m}>{m}</option>)
-                ) : (
-                  <option value="" disabled>No models available</option>
-                )}
-              </select>
-              <Button size="sm" className="mt-2 w-full" disabled={loading || !selectedModel} onClick={() => void handleCreate()}>
+              <div className="mt-2">
+                <ParticipantPicker
+                  participants={participants}
+                  models={models}
+                  onAdd={addParticipant}
+                  onRemove={removeParticipant}
+                  onChange={updateParticipant}
+                />
+              </div>
+              <Button size="sm" className="mt-2 w-full" disabled={!canFound} onClick={() => void handleCreate()}>
                 <Sprout className="h-3.5 w-3.5" />
                 Found Colony
               </Button>
@@ -1234,6 +1333,151 @@ export function CivilizationView() {
         </div>
       )}
     </main>
+  );
+}
+
+function ParticipantPicker({
+  participants,
+  models,
+  onAdd,
+  onRemove,
+  onChange,
+}: {
+  participants: CivParticipantDraft[];
+  models: string[];
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+  onChange: (index: number, patch: Partial<CivParticipantDraft>) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      {participants.map((participant, index) => (
+        <div key={index} className="flex items-center gap-1.5">
+          <input
+            type="color"
+            aria-label={`Participant ${index + 1} color`}
+            value={participant.color}
+            onChange={(e) => onChange(index, { color: e.target.value })}
+            className="civ-color-chip h-7 w-7 flex-none cursor-pointer rounded border border-[oklch(0.24_0.008_240)] bg-transparent p-0.5"
+            title={`Color for ${participant.name || `Civ ${index + 1}`}`}
+          />
+          <Input
+            aria-label={`Participant ${index + 1} name`}
+            value={participant.name}
+            onChange={(e) => onChange(index, { name: e.target.value })}
+            placeholder={`Civ ${index + 1}`}
+            className="flex-1"
+          />
+          <select
+            aria-label={`Participant ${index + 1} model`}
+            value={participant.model}
+            onChange={(e) => onChange(index, { model: e.target.value })}
+            className="civ-select flex-1"
+          >
+            {models.length ? (
+              models.map((m) => <option key={m} value={m}>{m}</option>)
+            ) : (
+              <option value="" disabled>No models available</option>
+            )}
+          </select>
+          {participants.length > 1 && (
+            <button
+              type="button"
+              aria-label={`Remove participant ${index + 1}`}
+              onClick={() => onRemove(index)}
+              className="flex-none rounded p-1 text-[oklch(0.44_0.012_230)] hover:text-[oklch(0.78_0.055_28)]"
+              title="Remove civilization"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      ))}
+      <Button
+        size="xs"
+        variant="outline"
+        className="w-full"
+        disabled={participants.length >= MAX_PARTICIPANTS}
+        onClick={onAdd}
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add civilization
+      </Button>
+    </div>
+  );
+}
+
+// Persistent top-bar leaderboard: ranks living civs by score.total desc and
+// pushes collapsed (alive === false) civs greyed to the bottom (D-06/07/08).
+// Derived from snapshot.civs (mirrors the backend leaderboard() ordering), not
+// the event field. A row-click selects the civ that drives the observer + log.
+function Leaderboard({
+  civs,
+  selectedCivId,
+  onSelect,
+}: {
+  civs: CivCivilization[];
+  selectedCivId: string | null;
+  onSelect: (id: string | null) => void;
+}) {
+  const ranked = useMemo(() => {
+    const byScoreDesc = (a: CivCivilization, b: CivCivilization) =>
+      (b.score?.total ?? 0) - (a.score?.total ?? 0);
+    const living = civs.filter((c) => c.alive !== false).sort(byScoreDesc);
+    const collapsed = civs.filter((c) => c.alive === false).sort(byScoreDesc);
+    return [...living, ...collapsed];
+  }, [civs]);
+
+  if (ranked.length === 0) return null;
+
+  return (
+    <div
+      className="civ-leaderboard civ-glass absolute left-1/2 top-3 z-20 flex max-w-[min(640px,92vw)] -translate-x-1/2 flex-wrap items-center gap-1 px-2 py-1.5"
+      aria-label="Civilization leaderboard"
+    >
+      {ranked.map((civ, index) => {
+        const id = civ.id ?? `civ-${index + 1}`;
+        const collapsed = civ.alive === false;
+        const selected = selectedCivId === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            className={[
+              "civ-leader-row flex items-center gap-1.5 rounded-md border px-2 py-1 transition-colors",
+              collapsed
+                ? "is-collapsed border-[oklch(0.22_0.006_240)] bg-[oklch(0.09_0.004_245)]/50 opacity-55"
+                : "border-[oklch(0.26_0.010_235)]/70 bg-[oklch(0.10_0.004_245)]/70 hover:bg-[oklch(0.15_0.006_240)]",
+              selected ? "is-selected border-[oklch(0.50_0.05_175)] bg-[oklch(0.16_0.014_170)]" : "",
+            ].join(" ")}
+            onClick={() => onSelect(id)}
+            title={collapsed ? `${civ.name ?? id} (collapsed)` : civ.name ?? id}
+          >
+            <span
+              className="civ-leader-swatch h-2.5 w-2.5 flex-none rounded-full"
+              style={{ background: civ.color ?? "#6dd6a7" }}
+            />
+            <span className="civ-leader-rank text-[10px] tabular-nums text-[oklch(0.50_0.012_225)]">#{index + 1}</span>
+            <span className="civ-leader-name max-w-[120px] truncate text-left text-[11px] font-semibold text-[oklch(0.86_0.016_220)]">
+              {civ.name ?? id}
+            </span>
+            {civ.controller && (
+              <span className="civ-leader-badge rounded border border-[oklch(0.42_0.05_175)]/60 bg-[oklch(0.16_0.014_170)] px-1 py-px text-[9px] uppercase tracking-[0.08em] text-[oklch(0.80_0.055_175)]">
+                {civ.controller}
+              </span>
+            )}
+            {collapsed && (
+              <span className="civ-leader-collapsed text-[9px] uppercase tracking-[0.10em] text-[oklch(0.55_0.060_35)]">
+                collapsed
+              </span>
+            )}
+            <span className="civ-leader-score text-[11px] font-semibold tabular-nums text-[oklch(0.84_0.050_175)]">
+              {formatScore(civ.score?.total)}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1905,17 +2149,48 @@ function ModifiersPanel({ modifiers }: { modifiers: CivModifier[] }) {
 function LogPanel({ entries }: { entries: CivLogEntry[] }) {
   if (entries.length === 0) return <div className="text-xs text-[oklch(0.52_0.012_225)]">No events yet.</div>;
   return (
-    <div className="space-y-2">
+    <div className="civ-log space-y-2">
       {entries.map((entry, index) => (
-        <article key={`${entry.created_at}-${index}`} className="rounded-md border border-[oklch(0.24_0.008_240)] bg-[oklch(0.10_0.004_245)]/70 px-2.5 py-2">
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <span className="truncate text-xs font-semibold text-[oklch(0.85_0.018_220)]">{entry.title}</span>
-            <span className="text-[10px] tabular-nums text-[oklch(0.44_0.012_225)]">T{entry.turn}</span>
-          </div>
-          <p className="text-[11px] leading-relaxed text-[oklch(0.58_0.014_225)]">{cleanCivLogBody(entry)}</p>
-        </article>
+        <LogEntryRow key={`${entry.created_at}-${index}`} entry={entry} />
       ))}
     </div>
+  );
+}
+
+// One combined, color/model-tagged log entry. Title + rationale are always
+// visible; the model's private reasoning (D-12 Option B) is collapsed behind a
+// per-entry toggle and only when entry.reasoning is present. Reasoning and
+// rationale are untrusted model output — rendered as escaped React text
+// children, never via dangerouslySetInnerHTML (threat T-04-02).
+function LogEntryRow({ entry }: { entry: CivLogEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const reasoning = entry.reasoning?.trim() ?? "";
+  return (
+    <article className="rounded-md border border-[oklch(0.24_0.008_240)] bg-[oklch(0.10_0.004_245)]/70 px-2.5 py-2">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="truncate text-xs font-semibold text-[oklch(0.85_0.018_220)]">{entry.title}</span>
+        <span className="text-[10px] tabular-nums text-[oklch(0.44_0.012_225)]">T{entry.turn}</span>
+      </div>
+      <p className="text-[11px] leading-relaxed text-[oklch(0.58_0.014_225)]">{cleanCivLogBody(entry)}</p>
+      {reasoning && (
+        <>
+          <button
+            type="button"
+            className="civ-log-reasoning-toggle mt-1.5 inline-flex items-center gap-1 rounded border border-[oklch(0.30_0.030_265)]/55 bg-[oklch(0.12_0.010_265)]/60 px-1.5 py-0.5 text-[10px] font-medium text-[oklch(0.66_0.040_265)] transition-colors hover:bg-[oklch(0.16_0.014_265)]"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            <Brain className="h-3 w-3" />
+            <span>{expanded ? "Hide reasoning" : "Show reasoning"}</span>
+          </button>
+          {expanded && (
+            <p className="civ-log-reasoning mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-[oklch(0.62_0.020_265)]">
+              {reasoning}
+            </p>
+          )}
+        </>
+      )}
+    </article>
   );
 }
 

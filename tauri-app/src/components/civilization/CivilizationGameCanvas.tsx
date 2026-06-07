@@ -14,6 +14,9 @@ declare global {
       recenter(): void;
       toggleFollow(): void;
       focusRegion(x: number, width: number): void;
+      // Additive (REN-02): the four above remain (ARENA-02 extend-only contract).
+      focusCiv?(civId: string): void;
+      frameAll?(): void;
     };
   }
 }
@@ -34,6 +37,7 @@ const TILE_SIZE = 16;
 const VARIANT_COUNT = 12;
 const FRAMES_PER_VARIANT = 4;
 const SURFACE_ROWS = 6; // air band at the very top (matches backend WATER_SURFACE_Y)
+const WATER_FLOOR_Y = 50; // base seabed row where colonies live (matches backend WATER_FLOOR_Y)
 const PLAYER_DASH_COOLDOWN_MS = 1350;
 const PLAYER_JUMP_IMPULSE = -8.2;
 const PLAYER_JUMP_GRAVITY = 0.28;
@@ -344,6 +348,7 @@ type AxoSprite = {
   glowMorph: boolean;
   born: number;
   workSeed: number;
+  appliedTint?: number;
 };
 
 type Particle = { x: number; y: number; vx: number; vy: number; age: number; ttl: number; color: number; r: number; rise: boolean };
@@ -363,6 +368,7 @@ class CivPhaserScene extends Phaser.Scene {
   private bgBase?: Phaser.GameObjects.Rectangle;
   private water?: Phaser.GameObjects.TileSprite;
   private wash?: Phaser.GameObjects.Graphics;
+  private territory?: Phaser.GameObjects.Graphics;
   private depthGrad?: Phaser.GameObjects.Graphics;
   private skyGrad?: Phaser.GameObjects.Graphics;
   private substrate?: Phaser.GameObjects.Container;
@@ -431,6 +437,11 @@ class CivPhaserScene extends Phaser.Scene {
   private elapsed = 0;
   private prevTurn = 0;
   private colony = { x: 0, y: 0 };
+  // One framing point (world pixels) per civ; drives the multi-colony camera fit.
+  private colonies: { civId: string; x: number; y: number; alive: boolean }[] = [];
+  // Living-civ count from the previous snapshot — a shrink triggers a collapse re-frame.
+  private prevLivingCount = -1;
+  private civColorById = new Map<string, { tint: number; alive: boolean }>();
 
   private following = true;
   private dragging = false;
@@ -465,6 +476,7 @@ class CivPhaserScene extends Phaser.Scene {
     this.water = this.add.tileSprite(0, 0, 10, 10, "civ-water").setOrigin(0, 0).setDepth(-12);
     this.water.setTileScale(TILE_SIZE / 256, TILE_SIZE / 256);
     this.wash = this.add.graphics().setDepth(-11);
+    this.territory = this.add.graphics().setDepth(-10.5);
     this.depthGrad = this.add.graphics().setDepth(-10);
     this.skyGrad = this.add.graphics().setDepth(-9);
     this.substrate = this.add.container().setDepth(-7);
@@ -482,7 +494,7 @@ class CivPhaserScene extends Phaser.Scene {
     this.cameras.main.ignore(this.minimap);
     this.uiCam.ignore(
       [
-        this.bgBase, this.water, this.wash, this.depthGrad, this.skyGrad,
+        this.bgBase, this.water, this.wash, this.territory, this.depthGrad, this.skyGrad,
         this.substrate, this.caustics, this.shadows, this.resourceLayer,
         this.buildingLayer, this.effects,
       ].filter(Boolean) as Phaser.GameObjects.GameObject[],
@@ -512,9 +524,15 @@ class CivPhaserScene extends Phaser.Scene {
     this.installCameraApi();
     this.scale.on("resize", () => this.onResize());
 
+    this.civColorById = buildCivColorMap(this.snapshot.civs);
     this.rebuildWorld();
     this.syncEntities();
     this.recomputeColony();
+    this.recomputeColonies();
+    // Seed the collapse baseline from the authoritative civ list (see MED-03 in
+    // setSnapshot), not from however many colonies happened to resolve this frame.
+    // `alive` is `false` only once collapsed; undefined defaults to living.
+    this.prevLivingCount = (this.snapshot.civs ?? []).filter((c) => c.alive !== false).length;
     this.onResize();
   }
 
@@ -524,6 +542,7 @@ class CivPhaserScene extends Phaser.Scene {
     this.prevTurn = snapshot.turn;
     this.snapshot = snapshot;
     if (!this.sys?.isActive()) return;
+    this.civColorById = buildCivColorMap(snapshot.civs);
     this.rebuildWorld();
     this.syncEntities();
     if (this.possessedEntityId && !this.axos.has(this.possessedEntityId)) {
@@ -531,6 +550,18 @@ class CivPhaserScene extends Phaser.Scene {
       this.clearPlayerTargetLock();
     }
     this.recomputeColony();
+    this.recomputeColonies();
+    // Re-frame on collapse: when the living-civ count shrinks, drop the dead civ
+    // from the default view. (World create/load re-frames via the `framed` flip.)
+    // Count from the authoritative civ list, NOT this.colonies — a colony that is
+    // alive but momentarily unresolvable (no home_region/entities/spawn_x) would
+    // otherwise drop from the count and trigger a spurious collapse re-frame (MED-03).
+    // `alive` is `false` only once collapsed; undefined defaults to living.
+    const living = (this.snapshot.civs ?? []).filter((c) => c.alive !== false).length;
+    if (this.prevLivingCount >= 0 && living < this.prevLivingCount && living > 0) {
+      this.frameAll();
+    }
+    this.prevLivingCount = living;
   }
 
   setTurnRunning(running: boolean) {
@@ -686,6 +717,20 @@ class CivPhaserScene extends Phaser.Scene {
       this.wash?.fillStyle(col, 0.1);
       this.wash?.fillRect(region.x * TILE_SIZE, SURFACE_ROWS * TILE_SIZE, region.width * TILE_SIZE, this.worldH);
     }
+    // per-owner territory overlay (civ-colour fill + border); unowned -> neutral.
+    this.territory?.clear();
+    const territoryTop = SURFACE_ROWS * TILE_SIZE;
+    for (const region of world.regions ?? []) {
+      const overlay = regionOverlayFor(region.owner, this.civColorById);
+      if (!overlay) continue;
+      const rx = region.x * TILE_SIZE;
+      const rw = region.width * TILE_SIZE;
+      const rh = this.worldH - territoryTop;
+      this.territory?.fillStyle(overlay.tint, overlay.alive ? 0.14 : 0.06);
+      this.territory?.fillRect(rx, territoryTop, rw, rh);
+      this.territory?.lineStyle(2, overlay.tint, overlay.alive ? 0.6 : 0.25);
+      this.territory?.strokeRect(rx, territoryTop, rw, rh);
+    }
     this.depthGrad?.clear();
     const bands = 40;
     const top = SURFACE_ROWS * TILE_SIZE;
@@ -749,7 +794,7 @@ class CivPhaserScene extends Phaser.Scene {
     if (!layer) return;
     let sig = "";
     for (const e of this.snapshot.world.entities) {
-      if (e.kind === "building" || e.kind === "object") sig += `${e.id},${e.kind},${e.x},${e.y},${e.role},${e.activity},${Math.round(e.health ?? 0)};`;
+      if (e.kind === "building" || e.kind === "object") sig += `${e.id},${e.kind},${e.x},${e.y},${e.role},${e.activity},${e.civ_id ?? ""},${Math.round(e.health ?? 0)};`;
     }
     if (sig === this.prevBuildingSig) return;
     this.prevBuildingSig = sig;
@@ -771,6 +816,9 @@ class CivPhaserScene extends Phaser.Scene {
       img.setDisplaySize(big, big);
       img.setDepth(entity.y * 0.02);
       layer.add(img);
+      const buildingInfo = this.civColorById.get(entity.civ_id ?? "");
+      const buildingTint = civTintFor(buildingInfo, GREY_TINT);
+      if (buildingTint != null) img.setTint(buildingTint);
       if (!this.knownBuildings.has(entity.id)) {
         this.spawnPulse(px, py - 6, 0xaee9ff);
         this.tweens.add({ targets: img, scaleX: img.scaleX * 1.12, scaleY: img.scaleY * 1.12, yoyo: true, duration: 240, ease: "Sine.out" });
@@ -942,6 +990,28 @@ class CivPhaserScene extends Phaser.Scene {
     }
   }
 
+  // Multiply-tint the body by the owning civ's colour (lightened so morph/GFP
+  // detail still reads), grey for a dead civ. Wild fauna (civ_id == null → map
+  // miss) keeps its default morph tint. Re-applies ONLY when the wanted tint
+  // differs from the last applied value (no per-frame whole-world re-tint).
+  private applyCivTint(axo: AxoSprite, entity: CivEntity) {
+    const info = this.civColorById.get(entity.civ_id ?? "");
+    const wanted = civTintFor(info, GREY_TINT);
+    if (wanted == null) {
+      // Wild fauna / map miss. If a civ tint was previously applied (owned->wild
+      // transition), clear it so the sprite returns to its default morph tint
+      // rather than keeping the old civ's colour forever (MED-02).
+      if (axo.appliedTint !== undefined) {
+        axo.body.clearTint();
+        axo.appliedTint = undefined;
+      }
+      return;
+    }
+    if (axo.appliedTint === wanted) return;
+    axo.body.setTint(wanted);
+    axo.appliedTint = wanted;
+  }
+
   private createAxo(entity: CivEntity): AxoSprite {
     const px = entity.x * TILE_SIZE + TILE_SIZE / 2;
     const py = entity.y * TILE_SIZE + TILE_SIZE / 2 - 6;
@@ -1005,6 +1075,7 @@ class CivPhaserScene extends Phaser.Scene {
     };
     this.syncAccessories(axo, entity);
     this.applyTarget(axo, entity);
+    this.applyCivTint(axo, entity);
     return axo;
   }
 
@@ -1029,6 +1100,7 @@ class CivPhaserScene extends Phaser.Scene {
     } else {
       this.applyTarget(axo, entity);
     }
+    this.applyCivTint(axo, entity);
   }
 
   private applyTarget(axo: AxoSprite, entity: CivEntity) {
@@ -1121,7 +1193,7 @@ class CivPhaserScene extends Phaser.Scene {
     sh.clear();
     const view = this.cameras.main.worldView;
     for (const axo of this.axos.values()) {
-      const t = this.elapsed * (axo.isEgg ? 0.0025 : 0.004) + axo.phase;
+      const t = this.elapsed * (axo.isEgg ? 0.0018 : 0.0028) + axo.phase;
       const playerControlled = axo.id === this.possessedEntityId && !axo.isEgg;
       const act = playerControlled ? "player" : axo.activity;
       const hasTarget = !playerControlled && axo.targetX !== undefined && axo.targetY !== undefined;
@@ -1133,7 +1205,7 @@ class CivPhaserScene extends Phaser.Scene {
       let squashX = 1;
       let squashY = 1;
       let sway = 0;
-      let ease = 0.05;
+      let ease = 0.038;
 
       if (!axo.isEgg) {
         switch (act) {
@@ -1173,7 +1245,7 @@ class CivPhaserScene extends Phaser.Scene {
             break;
           }
           case "play": {
-            ease = 0.09;
+            ease = 0.07;
             wanderX = Math.sin(t * 1.7) * axo.wander * 2.4 + Math.sin(t * 3.3) * 1.5;
             wanderY = Math.cos(t * 2.1) * 3;
             bob = Math.sin(t * 2.4) * 2.4;
@@ -1181,7 +1253,7 @@ class CivPhaserScene extends Phaser.Scene {
             break;
           }
           case "explore": {
-            ease = 0.085;
+            ease = 0.065;
             bob = Math.sin(t * 1.4) * 1.6;
             if (Math.random() < 0.06 * dtN) this.spawnParticle(axo.renderX - axo.facing * 8, axo.renderY, -axo.facing * 0.3, -0.4, 0xcdeefe, true);
             break;
@@ -1648,7 +1720,9 @@ class CivPhaserScene extends Phaser.Scene {
     for (const region of this.snapshot.world.regions ?? []) {
       const rx = x + region.x * sx;
       const rw = region.width * sx;
-      g.fillStyle(BIOME_WASH[region.biome] ?? 0x2f6f88, 0.34);
+      const overlay = regionOverlayFor(region.owner, this.civColorById);
+      const fill = overlay ? overlay.tint : BIOME_WASH[region.biome] ?? 0x2f6f88;
+      g.fillStyle(fill, 0.34);
       g.fillRect(rx, y + SURFACE_ROWS * sy, rw, h - SURFACE_ROWS * sy);
     }
     // seabed mass
@@ -2941,7 +3015,44 @@ class CivPhaserScene extends Phaser.Scene {
         cam.pan(cx, cy, 420, Phaser.Math.Easing.Sine.Out);
         cam.zoomTo(target, 420, Phaser.Math.Easing.Sine.Out);
       },
+      // Additive (REN-02): the four methods above stay (ARENA-02 extend-only).
+      focusCiv: (civId: string) => this.focusCiv(civId),
+      frameAll: () => this.frameAll(),
     };
+  }
+
+  // Fit the camera over all LIVING colonies (the default multi-civ view). Falls
+  // back to the single-colony centre when no colony resolves (T-02-04).
+  private frameAll() {
+    const cam = this.cameras.main;
+    const cw = this.scale.width;
+    const ch = this.scale.height;
+    const b = colonyBounds(this.colonies, 6 * TILE_SIZE);
+    if (!b || b.w <= 0 || b.h <= 0) {
+      this.following = false;
+      cam.pan(this.colony.x, this.colony.y, 420, Phaser.Math.Easing.Sine.Out);
+      return;
+    }
+    this.following = false;
+    const fit = Math.min(cw / b.w, ch / b.h);
+    cam.zoomTo(Phaser.Math.Clamp(fit, this.minZoom, this.maxZoom), 420, Phaser.Math.Easing.Sine.Out);
+    cam.pan(b.x + b.w / 2, b.y + b.h / 2, 420, Phaser.Math.Easing.Sine.Out);
+  }
+
+  // Pan + zoom to one civ's colony. Unresolvable civ -> fall back to frameAll().
+  private focusCiv(civId: string) {
+    const tgt = focusTarget(civId, this.snapshot.civs, this.snapshot.world.regions, this.snapshot.world.entities);
+    if (!tgt) {
+      this.frameAll();
+      return;
+    }
+    this.following = false;
+    const cam = this.cameras.main;
+    const cx = tgt.tx * TILE_SIZE;
+    const cy = tgt.ty * TILE_SIZE;
+    const target = Phaser.Math.Clamp(cam.width / (28 * TILE_SIZE), this.minZoom, this.maxZoom);
+    cam.pan(cx, cy, 420, Phaser.Math.Easing.Sine.Out);
+    cam.zoomTo(target, 420, Phaser.Math.Easing.Sine.Out);
   }
 
   private onResize() {
@@ -2956,9 +3067,24 @@ class CivPhaserScene extends Phaser.Scene {
     this.mm = { x: 16, y: ch - mw * (this.snapshot.world.height / this.snapshot.world.width) - 16, w: mw, h: mw * (this.snapshot.world.height / this.snapshot.world.width) };
     if (!this.framed) {
       this.framed = true;
-      const fit = Math.min(cw / this.worldW, ch / this.worldH);
-      cam.setZoom(Phaser.Math.Clamp(Math.max(fit * 1.7, cw / (60 * TILE_SIZE)), this.minZoom, this.maxZoom));
-      cam.centerOn(this.colony.x, this.colony.y);
+      // Only use the multi-colony fit when there are >= 2 colonies; a lone colony
+      // keeps the legacy single-civ world-fit (the dominant path) instead of being
+      // clamped to maxZoom by its tiny 12-tile bounding box (MED-01).
+      const b = this.colonies.length >= 2 ? colonyBounds(this.colonies, 6 * TILE_SIZE) : null;
+      if (b && b.w > 0 && b.h > 0) {
+        // Multi-colony fit: frame the bounding box over all living colonies, but
+        // never zoom out past a readable per-colony scale (cap the default opening
+        // view at ~88 visible tiles). Far-apart colonies may sit off-screen at the
+        // start; the explicit "frame all" button zooms out to show every colony.
+        const fit = Math.max(Math.min(cw / b.w, ch / b.h), cw / (88 * TILE_SIZE));
+        cam.setZoom(Phaser.Math.Clamp(fit, this.minZoom, this.maxZoom));
+        cam.centerOn(b.x + b.w / 2, b.y + b.h / 2);
+      } else {
+        // Fallback (single/no colony): the original world-fit centred on this.colony.
+        const fit = Math.min(cw / this.worldW, ch / this.worldH);
+        cam.setZoom(Phaser.Math.Clamp(Math.max(fit * 1.7, cw / (60 * TILE_SIZE)), this.minZoom, this.maxZoom));
+        cam.centerOn(this.colony.x, this.colony.y);
+      }
     } else {
       cam.setZoom(Phaser.Math.Clamp(cam.zoom, this.minZoom, this.maxZoom));
     }
@@ -2980,6 +3106,23 @@ class CivPhaserScene extends Phaser.Scene {
     const sx = axos.reduce((a, e) => a + e.x, 0) / axos.length;
     const sy = axos.reduce((a, e) => a + e.y, 0) / axos.length;
     this.colony = { x: sx * TILE_SIZE, y: sy * TILE_SIZE - 6 };
+  }
+
+  // One framing point (world pixels) per LIVING civ, via the same precedence as
+  // focusTarget (home-region centre -> entities centroid -> spawn_x). Feeds the
+  // multi-colony bounding box used by frameAll() and the default onResize fit.
+  private recomputeColonies() {
+    const civs = this.snapshot.civs ?? [];
+    const regions = this.snapshot.world.regions;
+    const entities = this.snapshot.world.entities;
+    const out: { civId: string; x: number; y: number; alive: boolean }[] = [];
+    for (const c of civs) {
+      if (!c.id || c.alive === false) continue;
+      const tgt = focusTarget(c.id, civs, regions, entities);
+      if (!tgt) continue;
+      out.push({ civId: c.id, x: tgt.tx * TILE_SIZE, y: tgt.ty * TILE_SIZE, alive: true });
+    }
+    this.colonies = out;
   }
 
   private spawnParticle(x: number, y: number, vx: number, vy: number, color: number, rise: boolean) {
@@ -3093,6 +3236,146 @@ function shade(color: number, factor: number): number {
   return (r << 16) | (g << 8) | b;
 }
 
+// Blend each channel toward white by `t` (0 = unchanged, 1 = white). Pure; used
+// to keep a multiply civ-tint light enough that morph/GFP detail still reads.
+function lighten(color: number, t: number): number {
+  const f = Math.max(0, Math.min(1, t));
+  const r = (color >> 16) & 0xff;
+  const g = (color >> 8) & 0xff;
+  const b = color & 0xff;
+  const blend = (c: number) => Math.round(c + (0xff - c) * f);
+  return (blend(r) << 16) | (blend(g) << 8) | blend(b);
+}
+
+/** Flat grey used to desaturate dead/collapsed civs' entities and overlays. */
+const GREY_TINT = 0x888888;
+
+// ── pure civ-tint helpers (Phaser-free named exports, unit-tested) ──────────
+
+/**
+ * Resolve a hex colour string to a 24-bit tint number. Total / fail-safe:
+ * tolerant of a leading "#" and 3-digit shorthand; missing or non-finite input
+ * returns 0xffffff (T-02-01 — a colour string only ever becomes a number, never
+ * markup, and never throws / NaN).
+ */
+export function hexToTint(hex: string | null | undefined): number {
+  if (!hex) return 0xffffff;
+  const h = hex.replace(/^#/, "");
+  if (h.length !== 3 && h.length !== 6) return 0xffffff;
+  if (!/^[0-9a-fA-F]+$/.test(h)) return 0xffffff;
+  const expanded = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = Number.parseInt(expanded, 16);
+  return Number.isFinite(n) ? n : 0xffffff;
+}
+
+/**
+ * Build the per-snapshot `civ_id -> {tint, alive}` lookup. Skips id-less civs;
+ * `alive` defaults to true; an undefined civ list yields an empty map.
+ */
+export function buildCivColorMap(
+  civs: { id?: string; color?: string; alive?: boolean }[] | undefined,
+): Map<string, { tint: number; alive: boolean }> {
+  const m = new Map<string, { tint: number; alive: boolean }>();
+  for (const c of civs ?? []) {
+    if (!c.id) continue;
+    m.set(c.id, { tint: hexToTint(c.color), alive: c.alive !== false });
+  }
+  return m;
+}
+
+/**
+ * Pick the tint to apply for an entity given its resolved civ info.
+ * - undefined info (map miss — wild fauna / null civ_id) -> null = leave default.
+ * - living civ -> a lightened identity tint (multiply keeps morph detail).
+ * - dead civ -> the flat grey constant.
+ */
+export function civTintFor(
+  info: { tint: number; alive: boolean } | undefined,
+  grey: number = GREY_TINT,
+): number | null {
+  if (!info) return null;
+  return info.alive ? lighten(info.tint, 0.5) : grey;
+}
+
+/**
+ * Decide the territory overlay for a region's owner. Null when unowned/absent or
+ * the owner is not a known civ (neutral, Pitfall 4); else the {tint, alive} entry.
+ */
+export function regionOverlayFor(
+  owner: string | null | undefined,
+  map: Map<string, { tint: number; alive: boolean }>,
+): { tint: number; alive: boolean } | null {
+  if (!owner) return null;
+  return map.get(owner) ?? null;
+}
+
+/**
+ * Axis-aligned bounding box over all LIVING colonies, in whatever unit the caller
+ * passed (the scene passes world pixels). Dead colonies are excluded so a collapse
+ * re-frame drops them; returns null when no colony is alive (T-02-04 — the caller
+ * falls back to `this.colony`). Each side is inflated by `pad`. Pure — no Phaser.
+ */
+export function colonyBounds(
+  colonies: { x: number; y: number; alive: boolean }[],
+  pad: number,
+): { x: number; y: number; w: number; h: number } | null {
+  const live = colonies.filter((c) => c.alive);
+  if (live.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const c of live) {
+    minX = Math.min(minX, c.x);
+    maxX = Math.max(maxX, c.x);
+    minY = Math.min(minY, c.y);
+    maxY = Math.max(maxY, c.y);
+  }
+  return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
+}
+
+/**
+ * Resolve a civ's home point in WORLD-TILE coordinates (the caller multiplies by
+ * TILE_SIZE, mirroring focusRegion's `(rx + width/2) * TILE_SIZE` math). Precedence:
+ *   (a) the civ's home_region matched in `regions` -> that region's centre
+ *       (`y + height/2`, NOT `height/2` — the region starts at its `y`, not 0);
+ *   (b) else the centroid of entities whose civ_id === civId (~seabed level);
+ *   (c) else the civ's spawn_x at the seabed band (WATER_FLOOR_Y), so all three
+ *       branches resolve to comparable altitudes (the colony band, not the surface);
+ *   (d) else null (T-02-04 — the caller falls back to frameAll()).
+ * Pure — no Phaser; never throws on missing/malformed input.
+ */
+export function focusTarget(
+  civId: string,
+  civs: { id?: string; spawn_x?: number; home_region?: string }[] | undefined,
+  regions: { id: string; x: number; y: number; width: number; height?: number; owner?: string | null }[] | undefined,
+  entities: { civ_id?: string | null; x: number; y: number }[] | undefined,
+): { tx: number; ty: number } | null {
+  const civ = (civs ?? []).find((c) => c.id === civId);
+  if (!civ) return null;
+  // (a) home-region centre: region top (y) + half its height, not height/2.
+  if (civ.home_region) {
+    const region = (regions ?? []).find((r) => r.id === civ.home_region);
+    if (region) {
+      return { tx: region.x + region.width / 2, ty: region.y + (region.height ?? 0) / 2 };
+    }
+  }
+  // (b) centroid of the civ's entities (already at ~seabed level).
+  const own = (entities ?? []).filter((e) => e.civ_id === civId);
+  if (own.length > 0) {
+    const sx = own.reduce((a, e) => a + e.x, 0) / own.length;
+    const sy = own.reduce((a, e) => a + e.y, 0) / own.length;
+    return { tx: sx, ty: sy };
+  }
+  // (c) spawn_x at the seabed band — colonies live near WATER_FLOOR_Y, not the
+  // water surface; matching the colony altitude the other branches resolve to.
+  if (typeof civ.spawn_x === "number") {
+    return { tx: civ.spawn_x, ty: WATER_FLOOR_Y };
+  }
+  // (d) unresolvable.
+  return null;
+}
+
 function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(ax - bx, ay - by);
 }
@@ -3132,7 +3415,7 @@ function seedVariant(seed: number, id: string): number {
   return hash % VARIANT_COUNT;
 }
 
-function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?: PlayerTextState): string {
+export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?: PlayerTextState): string {
   const civ = primaryCiv(snapshot);
   const possessedPlayer = playerState?.possessedEntityId && playerState.player
     ? { id: playerState.possessedEntityId, player: playerState.player }
@@ -3175,6 +3458,7 @@ function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?: Player
         kind: entity.kind,
         role: entity.role,
         morph: entity.morph,
+        pattern: entity.pattern, // GEN-01 visible pattern (ARENA-01 text-state, mirrors morph)
         stage: entity.stage,
         sex: entity.sex,
         age: entity.age,
@@ -3186,5 +3470,29 @@ function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?: Player
         y: livePlayer?.tile_y ?? entity.y,
       };
     }),
+    civs: (snapshot.civs ?? []).map((c) => ({
+      id: c.id,
+      name: c.name,
+      model: c.model,
+      color: c.color,
+      alive: c.alive,
+      population: c.population,
+      era: c.era,
+      score: c.score,
+      controller: c.controller ?? null,
+      resources: c.resources,
+    })),
+    leaderboard: [...(snapshot.civs ?? [])]
+      .sort((a, b) => (b.score.total ?? 0) - (a.score.total ?? 0))
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        model: c.model,
+        color: c.color,
+        alive: c.alive,
+        score: c.score,
+        controller: c.controller ?? null,
+      })),
+    environment: snapshot.environment,
   });
 }

@@ -1,154 +1,130 @@
-# Requirements: xolotl
+# Requirements: xolotl — Milestone v2.1 "Living World & Economy"
 
-**Defined:** 2026-05-07
+**Defined:** 2026-06-07
 **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
+**Milestone goal:** Make the Axolotl Civilization simulation a fully playable, understandable, and enjoyable game — an infinite procedural world, a resource→currency→shop economy, true human takeover of a civ, NPCs, items, and a game-native UI — where every human-play feature also deepens agentic playability.
 
-## v1 Requirements
+**Grounding:** `.planning/research/SUMMARY.md` (decision-ready synthesis) + `.planning/research/ECONOMY.md` (concrete currency/price/catalog tables). Spec-of-record extends `civ-multi-civ-world-plan.md` (W10.3–W10.7).
 
-### CLI Completion
+---
 
-- [ ] **CLI-01**: User can approve or deny tool calls interactively in the REPL (y/n/a/d with "always allow" per tool)
-- [ ] **CLI-02**: User can run `/help`, `/clear`, `/model <name>`, `/cost`, `/save`, `/load <id>` slash commands in the REPL
-- [ ] **CLI-03**: User sees dollar cost and token count after each turn and as a session total
-- [ ] **CLI-04**: User can resume a previous session via `--resume <session-id>` flag
-- [ ] **CLI-05**: Kimi K2 and MiniMax M1 tool-call schemas are validated against real endpoints and edge cases fixed (no silent text-only fallback)
-- [ ] **CLI-06**: Agent loop refuses to run a new turn when cost budget is exceeded (`UsageTracker::budget_exceeded()`)
+## Cross-Cutting Requirements (per-phase exit criteria, not a phase)
 
-### Orchestration Layer
+These hold for **every** requirement below and are checked at each phase close:
 
-- [ ] **ORC-01**: Agent state machine with typed states (Idle, Planning, Executing, Waiting, Done, Failed) and `AgentEvent` enum
-- [ ] **ORC-02**: `AgentSupervisor` registry holds all running agents; `AgentHandle` provides typed control per agent
-- [ ] **ORC-03**: Each agent's conversation loop runs inside `tokio::task::spawn_blocking` — synchronous `run_turn()` never touches the tokio thread pool directly
-- [ ] **ORC-04**: `SharedContextStore` allows agents to publish and pull text snapshots (500–1000 tokens max) without sharing mutable session objects
-- [ ] **ORC-05**: `WorktreeManager` can create, list, and delete git worktrees via shell commands; each agent is assigned exactly one worktree
-- [ ] **ORC-06**: `SubAgentSpawner` extended with `--working-dir` flag, NDJSON event streaming via stdout, and `AgentSupervisor` registration — existing CLI behavior preserved
-- [ ] **ORC-07**: Git operation queue serializes git writes per-repo to prevent `index.lock` conflicts between parallel agents
+- **PARITY** — every new human verb (possess / sell / buy / craft / talk-to-NPC / terraform) is also a `CivDecisionAction` arm **and** a `civPilotControls` command **and** appears in `render_game_to_text()`. Human-play and agentic-play stay at parity.
+- **DETERMINISM** — no new draw on the shared founder/vein RNG; new world-gen uses salted per-chunk sub-streams. Verified on Windows via `cargo check`/`clippy --pedantic`/`test --no-run`; full tests on CI.
+- **BACK-COMPAT** — every new struct field is `#[serde(default)]`; schema-shape changes bump `SCHEMA_VERSION` + extend `migrate_value_in_place`; a pre-v2.1 save loads cleanly each phase. `bindings.ts` regenerated via `tauri dev` (never hand-edited). Arena-bridge keys are append-only (byte-identical legacy vitest locks stay green).
+- **FALLBACK = IPC MOCK ONLY** — `tauriBrowserFallback.ts` mocks new IPC commands with believable canned shapes; engine RNG/economy math is **never** ported to TypeScript.
+- **UI SCOPE** — restyle/UI work is confined to `tauri-app/src/components/civilization/`; never touch the harness chat/eval/settings surfaces.
 
-### Tauri Shell
+---
 
-- [ ] **TAU-01**: `src-tauri` crate scaffolded with Tauri 2.x capability config; `core:default` grant established; `invoke()` verified working
-- [ ] **TAU-02**: `AgentSupervisor` held as Tauri managed state; Tauri command layer exposes agent lifecycle operations to frontend
-- [ ] **TAU-03**: `TauriPermissionPrompter` replaces REPL stdin prompter; permission requests surface as UI events to the frontend
-- [ ] **TAU-04**: `specta` + `tauri-specta` type generation pipeline produces TypeScript types from all Rust `AgentEvent`, `AgentState`, and command types
-- [ ] **TAU-05**: Core plugins installed and capability-granted: `window-state`, `clipboard-manager`, `fs`
+## v1 Requirements (v2.1 scope)
 
-### Chat UI
+### Human Takeover — Possession (POSS)
 
-- [ ] **UI-01**: User sees AI responses streaming token-by-token; tokens buffered per `requestAnimationFrame` to avoid render storm at 60–100 events/sec
-- [ ] **UI-02**: Code blocks render with syntax highlighting and a copy-to-clipboard button
-- [ ] **UI-03**: Tool call blocks (bash, file read, glob, grep, write, edit) are collapsible; bash output is truncated with "show more"
-- [ ] **UI-04**: File edits display an inline diff (before/after) inside the tool block
-- [ ] **UI-05**: Message list is virtualized via `@tanstack/react-virtual`; sessions with 200+ turns remain performant
-- [ ] **UI-06**: Session sidebar lists all saved sessions; user can resume or delete sessions
-- [ ] **UI-07**: Permission prompt renders as an inline card in the chat thread; user approves, denies, or "always allows" per tool
-- [ ] **UI-08**: Model selector lets user switch model per session from all configured providers
-- [ ] **UI-09**: Token count and estimated dollar cost display per turn and as a running session total
-- [ ] **UI-10**: User can cancel the current agent turn via a stop button; streaming halts and partial output is preserved
-- [ ] **UI-11**: Slash command palette opens with `/`; shows available commands with descriptions; executes on enter
+- [ ] **POSS-01**: A user can take over (possess) an entire civilization and play it directly as a fully player-controlled civ.
+- [ ] **POSS-02**: A possessed civ does **not** invoke its LLM — the backend turn loop skips `call_model_text` for it (no tokens burned, the AI does not act against the player), while post-loop combat/predator/environment passes still run.
+- [ ] **POSS-03**: A user can issue the civ-level orders the AI uses (the `CivDecisionAction` set) to a possessed civ, and can release control back to the AI at any time.
+- [ ] **POSS-04**: Possession/control-mode is agent-legible — visible in-game and in `render_game_to_text()`, and an agent can possess/release a civ via `civPilotControls`.
 
-### Agent Dashboard
+### Economy & Currency (ECON)
 
-- [ ] **AGT-01**: Agent roster panel shows all running and completed agents with status badge, task description, and cumulative cost
-- [ ] **AGT-02**: Each agent has an expandable streaming output panel showing its live conversation and tool activity
-- [ ] **AGT-03**: User can spawn a new agent via a dialog: choose model, enter task, assign worktree
-- [ ] **AGT-04**: User can launch a background agent; receives an OS-level notification when the agent completes
-- [ ] **AGT-05**: Each agent has its own model selector; orchestrator and workers can use different models
-- [ ] **AGT-06**: User can set a cost budget per agent; agent stops when budget is reached and reports status
+- [ ] **ECON-01**: Each civ holds a wallet of **≥5 distinct currencies** (Shells, Pearls, Tidewardens' Favor, Spawn-tokens, Ancient Amberglass), each with a distinct source (faucet) and distinct sink.
+- [ ] **ECON-02**: A civ (AI or human-possessed) can sell resources at **fixed prices** to earn the appropriate currency, subject to a per-turn sell cap and anti-exploit rules.
+- [ ] **ECON-03**: The economy is balanced — over a long deterministic run no currency inflates unboundedly **and** every currency is actually spent (proven by a 200-turn greedy-miner sim test); currency does not feed the score function.
+- [ ] **ECON-04**: Wallet balances, sell prices, and earn/spend events are surfaced in `render_game_to_text()`, and the `sell` action is available to both AI and human-possessed civs at identical prices.
 
-### Parallel Worktrees + Team Orchestration
+### Shop / Store (SHOP)
 
-- [ ] **WRK-01**: Worktree panel shows which agent is running on which git branch with per-worktree activity indicators
-- [ ] **WRK-02**: User can compose a role-based agent team (Planner, Coder, Reviewer, Tester) with per-role model selection and task description
-- [ ] **WRK-03**: User can configure a swarm strategy: number of agents, shared objective, result aggregation method
-- [ ] **WRK-04**: File ownership protocol prevents two agents from writing the same file simultaneously; conflict is surfaced in the UI
-- [ ] **WRK-05**: Merge checkpoint UI appears when parallel agents are ready to merge their worktrees; user reviews and approves
+- [ ] **SHOP-01**: A user can open a game-native store UI, browse a categorized catalog (buffs, resources, buildings, items), and see prices alongside their currency balances.
+- [ ] **SHOP-02**: A user can buy from the store; a purchase deducts the correct currency, applies its effect, and shows a clear insufficient-funds state when unaffordable.
+- [ ] **SHOP-03**: Catalog entries are gated by progression (era / tech / currency tier) so the shop is a meaningful currency sink rather than a flat menu.
+- [ ] **SHOP-04**: An AI civ can buy via a decision action and an agent can buy via `civPilotControls` at the same prices as the UI; the catalog appears in `render_game_to_text()`.
 
-## v2 Requirements
+### Items, Crafting & NPCs (ITEM / CRAFT / NPC)
 
-### Remote and Extended Execution
+- [ ] **ITEM-01**: The resource/item taxonomy is widened with usable tools/items for mining, digging, harvesting, and growing more & better vegetation/resources; items are held per civ.
+- [ ] **CRAFT-01**: A civ can craft items and upgrades from resources via recipes (a 2–3 tier cascade) using the Spawn-token closed loop.
+- [ ] **NPC-01**: Interactable NPCs exist (trader / quest-giver / fauna-handler), seeded near colonies, that a player or AI can engage.
+- [ ] **NPC-02**: NPC interactions (trade, quests) are available to both human and AI via the bridge, and quests act as the faucet for Tidewardens' Favor.
 
-- **REM-01**: User can execute agents on a remote machine via SSH
-- **REM-02**: User can configure agent persistence across machine restarts
-- **REM-03**: Agent can send push notifications to mobile via webhook
+### Infinite Procedural World (WORLD)
 
-### Local Model Support
+- [ ] **WORLD-01**: The world is procedurally generated and effectively infinite/expandable — terrain is a deterministic function of (seed, coordinate) via chunked generation, with organic fBm terrain and biomes that blend at chunk seams.
+- [ ] **WORLD-02**: Players/civs can explore, prospect/discover (strata reports, POIs/landmarks), and terraform/place blocks; only modifications are persisted (sparse diffs), keeping save size and per-turn IPC bounded.
+- [ ] **WORLD-03**: Procedural generation is cross-platform deterministic (golden-hash verified) and stays performant while exploring (flat frame-time via chunked RenderTextures), and world state remains agent-legible.
 
-- **LOC-01**: User can connect to a local Ollama instance for Llama/Qwen models
-- **LOC-02**: Model capability flags (context window, tool support) displayed per model
+### Assets & Game-native UI (ASSET / GAMEUI)
 
-### Skills System
+- [ ] **ASSET-01**: Game art (currency icons, item sprites, NPC characters, new tile types) is generated via the Gemini image pipeline, committed, and rendered in-game.
+- [ ] **ASSET-02**: The game runs gracefully with `GEMINI_API_KEY` unset (placeholder fallback, no crash); asset generation is a one-time, cached, build-time cost.
+- [ ] **GAMEUI-01**: The Civilization UI is restyled to read as a game (game-native HUD + diegetic in-world markers) rather than part of the harness app, scoped to `civilization/` components only.
 
-- **SKL-01**: User can load a skill (markdown file) into a session via `/skill <name>`
-- **SKL-02**: Skills stored in `~/.xolotl-code/skills/` and `.xolotl-code/skills/`
+---
 
-### Advanced Session Management
+## v2 Requirements (deferred — tracked, not in this roadmap)
 
-- **SES-01**: Sessions can be tagged and searched by tag
-- **SES-02**: Session export to markdown or JSON
+### Economy & World (future)
+
+- **MKT-01**: Dynamic/auction markets with supply-demand pricing (v2.1 uses fixed prices for AI legibility).
+- **RANCH-01**: Tameable fauna ranching / breeding economy.
+- **NPC-V2-01**: Branching NPC narrative / multi-step quest chains.
+- **CAVE-01**: Deep W10.7 cave systems (highest f32-determinism risk; defer until fBm terrain is golden-locked).
+- **PERSIST-01**: Cross-run currency/inventory persistence beyond the Amberglass "Ancestral Vault".
+
+---
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Python rewrite of agent core | Rust is ~70% done and the hard parts are proven; duplication with no gain |
-| Browser-based web app | Desktop-native only via Tauri; browser adds no value for local agents |
-| IDE plugin (VS Code, JetBrains) | Separate product; agents-do-the-editing model makes this redundant |
-| Voice interface | Not a coding tool priority |
-| Tab autocomplete / inline completions | Cursor already does this; xolotl is agent-first not autocomplete-first |
-| Inline editor (edit files directly in xolotl UI) | Anti-feature — pulls toward Cursor where Cursor wins; agents do the editing |
-| Codebase embedding / semantic search | High complexity; agent file-reading tools are sufficient for v1 |
-| Built-in terminal emulator (xterm.js) | 300 KB overhead for a feature the agent replaces; ANSI stripping is sufficient |
+| Gacha / lootbox / random-reward purchases | Anti-feature; undermines a legible, plannable economy |
+| Cosmetic-only / pay-to-look purchases | Shop must sell functional goods that matter to play |
+| Real-money / monetization | Personal project; economy is in-game only |
+| Dynamic market pricing in v2.1 | Fixed prices keep AI planning legible; markets deferred to v2 (MKT-01) |
+| Porting engine math into `tauriBrowserFallback.ts` | It is an IPC mock/preview, not an engine clone — porting risks divergence |
+| New runtime dependencies | Research confirms the whole milestone ships with zero new deps |
+| Touching harness chat/eval/settings UI | UI scope is the Civ surface only |
+
+---
 
 ## Traceability
 
+Finalized by the roadmapper (`.planning/ROADMAP.md`, 2026-06-07). Phase ordering adopted from `research/SUMMARY.md` as-is — coverage validated with no changes needed. Status `Planned` = mapped into the roadmap with goal-backward success criteria; not yet decomposed into plans.
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CLI-01 | Phase 1 | Pending |
-| CLI-02 | Phase 1 | Pending |
-| CLI-03 | Phase 1 | Pending |
-| CLI-04 | Phase 1 | Pending |
-| CLI-05 | Phase 1 | Pending |
-| CLI-06 | Phase 1 | Pending |
-| ORC-01 | Phase 2 | Pending |
-| ORC-02 | Phase 2 | Pending |
-| ORC-03 | Phase 2 | Pending |
-| ORC-04 | Phase 2 | Pending |
-| ORC-05 | Phase 2 | Pending |
-| ORC-06 | Phase 2 | Pending |
-| ORC-07 | Phase 2 | Pending |
-| TAU-01 | Phase 3 | Pending |
-| TAU-02 | Phase 3 | Pending |
-| TAU-03 | Phase 3 | Pending |
-| TAU-04 | Phase 3 | Pending |
-| TAU-05 | Phase 3 | Pending |
-| UI-01 | Phase 4 | Pending |
-| UI-02 | Phase 4 | Pending |
-| UI-03 | Phase 4 | Pending |
-| UI-04 | Phase 4 | Pending |
-| UI-05 | Phase 4 | Pending |
-| UI-06 | Phase 4 | Pending |
-| UI-07 | Phase 4 | Pending |
-| UI-08 | Phase 4 | Pending |
-| UI-09 | Phase 4 | Pending |
-| UI-10 | Phase 4 | Pending |
-| UI-11 | Phase 4 | Pending |
-| AGT-01 | Phase 5 | Pending |
-| AGT-02 | Phase 5 | Pending |
-| AGT-03 | Phase 5 | Pending |
-| AGT-04 | Phase 5 | Pending |
-| AGT-05 | Phase 5 | Pending |
-| AGT-06 | Phase 5 | Pending |
-| WRK-01 | Phase 6 | Pending |
-| WRK-02 | Phase 6 | Pending |
-| WRK-03 | Phase 6 | Pending |
-| WRK-04 | Phase 6 | Pending |
-| WRK-05 | Phase 6 | Pending |
+| POSS-01 | Phase 1 | Planned |
+| POSS-02 | Phase 1 | Planned |
+| POSS-03 | Phase 1 | Planned |
+| POSS-04 | Phase 1 | Planned |
+| ECON-01 | Phase 2 | Planned |
+| ECON-02 | Phase 2 | Planned |
+| ECON-03 | Phase 2 | Planned |
+| ECON-04 | Phase 2 | Planned |
+| SHOP-01 | Phase 3 | Planned |
+| SHOP-02 | Phase 3 | Planned |
+| SHOP-03 | Phase 3 | Planned |
+| SHOP-04 | Phase 3 | Planned |
+| ITEM-01 | Phase 4 | Planned |
+| CRAFT-01 | Phase 4 | Planned |
+| NPC-01 | Phase 4 | Planned |
+| NPC-02 | Phase 4 | Planned |
+| WORLD-01 | Phase 5 | Planned (phase needs research) |
+| WORLD-02 | Phase 5 | Planned (phase needs research) |
+| WORLD-03 | Phase 5 | Planned (phase needs research) |
+| ASSET-01 | Phase 6 | Planned |
+| ASSET-02 | Phase 6 | Planned |
+| GAMEUI-01 | Phase 6 | Planned |
 
 **Coverage:**
-- v1 requirements: 40 total
-- Mapped to phases: 40
-- Unmapped: 0
+- v1 requirements: 22 total
+- Mapped to phases: 22
+- Unmapped: 0 ✓
+- Duplicates: 0 ✓
 
 ---
-*Requirements defined: 2026-05-07*
-*Last updated: 2026-05-07 — traceability populated by roadmapper*
+*Requirements defined: 2026-06-07*
+*Last updated: 2026-06-07 after v2.1 roadmap creation (traceability finalized; 22/22 mapped, 0 orphans, 0 duplicates)*
