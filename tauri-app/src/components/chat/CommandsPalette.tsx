@@ -260,6 +260,7 @@ export function CommandsPalette({
     const visibleChildren = listing ? visibleDirectoryChildren(listing.children, false).slice(0, 8) : [];
     const fileBrowserCommands: PaletteCommand[] = activeProjectPath && currentBrowserPath ? [
       { id: "browser-reveal-current", kind: "file", label: "Reveal Current Folder in Finder", syntax: "Folder", description: macPathLabel(currentBrowserPath), icon: ExternalLink, run: () => runMacHandoff("Reveal in Finder", () => revealPathInFinder(currentBrowserPath), "finder") },
+      { id: "browser-open-current-editor", kind: "file", label: "Open Current Folder in Editor", syntax: "Editor", description: macPathLabel(currentBrowserPath), icon: Code2, run: () => runMacHandoff("Open in editor", () => openPathInExternalEditor(currentBrowserPath), "editor") },
       { id: "browser-copy-current", kind: "file", label: "Copy Current Folder Path", syntax: "Path", description: macPathLabel(currentBrowserPath), icon: Copy, run: () => runMacHandoff("Copy folder path", () => copyTextToClipboard(currentBrowserPath), "clipboard") },
       { id: "browser-copy-current-link", kind: "file", label: "Copy Current Folder Xolotl Link", syntax: "Link", description: macPathLabel(currentBrowserPath), icon: Link2, run: () => runMacHandoff("Copy Xolotl link", () => copyXolotlCodeOpenUrl(currentBrowserPath), "clipboard") },
       { id: "browser-copy-current-shell-open", kind: "file", label: "Copy Current Folder Shell Open Command", syntax: "Shell", description: macPathLabel(currentBrowserPath), icon: TerminalSquare, run: () => runMacHandoff("Copy shell open command", () => copyXolotlCodeOpenShellCommand(currentBrowserPath), "clipboard") },
@@ -307,6 +308,13 @@ export function CommandsPalette({
               icon: ExternalLink,
               run: () => runMacHandoff("Open in external terminal", () => openPathInExternalTerminal(child.path), "terminal"),
             }] : []),
+            {
+              id: "open-editor",
+              label: `Open ${child.name} in editor`,
+              title: "Open in editor",
+              icon: Code2,
+              run: () => runMacHandoff("Open in editor", () => openPathInExternalEditor(child.path), "editor"),
+            },
             {
               id: "reveal",
               label: `Reveal ${child.name} in Finder`,

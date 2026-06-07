@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   ClipboardList,
+  Code2,
   CornerLeftUp,
   CornerDownRight,
   Copy,
@@ -21,7 +22,7 @@ import { commands } from "../../bindings";
 import { useProjectStore, projectDisplayName } from "../../stores/projectStore";
 import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "../../lib/fileBrowser";
 import { macFileAccessRecovery } from "../../lib/macFileRecovery";
-import { copyPathContextHandoff, copyTextToClipboard, openPathInExternalTerminal, quickLookPath, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { copyPathContextHandoff, copyTextToClipboard, openPathInExternalEditor, openPathInExternalTerminal, quickLookPath, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 import { openTerminalAtPath } from "../../lib/terminalActions";
 import {
   SidebarHandoffStatus,
@@ -169,6 +170,21 @@ export function DirectoryBrowser() {
           className="xolotl-sidebar-icon-button"
         >
           <TerminalSquare className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          title="Open in external editor"
+          aria-label="Open current folder in external editor"
+          onClick={() => void runHandoff(
+            "Open current folder in external editor",
+            () => openPathInExternalEditor(currentPath),
+            "Current folder opened in external editor.",
+            "editor",
+            "folder",
+          )}
+          className="xolotl-sidebar-icon-button"
+        >
+          <Code2 className="h-3 w-3" />
         </button>
         <button
           type="button"
@@ -449,6 +465,24 @@ function PathActionButtons({
           <Eye className="h-3 w-3" />
         </button>
       )}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          void runRowHandoff(
+            `Open ${label} in external editor`,
+            () => openPathInExternalEditor(path),
+            `${label} opened in external editor.`,
+            "editor",
+            contextKind.toLowerCase(),
+          );
+        }}
+        title="Open in external editor"
+        aria-label={`Open ${label} in external editor`}
+        className="xolotl-row-action-button"
+      >
+        <Code2 className="h-3 w-3" />
+      </button>
       <button
         type="button"
         onClick={(e) => {

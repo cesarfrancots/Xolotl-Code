@@ -127,6 +127,7 @@ describe("CommandsPalette", () => {
 
     expect(screen.getByText("File Browser")).toBeTruthy();
     expect(screen.getByText("Reveal Current Folder in Finder")).toBeTruthy();
+    expect(screen.getByText("Open Current Folder in Editor")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Xolotl Link")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Shell Open Command")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Context Prompt")).toBeTruthy();
@@ -136,6 +137,8 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Browse Parent Folder")).toBeTruthy();
     expect(screen.getByText("Back to Project Root")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Folder: src" })).toBeTruthy();
+    expect(screen.getByLabelText("Open src in editor")).toBeTruthy();
+    expect(screen.getByLabelText("Open README.md in editor")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Quick Look File: README.md" })).toBeTruthy();
     expect(screen.getByText("PDF")).toBeTruthy();
     expect(screen.queryByText(".env")).toBeNull();
@@ -391,6 +394,13 @@ describe("CommandsPalette", () => {
       "src",
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Open src in editor" }));
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalEditor).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/docs/src",
+      );
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "Copy relative path for src" }));
     await waitFor(() => {
       expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("docs/src");
@@ -421,6 +431,13 @@ describe("CommandsPalette", () => {
       expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
         "/Users/cesar/Documents/Xolotl/docs/README.md",
         { label: "README.md", kind: "File", relativePath: "docs/README.md" },
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open README.md in editor" }));
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalEditor).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/docs/README.md",
       );
     });
 
@@ -463,6 +480,31 @@ describe("CommandsPalette", () => {
       expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs");
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
+  });
+
+  it("opens the current file browser folder in the external editor", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Current Folder in Editor" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it("shows recovery guidance when a file-browser editor handoff fails", async () => {
+    pathActionMocks.openPathInExternalEditor.mockRejectedValueOnce(new Error("Zed missing"));
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open README.md in editor" }));
+
+    expect(await screen.findByText("Open in editor failed.")).toBeTruthy();
+    expect(screen.getByText(/Check the preferred editor in macOS Settings/)).toBeTruthy();
+    expect(screen.getByText(/Zed missing/)).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
   it("opens a file-browser folder row in the external terminal", async () => {

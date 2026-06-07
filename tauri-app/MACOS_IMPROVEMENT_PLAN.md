@@ -32,6 +32,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Saved project rows can reveal their target in Finder and copy Mac automation handoffs directly from the sidebar.
 - File browser entries can reveal their target in Finder.
 - File browser current folders and entries can copy POSIX paths, project-relative paths where useful, and prompt-ready context prompts.
+- File browser current folders and visible entries can open in the configured external editor from the sidebar and command palette.
 - File browser browse failures show macOS-specific recovery for missing folders and privacy-denied folder access.
 - Project and file-browser access failures can reopen the native folder picker from the recovery banner to refresh macOS folder permission.
 - File browser entries can preview files with macOS Quick Look from row actions and the command palette.
@@ -428,6 +429,7 @@ Deliverables:
 - Expand external editor support:
   - Keep the preferred editor setting.
   - Add per-action error recovery when the configured editor is missing.
+  - Open file-browser current folders and visible folder/file entries in the configured external editor from the sidebar or command palette. Done with shared editor recovery guidance.
   - Consider editor-specific deep links for VS Code, Cursor, and Zed if they are installed and if detection is reliable. First pass done for installed app-bundle detection in macOS Settings while preserving `/usr/bin/open -a` handoff and command-palette recent-project editor handoffs.
 - Expand terminal handoff:
   - Current embedded terminal actions stay first-class.
@@ -510,7 +512,7 @@ This is the near-term order for this branch.
    - Terminal tabs now have a first compact Mac tab-strip pass with stable sizing and keyboard navigation.
    - Add browser screenshots and focused tests for any layout-affecting changes.
 3. Add Phase 2.5 keyboard parity:
-   - Additional file-browser row commands in the command palette. Done for current-folder, Quick Look, New Terminal Here, and visible-entry commands.
+   - Additional file-browser row commands in the command palette. Done for current-folder, Quick Look, New Terminal Here, external-editor handoff, and visible-entry commands.
    - Tests for menu, palette, and keydown routing. Done for shared command actions, palette native rows, global shortcuts, and terminal-scoped shortcuts.
 4. Expand Phase 6 productivity features:
    - Notifications with click-through routing. Done for backend route metadata and macOS app-reopen routing; direct action payload support remains dependent on Tauri desktop notification support.

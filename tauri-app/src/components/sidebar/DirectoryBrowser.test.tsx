@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DirectoryBrowser } from "./DirectoryBrowser";
-import { copyPathContextHandoff, copyTextToClipboard, openPathInExternalTerminal, quickLookPath, revealPathInFinder } from "../../lib/pathActions";
+import { copyPathContextHandoff, copyTextToClipboard, openPathInExternalEditor, openPathInExternalTerminal, quickLookPath, revealPathInFinder } from "../../lib/pathActions";
 import { useProjectStore } from "../../stores/projectStore";
 
 const terminalActionMocks = vi.hoisted(() => ({
@@ -14,6 +14,7 @@ vi.mock("../../lib/pathActions", async () => {
     ...actual,
     copyPathContextHandoff: vi.fn(() => Promise.resolve()),
     copyTextToClipboard: vi.fn(() => Promise.resolve()),
+    openPathInExternalEditor: vi.fn(() => Promise.resolve()),
     openPathInExternalTerminal: vi.fn(() => Promise.resolve()),
     quickLookPath: vi.fn(() => Promise.resolve()),
     revealPathInFinder: vi.fn(() => Promise.resolve()),
@@ -110,11 +111,17 @@ describe("DirectoryBrowser", () => {
     fireEvent.click(screen.getByLabelText("Quick Look README.md"));
     expect(quickLookPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/README.md");
 
+    fireEvent.click(screen.getByLabelText("Open README.md in external editor"));
+    expect(openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/README.md");
+
     fireEvent.click(screen.getByLabelText("New terminal in current folder"));
     expect(terminalActionMocks.openTerminalAtPath).toHaveBeenCalledWith(
       "/Users/cesar/Documents/Xolotl",
       "Xolotl",
     );
+
+    fireEvent.click(screen.getByLabelText("Open current folder in external editor"));
+    expect(openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
 
     fireEvent.click(screen.getByLabelText("Open current folder in external terminal"));
     expect(openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
@@ -124,6 +131,9 @@ describe("DirectoryBrowser", () => {
       "/Users/cesar/Documents/Xolotl/src",
       "src",
     );
+
+    fireEvent.click(screen.getByLabelText("Open src in external editor"));
+    expect(openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/src");
 
     fireEvent.click(screen.getByLabelText("Open src in external terminal"));
     expect(openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/src");
@@ -149,6 +159,17 @@ describe("DirectoryBrowser", () => {
     expect(await screen.findByText("Open src in external terminal failed.")).toBeTruthy();
     expect(screen.getByText(/Check the preferred external terminal in macOS Settings/)).toBeTruthy();
     expect(screen.getByText(/Terminal missing/)).toBeTruthy();
+  });
+
+  it("shows recovery guidance when opening a file in the external editor fails", async () => {
+    vi.mocked(openPathInExternalEditor).mockRejectedValueOnce(new Error("No configured editor"));
+
+    render(<DirectoryBrowser />);
+    fireEvent.click(screen.getByLabelText("Open README.md in external editor"));
+
+    expect(await screen.findByText("Open README.md in external editor failed.")).toBeTruthy();
+    expect(screen.getByText(/Check the preferred editor in macOS Settings/)).toBeTruthy();
+    expect(screen.getByText(/No configured editor/)).toBeTruthy();
   });
 
   it("shows macOS recovery guidance when folder browsing is blocked", () => {
