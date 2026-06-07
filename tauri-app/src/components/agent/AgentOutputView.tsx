@@ -1,15 +1,22 @@
 import { useState } from "react";
-import { Code2, Copy, FolderOpen, Link2, X } from "lucide-react";
+import { Code2, Copy, FolderOpen, Link2, TerminalSquare, X } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
 import { useAgentStore } from "../../stores/agentStore";
 import { AgentMessageList } from "./AgentMessageList";
 import { AgentStateBadge } from "./AgentStateBadge";
-import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, revealPathInFinder } from "../../lib/pathActions";
+import {
+  copyTextToClipboard,
+  copyXolotlCodeOpenShellCommand,
+  copyXolotlCodeOpenUrl,
+  openPathInExternalEditor,
+  openPathInExternalTerminal,
+  revealPathInFinder,
+} from "../../lib/pathActions";
 
 type AgentWorktreeHandoffState = "idle" | "working" | "ok" | "error";
 
-function agentWorktreeRecoveryHint(error: unknown, action: "finder" | "clipboard" | "editor"): string {
+function agentWorktreeRecoveryHint(error: unknown, action: "finder" | "clipboard" | "editor" | "terminal"): string {
   const detail = error instanceof Error ? error.message : String(error ?? "");
   const suffix = detail ? ` ${detail}` : "";
   switch (action) {
@@ -19,6 +26,8 @@ function agentWorktreeRecoveryHint(error: unknown, action: "finder" | "clipboard
       return `Check macOS clipboard access, then try the worktree copy action again.${suffix}`;
     case "editor":
       return `Check the preferred editor in macOS Settings, or use an installed app name or executable path.${suffix}`;
+    case "terminal":
+      return `Check the preferred external terminal in macOS Settings, or use Terminal, iTerm, Warp, an app bundle path, or executable path.${suffix}`;
   }
 }
 
@@ -39,7 +48,7 @@ export function AgentOutputView({ agentId }: { agentId: string }) {
   const [handoffHint, setHandoffHint] = useState<string | undefined>(undefined);
 
   const runAgentWorktreeHandoff = async (
-    action: "finder" | "clipboard" | "editor",
+    action: "finder" | "clipboard" | "editor" | "terminal",
     perform: (path: string) => Promise<void>,
     successMessage: string,
     failureMessage: string,
@@ -142,6 +151,22 @@ export function AgentOutputView({ agentId }: { agentId: string }) {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
+                title={handoffMessage || "Copy agent worktree shell open command"}
+                aria-label="Copy agent worktree shell open command"
+                disabled={handoffWorking}
+                onClick={() => void runAgentWorktreeHandoff(
+                  "clipboard",
+                  copyXolotlCodeOpenShellCommand,
+                  "Agent worktree shell open command copied.",
+                  "Copy agent worktree shell open command failed.",
+                )}
+              >
+                <TerminalSquare className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
                 title={handoffMessage || "Open agent worktree in editor"}
                 aria-label="Open agent worktree in editor"
                 disabled={handoffWorking}
@@ -153,6 +178,22 @@ export function AgentOutputView({ agentId }: { agentId: string }) {
                 )}
               >
                 <Code2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                title={handoffMessage || "Open agent worktree in external terminal"}
+                aria-label="Open agent worktree in external terminal"
+                disabled={handoffWorking}
+                onClick={() => void runAgentWorktreeHandoff(
+                  "terminal",
+                  openPathInExternalTerminal,
+                  "Agent worktree opened in the external terminal.",
+                  "Open agent worktree in external terminal failed.",
+                )}
+              >
+                <TerminalSquare className="h-3.5 w-3.5" />
               </Button>
             </>
           )}

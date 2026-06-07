@@ -15,8 +15,10 @@ const commandMocks = vi.hoisted(() => ({
 
 const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn<(text: string) => Promise<void>>((_text) => Promise.resolve()),
+  copyXolotlCodeOpenShellCommand: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   copyXolotlCodeOpenUrl: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   openPathInExternalEditor: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
+  openPathInExternalTerminal: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   revealPathInFinder: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
 }));
 
@@ -26,8 +28,10 @@ vi.mock("../../bindings", () => ({
 
 vi.mock("../../lib/pathActions", () => ({
   copyTextToClipboard: pathActionMocks.copyTextToClipboard,
+  copyXolotlCodeOpenShellCommand: pathActionMocks.copyXolotlCodeOpenShellCommand,
   copyXolotlCodeOpenUrl: pathActionMocks.copyXolotlCodeOpenUrl,
   openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
+  openPathInExternalTerminal: pathActionMocks.openPathInExternalTerminal,
   revealPathInFinder: pathActionMocks.revealPathInFinder,
 }));
 
@@ -63,8 +67,10 @@ describe("AgentOutputView Mac worktree handoffs", () => {
       data: "/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-1",
     });
     pathActionMocks.copyTextToClipboard.mockResolvedValue(undefined);
+    pathActionMocks.copyXolotlCodeOpenShellCommand.mockResolvedValue(undefined);
     pathActionMocks.copyXolotlCodeOpenUrl.mockResolvedValue(undefined);
     pathActionMocks.openPathInExternalEditor.mockResolvedValue(undefined);
+    pathActionMocks.openPathInExternalTerminal.mockResolvedValue(undefined);
     pathActionMocks.revealPathInFinder.mockResolvedValue(undefined);
     useAgentStore.setState({
       agents: [makeAgent()],
@@ -100,6 +106,32 @@ describe("AgentOutputView Mac worktree handoffs", () => {
     expect(await screen.findByText("Agent worktree Xolotl link copied.")).toBeTruthy();
   });
 
+  it("copies the active agent worktree shell open command", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentOutputView agentId="agent-1" />);
+    await user.click(screen.getByLabelText("Copy agent worktree shell open command"));
+
+    await waitFor(() => {
+      expect(commandMocks.getAgentWorktreePath).toHaveBeenCalledWith("agent-1");
+      expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-1");
+    });
+    expect(await screen.findByText("Agent worktree shell open command copied.")).toBeTruthy();
+  });
+
+  it("opens the active agent worktree in the external terminal", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentOutputView agentId="agent-1" />);
+    await user.click(screen.getByLabelText("Open agent worktree in external terminal"));
+
+    await waitFor(() => {
+      expect(commandMocks.getAgentWorktreePath).toHaveBeenCalledWith("agent-1");
+      expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-1");
+    });
+    expect(await screen.findByText("Agent worktree opened in the external terminal.")).toBeTruthy();
+  });
+
   it("shows recovery guidance when the agent worktree cannot be resolved", async () => {
     commandMocks.getAgentWorktreePath.mockResolvedValueOnce({
       status: "error",
@@ -129,5 +161,20 @@ describe("AgentOutputView Mac worktree handoffs", () => {
     expect(await screen.findByText("Open agent worktree in editor failed.")).toBeTruthy();
     expect(screen.getByText(/preferred editor in macOS Settings/)).toBeTruthy();
     expect(screen.getByText(/Cursor missing/)).toBeTruthy();
+  });
+
+  it("shows recovery guidance when the external terminal handoff fails", async () => {
+    pathActionMocks.openPathInExternalTerminal.mockRejectedValueOnce(new Error("Warp missing"));
+    const user = userEvent.setup();
+
+    render(<AgentOutputView agentId="agent-1" />);
+    await user.click(screen.getByLabelText("Open agent worktree in external terminal"));
+
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-1");
+    });
+    expect(await screen.findByText("Open agent worktree in external terminal failed.")).toBeTruthy();
+    expect(screen.getByText(/preferred external terminal in macOS Settings/)).toBeTruthy();
+    expect(screen.getByText(/Warp missing/)).toBeTruthy();
   });
 });

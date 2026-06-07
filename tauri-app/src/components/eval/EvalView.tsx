@@ -4,7 +4,7 @@ import {
   FlaskConical, Play, RotateCcw, ChevronDown, ChevronUp, Save,
   Eye, EyeOff, Trophy, History, ListChecks, Gavel, Trash2,
   Target, AlertTriangle, Activity, ShieldCheck, ScanSearch, Gauge,
-  CheckCircle2, CircleDot, Code2, Copy, ExternalLink, FileDown, FileText, FolderOpen, Link2, MonitorPlay,
+  CheckCircle2, CircleDot, Code2, Copy, ExternalLink, FileDown, FileText, FolderOpen, Link2, MonitorPlay, TerminalSquare,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { commands } from "../../bindings";
@@ -33,7 +33,14 @@ import {
   OPEN_EVAL_FROM_NOTIFICATION_EVENT,
   consumePendingEvalNotificationId,
 } from "../../hooks/useMacNotificationRoutes";
-import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, revealPathInFinder } from "../../lib/pathActions";
+import {
+  copyTextToClipboard,
+  copyXolotlCodeOpenShellCommand,
+  copyXolotlCodeOpenUrl,
+  openPathInExternalEditor,
+  openPathInExternalTerminal,
+  revealPathInFinder,
+} from "../../lib/pathActions";
 
 const ReliabilityDashboard = lazy(() => import("./ReliabilityDashboard"));
 
@@ -610,6 +617,21 @@ function OutcomePreview({
     );
   };
 
+  const copyArtifactFolderShellOpenCommand = async (artifact: EvalArtifact) => {
+    const launched = launchStates[artifact.id];
+    if (!launched?.artifactDir) return;
+    await runArtifactFolderHandoff(
+      artifact,
+      () => copyXolotlCodeOpenShellCommand(launched.artifactDir!),
+      "Generated artifact folder shell open command copied.",
+      "Copy generated artifact folder shell open command failed.",
+      (error) => {
+        const detail = error instanceof Error ? error.message : String(error ?? "");
+        return `Check macOS clipboard access and try copying the shell open command again.${detail ? ` ${detail}` : ""}`;
+      },
+    );
+  };
+
   const openArtifactFolderInEditor = async (artifact: EvalArtifact) => {
     const launched = launchStates[artifact.id];
     if (!launched?.artifactDir) return;
@@ -621,6 +643,21 @@ function OutcomePreview({
       (error) => {
         const detail = error instanceof Error ? error.message : String(error ?? "");
         return `Check the preferred editor in macOS Settings, or use an installed app name or executable path.${detail ? ` ${detail}` : ""}`;
+      },
+    );
+  };
+
+  const openArtifactFolderInExternalTerminal = async (artifact: EvalArtifact) => {
+    const launched = launchStates[artifact.id];
+    if (!launched?.artifactDir) return;
+    await runArtifactFolderHandoff(
+      artifact,
+      () => openPathInExternalTerminal(launched.artifactDir!),
+      "Generated artifact folder opened in the external terminal.",
+      "Open generated artifact folder in external terminal failed.",
+      (error) => {
+        const detail = error instanceof Error ? error.message : String(error ?? "");
+        return `Check the preferred external terminal in macOS Settings, or use Terminal, iTerm, Warp, an app bundle path, or executable path.${detail ? ` ${detail}` : ""}`;
       },
     );
   };
@@ -711,6 +748,17 @@ function OutcomePreview({
                       </button>
                       <button
                         type="button"
+                        onClick={() => void openArtifactFolderInExternalTerminal(artifact)}
+                        disabled={handoffWorking}
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.60_0.018_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
+                        title={launch.handoffMessage || "Open generated artifact folder in external terminal"}
+                        aria-label={`Open ${artifact.title} artifact folder in external terminal`}
+                      >
+                        <TerminalSquare className="h-3 w-3" />
+                        Terminal
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => void copyArtifactFolderLink(artifact)}
                         disabled={handoffWorking}
                         className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.60_0.018_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
@@ -719,6 +767,17 @@ function OutcomePreview({
                       >
                         <Link2 className="h-3 w-3" />
                         Link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void copyArtifactFolderShellOpenCommand(artifact)}
+                        disabled={handoffWorking}
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[oklch(0.25_0.012_235)] px-2 text-[11px] text-[oklch(0.60_0.018_220)] hover:border-[oklch(0.34_0.018_205)] hover:text-[oklch(0.82_0.020_210)] disabled:cursor-not-allowed disabled:opacity-50"
+                        title={launch.handoffMessage || "Copy generated artifact folder shell open command"}
+                        aria-label={`Copy ${artifact.title} artifact folder shell open command`}
+                      >
+                        <TerminalSquare className="h-3 w-3" />
+                        Shell
                       </button>
                     </>
                   )}

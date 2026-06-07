@@ -37,8 +37,10 @@ const commandMocks = vi.hoisted(() => ({
 
 const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn<(text: string) => Promise<void>>((_text) => Promise.resolve()),
+  copyXolotlCodeOpenShellCommand: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   copyXolotlCodeOpenUrl: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   openPathInExternalEditor: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
+  openPathInExternalTerminal: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
   revealPathInFinder: vi.fn<(path: string) => Promise<void>>((_path) => Promise.resolve()),
 }));
 
@@ -52,8 +54,10 @@ vi.mock("../../bindings", () => ({
 
 vi.mock("../../lib/pathActions", () => ({
   copyTextToClipboard: pathActionMocks.copyTextToClipboard,
+  copyXolotlCodeOpenShellCommand: pathActionMocks.copyXolotlCodeOpenShellCommand,
   copyXolotlCodeOpenUrl: pathActionMocks.copyXolotlCodeOpenUrl,
   openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
+  openPathInExternalTerminal: pathActionMocks.openPathInExternalTerminal,
   revealPathInFinder: pathActionMocks.revealPathInFinder,
 }));
 
@@ -156,8 +160,10 @@ describe("EvalView Mac Finder handoffs", () => {
     commandMocks.listEvals.mockResolvedValue([savedEvalMeta]);
     commandMocks.loadEval.mockResolvedValue({ status: "ok", data: JSON.stringify(savedEvalResult) });
     pathActionMocks.copyTextToClipboard.mockResolvedValue(undefined);
+    pathActionMocks.copyXolotlCodeOpenShellCommand.mockResolvedValue(undefined);
     pathActionMocks.copyXolotlCodeOpenUrl.mockResolvedValue(undefined);
     pathActionMocks.openPathInExternalEditor.mockResolvedValue(undefined);
+    pathActionMocks.openPathInExternalTerminal.mockResolvedValue(undefined);
     pathActionMocks.revealPathInFinder.mockResolvedValue(undefined);
   });
 
@@ -305,6 +311,52 @@ describe("EvalView Mac Finder handoffs", () => {
     expect(await screen.findByText("Generated artifact folder Xolotl link copied.")).toBeTruthy();
   });
 
+  it("copies a generated artifact folder shell open command after launch", async () => {
+    seedCompletedEval(`
+\`\`\`html
+<!doctype html>
+<html><body><button>Open me</button></body></html>
+\`\`\`
+`);
+    const user = userEvent.setup();
+
+    render(<EvalView />);
+    await user.click(screen.getByRole("button", { name: "Ready for scores" }));
+    await user.click(await screen.findByRole("button", { name: /Open index.html/ }));
+    await waitFor(() => {
+      expect(commands.startEvalArtifact).toHaveBeenCalled();
+    });
+    await user.click(await screen.findByLabelText("Copy index.html artifact folder shell open command"));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/.xolotl-code/eval-artifacts/artifact-1");
+    });
+    expect(await screen.findByText("Generated artifact folder shell open command copied.")).toBeTruthy();
+  });
+
+  it("opens a generated artifact folder in the external terminal after launch", async () => {
+    seedCompletedEval(`
+\`\`\`html
+<!doctype html>
+<html><body><button>Open me</button></body></html>
+\`\`\`
+`);
+    const user = userEvent.setup();
+
+    render(<EvalView />);
+    await user.click(screen.getByRole("button", { name: "Ready for scores" }));
+    await user.click(await screen.findByRole("button", { name: /Open index.html/ }));
+    await waitFor(() => {
+      expect(commands.startEvalArtifact).toHaveBeenCalled();
+    });
+    await user.click(await screen.findByLabelText("Open index.html artifact folder in external terminal"));
+
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/.xolotl-code/eval-artifacts/artifact-1");
+    });
+    expect(await screen.findByText("Generated artifact folder opened in the external terminal.")).toBeTruthy();
+  });
+
   it("shows recovery guidance when opening a generated artifact folder in the editor fails", async () => {
     seedCompletedEval(`
 \`\`\`html
@@ -329,5 +381,31 @@ describe("EvalView Mac Finder handoffs", () => {
     expect(await screen.findByText("Open generated artifact folder in editor failed.")).toBeTruthy();
     expect(screen.getByText(/preferred editor in macOS Settings/)).toBeTruthy();
     expect(screen.getByText(/No configured editor/)).toBeTruthy();
+  });
+
+  it("shows recovery guidance when opening a generated artifact folder in the external terminal fails", async () => {
+    seedCompletedEval(`
+\`\`\`html
+<!doctype html>
+<html><body><button>Open me</button></body></html>
+\`\`\`
+`);
+    pathActionMocks.openPathInExternalTerminal.mockRejectedValueOnce(new Error("Terminal app missing"));
+    const user = userEvent.setup();
+
+    render(<EvalView />);
+    await user.click(screen.getByRole("button", { name: "Ready for scores" }));
+    await user.click(await screen.findByRole("button", { name: /Open index.html/ }));
+    await waitFor(() => {
+      expect(commands.startEvalArtifact).toHaveBeenCalled();
+    });
+    await user.click(await screen.findByLabelText("Open index.html artifact folder in external terminal"));
+
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/.xolotl-code/eval-artifacts/artifact-1");
+    });
+    expect(await screen.findByText("Open generated artifact folder in external terminal failed.")).toBeTruthy();
+    expect(screen.getByText(/preferred external terminal in macOS Settings/)).toBeTruthy();
+    expect(screen.getByText(/Terminal app missing/)).toBeTruthy();
   });
 });
