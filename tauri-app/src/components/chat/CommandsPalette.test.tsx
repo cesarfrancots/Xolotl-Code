@@ -115,6 +115,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Start Chat With Clipboard")).toBeTruthy();
     expect(screen.getByText("Explain Clipboard Snippet")).toBeTruthy();
     expect(screen.getByText("Open Recent: Xolotl")).toBeTruthy();
+    expect(screen.getByLabelText("Copy context prompt for recent project Xolotl")).toBeTruthy();
   });
 
   it("renders file-browser commands for the current folder and visible entries", () => {
@@ -176,6 +177,45 @@ describe("CommandsPalette", () => {
       "Xolotl",
     );
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("runs recent project secondary handoff actions from the palette", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByLabelText("Reveal recent project Xolotl in Finder"));
+    await waitFor(() => {
+      expect(pathActionMocks.revealPathInFinder).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+
+    fireEvent.click(screen.getByLabelText("New terminal in recent project Xolotl"));
+    expect(terminalActionMocks.openTerminalAtPath).toHaveBeenCalledWith(
+      "/Users/cesar/Documents/Xolotl",
+      "Xolotl",
+    );
+
+    fireEvent.click(screen.getByLabelText("Copy POSIX path for recent project Xolotl"));
+    await waitFor(() => {
+      expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+
+    fireEvent.click(screen.getByLabelText("Copy Xolotl link for recent project Xolotl"));
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+
+    fireEvent.click(screen.getByLabelText("Copy shell open command for recent project Xolotl"));
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    });
+
+    fireEvent.click(screen.getByLabelText("Copy context prompt for recent project Xolotl"));
+    await waitFor(() => {
+      expect(pathActionMocks.copyProjectContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl",
+        "Xolotl",
+      );
+    });
   });
 
   it("copies active project Xolotl links from the palette", async () => {

@@ -195,6 +195,50 @@ export function CommandsPalette({
           setActiveProject(project.path);
           onOpenChange(false);
         },
+        secondaryActions: [
+          {
+            id: "reveal",
+            label: `Reveal recent project ${project.name} in Finder`,
+            title: "Reveal in Finder",
+            icon: ExternalLink,
+            run: () => runMacHandoff("Reveal in Finder", () => revealPathInFinder(project.path), "finder"),
+          },
+          {
+            id: "terminal",
+            label: `New terminal in recent project ${project.name}`,
+            title: "New Terminal Here",
+            icon: TerminalSquare,
+            run: () => { openTerminalAtPath(project.path, project.name); onOpenChange(false); },
+          },
+          {
+            id: "copy-posix",
+            label: `Copy POSIX path for recent project ${project.name}`,
+            title: "Copy POSIX path",
+            icon: Copy,
+            run: () => runMacHandoff("Copy project path", () => copyTextToClipboard(project.path), "clipboard"),
+          },
+          {
+            id: "copy-link",
+            label: `Copy Xolotl link for recent project ${project.name}`,
+            title: "Copy Xolotl link",
+            icon: Link2,
+            run: () => runMacHandoff("Copy Xolotl link", () => copyXolotlCodeOpenUrl(project.path), "clipboard"),
+          },
+          {
+            id: "copy-shell-open",
+            label: `Copy shell open command for recent project ${project.name}`,
+            title: "Copy shell open command",
+            icon: TerminalSquare,
+            run: () => runMacHandoff("Copy shell open command", () => copyXolotlCodeOpenShellCommand(project.path), "clipboard"),
+          },
+          {
+            id: "copy-context",
+            label: `Copy context prompt for recent project ${project.name}`,
+            title: "Copy context prompt",
+            icon: ClipboardList,
+            run: () => runMacHandoff("Copy project context", () => copyProjectContextHandoff(project.path, project.name), "clipboard"),
+          },
+        ],
       })),
     ];
 
