@@ -5180,7 +5180,10 @@ fn tick_environment(snapshot: &mut CivSessionSnapshot) {
             };
             if let Some(mk) = modifier_kind {
                 snapshot.modifiers.push(CivModifier {
-                    id: format!("dis-{}-{}", snapshot.turn, forecast.kind),
+                    // Share the disaster's own id so the fired disaster and its
+                    // companion modifier correlate in logs (LW-03). forecast.id is
+                    // already deterministic (`dis-{roll_turn}-{kind}`, no uuid/clock).
+                    id: forecast.id.clone(),
                     kind: mk.to_string(),
                     label: format!("Disaster: {mk}"),
                     polarity: "debuff".to_string(),
