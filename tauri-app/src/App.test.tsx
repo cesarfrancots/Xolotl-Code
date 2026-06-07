@@ -13,6 +13,7 @@ const tauriEventMocks = vi.hoisted(() => ({
   listen: vi.fn((_eventName: string, _handler?: unknown) => Promise.resolve(() => {})),
 }));
 const pathActionMocks = vi.hoisted(() => ({
+  copyProjectContextHandoff: vi.fn((_path: string, _name?: string | null) => Promise.resolve()),
   copyXolotlCodeOpenShellCommand: vi.fn((_path: string) => Promise.resolve()),
   copyXolotlCodeOpenUrl: vi.fn((_path: string) => Promise.resolve()),
   openPathInExternalEditor: vi.fn((_path: string) => Promise.resolve()),
@@ -216,6 +217,29 @@ describe("App tab navigation", () => {
       expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
     });
     expect(await screen.findByText("Active project shell open command copied.")).toBeTruthy();
+  });
+
+  it("copies active project context prompts from native active project actions", async () => {
+    useProjectStore.setState({
+      activeProjectPath: "/Users/cesar/Documents/Xolotl",
+      projects: [{
+        path: "/Users/cesar/Documents/Xolotl",
+        name: "Xolotl Code",
+        added_at: 1,
+        last_opened_at: 2,
+      }],
+    });
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "copy-active-project-context" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyProjectContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl",
+        "Xolotl Code",
+      );
+    });
+    expect(await screen.findByText("Active project context prompt copied.")).toBeTruthy();
   });
 
   it("shows recovery when native active project actions have no active project", async () => {

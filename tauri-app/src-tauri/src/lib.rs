@@ -71,6 +71,7 @@ const STATUS_OPEN_ACTIVE_PROJECT_EDITOR: &str = "xolotl:status-open-active-proje
 const STATUS_OPEN_ACTIVE_PROJECT_TERMINAL: &str = "xolotl:status-open-active-project-terminal";
 const STATUS_COPY_ACTIVE_PROJECT_LINK: &str = "xolotl:status-copy-active-project-link";
 const STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN: &str = "xolotl:status-copy-active-project-shell-open";
+const MENU_COPY_ACTIVE_PROJECT_CONTEXT: &str = "xolotl:copy-active-project-context";
 const MENU_FOCUS_WINDOW: &str = "xolotl:focus-window";
 const MENU_NEW_CHAT: &str = "xolotl:new-chat";
 const MENU_OPEN_FOLDER: &str = "xolotl:open-folder";
@@ -363,6 +364,9 @@ fn build_active_project_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<ta
         "Copy Shell Open Command",
     )
     .build(app)?;
+    let copy_context =
+        MenuItemBuilder::with_id(MENU_COPY_ACTIVE_PROJECT_CONTEXT, "Copy Context Prompt")
+            .build(app)?;
 
     SubmenuBuilder::new(app, "Active Project")
         .item(&reveal)
@@ -371,6 +375,7 @@ fn build_active_project_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<ta
         .separator()
         .item(&copy_link)
         .item(&copy_shell)
+        .item(&copy_context)
         .build()
 }
 
@@ -926,6 +931,8 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
         Some(STATUS_COPY_ACTIVE_PROJECT_LINK)
     } else if id == STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN {
         Some(STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN)
+    } else if id == MENU_COPY_ACTIVE_PROJECT_CONTEXT {
+        Some(MENU_COPY_ACTIVE_PROJECT_CONTEXT)
     } else {
         None
     }
@@ -1132,6 +1139,10 @@ mod tests {
                 STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN
             )),
             Some(STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(MENU_COPY_ACTIVE_PROJECT_CONTEXT)),
+            Some(MENU_COPY_ACTIVE_PROJECT_CONTEXT)
         );
     }
 

@@ -805,7 +805,7 @@ function MacPanel({ open }: { open: boolean }) {
           </label>
         </div>
         <p className="mt-2 text-xs text-[oklch(0.58_0.012_225)]">
-          Shows active project and agent status with quick access to Xolotl commands.
+          Shows active project, agent, and eval status with quick access to Xolotl commands.
         </p>
       </div>
 

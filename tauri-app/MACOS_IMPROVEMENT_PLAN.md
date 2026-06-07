@@ -12,7 +12,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Embedded terminal opens reliably and focuses when the dock becomes visible.
 - Native macOS menu and Cmd shortcuts are wired and smoke-tested.
 - File > New Chat, workbench tab shortcuts, command palette, and terminal toggle route through the native menu bridge.
-- File > Active Project exposes native-menu Finder, editor, external terminal, `xolotl-code://` link, and shell open-command handoffs.
+- File > Active Project exposes native-menu Finder, editor, external terminal, `xolotl-code://` link, shell open-command, and context-prompt handoffs.
 - Workbench toolbar uses a quieter macOS utility style with a focused segmented control and explicit active states.
 - Main window uses macOS overlay titlebar chrome with hidden title text, explicit traffic-light positioning, custom drag regions, and safe spacing when the left rail is collapsed.
 - Sidebar projects and file browser use compact Mac navigator rows, count badges, consistent utility icon buttons, and tighter Finder-style metadata labels.
@@ -275,7 +275,7 @@ Deliverables:
   - First pass done with `xolotl-code://open?path=...` deep links for Shortcuts, Raycast, Alfred, and shell automation.
   - Link-copying actions are available from saved project rows and the command palette.
   - Shell open-command copying is available from the command palette for active projects, current folders, and visible file-browser entries.
-  - Active project links and shell open commands are available from the native File menu.
+  - Active project links, shell open commands, and context prompts are available from the native File menu.
 
 Acceptance:
 
@@ -378,7 +378,7 @@ Deliverables:
   - Continue expanding `xolotl-code://open?path=...` links where they naturally fit.
   - Add a command-palette action to copy a prompt-ready project context link when a project is active. Done for active project path + `xolotl-code://` link context blocks.
   - Add documentation or in-app affordances for using links from Shortcuts, Raycast, Alfred, and shell scripts without adding noisy onboarding text to the main UI. Done for command-palette shell-open command copying.
-  - Keep native-menu access for active project handoffs. Done for File > Active Project.
+  - Keep native-menu access for active project handoffs. Done for File > Active Project, including prompt-ready context blocks.
 - Improve Finder-originated workflows:
   - Complete end-to-end manual QA for drag/drop, Open With, and file-url launch using real folders with spaces and package directories.
   - Consider an AppKit shim only for features Tauri cannot expose cleanly and only after the maintenance cost is clear.

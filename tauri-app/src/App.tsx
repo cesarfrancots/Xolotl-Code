@@ -21,6 +21,7 @@ import { errorDetail, MAC_APP_STATUS_EVENT, type MacAppStatus } from "./lib/macA
 import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
 import {
+  copyProjectContextHandoff,
   copyXolotlCodeOpenShellCommand,
   copyXolotlCodeOpenUrl,
   openPathInExternalEditor,
@@ -110,12 +111,13 @@ export default function App() {
   }, []);
 
   const runActiveProjectHandoff = useCallback((
-    action: (path: string) => Promise<void>,
+    action: (path: string, name?: string | null) => Promise<void>,
     successMessage: string,
     failureMessage: string,
     recoveryHint: string,
   ) => {
-    const activeProjectPath = useProjectStore.getState().activeProjectPath;
+    const projectState = useProjectStore.getState();
+    const activeProjectPath = projectState.activeProjectPath;
     if (!activeProjectPath) {
       setMacAppStatus({
         tone: "error",
@@ -124,8 +126,9 @@ export default function App() {
       });
       return;
     }
+    const activeProjectName = projectState.projects.find((project) => project.path === activeProjectPath)?.name ?? null;
 
-    void action(activeProjectPath)
+    void (activeProjectName ? action(activeProjectPath, activeProjectName) : action(activeProjectPath))
       .then(() => {
         setMacAppStatus({ tone: "ok", message: successMessage });
       })
@@ -209,6 +212,15 @@ export default function App() {
         copyXolotlCodeOpenShellCommand,
         "Active project shell open command copied.",
         "Copy active project shell open command failed.",
+        "Check clipboard permissions and try again.",
+      );
+      return;
+    }
+    if (action === "copy-active-project-context") {
+      runActiveProjectHandoff(
+        copyProjectContextHandoff,
+        "Active project context prompt copied.",
+        "Copy active project context prompt failed.",
         "Check clipboard permissions and try again.",
       );
       return;
