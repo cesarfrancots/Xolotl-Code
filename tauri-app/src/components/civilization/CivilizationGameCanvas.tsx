@@ -37,6 +37,7 @@ const TILE_SIZE = 16;
 const VARIANT_COUNT = 12;
 const FRAMES_PER_VARIANT = 4;
 const SURFACE_ROWS = 6; // air band at the very top (matches backend WATER_SURFACE_Y)
+const WATER_FLOOR_Y = 50; // base seabed row where colonies live (matches backend WATER_FLOOR_Y)
 const PLAYER_DASH_COOLDOWN_MS = 1350;
 const PLAYER_JUMP_IMPULSE = -8.2;
 const PLAYER_JUMP_GRAVITY = 0.28;
@@ -3314,37 +3315,40 @@ export function colonyBounds(
 /**
  * Resolve a civ's home point in WORLD-TILE coordinates (the caller multiplies by
  * TILE_SIZE, mirroring focusRegion's `(rx + width/2) * TILE_SIZE` math). Precedence:
- *   (a) the civ's home_region matched in `regions` -> that region's centre;
- *   (b) else the centroid of entities whose civ_id === civId;
- *   (c) else the civ's spawn_x (with a surface-level y);
+ *   (a) the civ's home_region matched in `regions` -> that region's centre
+ *       (`y + height/2`, NOT `height/2` — the region starts at its `y`, not 0);
+ *   (b) else the centroid of entities whose civ_id === civId (~seabed level);
+ *   (c) else the civ's spawn_x at the seabed band (WATER_FLOOR_Y), so all three
+ *       branches resolve to comparable altitudes (the colony band, not the surface);
  *   (d) else null (T-02-04 — the caller falls back to frameAll()).
  * Pure — no Phaser; never throws on missing/malformed input.
  */
 export function focusTarget(
   civId: string,
   civs: { id?: string; spawn_x?: number; home_region?: string }[] | undefined,
-  regions: { id: string; x: number; width: number; height?: number; owner?: string | null }[] | undefined,
+  regions: { id: string; x: number; y: number; width: number; height?: number; owner?: string | null }[] | undefined,
   entities: { civ_id?: string | null; x: number; y: number }[] | undefined,
 ): { tx: number; ty: number } | null {
   const civ = (civs ?? []).find((c) => c.id === civId);
   if (!civ) return null;
-  // (a) home-region centre.
+  // (a) home-region centre: region top (y) + half its height, not height/2.
   if (civ.home_region) {
     const region = (regions ?? []).find((r) => r.id === civ.home_region);
     if (region) {
-      return { tx: region.x + region.width / 2, ty: (region.height ?? 0) / 2 };
+      return { tx: region.x + region.width / 2, ty: region.y + (region.height ?? 0) / 2 };
     }
   }
-  // (b) centroid of the civ's entities.
+  // (b) centroid of the civ's entities (already at ~seabed level).
   const own = (entities ?? []).filter((e) => e.civ_id === civId);
   if (own.length > 0) {
     const sx = own.reduce((a, e) => a + e.x, 0) / own.length;
     const sy = own.reduce((a, e) => a + e.y, 0) / own.length;
     return { tx: sx, ty: sy };
   }
-  // (c) spawn_x with a surface-level y.
+  // (c) spawn_x at the seabed band — colonies live near WATER_FLOOR_Y, not the
+  // water surface; matching the colony altitude the other branches resolve to.
   if (typeof civ.spawn_x === "number") {
-    return { tx: civ.spawn_x, ty: SURFACE_ROWS };
+    return { tx: civ.spawn_x, ty: WATER_FLOOR_Y };
   }
   // (d) unresolvable.
   return null;

@@ -193,7 +193,8 @@ describe("focusTarget", () => {
     { id: "d", spawn_x: 20, home_region: "missing" },
   ];
   const regions = [
-    { id: "r-a", x: 4, width: 6, height: 8, owner: "a" },
+    // y mirrors the backend (WATER_SURFACE_Y = 6); the region spans from y down.
+    { id: "r-a", x: 4, y: 6, width: 6, height: 8, owner: "a" },
   ];
   const entities = [
     { civ_id: "b", x: 10, y: 20 },
@@ -202,8 +203,9 @@ describe("focusTarget", () => {
   ];
 
   it("prefers the civ's home-region centre in world tiles", () => {
-    // region r-a: x=4, width=6 -> cx = 4 + 6/2 = 7; cy = 8/2 = 4.
-    expect(focusTarget("a", civs, regions, entities)).toEqual({ tx: 7, ty: 4 });
+    // region r-a: x=4, width=6 -> cx = 4 + 6/2 = 7;
+    // vertical centre = y + height/2 = 6 + 8/2 = 10 (region top + half height).
+    expect(focusTarget("a", civs, regions, entities)).toEqual({ tx: 7, ty: 10 });
   });
 
   it("falls back to the centroid of that civ's entities when no home region resolves", () => {
@@ -211,12 +213,10 @@ describe("focusTarget", () => {
     expect(focusTarget("b", civs, regions, entities)).toEqual({ tx: 12, ty: 22 });
   });
 
-  it("falls back to spawn_x (with a sensible y) when no region and no entities resolve", () => {
-    // civ d: home_region "missing" not in regions; no entities -> spawn_x 20.
-    const t = focusTarget("d", civs, regions, entities);
-    expect(t).not.toBeNull();
-    expect(t?.tx).toBe(20);
-    expect(Number.isFinite(t?.ty as number)).toBe(true);
+  it("falls back to spawn_x at the seabed band when no region and no entities resolve", () => {
+    // civ d: home_region "missing" not in regions; no entities -> spawn_x 20,
+    // y resolves to WATER_FLOOR_Y (50) — colonies live near the seabed, not the surface.
+    expect(focusTarget("d", civs, regions, entities)).toEqual({ tx: 20, ty: 50 });
   });
 
   it("returns null when nothing resolves (no region, no entities, no spawn_x)", () => {
