@@ -28,6 +28,7 @@ pub struct PermissionRequestPayload {
 /// and the async respond_to_permission command handler.
 pub type PendingPrompts = Arc<Mutex<HashMap<String, mpsc::Sender<PermissionDecision>>>>;
 
+#[allow(dead_code)]
 pub struct TauriPermissionPrompter {
     pub app_handle: AppHandle,
     pub pending_prompts: PendingPrompts,

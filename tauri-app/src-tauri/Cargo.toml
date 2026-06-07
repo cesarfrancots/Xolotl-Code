@@ -44,6 +44,13 @@ base64 = "0.22"
 custom-protocol = ["tauri/custom-protocol"]
 default = ["custom-protocol"]
 
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = "s"
+panic = "abort"
+strip = true
+
 [dev-dependencies]
 anyhow = "1"
 

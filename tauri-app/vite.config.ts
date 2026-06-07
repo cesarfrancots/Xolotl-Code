@@ -39,9 +39,13 @@ export default defineConfig(async () => ({
   },
 
   build: {
+    // Phaser is only needed by the lazy Civ tab. Keep it isolated so the main
+    // workbench and Mac utility surfaces stay lightweight.
+    chunkSizeWarningLimit: 1600,
     rollupOptions: {
       output: {
         manualChunks: {
+          "game-vendor": ["phaser"],
           "markdown-vendor": ["react-markdown", "rehype-highlight", "highlight.js"],
           "icons-vendor": ["lucide-react"],
           "ui-vendor": ["radix-ui", "cmdk"],
