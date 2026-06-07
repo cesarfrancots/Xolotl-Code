@@ -3455,6 +3455,7 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
         kind: entity.kind,
         role: entity.role,
         morph: entity.morph,
+        pattern: entity.pattern, // GEN-01 visible pattern (ARENA-01 text-state, mirrors morph)
         stage: entity.stage,
         sex: entity.sex,
         age: entity.age,
