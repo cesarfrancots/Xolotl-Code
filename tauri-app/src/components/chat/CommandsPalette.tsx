@@ -4,7 +4,7 @@ import {
   Hash, Keyboard, Paperclip, FlaskConical, GitBranch, Users, FileText, Settings2,
   DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen, Archive, Gauge,
   MessageSquare, TerminalSquare, TestTubeDiagonal, Sprout, Settings, FolderPlus, ExternalLink, Copy,
-  Clipboard, Code2, CornerDownRight, CornerLeftUp, Eye, Folder, RefreshCw,
+  Clipboard, Code2, CornerDownRight, CornerLeftUp, Eye, Folder, Link2, RefreshCw,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
@@ -25,7 +25,7 @@ import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "..
 import { MAC_COMMANDS, type MacCommandId, type MacCommandSpec } from "../../lib/macCommandModel";
 import { formatMacShortcut } from "../../lib/macShortcuts";
 import { dispatchNativeMenuAction, type NativeMenuAction } from "../../lib/nativeMenu";
-import { copyTextToClipboard, openPathInExternalEditor, quickLookPath, readTextFromClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, quickLookPath, readTextFromClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 import { openTerminalAtPath } from "../../lib/terminalActions";
 
 type CommandAction = () => void | Promise<void>;
@@ -136,6 +136,7 @@ export function CommandsPalette({
       ...(activeProjectPath ? [
         { id: "project-reveal", kind: "action" as const, label: "Reveal Active Project in Finder", description: macPathLabel(activeProjectPath), icon: ExternalLink, run: () => { void revealPathInFinder(activeProjectPath); onOpenChange(false); } },
         { id: "project-copy-path", kind: "action" as const, label: "Copy Active Project Path", description: macPathLabel(activeProjectPath), icon: Copy, run: () => { void copyTextToClipboard(activeProjectPath); onOpenChange(false); } },
+        { id: "project-copy-link", kind: "action" as const, label: "Copy Active Project Xolotl Link", description: macPathLabel(activeProjectPath), icon: Link2, run: () => { void copyXolotlCodeOpenUrl(activeProjectPath); onOpenChange(false); } },
         { id: "project-open-editor", kind: "action" as const, label: "Open Active Project in Editor", description: macPathLabel(activeProjectPath), icon: Code2, run: () => { void openPathInExternalEditor(activeProjectPath).catch((err) => console.error("open active project in editor failed:", err)); onOpenChange(false); } },
       ] : []),
       ...projects.slice(0, 5).map((project) => ({
@@ -157,6 +158,7 @@ export function CommandsPalette({
     const fileBrowserCommands: PaletteCommand[] = activeProjectPath && currentBrowserPath ? [
       { id: "browser-reveal-current", kind: "file", label: "Reveal Current Folder in Finder", syntax: "Folder", description: macPathLabel(currentBrowserPath), icon: ExternalLink, run: () => { void revealPathInFinder(currentBrowserPath); onOpenChange(false); } },
       { id: "browser-copy-current", kind: "file", label: "Copy Current Folder Path", syntax: "Path", description: macPathLabel(currentBrowserPath), icon: Copy, run: () => { void copyTextToClipboard(currentBrowserPath); onOpenChange(false); } },
+      { id: "browser-copy-current-link", kind: "file", label: "Copy Current Folder Xolotl Link", syntax: "Link", description: macPathLabel(currentBrowserPath), icon: Link2, run: () => { void copyXolotlCodeOpenUrl(currentBrowserPath); onOpenChange(false); } },
       { id: "browser-terminal-current", kind: "file", label: "New Terminal in Current Folder", syntax: "Terminal", description: macPathLabel(currentBrowserPath), icon: TerminalSquare, run: () => { openTerminalAtPath(currentBrowserPath); onOpenChange(false); } },
       ...(currentBrowserPath !== activeProjectPath ? [
         { id: "browser-copy-current-relative", kind: "file" as const, label: "Copy Current Folder Relative Path", syntax: "Relative", description: relativePathFromRoot(currentBrowserPath, activeProjectPath), icon: CornerDownRight, run: () => { void copyTextToClipboard(relativePathFromRoot(currentBrowserPath, activeProjectPath)); onOpenChange(false); } },
@@ -205,6 +207,13 @@ export function CommandsPalette({
               title: "Copy POSIX path",
               icon: Copy,
               run: () => { void copyTextToClipboard(child.path); onOpenChange(false); },
+            },
+            {
+              id: "copy-link",
+              label: `Copy Xolotl link for ${child.name}`,
+              title: "Copy Xolotl link",
+              icon: Link2,
+              run: () => { void copyXolotlCodeOpenUrl(child.path); onOpenChange(false); },
             },
             {
               id: "copy-relative",

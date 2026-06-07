@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { relativePathFromRoot } from "./pathActions";
+import { relativePathFromRoot, xolotlCodeOpenUrl } from "./pathActions";
 
 describe("relativePathFromRoot", () => {
   it("returns a project-relative path for children", () => {
@@ -16,5 +16,13 @@ describe("relativePathFromRoot", () => {
 
   it("handles filesystem root as the project root", () => {
     expect(relativePathFromRoot("/Users/cesar/file.ts", "/")).toBe("Users/cesar/file.ts");
+  });
+});
+
+describe("xolotlCodeOpenUrl", () => {
+  it("encodes project paths for the macOS URL scheme", () => {
+    expect(xolotlCodeOpenUrl("/Users/cesar/Documents/Pivot app")).toBe(
+      "xolotl-code://open?path=%2FUsers%2Fcesar%2FDocuments%2FPivot+app",
+    );
   });
 });

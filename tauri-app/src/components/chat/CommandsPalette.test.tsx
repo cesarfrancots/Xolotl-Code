@@ -6,6 +6,7 @@ import { useProjectStore } from "../../stores/projectStore";
 
 const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn(() => Promise.resolve()),
+  copyXolotlCodeOpenUrl: vi.fn(() => Promise.resolve()),
   openPathInExternalEditor: vi.fn(() => Promise.resolve()),
   quickLookPath: vi.fn(() => Promise.resolve()),
   readTextFromClipboard: vi.fn(() => Promise.resolve("const answer = 42;")),
@@ -20,6 +21,7 @@ vi.mock("../../lib/pathActions", async () => {
   return {
     ...actual,
     copyTextToClipboard: pathActionMocks.copyTextToClipboard,
+    copyXolotlCodeOpenUrl: pathActionMocks.copyXolotlCodeOpenUrl,
     openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
     quickLookPath: pathActionMocks.quickLookPath,
     readTextFromClipboard: pathActionMocks.readTextFromClipboard,
@@ -97,6 +99,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("⌘T")).toBeTruthy();
     expect(screen.getByText("Reveal Active Project in Finder")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Path")).toBeTruthy();
+    expect(screen.getByText("Copy Active Project Xolotl Link")).toBeTruthy();
     expect(screen.getByText("Open Active Project in Editor")).toBeTruthy();
     expect(screen.getByText("Start Chat With Clipboard")).toBeTruthy();
     expect(screen.getByText("Explain Clipboard Snippet")).toBeTruthy();
@@ -108,6 +111,7 @@ describe("CommandsPalette", () => {
 
     expect(screen.getByText("File Browser")).toBeTruthy();
     expect(screen.getByText("Reveal Current Folder in Finder")).toBeTruthy();
+    expect(screen.getByText("Copy Current Folder Xolotl Link")).toBeTruthy();
     expect(screen.getByText("New Terminal in Current Folder")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Relative Path")).toBeTruthy();
     expect(screen.getByText("Browse Parent Folder")).toBeTruthy();
@@ -146,6 +150,16 @@ describe("CommandsPalette", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("copies active project Xolotl links from the palette", () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Active Project Xolotl Link" }));
+
+    expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it("runs active project editor actions from the palette", () => {
     const onOpenChange = vi.fn();
     render(<CommandsPalette open onOpenChange={onOpenChange} />);
@@ -163,6 +177,16 @@ describe("CommandsPalette", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy Current Folder Relative Path" }));
 
     expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("docs");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("copies current folder Xolotl links from the palette", () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Current Folder Xolotl Link" }));
+
+    expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -184,6 +208,9 @@ describe("CommandsPalette", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Copy relative path for src" }));
     expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("docs/src");
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Xolotl link for src" }));
+    expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/src");
 
     fireEvent.click(screen.getByRole("button", { name: "Quick Look File: README.md" }));
     expect(pathActionMocks.quickLookPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/README.md");

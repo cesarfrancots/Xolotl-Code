@@ -23,6 +23,16 @@ export async function copyTextToClipboard(text: string) {
   }
 }
 
+export function xolotlCodeOpenUrl(path: string): string {
+  const url = new URL("xolotl-code://open");
+  url.searchParams.set("path", path);
+  return url.href;
+}
+
+export async function copyXolotlCodeOpenUrl(path: string) {
+  await copyTextToClipboard(xolotlCodeOpenUrl(path));
+}
+
 export async function readTextFromClipboard() {
   try {
     return await readText();
