@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate a high-quality pixel-art axolotl sprite sheet for Xolotl Civilization Lab.
 
-Layout: 12 colour variants, 4 animation frames each => 48 frames.
-Sheet: 16 columns x 3 rows, frame 64x64 => 1024x192.
+Layout: 16 colour variants, 4 animation frames each => 64 frames.
+Sheet: 16 columns x 4 rows, frame 64x64 => 1024x256.
 Frame index i (row-major) belongs to variant i//4, animation frame i%4.
 Each axolotl is hand-composed at native 32x32 then nearest-neighbour x2 -> 64x64.
 """
@@ -14,11 +14,13 @@ N = 32          # native sprite resolution
 SCALE = 2       # -> 64x64 frame
 FRAME = N * SCALE
 COLS = 16
-ROWS = 3
+ROWS = 4
 FRAMES_PER_VARIANT = 4
 
 OUT_SHEET = os.path.join(os.path.dirname(__file__), "..", "..",
                          "tauri-app", "public", "civ", "axolotl-animated-seeds.png")
+OUT_STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "..",
+                              "tauri-app", "public", "civ", "axolotls")
 OUT_PREVIEW = os.path.join(os.path.dirname(__file__), "preview.png")
 
 
@@ -57,21 +59,27 @@ def palette(base, gill):
     }
 
 
-# 12 variants: (name, base body colour, gill/frill accent)
+# Variant order must match MORPHS in tauri-app/src-tauri/src/civilization.rs
+# and tauri-app/src/components/civilization/CivilizationGameCanvas.tsx.
 VARIANTS = [
-    ("pink",     (244, 168, 196), (247, 120, 158)),
-    ("blue",     (146, 190, 236), (120, 214, 240)),
-    ("gold",     (242, 202, 120), (247, 160, 96)),
-    ("mint",     (156, 224, 186), (120, 224, 196)),
-    ("lavender", (196, 176, 236), (210, 150, 234)),
-    ("snow",     (234, 236, 242), (244, 160, 188)),
-    ("coral",    (246, 154, 134), (250, 120, 120)),
-    ("forest",   (132, 198, 138), (180, 220, 120)),
-    ("teal",     (124, 206, 210), (110, 224, 220)),
-    ("peach",    (248, 196, 156), (250, 150, 120)),
-    ("violet",   (212, 152, 224), (236, 130, 224)),
-    ("melanoid", (126, 132, 152), (150, 168, 214)),
+    ("leucistic", (244, 168, 196), (247, 120, 158)),
+    ("wild",      (118, 142, 92),  (180, 216, 116)),
+    ("melanoid",  (92, 96, 116),   (136, 154, 202)),
+    ("gold",      (242, 202, 120), (247, 160, 96)),
+    ("axanthic",  (176, 174, 148), (214, 212, 166)),
+    ("blue",      (146, 190, 236), (120, 214, 240)),
+    ("copper",    (198, 126, 76),  (238, 156, 106)),
+    ("gfp",       (122, 246, 170), (120, 255, 205)),
+    ("albino",    (238, 232, 228), (244, 160, 188)),
+    ("piebald",   (214, 190, 204), (244, 160, 196)),
+    ("firefly",   (248, 218, 98),  (255, 150, 72)),
+    ("mystic",    (196, 146, 236), (226, 126, 242)),
+    ("cyber",     (112, 188, 206), (88, 244, 238)),
+    ("chrome",    (164, 176, 188), (118, 226, 255)),
+    ("volt",      (220, 238, 96),  (80, 250, 208)),
+    ("nebula",    (124, 96, 202),  (236, 96, 230)),
 ]
+CYBER_MORPHS = {"cyber", "chrome", "volt", "nebula"}
 
 
 def ellipse(d, cx, cy, rx, ry, fill):
@@ -180,22 +188,73 @@ def draw_face(img, pal, frame):
     return img
 
 
-def render_frame(pal, frame):
+def draw_cyborg_details(img, pal, frame, name):
+    if name not in CYBER_MORPHS:
+        return img
+    d = ImageDraw.Draw(img)
+    bob = [0, -1, 0, 1][frame]
+    blink = frame == 2
+    neon = {
+        "cyber": (84, 255, 232),
+        "chrome": (120, 226, 255),
+        "volt": (246, 255, 92),
+        "nebula": (236, 106, 255),
+    }[name]
+    neon_lt = adjust(neon, dl=+0.10, ds=-0.04)
+    metal = {
+        "cyber": (72, 86, 94),
+        "chrome": (204, 214, 220),
+        "volt": (74, 90, 82),
+        "nebula": (68, 58, 104),
+    }[name]
+    dark = adjust(metal, dl=-0.22, ds=+0.02)
+
+    # Temple implant and tail band.
+    d.rectangle([5, 14 + bob, 8, 17 + bob], fill=dark)
+    d.rectangle([6, 14 + bob, 9, 16 + bob], fill=metal)
+    d.point((8, 15 + bob), fill=neon_lt)
+    d.rectangle([21, 25 + bob, 25, 27 + bob], fill=dark)
+    d.line([(21, 26 + bob), (25, 26 + bob)], fill=neon)
+
+    # Tiny chest core.
+    d.rectangle([15, 20 + bob, 17, 22 + bob], fill=dark)
+    d.point((16, 21 + bob), fill=neon_lt)
+
+    if name in {"cyber", "chrome"}:
+        d.rectangle([11, 15 + bob, 21, 16 + bob], fill=dark)
+        d.line([(12, 15 + bob), (20, 15 + bob)], fill=neon if not blink else dark)
+    if name == "volt":
+        d.line([(19, 9 + bob), (16, 13 + bob), (19, 13 + bob), (15, 18 + bob)], fill=neon_lt, width=1)
+        d.point((22, 10 + bob), fill=neon)
+        d.point((10, 8 + bob), fill=neon)
+    if name == "nebula":
+        for sx, sy in [(10, 10), (21, 11), (8, 20), (23, 19), (16, 8)]:
+            d.point((sx, sy + bob), fill=neon_lt)
+        d.arc([8, 10 + bob, 24, 23 + bob], 205, 330, fill=neon, width=1)
+    return img
+
+
+def render_frame(name, pal, frame):
     art, _ = draw_fill(pal, frame)
     art = add_outline(art, pal)
     art = draw_face(art, pal, frame)
+    art = draw_cyborg_details(art, pal, frame, name)
     return art.resize((FRAME, FRAME), Image.NEAREST)
 
 
 def main():
     sheet = Image.new("RGBA", (COLS * FRAME, ROWS * FRAME), (0, 0, 0, 0))
-    for vi, (_name, base, gill) in enumerate(VARIANTS):
+    os.makedirs(OUT_STATIC_DIR, exist_ok=True)
+    for vi, (name, base, gill) in enumerate(VARIANTS):
         pal = palette(base, gill)
         for fi in range(FRAMES_PER_VARIANT):
             idx = vi * FRAMES_PER_VARIANT + fi
             col = idx % COLS
             row = idx // COLS
-            sheet.paste(render_frame(pal, fi), (col * FRAME, row * FRAME))
+            sheet.paste(render_frame(name, pal, fi), (col * FRAME, row * FRAME))
+        if name in CYBER_MORPHS:
+            portrait = render_frame(name, pal, 1).resize((256, 256), Image.NEAREST)
+            portrait.save(os.path.join(OUT_STATIC_DIR, f"axo-{name}.png"))
 
     os.makedirs(os.path.dirname(OUT_SHEET), exist_ok=True)
     sheet.save(OUT_SHEET)
@@ -205,10 +264,10 @@ def main():
     z = 3
     prev = Image.new("RGBA", (FRAMES_PER_VARIANT * FRAME * z, len(VARIANTS) * FRAME * z),
                      (18, 22, 28, 255))
-    for vi, (_name, base, gill) in enumerate(VARIANTS):
+    for vi, (name, base, gill) in enumerate(VARIANTS):
         pal = palette(base, gill)
         for fi in range(FRAMES_PER_VARIANT):
-            f = render_frame(pal, fi).resize((FRAME * z, FRAME * z), Image.NEAREST)
+            f = render_frame(name, pal, fi).resize((FRAME * z, FRAME * z), Image.NEAREST)
             prev.alpha_composite(f, (fi * FRAME * z, vi * FRAME * z))
     prev.save(OUT_PREVIEW)
     print("preview:", os.path.abspath(OUT_PREVIEW), prev.size)

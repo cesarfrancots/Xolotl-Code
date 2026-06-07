@@ -40,7 +40,7 @@ const DISEASE_COEFF: f32 = 0.18; // max extra death prob from plague for a 0-res
 const MORTALITY_CAP: f32 = 0.25; // hard ceiling on per-turn selection death prob
 
 // Colour genetics. Order matches the sprite-sheet variant order on the frontend.
-const MORPHS: [&str; 12] = [
+const MORPHS: [&str; 16] = [
     "leucistic",
     "wild",
     "melanoid",
@@ -53,11 +53,17 @@ const MORPHS: [&str; 12] = [
     "piebald",
     "firefly",
     "mystic",
+    "cyber",
+    "chrome",
+    "volt",
+    "nebula",
 ];
 // Morphs that show up in the founding colony / as common recessive alleles.
 const COMMON_MORPHS: [&str; 6] = ["leucistic", "wild", "gold", "axanthic", "copper", "albino"];
 // Rare morphs only reachable through mutation.
-const RARE_MORPHS: [&str; 3] = ["gfp", "firefly", "mystic"];
+const RARE_MORPHS: [&str; 7] = [
+    "gfp", "firefly", "mystic", "cyber", "chrome", "volt", "nebula",
+];
 // Visible coat pattern alleles (second Mendelian trait, parallel to colour morph).
 // "plain" is recessive (lowest pattern_rank); "marbled" is most dominant.
 const PATTERNS: [&str; 4] = ["plain", "spotted", "striped", "marbled"];
@@ -4679,9 +4685,13 @@ fn task_for_npc(
         }
     }
 
-    if matches!(morph, "gold" | "copper" | "firefly" | "blue" | "gfp") {
+    if matches!(
+        morph,
+        "gold" | "copper" | "firefly" | "blue" | "gfp" | "cyber" | "chrome" | "volt"
+    ) {
         let (resource, reward_resource) = match morph {
             "blue" | "gfp" => ("fiber", "clean_water"),
+            "cyber" | "chrome" | "volt" => ("ore", "tools"),
             _ => ("wood", "tools"),
         };
         return PlayerTask {
@@ -4738,7 +4748,7 @@ fn task_for_npc(
         }
     }
 
-    if matches!(morph, "melanoid" | "axanthic" | "mystic") || entity.role == "elder" {
+    if matches!(morph, "melanoid" | "axanthic" | "mystic" | "nebula") || entity.role == "elder" {
         let building_id = task_building_id(
             snapshot,
             if entity.role == "elder" {
@@ -5123,6 +5133,10 @@ fn rand_range(rng: &mut u32, lo: f32, hi: f32) -> f32 {
 /// Higher = more dominant when an axolotl carries two different colour alleles.
 fn morph_rank(morph: &str) -> u8 {
     match morph {
+        "nebula" => 15,
+        "volt" => 14,
+        "chrome" => 13,
+        "cyber" => 12,
         "mystic" => 11,
         "wild" => 10,
         "gfp" | "firefly" => 9,

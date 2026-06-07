@@ -27,6 +27,7 @@ type CivilizationGameCanvasProps = {
   possessedEntityId?: string | null;
   playerTool?: PlayerTool;
   buildResource?: string;
+  gameMode?: GameViewMode;
   pilotCommand?: CivPilotCommand;
   pilotActive?: boolean;
   onPlayerInteract?: (interaction: PlayerInteraction) => void;
@@ -34,7 +35,7 @@ type CivilizationGameCanvasProps = {
 };
 
 const TILE_SIZE = 16;
-const VARIANT_COUNT = 12;
+const VARIANT_COUNT = 16;
 const FRAMES_PER_VARIANT = 4;
 const SURFACE_ROWS = 6; // air band at the very top (matches backend WATER_SURFACE_Y)
 const WATER_FLOOR_Y = 50; // base seabed row where colonies live (matches backend WATER_FLOOR_Y)
@@ -69,6 +70,7 @@ const PILOT_MOVE_ARRIVE_RADIUS = 24;
 const MORPHS = [
   "leucistic", "wild", "melanoid", "gold", "axanthic", "blue",
   "copper", "gfp", "albino", "piebald", "firefly", "mystic",
+  "cyber", "chrome", "volt", "nebula",
 ];
 const ACCESSORIES = [
   "flowercrown", "strawhat", "leafhat", "scarf", "glasses", "wizardhat",
@@ -110,7 +112,7 @@ const BIOME_WASH: Record<string, number> = {
 const MORPH_DOT: Record<string, number> = {
   leucistic: 0xffd9e6, wild: 0x6f7d52, melanoid: 0x4a4a55, gold: 0xf2c75b, axanthic: 0xb9b39b,
   blue: 0x8fb8d8, copper: 0xc77f4a, gfp: 0x8effb4, albino: 0xfff0f4, piebald: 0xd8c0cc,
-  firefly: 0xffe27a, mystic: 0xc89bff,
+  firefly: 0xffe27a, mystic: 0xc89bff, cyber: 0x54ffe8, chrome: 0xcbd6df, volt: 0xe9ff5c, nebula: 0xec6aff,
 };
 
 export type PlayerInteraction = {
@@ -145,6 +147,7 @@ export type PlayerMove = {
 
 type PlayerTextState = {
   possessedEntityId: string | null;
+  view_mode?: GameViewMode;
   control_mode?: "released" | "manual" | "codex";
   pilot_active?: boolean;
   player_tool: PlayerTool;
@@ -236,6 +239,7 @@ type PlayerKeys = {
 };
 
 export type PlayerTool = "use" | "mine" | "build";
+type GameViewMode = "play" | "observe" | "god";
 
 export function CivilizationGameCanvas({
   snapshot,
@@ -243,6 +247,7 @@ export function CivilizationGameCanvas({
   possessedEntityId = null,
   playerTool = "use",
   buildResource = "stone",
+  gameMode = "play",
   pilotCommand = null,
   pilotActive = false,
   onPlayerInteract,
@@ -256,9 +261,9 @@ export function CivilizationGameCanvas({
   useEffect(() => {
     snapshotRef.current = snapshot;
     sceneRef.current?.setSnapshot(snapshot);
-    window.render_game_to_text = () => sceneRef.current?.renderToText() ?? renderSnapshotToText(snapshotRef.current);
+    window.render_game_to_text = () => sceneRef.current?.renderToText() ?? renderSnapshotToText(snapshotRef.current, undefined, gameMode);
     window.advanceTime = (ms: number) => sceneRef.current?.advanceTime(ms);
-  }, [snapshot]);
+  }, [snapshot, gameMode]);
 
   useEffect(() => {
     sceneRef.current?.setTurnRunning(turnRunning);
@@ -271,6 +276,10 @@ export function CivilizationGameCanvas({
   useEffect(() => {
     sceneRef.current?.setPlayerTool(playerTool, buildResource);
   }, [playerTool, buildResource]);
+
+  useEffect(() => {
+    sceneRef.current?.setGameMode(gameMode);
+  }, [gameMode]);
 
   useEffect(() => {
     sceneRef.current?.setPilotCommand(pilotCommand);
@@ -299,10 +308,11 @@ export function CivilizationGameCanvas({
     scene.setTurnRunning(turnRunning);
     scene.setPlayerControl(possessedEntityId, onPlayerInteract, onPlayerMove);
     scene.setPlayerTool(playerTool, buildResource);
+    scene.setGameMode(gameMode);
     scene.setPilotCommand(pilotCommand);
     scene.setPilotActive(pilotActive);
 
-    window.render_game_to_text = () => sceneRef.current?.renderToText() ?? renderSnapshotToText(snapshotRef.current);
+    window.render_game_to_text = () => sceneRef.current?.renderToText() ?? renderSnapshotToText(snapshotRef.current, undefined, gameMode);
     window.advanceTime = (ms: number) => sceneRef.current?.advanceTime(ms);
 
     return () => {
@@ -393,6 +403,7 @@ class CivPhaserScene extends Phaser.Scene {
   private playerKeys?: PlayerKeys;
   private playerTool: PlayerTool = "use";
   private buildResource = "stone";
+  private gameMode: GameViewMode = "play";
   private pilotCommand: CivPilotCommand = null;
   private pilotActive = false;
   private lastPilotInteractNonce = 0;
@@ -618,12 +629,17 @@ class CivPhaserScene extends Phaser.Scene {
     this.buildResource = nextBuildResource;
   }
 
+  setGameMode(mode: GameViewMode) {
+    this.gameMode = mode;
+  }
+
   renderToText(): string {
     const axo = this.playerAxo();
     const hazardContact = axo ? this.playerHazardContact(axo) : null;
     const activeTarget = axo ? this.findPlayerInteraction(axo) : null;
     return renderSnapshotToText(this.snapshot, {
       possessedEntityId: this.possessedEntityId,
+      view_mode: this.gameMode,
       control_mode: this.possessedEntityId ? this.pilotActive ? "codex" : "manual" : "released",
       pilot_active: this.pilotActive,
       player: axo
@@ -1022,7 +1038,7 @@ class CivPhaserScene extends Phaser.Scene {
 
     let body: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image;
     let glow: Phaser.GameObjects.Sprite | undefined;
-    const glowMorph = entity.morph === "gfp" || entity.morph === "mystic" || entity.morph === "firefly";
+    const glowMorph = ["gfp", "mystic", "firefly", "cyber", "chrome", "volt", "nebula"].includes(entity.morph ?? "");
 
     if (isEgg) {
       body = this.add.image(0, 0, this.textures.exists("egg") ? "egg" : "civ-water");
@@ -1038,7 +1054,7 @@ class CivPhaserScene extends Phaser.Scene {
         const g = this.add.sprite(0, 0, "civ-axolotls", variant * FRAMES_PER_VARIANT);
         g.play({ key: `axo-${variant}`, startFrame: hashInt(entity.id) % FRAMES_PER_VARIANT });
         g.setDisplaySize(57, 57);
-        g.setTint(entity.morph === "gfp" ? 0x7dffb0 : entity.morph === "firefly" ? 0xffe27a : 0xc89bff);
+        g.setTint(morphGlowTint(entity.morph));
         g.setAlpha(0.16);
         g.setBlendMode(Phaser.BlendModes.ADD);
         container.add(g);
@@ -3140,6 +3156,16 @@ function morphVariant(entity: CivEntity, seed: number): number {
   return seedVariant(seed, entity.id);
 }
 
+function morphGlowTint(morph: string | undefined): number {
+  if (morph === "gfp") return 0x7dffb0;
+  if (morph === "firefly") return 0xffe27a;
+  if (morph === "cyber") return 0x54ffe8;
+  if (morph === "chrome") return 0xbef0ff;
+  if (morph === "volt") return 0xe9ff5c;
+  if (morph === "nebula") return 0xec6aff;
+  return 0xc89bff;
+}
+
 function isSubstrate(terrain: string): boolean {
   return terrain !== "air" && terrain !== "water" && terrain !== "deepwater";
 }
@@ -3415,14 +3441,25 @@ function seedVariant(seed: number, id: string): number {
   return hash % VARIANT_COUNT;
 }
 
-export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?: PlayerTextState): string {
+export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?: PlayerTextState, viewMode: GameViewMode = "play"): string {
   const civ = primaryCiv(snapshot);
   const possessedPlayer = playerState?.possessedEntityId && playerState.player
     ? { id: playerState.possessedEntityId, player: playerState.player }
     : null;
+  const deathEvents = (snapshot.log ?? []).filter((entry) => (
+    /\b(died|death|dead|collapsed|failure|failed|starved|perished)\b/i.test(`${entry.title} ${entry.body}`)
+  )).length;
+  const failedCivs = (snapshot.civs ?? []).filter((c) => c.alive === false || (c.population ?? 0) <= 0).length;
   return JSON.stringify({
     coordinate_system: "origin top-left; x right; y down; tiles are 16px",
-    session: { id: snapshot.id, turn: snapshot.turn, model: civ.model ?? "unknown" },
+    session: { id: snapshot.id, turn: snapshot.turn, model: civ.model ?? "unknown", view_mode: playerState?.view_mode ?? viewMode },
+    run_tracking: {
+      turns_elapsed: snapshot.turn,
+      living_civs: Math.max(0, (snapshot.civs ?? []).length - failedCivs),
+      failed_civs: failedCivs,
+      death_events: deathEvents,
+      no_turn_limit: true,
+    },
     civilization: {
       id: civ.id,
       era: civ.era,
@@ -3439,6 +3476,7 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
     },
     player: playerState ?? {
       possessedEntityId: null,
+      view_mode: viewMode,
       control_mode: "released",
       pilot_active: false,
       player_tool: "use",

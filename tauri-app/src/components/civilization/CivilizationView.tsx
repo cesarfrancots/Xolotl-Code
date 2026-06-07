@@ -107,12 +107,12 @@ function biomeAccent(biome: string) {
   return BIOME_ACCENT[biome] ?? "oklch(0.70 0.030 220)";
 }
 
-const MVP_TARGET_TURN = 20;
 const RESOURCES = [
   "food", "clean_water", "wood", "stone", "clay", "fiber", "tools", "glowshards",
   "kelp", "ore", "ice", "coral", "sulfur", "amber", "herbs",
 ];
 const BUILD_RESOURCES = ["stone", "clay", "wood", "fiber", "coral", "ice"];
+const RARE_RESOURCES = new Set(["glowshards", "ore", "coral", "sulfur", "amber"]);
 const BUFFS = ["abundant_moss", "clear_water", "cooperation_aura", "curiosity_spark"];
 const DEBUFFS = ["drought", "cold_snap", "food_rot", "fatigue", "quarrel_pressure"];
 const ACCESSORIES = [
@@ -154,6 +154,18 @@ const CIV_PALETTE = [
   "#7fdfff", "#ff9ec7", "#9bffa0", "#ffd66e", "#c79cff", "#ff8f6e", "#6ee0c7", "#f4f59a",
 ];
 const MAX_PARTICIPANTS = 3;
+const ALERT_TTL_MS = 5200;
+
+type GameMode = "play" | "observe" | "god";
+type GameAlertKind = "resource" | "rare" | "task" | "world" | "admin";
+
+type GameAlert = {
+  id: number;
+  kind: GameAlertKind;
+  title: string;
+  detail: string;
+  createdAt: number;
+};
 
 type CivParticipantDraft = { name: string; model: string; color: string };
 
@@ -185,11 +197,21 @@ type CivEventPayload = {
   error?: string;
 };
 
-type MvpStatus = {
+type RunStatus = {
   label: string;
   detail: string;
   progress: number;
   state: "stable" | "building" | "risk" | "collapsed";
+};
+
+type RunStats = {
+  turns: number;
+  livingCivs: number;
+  failedCivs: number;
+  deathEvents: number;
+  livingAxolotls: number;
+  eggs: number;
+  totalCivs: number;
 };
 
 type CompletedTaskSummary = {
@@ -225,6 +247,10 @@ export function CivilizationView() {
   const [uiHidden, setUiHidden] = useState(false);
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
+  const [gameMode, setGameMode] = useState<GameMode>("observe");
+  const [alerts, setAlerts] = useState<GameAlert[]>([]);
+  const [adminCommand, setAdminCommand] = useState("");
+  const [adminHistory, setAdminHistory] = useState<string[]>([]);
   const [possessedEntityId, setPossessedEntityId] = useState<string | null>(null);
   const [playerMessage, setPlayerMessage] = useState<string | null>(null);
   const [codexPilot, setCodexPilot] = useState(false);
@@ -243,6 +269,8 @@ export function CivilizationView() {
   const playerTaskToolSyncKeyRef = useRef<string | null>(null);
   const playerSessionRestoredRef = useRef<string | null>(null);
   const skipNextPlayerSessionPersistRef = useRef(false);
+  const nextAlertIdRef = useRef(1);
+  const playModeAutoPossessedSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     void loadModels();
@@ -293,6 +321,15 @@ export function CivilizationView() {
     return () => window.clearTimeout(timer);
   }, [autoplay, turnRunning, snapshot?.turn, advanceTurn, snapshot]);
 
+  useEffect(() => {
+    if (alerts.length === 0) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setAlerts((items) => items.filter((item) => now - item.createdAt < ALERT_TTL_MS));
+    }, 600);
+    return () => window.clearInterval(timer);
+  }, [alerts.length]);
+
   const activeCiv = snapshot
     ? (snapshot.civs?.find((c) => c.id === selectedCivId) ?? primaryCiv(snapshot))
     : null;
@@ -309,7 +346,8 @@ export function CivilizationView() {
     if (selectedCivId) window.civCamera?.focusCiv?.(selectedCivId);
     else window.civCamera?.frameAll?.();
   }, [selectedCivId]);
-  const mvpStatus = snapshot ? getMvpStatus(snapshot, activeCiv) : null;
+  const runStatus = snapshot ? getRunStatus(snapshot, activeCiv) : null;
+  const runStats = snapshot ? getRunStats(snapshot) : null;
   const activePlayerTask = useMemo(
     () => (snapshot ? activeCivPlayerTask(snapshot, activeCiv) : null),
     [snapshot, activeCiv],
@@ -459,6 +497,17 @@ export function CivilizationView() {
       setPossessedEntityId(null);
     }
   }, [possessedEntityId, possessableAxos]);
+
+  useEffect(() => {
+    const sessionId = snapshot?.id;
+    if (gameMode !== "play" || !sessionId || possessedEntityId || possessableAxos.length === 0) return;
+    if (playModeAutoPossessedSessionRef.current === sessionId) return;
+    playModeAutoPossessedSessionRef.current = sessionId;
+    const entity = possessableAxos[0];
+    setPossessedEntityId(entity.id);
+    setPlayerMessage(`Play mode ready: controlling ${entity.name}.`);
+    focusGameCanvasSoon();
+  }, [gameMode, possessedEntityId, possessableAxos, snapshot?.id]);
 
   useEffect(() => {
     window.civPilotControls = {
@@ -614,6 +663,19 @@ export function CivilizationView() {
 
   const canFound = !loading && participants.every((p) => Boolean(p.model));
 
+  function pushGameAlert(kind: GameAlertKind, title: string, detail: string) {
+    const id = nextAlertIdRef.current;
+    nextAlertIdRef.current += 1;
+    setAlerts((items) => [
+      { id, kind, title, detail, createdAt: Date.now() },
+      ...items,
+    ].slice(0, 5));
+  }
+
+  function dismissGameAlert(id: number) {
+    setAlerts((items) => items.filter((item) => item.id !== id));
+  }
+
   async function handleCreate() {
     if (!canFound) return;
     const fallback = preferredModel(models);
@@ -625,11 +687,183 @@ export function CivilizationView() {
     await createSession({ name, seed: null, civs });
     // Reset selection to the founding colony so the observer panel has a focus.
     setSelectedCivId(null);
+    setGameMode("play");
+    playModeAutoPossessedSessionRef.current = null;
     setLeftOpen(false);
+    pushGameAlert("world", "New colony founded", "A fresh playable world is ready.");
   }
 
   function sendIntervention(intervention: CivIntervention) {
-    void applyIntervention(intervention);
+    const scoped = activeCiv?.id && ["grant_resource", "remove_resource", "spawn_resource"].includes(intervention.kind)
+      ? { ...intervention, civ_id: intervention.civ_id ?? activeCiv.id }
+      : intervention;
+    void applyIntervention(scoped);
+  }
+
+  async function handleRestartRun() {
+    const fallback = preferredModel(models);
+    const civs = snapshot
+      ? (snapshot.civs ?? []).slice(0, MAX_PARTICIPANTS).map((civ, index) => ({
+          name: civ.name?.trim() || `Civ ${index + 1}`,
+          model: civ.model || fallback,
+          color: civ.color || paletteColor(index),
+        }))
+      : participants.map((participant, index) => ({
+          name: participant.name.trim() || `Civ ${index + 1}`,
+          model: participant.model || fallback,
+          color: participant.color,
+        }));
+    if (civs.some((civ) => !civ.model)) return;
+    setAutoplay(false);
+    setCodexPilot(false);
+    setPilotCommand(null);
+    setPilotReadout(null);
+    setPilotStatus("Stopped");
+    setPossessedEntityId(null);
+    setSelectedCivId(null);
+    setGameMode("play");
+    playModeAutoPossessedSessionRef.current = null;
+    await createSession({ name: snapshot?.name ?? name, seed: null, civs });
+    pushGameAlert("world", "Run restarted", "A new procedural world was created with the same civ lineup.");
+  }
+
+  function switchGameMode(nextMode: GameMode) {
+    setGameMode(nextMode);
+    if (nextMode === "play") {
+      setRightOpen(false);
+      setCodexPilot(false);
+      setPilotCommand(null);
+      setPilotReadout(null);
+      setPilotStatus("Stopped");
+      if (!possessedEntityId) possessFirstAvailable();
+      setPlayerMessage("Play mode: manual controls and world interaction are in focus.");
+      pushGameAlert("world", "Play mode", "Harness controls are tucked away.");
+      return;
+    }
+    if (nextMode === "observe") {
+      setRightOpen(true);
+      setPlayerMessage("Observe mode: watch the colony and model decisions.");
+      pushGameAlert("world", "Observe mode", "Competition readouts and colony panels are visible.");
+      return;
+    }
+    setRightOpen(true);
+    setPlayerMessage("God mode: admin console, shop prototypes, and interventions are unlocked.");
+    pushGameAlert("admin", "God mode", "Admin commands and direct interventions are available.");
+  }
+
+  function recordAdmin(message: string) {
+    setAdminHistory((items) => [message, ...items].slice(0, 6));
+  }
+
+  function runAdminCommand(rawCommand = adminCommand) {
+    const raw = rawCommand.trim();
+    if (!raw) return;
+    const parts = raw.replace(/^\//, "").split(/\s+/);
+    const command = (parts[0] ?? "").toLowerCase();
+    const target = parts[1] ?? "";
+    const amountArg = Number(parts[2] ?? "1");
+    const commandAmount = Number.isFinite(amountArg) ? Math.max(1, Math.min(999, Math.floor(amountArg))) : 1;
+    setAdminCommand("");
+    if (command === "help") {
+      recordAdmin("Commands: /grant food 10, /spawn amber 3, /buff abundant_moss, /turn, /mode play, /reset.");
+      return;
+    }
+    if (command === "grant" && target) {
+      sendIntervention({ kind: "grant_resource", target, amount: commandAmount });
+      recordAdmin(`Granted ${commandAmount} ${resourceLabel(target)}.`);
+      pushGameAlert("admin", "Admin grant", `+${commandAmount} ${resourceLabel(target)}`);
+      return;
+    }
+    if (command === "remove" && target) {
+      sendIntervention({ kind: "remove_resource", target, amount: commandAmount });
+      recordAdmin(`Removed ${commandAmount} ${resourceLabel(target)}.`);
+      pushGameAlert("admin", "Admin remove", `-${commandAmount} ${resourceLabel(target)}`);
+      return;
+    }
+    if (command === "spawn" && target) {
+      sendIntervention({ kind: "spawn_resource", target, amount: commandAmount, x: spawnX });
+      recordAdmin(`Spawned ${commandAmount} ${resourceLabel(target)} near the colony.`);
+      pushGameAlert(RARE_RESOURCES.has(target) ? "rare" : "admin", "World spawn", `${resourceLabel(target)} pickups added.`);
+      return;
+    }
+    if ((command === "buff" || command === "debuff") && target) {
+      const durationArg = Number(parts[2] ?? "4");
+      const duration = Number.isFinite(durationArg) ? Math.max(1, Math.min(24, Math.floor(durationArg))) : 4;
+      sendIntervention({
+        kind: command === "buff" ? "apply_buff" : "apply_debuff",
+        target,
+        duration,
+        intensity: 1,
+      });
+      recordAdmin(`Applied ${modifierLabel(target)} for ${duration} turn(s).`);
+      pushGameAlert("admin", command === "buff" ? "Buff applied" : "Debuff applied", modifierLabel(target));
+      return;
+    }
+    if (command === "turn") {
+      void advanceTurn();
+      recordAdmin("Advanced one turn.");
+      return;
+    }
+    if (command === "auto") {
+      const nextAuto = target === "off" ? false : target === "on" ? true : !autoplay;
+      setAutoplay(nextAuto);
+      recordAdmin(nextAuto ? "Auto turns enabled." : "Auto turns paused.");
+      return;
+    }
+    if (command === "mode" && (target === "play" || target === "observe" || target === "god")) {
+      switchGameMode(target);
+      recordAdmin(`Switched to ${target} mode.`);
+      return;
+    }
+    if (command === "possess") {
+      possessFirstAvailable();
+      recordAdmin("Possessed the first playable axolotl.");
+      return;
+    }
+    if (command === "release") {
+      setCodexPilot(false);
+      setPilotCommand(null);
+      setPilotReadout(null);
+      setPilotStatus("Stopped");
+      setPossessedEntityId(null);
+      setPlayerMessage("Released player control.");
+      recordAdmin("Released player control.");
+      return;
+    }
+    if (command === "reset" || command === "restart") {
+      void handleRestartRun();
+      recordAdmin("Restarting the world.");
+      return;
+    }
+    recordAdmin(`Unknown command: ${raw}. Try /help.`);
+  }
+
+  function buyDevShopItem(item: "supply_cache" | "rare_lure" | "pond_blessing" | "hard_mode") {
+    if (item === "supply_cache") {
+      ["wood", "stone", "clay", "fiber"].forEach((itemResource) => {
+        sendIntervention({ kind: "grant_resource", target: itemResource, amount: 8 });
+      });
+      pushGameAlert("admin", "Supply cache", "+8 wood, stone, clay, and fiber.");
+      recordAdmin("Bought Supply Cache prototype.");
+      return;
+    }
+    if (item === "rare_lure") {
+      sendIntervention({ kind: "spawn_resource", target: "amber", amount: 2, x: spawnX });
+      sendIntervention({ kind: "spawn_resource", target: "glowshards", amount: 2, x: spawnX });
+      pushGameAlert("rare", "Rare lure", "Amber and glowshards spawned in the world.");
+      recordAdmin("Bought Rare Lure prototype.");
+      return;
+    }
+    if (item === "pond_blessing") {
+      sendIntervention({ kind: "apply_buff", target: "cooperation_aura", duration: 6, intensity: 1 });
+      pushGameAlert("admin", "Pond blessing", "Cooperation aura applied.");
+      recordAdmin("Bought Pond Blessing prototype.");
+      return;
+    }
+    sendIntervention({ kind: "apply_debuff", target: "fatigue", duration: 4, intensity: 1 });
+    sendIntervention({ kind: "spawn_resource", target: "ore", amount: 3, x: spawnX });
+    pushGameAlert("rare", "Hard mode test", "Fatigue added and ore spawned.");
+    recordAdmin("Bought Hard Mode Test prototype.");
   }
 
   function focusGameCanvasSoon() {
@@ -700,6 +934,11 @@ export function CivilizationView() {
             ? `Cleared the last rubble near ${task.objectName}. Use ${task.objectName} to finish the rescue.`
             : `Cleared rescue rubble for ${task.npcName} (${nextProgress}/${task.amount}).`,
         );
+        pushGameAlert(
+          rescueReady ? "task" : "resource",
+          rescueReady ? "Rescue path clear" : "Rubble cleared",
+          rescueReady ? `${task.objectName} is reachable.` : `${nextProgress}/${task.amount} rubble cleared.`,
+        );
         if (rescueReady) {
           playerTaskToolSyncKeyRef.current = null;
           setPlayerTool("use");
@@ -709,7 +948,13 @@ export function CivilizationView() {
           }
         }
       } else {
-        setPlayerMessage(`Mined ${interaction.label} for ${resourceLabel(interaction.yieldsResource ?? "stone")}.`);
+        const minedResource = interaction.yieldsResource ?? "stone";
+        setPlayerMessage(`Mined ${interaction.label} for ${resourceLabel(minedResource)}.`);
+        pushGameAlert(
+          RARE_RESOURCES.has(minedResource) ? "rare" : "resource",
+          RARE_RESOURCES.has(minedResource) ? "Rare vein found" : "Resource mined",
+          `+1 ${resourceLabel(minedResource)}`,
+        );
       }
       return;
     }
@@ -737,12 +982,18 @@ export function CivilizationView() {
             ? `Built ${task.objectName} for ${task.npcName}.`
             : `Placed bridge tile for ${task.npcName} (${nextProgress}/${task.amount}).`,
         );
+        pushGameAlert(
+          bridgeComplete ? "task" : "resource",
+          bridgeComplete ? "Bridge complete" : "Bridge tile placed",
+          bridgeComplete ? `${task.objectName} is usable.` : `${nextProgress}/${task.amount} tiles placed.`,
+        );
         if (bridgeComplete) {
           playerTaskToolSyncKeyRef.current = null;
           setPlayerTool("use");
         }
       } else {
         setPlayerMessage(`Placed ${interaction.label} using ${resourceLabel(material)}.`);
+        pushGameAlert("resource", "Tile placed", `-1 ${resourceLabel(material)}`);
       }
       return;
     }
@@ -770,6 +1021,11 @@ export function CivilizationView() {
       } else {
         setPlayerMessage(`Gathered ${resourceLabel(gained)} near ${tileLabel(interaction.x, interaction.y)}.`);
       }
+      pushGameAlert(
+        RARE_RESOURCES.has(gained) ? "rare" : "resource",
+        RARE_RESOURCES.has(gained) ? "Rare object found" : "Resource gathered",
+        `+1 ${resourceLabel(gained)}`,
+      );
       return;
     }
     if (interaction.kind === "building") {
@@ -783,6 +1039,7 @@ export function CivilizationView() {
       }
       if (activePlayerTask?.kind === "visit_building" && activePlayerTask.buildingId === interaction.targetId) {
         setPlayerMessage(`Checked ${interaction.label} for ${activePlayerTask.npcName}.`);
+        pushGameAlert("task", "Building checked", interaction.label);
       } else {
         setPlayerMessage(`Used ${interaction.label}.`);
       }
@@ -807,8 +1064,10 @@ export function CivilizationView() {
       }
       if (activePlayerTask?.kind === "repair_object" && activePlayerTask.objectId === interaction.targetId) {
         setPlayerMessage(`Repaired ${interaction.label} for ${activePlayerTask.npcName}.`);
+        pushGameAlert("task", "Repair complete", interaction.label);
       } else if (activePlayerTask?.kind === "rescue_object" && activePlayerTask.objectId === interaction.targetId) {
         setPlayerMessage(`Rescued ${interaction.label} for ${activePlayerTask.npcName}.`);
+        pushGameAlert("task", "Rescue complete", interaction.label);
       } else {
         setPlayerMessage(`Checked ${interaction.label}.`);
       }
@@ -826,10 +1085,12 @@ export function CivilizationView() {
       const task = activePlayerTask;
       if (task && task.npcId === interaction.targetId) {
         setPlayerMessage(taskNpcMessage(task, interaction.label));
+        pushGameAlert(task.status === "ready" ? "task" : "world", task.status === "ready" ? "Task update" : "Request reminder", interaction.label);
       } else if (task) {
         setPlayerMessage(`${interaction.label} points you back to ${task.npcName}.`);
       } else {
         setPlayerMessage(`${interaction.label} gave you a request.`);
+        pushGameAlert("task", "New request", interaction.label);
       }
       return;
     }
@@ -878,7 +1139,7 @@ export function CivilizationView() {
 
 
   return (
-    <main className="civ-view">
+    <main className={["civ-view", `is-${gameMode}`].join(" ")}>
       {/* ── fullscreen world stage ─────────────────────────────────────── */}
       <div className="civ-stage">
         {snapshot ? (
@@ -888,6 +1149,7 @@ export function CivilizationView() {
             possessedEntityId={possessedEntityId}
             playerTool={playerTool}
             buildResource={buildResource}
+            gameMode={gameMode}
             pilotCommand={pilotCommand}
             pilotActive={codexPilot}
             onPlayerInteract={handlePlayerInteract}
@@ -901,8 +1163,8 @@ export function CivilizationView() {
                 <span className="text-sm font-semibold">Axolotl Civilization Lab</span>
               </div>
               <p className="mb-3 text-xs leading-relaxed text-[oklch(0.62_0.014_225)]">
-                Found a pixel axolotl colony and watch a model govern it turn by turn. You observe,
-                grant resources, and apply buffs or debuffs.
+                Found a playable axolotl colony, possess a citizen, gather resources, mine terrain,
+                and then switch to observe or god mode when you want model or admin controls.
               </p>
               <div className="space-y-2">
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Colony name" />
@@ -929,12 +1191,16 @@ export function CivilizationView() {
       </div>
 
       {/* ── persistent top-bar leaderboard (above the canvas) ──────────── */}
-      {!uiHidden && snapshot && (
+      {!uiHidden && snapshot && gameMode !== "play" && (
         <Leaderboard
           civs={snapshot.civs ?? []}
           selectedCivId={selectedCivId}
           onSelect={setSelectedCivId}
         />
+      )}
+
+      {!uiHidden && snapshot && (
+        <GameModeSwitch mode={gameMode} onChange={switchGameMode} />
       )}
 
       {/* ── persistent corner control: hide / reveal the HUD ───────────── */}
@@ -967,6 +1233,8 @@ export function CivilizationView() {
             <Metric icon={<Shield className="h-3 w-3" />} label="HP" value={formatScore(activeCiv?.health)} />
             <Metric icon={<Sprout className="h-3 w-3" />} label="Mood" value={formatScore(activeCiv?.morale)} />
             <Metric icon={<FlaskConical className="h-3 w-3" />} label="Score" value={formatScore(activeCiv?.score.total)} tone />
+            {runStats && <Metric icon={<AlertTriangle className="h-3 w-3" />} label="Fail" value={`${runStats.failedCivs}/${runStats.totalCivs}`} />}
+            {runStats && <Metric icon={<Activity className="h-3 w-3" />} label="Deaths" value={String(runStats.deathEvents)} />}
           </div>
           {(possessedEntity || codexPilot) && (
             <ControlStateStrip
@@ -975,7 +1243,7 @@ export function CivilizationView() {
               detail={codexPilot ? pilotStatus : playerToolLabel(playerTool)}
             />
           )}
-          {mvpStatus && <ObjectiveStrip status={mvpStatus} />}
+          {runStatus && <ObjectiveStrip status={runStatus} />}
           {activePlayerTask && <PlayerTaskStrip task={activePlayerTask} />}
           {!activePlayerTask && recentCompletedTask && <PlayerTaskCompleteStrip summary={recentCompletedTask} />}
           {(possessedEntity || playerMessage) && (
@@ -1016,7 +1284,7 @@ export function CivilizationView() {
             <Leaf className="h-3.5 w-3.5" />
             <span>Colonies</span>
           </button>
-          {snapshot && (
+          {snapshot && gameMode !== "play" && (
             <button
               type="button"
               className="civ-edge-tab civ-edge-right"
@@ -1024,7 +1292,7 @@ export function CivilizationView() {
               aria-expanded={rightOpen}
             >
               <Hammer className="h-3.5 w-3.5" />
-              <span>Observer</span>
+              <span>{gameMode === "god" ? "Admin" : "Observe"}</span>
             </button>
           )}
         </>
@@ -1093,12 +1361,13 @@ export function CivilizationView() {
       )}
 
       {/* ── RIGHT drawer: observer panels ──────────────────────────────── */}
-      {!uiHidden && snapshot && (
+      {!uiHidden && snapshot && gameMode !== "play" && (
         <aside className={["civ-drawer civ-drawer-right civ-glass", rightOpen ? "is-open" : ""].join(" ")}>
-          <DrawerHeader title="Observer" icon={<Hammer className="h-3.5 w-3.5" />} onClose={() => setRightOpen(false)} />
+          <DrawerHeader title={gameMode === "god" ? "God Console" : "Observer"} icon={<Hammer className="h-3.5 w-3.5" />} onClose={() => setRightOpen(false)} />
           <div className="civ-drawer-body">
-            <Section label="MVP Status" icon={<Activity className="h-3.5 w-3.5" />}>
-              {mvpStatus && <MvpPanel status={mvpStatus} />}
+            <Section label="Run Status" icon={<Activity className="h-3.5 w-3.5" />}>
+              {runStatus && <RunStatusPanel status={runStatus} />}
+              {runStats && <RunStatsPanel stats={runStats} />}
             </Section>
             <Section label="Player" icon={<Gamepad2 className="h-3.5 w-3.5" />}>
               <PlayerPanel
@@ -1141,38 +1410,53 @@ export function CivilizationView() {
             <Section label="Resources" icon={<Hammer className="h-3.5 w-3.5" />}>
               <ResourcesPanel civ={activeCiv} />
             </Section>
-            <Section label="Intervene" icon={<Gift className="h-3.5 w-3.5" />}>
-              <div className="grid gap-2">
-                <div className="flex items-center gap-1.5">
-                  <select value={resource} onChange={(e) => setResource(e.target.value)} className="civ-select flex-1">
-                    {RESOURCES.map((item) => <option key={item} value={item}>{resourceLabel(item)}</option>)}
-                  </select>
-                  <Input type="number" min={1} max={99} value={amount} onChange={(e) => setAmount(Number(e.target.value))} className="w-16" />
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "grant_resource", target: resource, amount })}>Grant</Button>
-                  <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "remove_resource", target: resource, amount })}>Remove</Button>
-                  <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: spawnX })}>Spawn</Button>
-                </div>
-                <select value={modifier} onChange={(e) => setModifier(e.target.value)} className="civ-select">
-                  <optgroup label="Buffs">{BUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
-                  <optgroup label="Debuffs">{DEBUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
-                </select>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => sendIntervention({
-                    kind: isBuff ? "apply_buff" : "apply_debuff",
-                    target: modifier,
-                    duration: 4,
-                    intensity: 1,
-                  })}
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Apply {isBuff ? "Buff" : "Debuff"}
-                </Button>
-              </div>
-            </Section>
+            {gameMode === "god" && (
+              <>
+                <Section label="Admin Console" icon={<Brain className="h-3.5 w-3.5" />}>
+                  <AdminConsole
+                    command={adminCommand}
+                    history={adminHistory}
+                    onCommandChange={setAdminCommand}
+                    onRun={runAdminCommand}
+                  />
+                </Section>
+                <Section label="Shop Prototype" icon={<Gift className="h-3.5 w-3.5" />}>
+                  <DevShopPanel onBuy={buyDevShopItem} />
+                </Section>
+                <Section label="Intervene" icon={<Gift className="h-3.5 w-3.5" />}>
+                  <div className="grid gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <select value={resource} onChange={(e) => setResource(e.target.value)} className="civ-select flex-1">
+                        {RESOURCES.map((item) => <option key={item} value={item}>{resourceLabel(item)}</option>)}
+                      </select>
+                      <Input type="number" min={1} max={99} value={amount} onChange={(e) => setAmount(Number(e.target.value))} className="w-16" />
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "grant_resource", target: resource, amount })}>Grant</Button>
+                      <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "remove_resource", target: resource, amount })}>Remove</Button>
+                      <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: spawnX })}>Spawn</Button>
+                    </div>
+                    <select value={modifier} onChange={(e) => setModifier(e.target.value)} className="civ-select">
+                      <optgroup label="Buffs">{BUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
+                      <optgroup label="Debuffs">{DEBUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
+                    </select>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => sendIntervention({
+                        kind: isBuff ? "apply_buff" : "apply_debuff",
+                        target: modifier,
+                        duration: 4,
+                        intensity: 1,
+                      })}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Apply {isBuff ? "Buff" : "Debuff"}
+                    </Button>
+                  </div>
+                </Section>
+              </>
+            )}
             <Section label="Modifiers" icon={<AlertTriangle className="h-3.5 w-3.5" />}>
               <ModifiersPanel modifiers={snapshot.modifiers} />
             </Section>
@@ -1192,6 +1476,10 @@ export function CivilizationView() {
         </div>
       )}
 
+      {!uiHidden && alerts.length > 0 && (
+        <GameAlertStack alerts={alerts} onDismiss={dismissGameAlert} />
+      )}
+
       {/* ── minimal floating toolbelt (always visible) ─────────────────── */}
       {snapshot && (
         <div className="civ-toolbelt civ-glass">
@@ -1208,6 +1496,10 @@ export function CivilizationView() {
           >
             {autoplay ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             <span>Auto</span>
+          </button>
+          <button className="civ-slot" onClick={() => void handleRestartRun()} title="Start a fresh world with this civ lineup">
+            <RotateCcw className="h-4 w-4" />
+            <span>New Run</span>
           </button>
           <button
             className={["civ-slot", possessedEntity ? "is-player" : ""].join(" ")}
@@ -1231,27 +1523,31 @@ export function CivilizationView() {
             <Gamepad2 className="h-4 w-4" />
             <span>{possessedEntity ? "Release" : "Possess"}</span>
           </button>
-          <button
-            className={["civ-slot", codexPilot ? "is-pilot" : ""].join(" ")}
-            disabled={possessableAxos.length === 0}
-            aria-pressed={codexPilot}
-            onClick={(event) => {
-              event.currentTarget.blur();
-              toggleCodexPilot();
-            }}
-            title={codexPilot ? "Stop Codex pilot" : "Watch Codex pilot"}
-          >
-            <Bot className="h-4 w-4" />
-            <span>{codexPilot ? "Stop" : "Codex"}</span>
-          </button>
-          <select
-            value={pilotGoal}
-            onChange={(event) => setPilotGoal(event.target.value as CivPilotGoal)}
-            className="civ-slot-select civ-slot-select-tight"
-            title="Codex pilot goal"
-          >
-            {PILOT_GOALS.map((goal) => <option key={goal.value} value={goal.value}>{goal.label}</option>)}
-          </select>
+          {gameMode !== "play" && (
+            <>
+              <button
+                className={["civ-slot", codexPilot ? "is-pilot" : ""].join(" ")}
+                disabled={possessableAxos.length === 0}
+                aria-pressed={codexPilot}
+                onClick={(event) => {
+                  event.currentTarget.blur();
+                  toggleCodexPilot();
+                }}
+                title={codexPilot ? "Stop Codex pilot" : "Watch Codex pilot"}
+              >
+                <Bot className="h-4 w-4" />
+                <span>{codexPilot ? "Stop" : "Codex"}</span>
+              </button>
+              <select
+                value={pilotGoal}
+                onChange={(event) => setPilotGoal(event.target.value as CivPilotGoal)}
+                className="civ-slot-select civ-slot-select-tight"
+                title="Codex pilot goal"
+              >
+                {PILOT_GOALS.map((goal) => <option key={goal.value} value={goal.value}>{goal.label}</option>)}
+              </select>
+            </>
+          )}
           <span className="civ-toolbelt-div" />
           <button
             className={["civ-slot", playerTool === "use" ? "is-active" : ""].join(" ")}
@@ -1293,30 +1589,34 @@ export function CivilizationView() {
             <span>Build</span>
           </button>
           <span className="civ-toolbelt-div" />
-          <select value={resource} onChange={(e) => setResource(e.target.value)} className="civ-slot-select" title="Resource">
+          <select value={resource} onChange={(e) => setResource(e.target.value)} className="civ-slot-select" title="Build material / target resource">
             {RESOURCES.map((item) => <option key={item} value={item}>{resourceLabel(item)}</option>)}
           </select>
-          <button className="civ-slot" onClick={() => sendIntervention({ kind: "grant_resource", target: resource, amount })} title={`Grant ${amount} ${resourceLabel(resource)}`}>
-            <Plus className="h-4 w-4" /><span>Grant</span>
-          </button>
-          <button className="civ-slot" onClick={() => sendIntervention({ kind: "remove_resource", target: resource, amount })} title={`Remove ${amount} ${resourceLabel(resource)}`}>
-            <Minus className="h-4 w-4" /><span>Remove</span>
-          </button>
-          <button className="civ-slot" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: spawnX })} title={`Spawn ${resourceLabel(resource)} in the world`}>
-            <Sprout className="h-4 w-4" /><span>Spawn</span>
-          </button>
-          <span className="civ-toolbelt-div" />
-          <select value={modifier} onChange={(e) => setModifier(e.target.value)} className="civ-slot-select civ-slot-select-wide" title="Modifier">
-            <optgroup label="Buffs">{BUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
-            <optgroup label="Debuffs">{DEBUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
-          </select>
-          <button
-            className={["civ-slot", isBuff ? "is-buff" : "is-debuff"].join(" ")}
-            onClick={() => sendIntervention({ kind: isBuff ? "apply_buff" : "apply_debuff", target: modifier, duration: 4, intensity: 1 })}
-            title={`Apply ${modifierLabel(modifier)}`}
-          >
-            <Sparkles className="h-4 w-4" /><span>{isBuff ? "Buff" : "Debuff"}</span>
-          </button>
+          {gameMode === "god" && (
+            <>
+              <button className="civ-slot" onClick={() => sendIntervention({ kind: "grant_resource", target: resource, amount })} title={`Grant ${amount} ${resourceLabel(resource)}`}>
+                <Plus className="h-4 w-4" /><span>Grant</span>
+              </button>
+              <button className="civ-slot" onClick={() => sendIntervention({ kind: "remove_resource", target: resource, amount })} title={`Remove ${amount} ${resourceLabel(resource)}`}>
+                <Minus className="h-4 w-4" /><span>Remove</span>
+              </button>
+              <button className="civ-slot" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: spawnX })} title={`Spawn ${resourceLabel(resource)} in the world`}>
+                <Sprout className="h-4 w-4" /><span>Spawn</span>
+              </button>
+              <span className="civ-toolbelt-div" />
+              <select value={modifier} onChange={(e) => setModifier(e.target.value)} className="civ-slot-select civ-slot-select-wide" title="Modifier">
+                <optgroup label="Buffs">{BUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
+                <optgroup label="Debuffs">{DEBUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
+              </select>
+              <button
+                className={["civ-slot", isBuff ? "is-buff" : "is-debuff"].join(" ")}
+                onClick={() => sendIntervention({ kind: isBuff ? "apply_buff" : "apply_debuff", target: modifier, duration: 4, intensity: 1 })}
+                title={`Apply ${modifierLabel(modifier)}`}
+              >
+                <Sparkles className="h-4 w-4" /><span>{isBuff ? "Buff" : "Debuff"}</span>
+              </button>
+            </>
+          )}
           <span className="civ-toolbelt-div" />
           <div className="civ-cam">
             <button type="button" className="civ-cam-btn" onClick={() => window.civCamera?.zoomBy(0.83)} title="Zoom out">
@@ -1508,7 +1808,31 @@ function Metric({ icon, label, value, tone = false }: { icon: ReactNode; label: 
   );
 }
 
-function ObjectiveStrip({ status }: { status: MvpStatus }) {
+function GameModeSwitch({ mode, onChange }: { mode: GameMode; onChange: (mode: GameMode) => void }) {
+  const modes: Array<{ value: GameMode; label: string; icon: ReactNode }> = [
+    { value: "play", label: "Play", icon: <Gamepad2 className="h-3.5 w-3.5" /> },
+    { value: "observe", label: "Observe", icon: <Eye className="h-3.5 w-3.5" /> },
+    { value: "god", label: "God", icon: <Hammer className="h-3.5 w-3.5" /> },
+  ];
+  return (
+    <div className="civ-mode-switch" role="group" aria-label="Game mode">
+      {modes.map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          className={mode === item.value ? "is-active" : ""}
+          aria-pressed={mode === item.value}
+          onClick={() => onChange(item.value)}
+        >
+          {item.icon}
+          <span>{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ObjectiveStrip({ status }: { status: RunStatus }) {
   return (
     <div className={["civ-objective-strip", `is-${status.state}`].join(" ")}>
       <div className="flex items-center justify-between gap-2">
@@ -1632,7 +1956,7 @@ function pilotTargetTileLabel(target: CivPilotTarget | null | undefined) {
   return `tile ${x},${y}`;
 }
 
-function MvpPanel({ status }: { status: MvpStatus }) {
+function RunStatusPanel({ status }: { status: RunStatus }) {
   return (
     <div className={["civ-mvp-panel", `is-${status.state}`].join(" ")}>
       <div className="flex items-center justify-between gap-2">
@@ -1645,6 +1969,123 @@ function MvpPanel({ status }: { status: MvpStatus }) {
       <div className="mt-2 text-[11px] leading-relaxed text-[oklch(0.58_0.014_225)]">{status.detail}</div>
     </div>
   );
+}
+
+function RunStatsPanel({ stats }: { stats: RunStats }) {
+  const cells = [
+    ["Turns", stats.turns],
+    ["Living civs", `${stats.livingCivs}/${stats.totalCivs}`],
+    ["Failures", stats.failedCivs],
+    ["Death events", stats.deathEvents],
+    ["Axolotls", stats.livingAxolotls],
+    ["Eggs", stats.eggs],
+  ];
+  return (
+    <div className="civ-run-stats" aria-label="Run tracking">
+      {cells.map(([label, value]) => (
+        <div key={label} className="civ-run-stat">
+          <span>{label}</span>
+          <b>{value}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AdminConsole({
+  command,
+  history,
+  onCommandChange,
+  onRun,
+}: {
+  command: string;
+  history: string[];
+  onCommandChange: (command: string) => void;
+  onRun: (command?: string) => void;
+}) {
+  return (
+    <div className="civ-admin-console">
+      <form
+        className="civ-admin-command"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onRun();
+        }}
+      >
+        <Input
+          value={command}
+          onChange={(event) => onCommandChange(event.target.value)}
+          placeholder="/grant food 10"
+          aria-label="Admin command"
+        />
+        <Button size="sm" type="submit">
+          <Brain className="h-3.5 w-3.5" />
+          Run
+        </Button>
+      </form>
+      <div className="civ-admin-shortcuts">
+        {["/help", "/turn", "/mode play", "/reset"].map((item) => (
+          <button key={item} type="button" onClick={() => onRun(item)}>{item}</button>
+        ))}
+      </div>
+      <div className="civ-admin-history" aria-live="polite">
+        {history.length === 0 ? (
+          <span>Type /help for commands.</span>
+        ) : (
+          history.map((item, index) => <span key={`${item}-${index}`}>{item}</span>)
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DevShopPanel({ onBuy }: { onBuy: (item: "supply_cache" | "rare_lure" | "pond_blessing" | "hard_mode") => void }) {
+  const items: Array<{ id: "supply_cache" | "rare_lure" | "pond_blessing" | "hard_mode"; label: string; detail: string }> = [
+    { id: "supply_cache", label: "Supply Cache", detail: "wood, stone, clay, fiber" },
+    { id: "rare_lure", label: "Rare Lure", detail: "amber + glowshards" },
+    { id: "pond_blessing", label: "Pond Blessing", detail: "cooperation aura" },
+    { id: "hard_mode", label: "Hard Mode", detail: "fatigue + ore" },
+  ];
+  return (
+    <div className="civ-shop-grid">
+      {items.map((item) => (
+        <button key={item.id} type="button" className="civ-shop-item" onClick={() => onBuy(item.id)}>
+          <Gift className="h-3.5 w-3.5" />
+          <span className="min-w-0">
+            <span className="block truncate font-semibold">{item.label}</span>
+            <span className="block truncate">{item.detail}</span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function GameAlertStack({ alerts, onDismiss }: { alerts: GameAlert[]; onDismiss: (id: number) => void }) {
+  return (
+    <div className="civ-alert-stack" aria-live="polite">
+      {alerts.map((alert) => (
+        <article key={alert.id} className={["civ-game-alert", `is-${alert.kind}`].join(" ")}>
+          {alertIcon(alert.kind)}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-semibold">{alert.title}</div>
+            <div className="truncate text-[10.5px]">{alert.detail}</div>
+          </div>
+          <button type="button" onClick={() => onDismiss(alert.id)} aria-label="Dismiss alert" title="Dismiss alert">
+            <X className="h-3 w-3" />
+          </button>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function alertIcon(kind: GameAlertKind) {
+  if (kind === "rare") return <Sparkles className="h-3.5 w-3.5" />;
+  if (kind === "task") return <Gamepad2 className="h-3.5 w-3.5" />;
+  if (kind === "admin") return <Brain className="h-3.5 w-3.5" />;
+  if (kind === "world") return <Waves className="h-3.5 w-3.5" />;
+  return <Hammer className="h-3.5 w-3.5" />;
 }
 
 function PlayerPanel({
@@ -2207,27 +2648,29 @@ function ScoreBar({ label, value, tone }: { label: string; value: number; tone: 
   );
 }
 
-function getMvpStatus(snapshot: CivSessionSnapshot, civ: CivCivilization | null): MvpStatus {
+function getRunStatus(snapshot: CivSessionSnapshot, civ: CivCivilization | null): RunStatus {
+  const stats = getRunStats(snapshot);
   if (!civ || !civ.alive || civ.population <= 0) {
     return {
       label: "Colony collapsed",
-      detail: "The current colony has no stable playable loop until a living axolotl returns.",
-      progress: Math.min(100, (snapshot.turn / MVP_TARGET_TURN) * 100),
+      detail: `This run remains tracked after failure. Start a new run when you want a fresh world; failures: ${stats.failedCivs}.`,
+      progress: 0,
       state: "collapsed",
     };
   }
-  const progress = Math.max(0, Math.min(100, (snapshot.turn / MVP_TARGET_TURN) * 100));
   const food = civ.resources.food ?? 0;
   const water = civ.resources.clean_water ?? 0;
   const lowStores = food < Math.max(6, civ.population) || water < Math.max(6, civ.population);
   const health = civ.health ?? 0;
   const morale = civ.morale ?? 0;
+  const storeScore = Math.min(100, ((food + water) / Math.max(1, civ.population * 3)) * 100);
+  const progress = Math.max(0, Math.min(100, (health + morale + storeScore) / 3));
   const fragile = health < 35 || morale < 35 || lowStores;
-  if (snapshot.turn >= MVP_TARGET_TURN && !fragile) {
+  if (!fragile) {
     return {
-      label: "MVP loop stable",
-      detail: `Survived ${MVP_TARGET_TURN} turns with a living colony, active resources, and playable possession.`,
-      progress: 100,
+      label: "Endless run stable",
+      detail: `No turn cap is active. Tracking ${stats.livingAxolotls} axolotl(s), ${stats.eggs} egg(s), ${stats.failedCivs} failed civ(s), and ${stats.deathEvents} death event(s).`,
+      progress,
       state: "stable",
     };
   }
@@ -2236,16 +2679,42 @@ function getMvpStatus(snapshot: CivSessionSnapshot, civ: CivCivilization | null)
       label: "Survival risk",
       detail: lowStores
         ? "Food or clean water is below the near-term population buffer."
-        : "Health or morale is low enough that the colony may fail before the MVP target.",
+        : "Health or morale is low enough that the colony may fail if the player or model does not intervene.",
       progress,
       state: "risk",
     };
   }
   return {
-    label: `Survive ${MVP_TARGET_TURN} turns`,
-    detail: "Core loop is running: turns advance, AI decisions apply, resources change, and possession is available.",
+    label: "Run continuing",
+    detail: "Core loop is running indefinitely: turns advance, resources change, deaths are tracked, and possession remains available.",
     progress,
     state: "building",
+  };
+}
+
+function getRunStats(snapshot: CivSessionSnapshot): RunStats {
+  const civs = snapshot.civs ?? [];
+  const livingAxolotls = snapshot.world.entities.filter((entity) => entity.kind === "axolotl" && (entity.stage ?? "adult") !== "egg").length;
+  const eggs = snapshot.world.entities.filter((entity) => entity.kind === "egg" || (entity.kind === "axolotl" && entity.stage === "egg")).length;
+  const failedCivs = civs.filter((civ) => {
+    const civId = civ.id ?? "";
+    const hasEgg = snapshot.world.entities.some((entity) => (
+      (entity.kind === "egg" || entity.stage === "egg")
+      && (!civId || entity.civ_id === civId)
+    ));
+    return civ.alive === false || ((civ.population ?? 0) <= 0 && !hasEgg);
+  }).length;
+  const deathEvents = (snapshot.log ?? []).filter((entry) => (
+    /\b(died|death|dead|collapsed|failure|failed|starved|perished)\b/i.test(`${entry.title} ${entry.body}`)
+  )).length;
+  return {
+    turns: snapshot.turn,
+    livingCivs: Math.max(0, civs.length - failedCivs),
+    failedCivs,
+    deathEvents,
+    livingAxolotls,
+    eggs,
+    totalCivs: Math.max(1, civs.length),
   };
 }
 
