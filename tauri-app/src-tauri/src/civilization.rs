@@ -5075,6 +5075,87 @@ mod tests {
         assert!((-6..=6).contains(&water_hi));
     }
 
+    fn renewable_tile(resource: &str, amount: i32) -> CivTile {
+        CivTile {
+            x: 0,
+            y: 60,
+            terrain: "moss_bed".into(),
+            resource: Some(resource.into()),
+            amount,
+            biome: String::new(),
+        }
+    }
+
+    fn finite_tile(resource: &str, amount: i32) -> CivTile {
+        CivTile {
+            x: 0,
+            y: 60,
+            terrain: "stone".into(),
+            resource: Some(resource.into()),
+            amount,
+            biome: String::new(),
+        }
+    }
+
+    #[test]
+    fn regrow_renewable_rises_to_cap() {
+        let mut tiles = vec![renewable_tile("moss", 5), renewable_tile("kelp", 17)];
+        regrow_resources(&mut tiles, "summer", 24.0);
+        assert!(tiles[0].amount > 5, "renewable should gain amount");
+        assert!(tiles[0].amount <= 18, "renewable must not exceed cap");
+        assert_eq!(tiles[1].amount, 18, "near-cap renewable clamps to cap");
+        // Saturate to cap and never exceed it on repeated ticks.
+        for _ in 0..10 {
+            regrow_resources(&mut tiles, "summer", 24.0);
+        }
+        assert_eq!(tiles[0].amount, 18);
+        assert_eq!(tiles[1].amount, 18);
+    }
+
+    #[test]
+    fn finite_resources_never_regrow() {
+        // ENV-03: finite minerals stay depleted (sustained scarcity).
+        let mut tiles = vec![finite_tile("ore", 3)];
+        regrow_resources(&mut tiles, "summer", 24.0);
+        assert_eq!(tiles[0].amount, 3, "finite must never regrow");
+    }
+
+    #[test]
+    fn coral_is_finite_and_never_regrows() {
+        // Micro-decision: coral follows is_finite_mineral (FINITE), not CONTEXT prose.
+        assert!(is_finite_mineral("coral"));
+        assert!(!is_renewable("coral"));
+        let mut tiles = vec![finite_tile("coral", 4)];
+        regrow_resources(&mut tiles, "summer", 24.0);
+        assert_eq!(tiles[0].amount, 4, "coral is finite → no regrowth");
+    }
+
+    #[test]
+    fn regrow_is_zero_in_winter() {
+        let mut tiles = vec![renewable_tile("moss", 5)];
+        regrow_resources(&mut tiles, "winter", 24.0);
+        assert_eq!(tiles[0].amount, 5, "winter rate is 0 → unchanged");
+    }
+
+    #[test]
+    fn regrow_zero_when_too_cold() {
+        let mut tiles = vec![renewable_tile("moss", 5)];
+        regrow_resources(&mut tiles, "summer", 1.0);
+        assert_eq!(tiles[0].amount, 5, "below temperature threshold → unchanged");
+    }
+
+    #[test]
+    fn regrow_preserves_tile_count() {
+        let mut snapshot = test_snapshot("regrow-count", "Count", "mock-model", 42, 1);
+        let before = snapshot.world.tiles.len();
+        regrow_resources(&mut snapshot.world.tiles, "summer", 24.0);
+        assert_eq!(
+            snapshot.world.tiles.len(),
+            before,
+            "regrow mutates in place — tile count is invariant"
+        );
+    }
+
     #[test]
     fn world_scales_and_spawns_are_disjoint_per_civ() {
         let n = 3u32;
