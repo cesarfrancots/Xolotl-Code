@@ -37,8 +37,8 @@ use crate::skills_mcp::{
     SkillManifest,
 };
 use crate::terminal::{
-    terminal_kill, terminal_list, terminal_resize, terminal_spawn, terminal_write, TerminalInfo,
-    TerminalManager,
+    terminal_kill, terminal_kill_all, terminal_list, terminal_resize, terminal_spawn,
+    terminal_write, TerminalInfo, TerminalManager,
 };
 use runtime::{
     AgentEvent, AgentId, AgentState, AgentSupervisor, HintProposal, ProposedOverride,
@@ -144,6 +144,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             terminal_write,
             terminal_resize,
             terminal_kill,
+            terminal_kill_all,
             terminal_list,
             create_civ_session,
             list_civ_sessions,
@@ -342,6 +343,13 @@ fn project_path_from_open_url(url: &tauri::Url) -> Option<String> {
 
 fn project_paths_from_open_urls(urls: Vec<tauri::Url>) -> Vec<String> {
     dedupe_project_paths(urls.iter().filter_map(project_path_from_open_url))
+}
+
+fn cleanup_owned_processes(app: &tauri::AppHandle) {
+    crate::commands::cleanup_eval_processes();
+    if let Some(manager) = app.try_state::<TerminalManager>() {
+        manager.kill_all();
+    }
 }
 
 fn store_pending_project_paths(app: &tauri::AppHandle, paths: &[String]) {
@@ -587,9 +595,9 @@ pub fn run() {
         .manage(PendingPrompts::default())
         .manage(TerminalManager::default())
         .manage(PendingOpenProjects::default())
-        .on_window_event(|_window, event| {
+        .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-                crate::commands::cleanup_eval_processes();
+                cleanup_owned_processes(window.app_handle());
             }
         })
         .invoke_handler(builder.invoke_handler())
@@ -609,6 +617,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+                cleanup_owned_processes(app);
+            }
             #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
             tauri::RunEvent::Opened { urls } => {
                 let paths = project_paths_from_open_urls(urls);

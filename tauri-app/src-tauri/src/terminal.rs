@@ -207,6 +207,15 @@ fn resolve_shell_profile(shell: Option<String>) -> ShellProfile {
 }
 
 impl TerminalManager {
+    fn terminate_session(mut session: TerminalSession) -> bool {
+        let should_kill = session.child.try_wait().ok().flatten().is_none();
+        if should_kill {
+            let _ = session.child.kill();
+            let _ = session.child.wait();
+        }
+        should_kill
+    }
+
     /// Spawn a new shell in a PTY and start streaming its output.
     fn spawn(
         &self,
@@ -346,11 +355,33 @@ impl TerminalManager {
     }
 
     fn kill(&self, id: &str) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        if let Some(mut session) = sessions.remove(id) {
-            let _ = session.child.kill();
+        let session = self.sessions.lock().map_err(|e| e.to_string())?.remove(id);
+        if let Some(session) = session {
+            Self::terminate_session(session);
         }
         Ok(())
+    }
+
+    /// Kill every terminal owned by this app instance and clear the registry.
+    ///
+    /// Used during native app shutdown so PTYs do not survive a macOS Quit if
+    /// the React terminal views never get a graceful unmount.
+    pub fn kill_all(&self) -> usize {
+        let sessions = self
+            .sessions
+            .lock()
+            .map(|mut sessions| {
+                sessions
+                    .drain()
+                    .map(|(_, session)| session)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        sessions
+            .into_iter()
+            .map(|session| usize::from(Self::terminate_session(session)))
+            .sum()
     }
 
     fn list(&self) -> Vec<TerminalInfo> {
@@ -416,6 +447,13 @@ pub fn terminal_kill(manager: tauri::State<'_, TerminalManager>, id: String) -> 
     manager.kill(&id)
 }
 
+/// Kill all live terminals owned by this app instance.
+#[tauri::command]
+#[specta::specta]
+pub fn terminal_kill_all(manager: tauri::State<'_, TerminalManager>) -> usize {
+    manager.kill_all()
+}
+
 /// List all live terminals.
 #[tauri::command]
 #[specta::specta]
@@ -426,6 +464,122 @@ pub fn terminal_list(manager: tauri::State<'_, TerminalManager>) -> Vec<Terminal
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Error;
+    use portable_pty::{ChildKiller, ExitStatus};
+    use std::io::Cursor;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Debug, Default)]
+    struct FakeChildState {
+        running: bool,
+        kills: usize,
+        waits: usize,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FakeChild {
+        state: Arc<Mutex<FakeChildState>>,
+    }
+
+    impl FakeChild {
+        fn new(running: bool) -> (Self, Arc<Mutex<FakeChildState>>) {
+            let state = Arc::new(Mutex::new(FakeChildState {
+                running,
+                kills: 0,
+                waits: 0,
+            }));
+            (
+                Self {
+                    state: state.clone(),
+                },
+                state,
+            )
+        }
+    }
+
+    impl ChildKiller for FakeChild {
+        fn kill(&mut self) -> std::io::Result<()> {
+            let mut state = self.state.lock().expect("fake child state lock");
+            state.running = false;
+            state.kills += 1;
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+            Box::new(self.clone())
+        }
+    }
+
+    impl portable_pty::Child for FakeChild {
+        fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+            let state = self.state.lock().expect("fake child state lock");
+            Ok((!state.running).then(|| ExitStatus::with_exit_code(0)))
+        }
+
+        fn wait(&mut self) -> std::io::Result<ExitStatus> {
+            let mut state = self.state.lock().expect("fake child state lock");
+            state.running = false;
+            state.waits += 1;
+            Ok(ExitStatus::with_exit_code(0))
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            Some(1234)
+        }
+
+        #[cfg(windows)]
+        fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle> {
+            None
+        }
+    }
+
+    #[derive(Debug)]
+    struct FakeMasterPty;
+
+    impl MasterPty for FakeMasterPty {
+        fn resize(&self, _size: PtySize) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn get_size(&self) -> Result<PtySize, Error> {
+            Ok(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+        }
+
+        fn try_clone_reader(&self) -> Result<Box<dyn std::io::Read + Send>, Error> {
+            Ok(Box::new(Cursor::new(Vec::<u8>::new())))
+        }
+
+        fn take_writer(&self) -> Result<Box<dyn std::io::Write + Send>, Error> {
+            Ok(Box::new(std::io::sink()))
+        }
+
+        #[cfg(unix)]
+        fn process_group_leader(&self) -> Option<i32> {
+            None
+        }
+
+        #[cfg(unix)]
+        fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+            None
+        }
+    }
+
+    fn fake_session(child: FakeChild) -> TerminalSession {
+        TerminalSession {
+            writer: Box::new(std::io::sink()),
+            master: Box::new(FakeMasterPty),
+            child: Box::new(child),
+            shell: "/bin/zsh".to_string(),
+            shell_name: "zsh".to_string(),
+            cwd: "/Users/cesar/project".to_string(),
+            env_source: "test".to_string(),
+        }
+    }
 
     #[test]
     fn shell_profile_uses_requested_shell_without_login_args() {
@@ -496,5 +650,45 @@ mod tests {
         assert_eq!(shell_display_name("powershell.exe"), "PowerShell");
         assert_eq!(shell_display_name("pwsh"), "PowerShell");
         assert_eq!(shell_display_name("/bin/bash"), "bash");
+    }
+
+    #[test]
+    fn kill_all_drains_and_terminates_live_sessions() {
+        let manager = TerminalManager::default();
+        let (child, child_state) = FakeChild::new(true);
+
+        manager
+            .sessions
+            .lock()
+            .expect("terminal session lock")
+            .insert("terminal-1".to_string(), fake_session(child));
+
+        assert_eq!(manager.kill_all(), 1);
+        assert!(manager.list().is_empty());
+
+        let state = child_state.lock().expect("fake child state lock");
+        assert_eq!(state.kills, 1);
+        assert_eq!(state.waits, 1);
+        assert!(!state.running);
+    }
+
+    #[test]
+    fn kill_all_drains_without_killing_finished_sessions() {
+        let manager = TerminalManager::default();
+        let (child, child_state) = FakeChild::new(false);
+
+        manager
+            .sessions
+            .lock()
+            .expect("terminal session lock")
+            .insert("terminal-1".to_string(), fake_session(child));
+
+        assert_eq!(manager.kill_all(), 0);
+        assert!(manager.list().is_empty());
+
+        let state = child_state.lock().expect("fake child state lock");
+        assert_eq!(state.kills, 0);
+        assert_eq!(state.waits, 0);
+        assert!(!state.running);
     }
 }

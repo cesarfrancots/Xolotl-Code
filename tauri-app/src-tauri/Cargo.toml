@@ -44,5 +44,8 @@ base64 = "0.22"
 custom-protocol = ["tauri/custom-protocol"]
 default = ["custom-protocol"]
 
+[dev-dependencies]
+anyhow = "1"
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"

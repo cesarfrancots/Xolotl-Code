@@ -199,6 +199,8 @@ export const commands = {
 	terminalResize: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("terminal_resize", { id, cols, rows })),
 	/**  Kill a terminal and remove it from the registry. */
 	terminalKill: (id: string) => typedError<null, string>(__TAURI_INVOKE("terminal_kill", { id })),
+	/**  Kill all live terminals owned by this app instance. */
+	terminalKillAll: () => __TAURI_INVOKE<number>("terminal_kill_all"),
 	/**  List all live terminals. */
 	terminalList: () => __TAURI_INVOKE<TerminalInfo[]>("terminal_list"),
 	createCivSession: (config: CivSessionConfig) => typedError<string, string>(__TAURI_INVOKE("create_civ_session", { config })),

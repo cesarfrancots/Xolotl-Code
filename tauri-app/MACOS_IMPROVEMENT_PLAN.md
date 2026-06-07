@@ -34,6 +34,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Finder-style folder drops on the app window can activate projects.
 - Sidebar project paths use Mac-style `~` home labels.
 - File browser entries include hidden, alias, and package metadata.
+- Quitting or closing the app cleans up Xolotl-owned terminal PTYs and tracked eval children from the native backend.
 - Provider API keys saved from the Mac app use macOS Keychain, with env-var and legacy config-file fallback.
 - Settings show whether each provider key comes from Keychain, an environment variable, or the legacy config file.
 - Legacy config-file provider keys can be moved into Keychain from Settings after a one-time confirmation.
@@ -182,13 +183,13 @@ Deliverables:
   - Current shell. Done in the active terminal profile strip.
   - Current working directory. Done with Mac-style `~` labels.
   - Environment source. Done with shell resolution source metadata.
-- Investigate native pseudo-terminal behavior for long-running agent tasks and process cleanup on app quit.
+- Investigate native pseudo-terminal behavior for long-running agent tasks and process cleanup on app quit. Done for backend-owned terminal PTYs and tracked eval child processes; autonomous agent executor child tracking remains a follow-up if the CLI runner is kept long term.
 
 Acceptance:
 
 - Terminal tabs consistently start in the selected project.
 - Terminal shortcuts do not conflict with global app/window shortcuts.
-- Quitting the app cleans up owned processes without killing unrelated shells.
+- Quitting the app cleans up owned terminal/eval processes without killing unrelated shells. Done for terminal PTYs and tracked eval children.
 
 ## Phase 5 - Secure Mac Storage and Permissions
 
