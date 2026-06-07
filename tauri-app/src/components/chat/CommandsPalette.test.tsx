@@ -140,57 +140,80 @@ describe("CommandsPalette", () => {
     }
   });
 
-  it("runs active project path actions from the palette", () => {
+  it("runs active project path actions from the palette", async () => {
     const onOpenChange = vi.fn();
     render(<CommandsPalette open onOpenChange={onOpenChange} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Copy Active Project Path/ }));
 
-    expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() => {
+      expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
   });
 
-  it("copies active project Xolotl links from the palette", () => {
+  it("copies active project Xolotl links from the palette", async () => {
     const onOpenChange = vi.fn();
     render(<CommandsPalette open onOpenChange={onOpenChange} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy Active Project Xolotl Link" }));
 
-    expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
   });
 
-  it("runs active project editor actions from the palette", () => {
+  it("runs active project editor actions from the palette", async () => {
     const onOpenChange = vi.fn();
     render(<CommandsPalette open onOpenChange={onOpenChange} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open Active Project in Editor" }));
 
-    expect(pathActionMocks.openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
   });
 
-  it("runs file-browser current folder path actions from the palette", () => {
+  it("shows recovery guidance when an active project editor handoff fails", async () => {
+    pathActionMocks.openPathInExternalEditor.mockRejectedValueOnce(new Error("No configured editor"));
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Active Project in Editor" }));
+
+    expect(await screen.findByText("Open in editor failed.")).toBeTruthy();
+    expect(screen.getByText(/Check the preferred editor in macOS Settings/)).toBeTruthy();
+    expect(screen.getByText(/No configured editor/)).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("runs file-browser current folder path actions from the palette", async () => {
     const onOpenChange = vi.fn();
     render(<CommandsPalette open onOpenChange={onOpenChange} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy Current Folder Relative Path" }));
 
-    expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("docs");
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() => {
+      expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("docs");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
   });
 
-  it("copies current folder Xolotl links from the palette", () => {
+  it("copies current folder Xolotl links from the palette", async () => {
     const onOpenChange = vi.fn();
     render(<CommandsPalette open onOpenChange={onOpenChange} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy Current Folder Xolotl Link" }));
 
-    expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs");
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
   });
 
-  it("runs file-browser row actions from the palette", () => {
+  it("runs file-browser row actions from the palette", async () => {
     const browse = vi.fn(() => Promise.resolve());
     const onOpenChange = vi.fn();
     useProjectStore.setState({ browse });
@@ -207,13 +230,32 @@ describe("CommandsPalette", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Copy relative path for src" }));
-    expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("docs/src");
+    await waitFor(() => {
+      expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("docs/src");
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Copy Xolotl link for src" }));
-    expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/src");
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/src");
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Quick Look File: README.md" }));
-    expect(pathActionMocks.quickLookPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/README.md");
+    await waitFor(() => {
+      expect(pathActionMocks.quickLookPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/README.md");
+    });
+  });
+
+  it("shows recovery guidance when Quick Look fails", async () => {
+    pathActionMocks.quickLookPath.mockRejectedValueOnce(new Error("Unsupported file"));
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Quick Look File: README.md" }));
+
+    expect(await screen.findByText("Quick Look failed.")).toBeTruthy();
+    expect(screen.getByText(/Check that the file still exists and can be previewed by Quick Look/)).toBeTruthy();
+    expect(screen.getByText(/Unsupported file/)).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
   it("opens a terminal from the current file browser folder", () => {

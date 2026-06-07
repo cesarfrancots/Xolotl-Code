@@ -4,7 +4,7 @@ import {
   Hash, Keyboard, Paperclip, FlaskConical, GitBranch, Users, FileText, Settings2,
   DollarSign, GitPullRequest, Wrench, ListChecks, ClipboardList, BookOpen, Archive, Gauge,
   MessageSquare, TerminalSquare, TestTubeDiagonal, Sprout, Settings, FolderPlus, ExternalLink, Copy,
-  Clipboard, Code2, CornerDownRight, CornerLeftUp, Eye, Folder, Link2, RefreshCw,
+  AlertCircle, CheckCircle, Clipboard, Code2, CornerDownRight, CornerLeftUp, Eye, Folder, Link2, RefreshCw,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } from "../ui/dialog";
 import { useChatStore } from "../../stores/chatStore";
@@ -30,6 +30,7 @@ import { openTerminalAtPath } from "../../lib/terminalActions";
 
 type CommandAction = () => void | Promise<void>;
 type CommandKind = "slash" | "shortcut" | "file" | "action";
+type PaletteStatusTone = "working" | "ok" | "error";
 
 export const SEED_COMPOSER_PROMPT_EVENT = "xolotl:seed-composer-prompt";
 const MAX_CLIPBOARD_PROMPT_CHARS = 24_000;
@@ -57,6 +58,14 @@ interface PaletteCommand {
   secondaryActions?: PaletteSecondaryAction[];
 }
 
+interface PaletteStatus {
+  tone: PaletteStatusTone;
+  message: string;
+  hint?: string;
+}
+
+type MacHandoffHintKey = "clipboard" | "editor" | "finder" | "quick-look";
+
 const MAC_COMMAND_ICONS: Record<MacCommandId, React.ComponentType<{ className?: string }>> = {
   "new-chat": MessageSquare,
   "open-folder": FolderPlus,
@@ -82,6 +91,7 @@ export function CommandsPalette({
   enableGlobalShortcut?: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<PaletteStatus | null>(null);
   const activeProjectPath = useProjectStore((s) => s.activeProjectPath);
   const projects = useProjectStore((s) => s.projects);
   const listing = useProjectStore((s) => s.listing);
@@ -104,7 +114,12 @@ export function CommandsPalette({
   }, [enableGlobalShortcut, open, onOpenChange]);
 
   // Reset query when dialog opens.
-  useEffect(() => { if (open) setQuery(""); }, [open]);
+  useEffect(() => {
+    if (open) {
+      setQuery("");
+      setStatus(null);
+    }
+  }, [open]);
 
   const cmds: PaletteCommand[] = useMemo(() => {
     const runNativeAction = (action: NativeMenuAction) => {
@@ -124,7 +139,28 @@ export function CommandsPalette({
       try {
         seedPrompt(buildClipboardPrompt(mode, await readTextFromClipboard()));
       } catch (err) {
-        console.error("read clipboard failed:", err);
+        setStatus({
+          tone: "error",
+          message: "Could not read the clipboard.",
+          hint: macHandoffRecoveryHint("clipboard", err),
+        });
+      }
+    };
+    const runMacHandoff = async (
+      label: string,
+      action: () => void | Promise<void>,
+      hintKey: MacHandoffHintKey,
+    ) => {
+      setStatus({ tone: "working", message: `${label}...` });
+      try {
+        await action();
+        onOpenChange(false);
+      } catch (err) {
+        setStatus({
+          tone: "error",
+          message: `${label} failed.`,
+          hint: macHandoffRecoveryHint(hintKey, err),
+        });
       }
     };
 
@@ -134,10 +170,10 @@ export function CommandsPalette({
 
     const projectCommands: PaletteCommand[] = [
       ...(activeProjectPath ? [
-        { id: "project-reveal", kind: "action" as const, label: "Reveal Active Project in Finder", description: macPathLabel(activeProjectPath), icon: ExternalLink, run: () => { void revealPathInFinder(activeProjectPath); onOpenChange(false); } },
-        { id: "project-copy-path", kind: "action" as const, label: "Copy Active Project Path", description: macPathLabel(activeProjectPath), icon: Copy, run: () => { void copyTextToClipboard(activeProjectPath); onOpenChange(false); } },
-        { id: "project-copy-link", kind: "action" as const, label: "Copy Active Project Xolotl Link", description: macPathLabel(activeProjectPath), icon: Link2, run: () => { void copyXolotlCodeOpenUrl(activeProjectPath); onOpenChange(false); } },
-        { id: "project-open-editor", kind: "action" as const, label: "Open Active Project in Editor", description: macPathLabel(activeProjectPath), icon: Code2, run: () => { void openPathInExternalEditor(activeProjectPath).catch((err) => console.error("open active project in editor failed:", err)); onOpenChange(false); } },
+        { id: "project-reveal", kind: "action" as const, label: "Reveal Active Project in Finder", description: macPathLabel(activeProjectPath), icon: ExternalLink, run: () => runMacHandoff("Reveal in Finder", () => revealPathInFinder(activeProjectPath), "finder") },
+        { id: "project-copy-path", kind: "action" as const, label: "Copy Active Project Path", description: macPathLabel(activeProjectPath), icon: Copy, run: () => runMacHandoff("Copy project path", () => copyTextToClipboard(activeProjectPath), "clipboard") },
+        { id: "project-copy-link", kind: "action" as const, label: "Copy Active Project Xolotl Link", description: macPathLabel(activeProjectPath), icon: Link2, run: () => runMacHandoff("Copy Xolotl link", () => copyXolotlCodeOpenUrl(activeProjectPath), "clipboard") },
+        { id: "project-open-editor", kind: "action" as const, label: "Open Active Project in Editor", description: macPathLabel(activeProjectPath), icon: Code2, run: () => runMacHandoff("Open in editor", () => openPathInExternalEditor(activeProjectPath), "editor") },
       ] : []),
       ...projects.slice(0, 5).map((project) => ({
         id: `recent-project-${project.path}`,
@@ -156,12 +192,12 @@ export function CommandsPalette({
     const currentBrowserPath = listing?.path ?? activeProjectPath;
     const visibleChildren = listing ? visibleDirectoryChildren(listing.children, false).slice(0, 8) : [];
     const fileBrowserCommands: PaletteCommand[] = activeProjectPath && currentBrowserPath ? [
-      { id: "browser-reveal-current", kind: "file", label: "Reveal Current Folder in Finder", syntax: "Folder", description: macPathLabel(currentBrowserPath), icon: ExternalLink, run: () => { void revealPathInFinder(currentBrowserPath); onOpenChange(false); } },
-      { id: "browser-copy-current", kind: "file", label: "Copy Current Folder Path", syntax: "Path", description: macPathLabel(currentBrowserPath), icon: Copy, run: () => { void copyTextToClipboard(currentBrowserPath); onOpenChange(false); } },
-      { id: "browser-copy-current-link", kind: "file", label: "Copy Current Folder Xolotl Link", syntax: "Link", description: macPathLabel(currentBrowserPath), icon: Link2, run: () => { void copyXolotlCodeOpenUrl(currentBrowserPath); onOpenChange(false); } },
+      { id: "browser-reveal-current", kind: "file", label: "Reveal Current Folder in Finder", syntax: "Folder", description: macPathLabel(currentBrowserPath), icon: ExternalLink, run: () => runMacHandoff("Reveal in Finder", () => revealPathInFinder(currentBrowserPath), "finder") },
+      { id: "browser-copy-current", kind: "file", label: "Copy Current Folder Path", syntax: "Path", description: macPathLabel(currentBrowserPath), icon: Copy, run: () => runMacHandoff("Copy folder path", () => copyTextToClipboard(currentBrowserPath), "clipboard") },
+      { id: "browser-copy-current-link", kind: "file", label: "Copy Current Folder Xolotl Link", syntax: "Link", description: macPathLabel(currentBrowserPath), icon: Link2, run: () => runMacHandoff("Copy Xolotl link", () => copyXolotlCodeOpenUrl(currentBrowserPath), "clipboard") },
       { id: "browser-terminal-current", kind: "file", label: "New Terminal in Current Folder", syntax: "Terminal", description: macPathLabel(currentBrowserPath), icon: TerminalSquare, run: () => { openTerminalAtPath(currentBrowserPath); onOpenChange(false); } },
       ...(currentBrowserPath !== activeProjectPath ? [
-        { id: "browser-copy-current-relative", kind: "file" as const, label: "Copy Current Folder Relative Path", syntax: "Relative", description: relativePathFromRoot(currentBrowserPath, activeProjectPath), icon: CornerDownRight, run: () => { void copyTextToClipboard(relativePathFromRoot(currentBrowserPath, activeProjectPath)); onOpenChange(false); } },
+        { id: "browser-copy-current-relative", kind: "file" as const, label: "Copy Current Folder Relative Path", syntax: "Relative", description: relativePathFromRoot(currentBrowserPath, activeProjectPath), icon: CornerDownRight, run: () => runMacHandoff("Copy relative path", () => copyTextToClipboard(relativePathFromRoot(currentBrowserPath, activeProjectPath)), "clipboard") },
       ] : []),
       { id: "browser-refresh", kind: "file", label: "Refresh File Browser", syntax: "Files", description: macPathLabel(currentBrowserPath), icon: RefreshCw, run: () => { void refreshBrowse(); onOpenChange(false); } },
       ...(listing?.parent ? [
@@ -183,8 +219,8 @@ export function CommandsPalette({
           icon: child.is_dir ? Folder : Eye,
           run: () => {
             if (child.is_dir) void browse(child.path);
-            else void quickLookPath(child.path).catch((err) => console.error("quick look file failed:", err));
-            onOpenChange(false);
+            else void runMacHandoff("Quick Look", () => quickLookPath(child.path), "quick-look");
+            if (child.is_dir) onOpenChange(false);
           },
           secondaryActions: [
             ...(child.is_dir ? [{
@@ -199,28 +235,28 @@ export function CommandsPalette({
               label: `Reveal ${child.name} in Finder`,
               title: "Reveal in Finder",
               icon: ExternalLink,
-              run: () => { void revealPathInFinder(child.path); onOpenChange(false); },
+              run: () => runMacHandoff("Reveal in Finder", () => revealPathInFinder(child.path), "finder"),
             },
             {
               id: "copy-posix",
               label: `Copy POSIX path for ${child.name}`,
               title: "Copy POSIX path",
               icon: Copy,
-              run: () => { void copyTextToClipboard(child.path); onOpenChange(false); },
+              run: () => runMacHandoff("Copy POSIX path", () => copyTextToClipboard(child.path), "clipboard"),
             },
             {
               id: "copy-link",
               label: `Copy Xolotl link for ${child.name}`,
               title: "Copy Xolotl link",
               icon: Link2,
-              run: () => { void copyXolotlCodeOpenUrl(child.path); onOpenChange(false); },
+              run: () => runMacHandoff("Copy Xolotl link", () => copyXolotlCodeOpenUrl(child.path), "clipboard"),
             },
             {
               id: "copy-relative",
               label: `Copy relative path for ${child.name}`,
               title: "Copy relative path",
               icon: CornerDownRight,
-              run: () => { void copyTextToClipboard(relativePath); onOpenChange(false); },
+              run: () => runMacHandoff("Copy relative path", () => copyTextToClipboard(relativePath), "clipboard"),
             },
           ],
         };
@@ -314,6 +350,8 @@ export function CommandsPalette({
           <kbd className="xolotl-keycap">{formatMacShortcut("Esc")}</kbd>
         </div>
 
+        {status && <PaletteStatusBanner status={status} onDismiss={() => setStatus(null)} />}
+
         <div className="max-h-[60vh] overflow-y-auto">
           <Section title="Slash Commands" icon={Hash} items={grouped.slash} />
           <Section title="Keyboard Shortcuts" icon={Keyboard} items={grouped.shortcut} />
@@ -381,6 +419,21 @@ export function buildClipboardPrompt(mode: ClipboardPromptMode, clipboardText: s
     truncated ? "" : null,
     truncated ? `Clipboard text was truncated to ${MAX_CLIPBOARD_PROMPT_CHARS.toLocaleString()} characters.` : null,
   ].filter((line): line is string => line !== null).join("\n");
+}
+
+function macHandoffRecoveryHint(kind: MacHandoffHintKey, error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error ?? "");
+  const suffix = detail ? ` ${detail}` : "";
+  switch (kind) {
+    case "editor":
+      return `Check the preferred editor in macOS Settings, or use an installed app name or executable path.${suffix}`;
+    case "finder":
+      return `Check that the path still exists and that macOS has allowed Xolotl Code to access it.${suffix}`;
+    case "quick-look":
+      return `Check that the file still exists and can be previewed by Quick Look.${suffix}`;
+    case "clipboard":
+      return `Check macOS clipboard access and try the copy action again.${suffix}`;
+  }
 }
 
 function runSlashCommand(
@@ -471,6 +524,43 @@ function runSlashCommand(
       break;
   }
   onOpenChange(false);
+}
+
+function PaletteStatusBanner({
+  status,
+  onDismiss,
+}: {
+  status: PaletteStatus;
+  onDismiss: () => void;
+}) {
+  const Icon = status.tone === "error" ? AlertCircle : CheckCircle;
+  const classes = status.tone === "error"
+    ? "border-[oklch(0.34_0.055_25)] bg-[oklch(0.145_0.018_25)]/65 text-[oklch(0.78_0.090_25)]"
+    : status.tone === "working"
+      ? "border-[oklch(0.30_0.030_205)] bg-[oklch(0.145_0.012_205)]/60 text-[oklch(0.72_0.055_205)]"
+      : "border-[oklch(0.32_0.045_155)] bg-[oklch(0.145_0.018_155)]/55 text-[oklch(0.74_0.080_155)]";
+
+  return (
+    <div className={`mx-3 mt-3 rounded-md border px-3 py-2 text-xs ${classes}`}>
+      <div className="flex items-start gap-2">
+        <Icon className="mt-0.5 h-3.5 w-3.5 flex-none" />
+        <div className="min-w-0 flex-1">
+          <div className="font-medium">{status.message}</div>
+          {status.hint && (
+            <div className="mt-1 leading-relaxed text-[oklch(0.67_0.045_45)]">{status.hint}</div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="rounded px-1 text-[oklch(0.55_0.012_225)] hover:bg-[oklch(0.18_0.008_245)] hover:text-[oklch(0.86_0.016_220)]"
+          aria-label="Dismiss command status"
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function slashIcon(id: SlashCommandId): React.ComponentType<{ className?: string }> {

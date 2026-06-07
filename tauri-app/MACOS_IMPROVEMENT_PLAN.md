@@ -18,6 +18,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Shortcut hints use macOS symbols across workbench, terminal, sidebar footer, composer command button, and command palette rows.
 - Command palette includes native-menu actions, active project Finder/path actions, recent project entries, and terminal actions with Mac shortcut chips.
 - Command palette includes a File Browser section for current-folder reveal/copy/refresh/navigation and visible file/folder row actions.
+- Command palette keeps Mac handoff failures visible with recovery guidance for Finder, editor, Quick Look, and clipboard actions.
 - Mac command routing uses a shared command model for global keydown handling, native-menu action normalization, and command-palette action rows.
 - File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
 - Directory paths passed at app launch are imported into the project store and activated on startup.
@@ -406,6 +407,7 @@ Deliverables:
   - Preserve active project/folder cwd and shell profile metadata.
 - Add task-result handoffs:
   - Reveal artifacts, copy paths, copy deep links, and open folders in editor from eval/agent result surfaces.
+- Add visible recovery for failed handoff actions. Done for command-palette Finder/editor/Quick Look/clipboard actions.
 
 Acceptance:
 
