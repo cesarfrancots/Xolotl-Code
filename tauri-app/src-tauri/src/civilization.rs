@@ -5003,7 +5003,7 @@ fn regrow_resources(tiles: &mut [CivTile], season: &str, temperature: f32) {
     if rate == 0 || temperature < 2.0 {
         return;
     }
-    const REGROW_CAP: i32 = 18; // grounded in world-gen patch amounts (6..18)
+    const REGROW_CAP: i32 = 17; // matches the world-gen renewable ceiling (6 + rng%12 = 6..=17)
     for tile in tiles.iter_mut() {
         if let Some(res) = tile.resource.as_deref() {
             if is_renewable(res) && tile.amount < REGROW_CAP {
@@ -5385,17 +5385,17 @@ mod tests {
 
     #[test]
     fn regrow_renewable_rises_to_cap() {
-        let mut tiles = vec![renewable_tile("moss", 5), renewable_tile("kelp", 17)];
+        let mut tiles = vec![renewable_tile("moss", 5), renewable_tile("kelp", 16)];
         regrow_resources(&mut tiles, "summer", 24.0);
         assert!(tiles[0].amount > 5, "renewable should gain amount");
-        assert!(tiles[0].amount <= 18, "renewable must not exceed cap");
-        assert_eq!(tiles[1].amount, 18, "near-cap renewable clamps to cap");
+        assert!(tiles[0].amount <= 17, "renewable must not exceed cap");
+        assert_eq!(tiles[1].amount, 17, "near-cap renewable clamps to cap");
         // Saturate to cap and never exceed it on repeated ticks.
         for _ in 0..10 {
             regrow_resources(&mut tiles, "summer", 24.0);
         }
-        assert_eq!(tiles[0].amount, 18);
-        assert_eq!(tiles[1].amount, 18);
+        assert_eq!(tiles[0].amount, 17);
+        assert_eq!(tiles[1].amount, 17);
     }
 
     #[test]
