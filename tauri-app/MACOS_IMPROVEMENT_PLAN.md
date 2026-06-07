@@ -15,6 +15,8 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Terminal tab commands are available from a native Terminal menu.
 - Terminal tabs capture the active project directory when they are created.
 - Finder-style folder drops on the app window can activate projects.
+- Sidebar project paths use Mac-style `~` home labels.
+- File browser entries include hidden, alias, and package metadata.
 
 ## Phase 1 - Native Mac Shell
 
@@ -75,9 +77,9 @@ Deliverables:
 - Add Dock menu shortcuts for New Chat, Open Folder, and recent projects if Tauri/AppKit support is practical.
 - Support drag-and-drop of folders onto the app window to open a project. Done for Tauri window drops; still needs end-to-end Finder smoke coverage with a real project folder.
 - Improve file browser behavior for Mac paths:
-  - Home directory display.
-  - Hidden file visibility toggle.
-  - Symlink and package-directory handling.
+  - Home directory display. Done for sidebar/project labels.
+  - Hidden file visibility toggle. Done for dotfiles and `.git`.
+  - Symlink and package-directory handling. Done with Alias/Package badges.
 
 Acceptance:
 

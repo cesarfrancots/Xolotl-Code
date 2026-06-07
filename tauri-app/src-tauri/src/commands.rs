@@ -1185,6 +1185,9 @@ pub struct DirChild {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
+    pub is_hidden: bool,
+    pub is_symlink: bool,
+    pub is_package: bool,
     /// `true` for `.pdf` files — the UI offers one-click conversion.
     pub is_pdf: bool,
 }
@@ -1201,8 +1204,16 @@ pub struct DirListing {
 fn is_noise_dir(name: &str) -> bool {
     matches!(
         name,
-        ".git" | "node_modules" | "target" | "$RECYCLE.BIN" | "System Volume Information"
+        "node_modules" | "target" | "$RECYCLE.BIN" | "System Volume Information"
     )
+}
+
+fn is_macos_package_dir(name: &str, is_dir: bool) -> bool {
+    is_dir
+        && matches!(
+            name.to_ascii_lowercase().as_str(),
+            "app" | "framework" | "bundle" | "plugin" | "appex" | "xcodeproj" | "xcworkspace"
+        )
 }
 
 /// List the immediate children of a directory (directories first, then files),
@@ -1220,16 +1231,28 @@ pub fn browse_directory(path: String) -> Result<DirListing, String> {
             continue;
         };
         let name = entry.file_name().to_string_lossy().into_owned();
-        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        let child_path = entry.path();
+        let is_dir = child_path.is_dir();
         if is_dir && is_noise_dir(&name) {
             continue;
         }
-        let child_path = entry.path();
+        let is_symlink = std::fs::symlink_metadata(&child_path)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false);
+        let is_hidden = name.starts_with('.');
+        let is_package = Path::new(&name)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| is_macos_package_dir(ext, is_dir))
+            .unwrap_or(false);
         let is_pdf = !is_dir && runtime::pdfmd::is_pdf_path(&child_path);
         children.push(DirChild {
             name,
             path: child_path.to_string_lossy().into_owned(),
             is_dir,
+            is_hidden,
+            is_symlink,
+            is_package,
             is_pdf,
         });
     }
@@ -4479,6 +4502,63 @@ mod config_tests {
         assert!(fragment.contains("Project instructions"));
         assert!(fragment.contains("Use graphify before architecture answers."));
         assert!(fragment.contains("Prefer concise verification notes."));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn browse_directory_marks_hidden_packages_and_symlinks() {
+        let dir = std::env::temp_dir().join(format!(
+            "xolotl-browse-meta-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir should be created");
+        std::fs::write(dir.join(".env"), "KEY=value").expect("hidden file should be written");
+        std::fs::create_dir_all(dir.join("Preview.app")).expect("package dir should be created");
+        std::fs::create_dir_all(dir.join(".git")).expect("hidden git dir should be created");
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(dir.join("Preview.app"), dir.join("PreviewLink.app"))
+            .expect("symlink should be created");
+
+        let listing = browse_directory(dir.to_string_lossy().into_owned()).expect("listing works");
+        let env_file = listing
+            .children
+            .iter()
+            .find(|child| child.name == ".env")
+            .expect("hidden file is listed");
+        assert!(env_file.is_hidden);
+        assert!(!env_file.is_dir);
+
+        let package = listing
+            .children
+            .iter()
+            .find(|child| child.name == "Preview.app")
+            .expect("package folder is listed");
+        assert!(package.is_dir);
+        assert!(package.is_package);
+
+        let git_dir = listing
+            .children
+            .iter()
+            .find(|child| child.name == ".git")
+            .expect(".git is available to the frontend hidden-file toggle");
+        assert!(git_dir.is_hidden);
+        assert!(git_dir.is_dir);
+
+        #[cfg(unix)]
+        {
+            let link = listing
+                .children
+                .iter()
+                .find(|child| child.name == "PreviewLink.app")
+                .expect("symlinked package folder is listed");
+            assert!(link.is_dir);
+            assert!(link.is_symlink);
+            assert!(link.is_package);
+        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }

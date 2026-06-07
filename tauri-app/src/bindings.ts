@@ -508,6 +508,9 @@ export type DirChild = {
 	name: string,
 	path: string,
 	is_dir: boolean,
+	is_hidden: boolean,
+	is_symlink: boolean,
+	is_package: boolean,
 	/**  `true` for `.pdf` files — the UI offers one-click conversion. */
 	is_pdf: boolean,
 };

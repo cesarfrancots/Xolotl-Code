@@ -1,5 +1,6 @@
 import { Folder, FolderPlus, X } from "lucide-react";
 import { useProjectStore } from "../../stores/projectStore";
+import { macPathLabel } from "../../lib/fileBrowser";
 
 /**
  * Codex-style quick-access list of working directories. "Open folder" launches
@@ -61,7 +62,7 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                       onOpenProject(project.path);
                     }
                   }}
-                  title={project.path}
+                  title={macPathLabel(project.path)}
                   className={[
                     "group relative flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors",
                     "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[oklch(0.55_0.04_195)]",
@@ -86,7 +87,7 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                       {project.name}
                     </p>
                     <p className="truncate text-[10px] leading-tight text-[oklch(0.46_0.010_225)]">
-                      {project.path}
+                      {macPathLabel(project.path)}
                     </p>
                   </div>
                   <button
