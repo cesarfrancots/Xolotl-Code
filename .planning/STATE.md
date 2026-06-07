@@ -4,13 +4,13 @@ milestone: v2.0
 milestone_name: Civ Simulation
 status: executing
 last_updated: "2026-06-07T00:52:55.946Z"
-last_activity: 2026-06-07 -- Plan 01-01 complete (recovered after crash); Wave 1 done
+last_activity: 2026-06-07 -- Phase 01 COMPLETE & verified (recovered after crash; all 4 plans + verification + nyquist sign-off)
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 1
-  percent: 5
+  completed_plans: 4
+  percent: 20
 ---
 
 # State: xolotl
@@ -24,25 +24,25 @@ progress:
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** Phase 01 — w9-lite-multi-model-world-creation-leaderboard
+- **Current Focus:** Phase 01 complete & verified. Next: plan Phase 2 (sim-first order: W9-lite ✅ → W8 → W4 → W6 → W5). `auto_advance` is off — awaiting go-ahead.
 
 ## Current Position
 
-Phase: 01 (w9-lite-multi-model-world-creation-leaderboard) — EXECUTING
-Plan: 2 of 4 (Wave 2 next: plans 02 + 03 in parallel)
-Status: Executing Phase 01 — Wave 1 (Plan 01-01) complete & committed (500635f)
-Last activity: 2026-06-07 -- Plan 01-01 complete (recovered after crash)
+Phase: 01 (w9-lite-multi-model-world-creation-leaderboard) — ✅ COMPLETE & VERIFIED
+Plan: 4 of 4 done (all waves executed)
+Status: Phase 01 verified PASS (6/6 reqs, 214 tests green) + Nyquist signed off. Ready to plan Phase 2.
+Last activity: 2026-06-07 -- Phase 01 complete (recovered after PC crash mid-execution)
 
-Progress: [██░░░░░░░░] 25% (1/4 plans)
+Progress: [██████████] 100% of Phase 01 (4/4 plans) · milestone 20% (1/5 phases)
 
 ## Performance Metrics
 
 | Metric | Value |
 |--------|-------|
-| v2.0 phases completed | 0 / 5 |
+| v2.0 phases completed | 1 / 5 |
 | v2.0 requirements mapped | 17 / 17 |
-| v2.0 requirements completed | 0 / 17 |
-| Plans completed | 0 / TBD |
+| v2.0 requirements completed | 6 / 17 (CIV-01/02/03, ARENA-01/02/03) |
+| Plans completed | 4 / 4 (Phase 01) |
 | Active blockers | 0 |
 | v1.0 (shipped) | 6 phases / 33 plans / 40 reqs |
 
@@ -81,10 +81,10 @@ Progress: [██░░░░░░░░] 25% (1/4 plans)
 
 ## Session Continuity
 
-- **Last action:** Plan 01-01 (Wave 1 backend foundation) completed and committed (`500635f`) after recovering from a mid-execution PC crash — code was complete but uncommitted; crash-induced build-cache corruption cleared via `cargo clean`. Verified: cargo test --no-run (0), clippy (only pre-existing baseline lints), tsc (0).
-- **Next action:** Execute Wave 2 — Plans 01-02 (creation card + selectedCivId) and 01-03 (additive render_game_to_text) run in parallel (both depend on Plan 01 only), then Wave 3 = Plan 01-04 (leaderboard + observer).
+- **Last action:** Phase 01 fully completed after recovering from a mid-execution PC crash. Recovered Plan 01-01 (code was complete but uncommitted; cleared crash-induced build-cache corruption via `cargo clean`), then executed Plans 01-02/03/04 via sequential gsd-executor agents, ran goal-backward verification (PASS, 6/6 reqs) and the Nyquist audit (signed off, 0 gaps). Final gate: tsc 0, vitest 214/214, cargo test --no-run 0. 13 commits (`500635f`..closeout).
+- **Next action:** Plan Phase 2 with `/gsd-plan-phase 2` (next in sim-first order is W8). `auto_advance` is off — not started automatically; awaiting go-ahead. Optionally: manual UAT of the multi-civ flow (needs live providers + WebView2, see 01-VALIDATION.md Manual-Only table), or rebuild the desktop exe via `build.bat`.
 - **Last updated:** 2026-06-07
-- **Resume file:** .planning/phases/01-w9-lite-multi-model-world-creation-leaderboard/01-01-SUMMARY.md
+- **Resume file:** .planning/phases/01-w9-lite-multi-model-world-creation-leaderboard/01-VERIFICATION.md
 
 ---
 *State initialized: 2026-05-07; milestone v2.0 started 2026-06-06*
