@@ -5,7 +5,9 @@ import { NATIVE_MENU_EVENT, type NativeMenuAction } from "../../lib/nativeMenu";
 import { useProjectStore } from "../../stores/projectStore";
 
 const pathActionMocks = vi.hoisted(() => ({
+  copyPathAutomationHandoff: vi.fn(() => Promise.resolve()),
   copyPathContextHandoff: vi.fn(() => Promise.resolve()),
+  copyProjectAutomationHandoff: vi.fn(() => Promise.resolve()),
   copyProjectContextHandoff: vi.fn(() => Promise.resolve()),
   copyTextToClipboard: vi.fn(() => Promise.resolve()),
   copyXolotlCodeOpenShellCommand: vi.fn(() => Promise.resolve()),
@@ -24,7 +26,9 @@ vi.mock("../../lib/pathActions", async () => {
   const actual = await vi.importActual<typeof import("../../lib/pathActions")>("../../lib/pathActions");
   return {
     ...actual,
+    copyPathAutomationHandoff: pathActionMocks.copyPathAutomationHandoff,
     copyPathContextHandoff: pathActionMocks.copyPathContextHandoff,
+    copyProjectAutomationHandoff: pathActionMocks.copyProjectAutomationHandoff,
     copyProjectContextHandoff: pathActionMocks.copyProjectContextHandoff,
     copyTextToClipboard: pathActionMocks.copyTextToClipboard,
     copyXolotlCodeOpenShellCommand: pathActionMocks.copyXolotlCodeOpenShellCommand,
@@ -119,6 +123,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Copy Active Project Xolotl Link")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Shell Open Command")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Context Prompt")).toBeTruthy();
+    expect(screen.getByText("Copy Active Project Shortcuts JSON")).toBeTruthy();
     expect(screen.getByText("Open Active Project in Editor")).toBeTruthy();
     expect(screen.getByText("Open Active Project in External Terminal")).toBeTruthy();
     expect(screen.getByText("Start Chat With Clipboard")).toBeTruthy();
@@ -138,6 +143,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Copy Current Folder Xolotl Link")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Shell Open Command")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Context Prompt")).toBeTruthy();
+    expect(screen.getByText("Copy Current Folder Shortcuts JSON")).toBeTruthy();
     expect(screen.getByText("New Terminal in Current Folder")).toBeTruthy();
     expect(screen.getByText("Open Current Folder in External Terminal")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Relative Path")).toBeTruthy();
@@ -286,6 +292,21 @@ describe("CommandsPalette", () => {
     });
   });
 
+  it("copies active project Shortcuts JSON from the palette", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Active Project Shortcuts JSON" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyProjectAutomationHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl",
+        "Xolotl",
+      );
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
   it("runs active project editor actions from the palette", async () => {
     const onOpenChange = vi.fn();
     render(<CommandsPalette open onOpenChange={onOpenChange} />);
@@ -382,6 +403,21 @@ describe("CommandsPalette", () => {
 
     await waitFor(() => {
       expect(pathActionMocks.copyPathContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl/docs",
+        { kind: "Folder", relativePath: "docs" },
+      );
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it("copies current folder Shortcuts JSON from the palette", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Current Folder Shortcuts JSON" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyPathAutomationHandoff).toHaveBeenCalledWith(
         "/Users/cesar/Documents/Xolotl/docs",
         { kind: "Folder", relativePath: "docs" },
       );

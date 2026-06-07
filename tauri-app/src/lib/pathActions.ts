@@ -73,6 +73,60 @@ export interface PathContextHandoffOptions {
   relativePath?: string | null;
 }
 
+export interface AutomationHandoffPayload {
+  schema: "xolotl-code.mac-handoff.v1";
+  app: "Xolotl Code";
+  kind: string;
+  label: string;
+  path: string;
+  relativePath?: string;
+  xolotlCodeUrl: string;
+  shellOpenCommand: string;
+}
+
+export function pathAutomationHandoffPayload(
+  path: string,
+  options: PathContextHandoffOptions = {},
+): AutomationHandoffPayload {
+  const label = options.label?.trim() || projectLabelFromPath(path);
+  const kind = options.kind?.trim() || "Path";
+  const relativePath = options.relativePath?.trim();
+  const payload: AutomationHandoffPayload = {
+    schema: "xolotl-code.mac-handoff.v1",
+    app: "Xolotl Code",
+    kind,
+    label,
+    path,
+    xolotlCodeUrl: xolotlCodeOpenUrl(path),
+    shellOpenCommand: xolotlCodeOpenShellCommand(path),
+  };
+  if (relativePath) payload.relativePath = relativePath;
+  return payload;
+}
+
+export function projectAutomationHandoffPayload(path: string, name?: string | null): AutomationHandoffPayload {
+  return pathAutomationHandoffPayload(path, {
+    kind: "Project",
+    label: name?.trim() || projectLabelFromPath(path),
+  });
+}
+
+export function pathAutomationHandoffJson(path: string, options: PathContextHandoffOptions = {}): string {
+  return JSON.stringify(pathAutomationHandoffPayload(path, options), null, 2);
+}
+
+export function projectAutomationHandoffJson(path: string, name?: string | null): string {
+  return JSON.stringify(projectAutomationHandoffPayload(path, name), null, 2);
+}
+
+export async function copyPathAutomationHandoff(path: string, options: PathContextHandoffOptions = {}) {
+  await copyTextToClipboard(pathAutomationHandoffJson(path, options));
+}
+
+export async function copyProjectAutomationHandoff(path: string, name?: string | null) {
+  await copyTextToClipboard(projectAutomationHandoffJson(path, name));
+}
+
 export function pathContextHandoffText(path: string, options: PathContextHandoffOptions = {}): string {
   const label = options.label?.trim() || projectLabelFromPath(path);
   const kind = options.kind?.trim() || "Path";

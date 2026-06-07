@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  pathAutomationHandoffJson,
   pathContextHandoffText,
+  projectAutomationHandoffJson,
   projectContextHandoffText,
   relativePathFromRoot,
   xolotlCodeOpenShellCommand,
@@ -64,6 +66,24 @@ describe("projectContextHandoffText", () => {
   });
 });
 
+describe("projectAutomationHandoffJson", () => {
+  it("formats a Shortcuts-friendly project payload for Mac automation", () => {
+    expect(JSON.parse(projectAutomationHandoffJson("/Users/cesar/Documents/Pivot app", "Pivot app"))).toEqual({
+      schema: "xolotl-code.mac-handoff.v1",
+      app: "Xolotl Code",
+      kind: "Project",
+      label: "Pivot app",
+      path: "/Users/cesar/Documents/Pivot app",
+      xolotlCodeUrl: "xolotl-code://open?path=%2FUsers%2Fcesar%2FDocuments%2FPivot+app",
+      shellOpenCommand: "open 'xolotl-code://open?path=%2FUsers%2Fcesar%2FDocuments%2FPivot+app'",
+    });
+  });
+
+  it("falls back to the path basename when no project name is available", () => {
+    expect(JSON.parse(projectAutomationHandoffJson("/Users/cesar/Documents/Xolotl")).label).toBe("Xolotl");
+  });
+});
+
 describe("pathContextHandoffText", () => {
   it("formats a prompt-ready folder context block with a relative path", () => {
     expect(pathContextHandoffText("/Users/cesar/Documents/Xolotl/docs", {
@@ -89,5 +109,31 @@ describe("pathContextHandoffText", () => {
 
     expect(lines[1]).toBe("File: README.md");
     expect(lines).not.toContain("Relative Path: ");
+  });
+});
+
+describe("pathAutomationHandoffJson", () => {
+  it("formats a Shortcuts-friendly folder payload with a relative path", () => {
+    expect(JSON.parse(pathAutomationHandoffJson("/Users/cesar/Documents/Xolotl/docs", {
+      kind: "Folder",
+      label: "docs",
+      relativePath: "docs",
+    }))).toEqual({
+      schema: "xolotl-code.mac-handoff.v1",
+      app: "Xolotl Code",
+      kind: "Folder",
+      label: "docs",
+      path: "/Users/cesar/Documents/Xolotl/docs",
+      relativePath: "docs",
+      xolotlCodeUrl: "xolotl-code://open?path=%2FUsers%2Fcesar%2FDocuments%2FXolotl%2Fdocs",
+      shellOpenCommand: "open 'xolotl-code://open?path=%2FUsers%2Fcesar%2FDocuments%2FXolotl%2Fdocs'",
+    });
+  });
+
+  it("omits blank relative paths", () => {
+    expect(JSON.parse(pathAutomationHandoffJson("/Users/cesar/Documents/Xolotl/README.md", {
+      kind: "File",
+      relativePath: " ",
+    }))).not.toHaveProperty("relativePath");
   });
 });
