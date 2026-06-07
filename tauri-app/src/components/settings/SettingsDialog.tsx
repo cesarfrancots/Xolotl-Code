@@ -402,6 +402,27 @@ const HOTKEY_PRESETS = [
   "CommandOrControl+Shift+X",
 ];
 
+function macRecoveryHint(error: string): string | null {
+  const lower = error.toLowerCase();
+  if (lower.includes("notification") || lower.includes("system settings")) {
+    return "Open macOS System Settings > Notifications and allow Xolotl Code, then return here and retry.";
+  }
+  if (lower.includes("hotkey") || lower.includes("shortcut") || lower.includes("accelerator") || lower.includes("registered")) {
+    return "Pick a different shortcut, save again, or disable the global hotkey if another Mac app owns it.";
+  }
+  if (lower.includes("editor") || lower.includes("application") || lower.includes("executable")) {
+    return "Use an installed app name or a full executable path, then save the editor preference again.";
+  }
+  return null;
+}
+
+function macNotificationStatusTone(permission: NotificationPermissionState): "ok" | "warning" | "muted" | "error" {
+  if (permission === "granted") return "ok";
+  if (permission === "denied") return "error";
+  if (permission === "default" || permission === "unknown") return "warning";
+  return "muted";
+}
+
 function MacPanel({ open }: { open: boolean }) {
   const [settings, setSettings] = useState<MacProductivitySettings>(EMPTY_MAC_SETTINGS);
   const [editor, setEditor] = useState("");
@@ -556,6 +577,33 @@ function MacPanel({ open }: { open: boolean }) {
 
   return (
     <div className="flex flex-col gap-3 p-5">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+        <MacStatusTile
+          icon={Code2}
+          label="Editor"
+          value={settings.external_editor ?? "Not configured"}
+          tone={settings.external_editor ? "ok" : "muted"}
+        />
+        <MacStatusTile
+          icon={Keyboard}
+          label="Global Hotkey"
+          value={settings.global_hotkey.enabled ? formatMacShortcut(settings.global_hotkey.shortcut) : "Disabled"}
+          tone={settings.global_hotkey.enabled ? "ok" : "muted"}
+        />
+        <MacStatusTile
+          icon={Monitor}
+          label="Menu Bar"
+          value={settings.status_item.enabled ? "Shown" : "Hidden"}
+          tone={settings.status_item.enabled ? "ok" : "muted"}
+        />
+        <MacStatusTile
+          icon={Bell}
+          label="Notifications"
+          value={notificationPermissionLabel(notificationPermission)}
+          tone={macNotificationStatusTone(notificationPermission)}
+        />
+      </div>
+
       <div className="rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)] px-3 py-3">
         <div className="flex items-center gap-2 text-sm font-medium text-[oklch(0.90_0.025_220)]">
           <Code2 className="h-4 w-4 text-[oklch(0.68_0.050_190)]" />
@@ -723,15 +771,58 @@ function MacPanel({ open }: { open: boolean }) {
       </div>
 
       {message && (
-        <p className="flex items-center gap-1 text-xs text-emerald-400">
+        <p className="flex items-center gap-1 rounded-md border border-[oklch(0.32_0.045_155)] bg-[oklch(0.145_0.018_155)]/45 px-2.5 py-2 text-xs text-emerald-400">
           <CheckCircle className="h-3 w-3 shrink-0" /> {message}
         </p>
       )}
       {error && (
-        <p className="flex items-center gap-1 text-xs text-red-400">
-          <XCircle className="h-3 w-3 shrink-0" /> {error}
-        </p>
+        <MacRecoveryPanel message={error} hint={macRecoveryHint(error)} />
       )}
+    </div>
+  );
+}
+
+function MacStatusTile({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  tone: "ok" | "warning" | "muted" | "error";
+}) {
+  const toneClasses = {
+    ok: "border-[oklch(0.30_0.045_155)] bg-[oklch(0.145_0.018_155)]/45 text-[oklch(0.74_0.080_155)]",
+    warning: "border-[oklch(0.34_0.040_70)] bg-[oklch(0.145_0.014_70)]/50 text-[oklch(0.76_0.080_70)]",
+    muted: "border-[oklch(0.22_0.008_240)] bg-[oklch(0.118_0.004_245)] text-[oklch(0.58_0.012_225)]",
+    error: "border-[oklch(0.34_0.055_25)] bg-[oklch(0.145_0.018_25)]/55 text-[oklch(0.76_0.090_25)]",
+  }[tone];
+
+  return (
+    <div className={`min-w-0 rounded-md border px-3 py-2 ${toneClasses}`}>
+      <div className="flex min-w-0 items-center gap-2">
+        <Icon className="h-3.5 w-3.5 flex-none" />
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-[oklch(0.52_0.010_225)]">{label}</div>
+          <div className="mt-0.5 truncate text-xs font-medium" title={value}>{value}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MacRecoveryPanel({ message, hint }: { message: string; hint: string | null }) {
+  return (
+    <div className="rounded-md border border-[oklch(0.34_0.055_25)] bg-[oklch(0.145_0.018_25)]/55 px-2.5 py-2 text-xs text-[oklch(0.76_0.090_25)]">
+      <div className="flex items-start gap-1.5">
+        <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="min-w-0">
+          <div>{message}</div>
+          {hint && <div className="mt-1 text-[oklch(0.70_0.065_45)]">{hint}</div>}
+        </div>
+      </div>
     </div>
   );
 }

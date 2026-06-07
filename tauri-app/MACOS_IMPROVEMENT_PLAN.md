@@ -52,6 +52,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - The last workbench tab is restored on reopen when the URL does not explicitly request a tab, while direct `?tab=` links still take priority.
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
 - macOS Settings include an opt-in menu bar status item with active project and agent-state summary plus quick access to common commands.
+- macOS Settings show compact status tiles and targeted recovery guidance for editor, global-hotkey, menu-bar, and notification states.
 - The Mac UI respects system reduced-motion and higher-contrast preferences, with a fallback keyboard focus ring for custom workbench controls.
 - Mac release preflight checks are available through `npm run release:mac:preflight` and the release checklist is tracked in `MACOS_RELEASE_CHECKLIST.md`.
 
@@ -421,12 +422,13 @@ Deliverables:
   - Add quick commands only when they are stable and already route through native command actions.
   - Avoid turning the status menu into a second full app navigation tree.
 - Improve global hotkey behavior:
-  - Detect registration failures and show recovery text in Settings.
+  - Detect registration failures and show recovery text in Settings. Done for frontend save failures with Mac-specific recovery guidance.
   - Validate collisions on a clean Mac account.
   - Keep the feature disabled by default.
 - Add clearer status feedback:
-  - Use native notifications only for user-enabled events.
+  - Use native notifications only for user-enabled events. Done for persisted notification toggles and permission gating.
   - Keep in-app status indicators quiet and scan-friendly.
+  - Show compact macOS Settings status tiles for editor, global hotkey, menu bar helper, and notification permission. Done.
 
 Acceptance:
 
@@ -477,7 +479,7 @@ This is the near-term order for this branch.
    - Notifications with click-through routing. Done for backend route metadata and macOS app-reopen routing; direct action payload support remains dependent on Tauri desktop notification support.
    - Optional global hotkey. Done for the first opt-in implementation.
    - Optional status/menu bar helper. Done for the first opt-in implementation with active project, agent summary, command palette, terminal, settings, and project-opening actions.
-   - Next pass: add clearer failure/recovery states for hotkey registration, notification permission, and configured external apps.
+   - Clearer failure/recovery states for hotkey registration, notification permission, and configured external apps. Done for macOS Settings save/permission failures and status summary.
 5. Harden distribution:
    - Universal build path. Build and package scripts now select the universal app bundle when `MAC_DMG_ARCH=universal`; preflight has a universal architecture gate.
    - Signing and notarization checklist. Done for the first release checklist and strict preflight flags.

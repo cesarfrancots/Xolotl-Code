@@ -2,6 +2,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsDialog } from "./SettingsDialog";
+import type {
+  MacGlobalHotkeySettings,
+  MacProductivitySettings,
+} from "../../bindings";
+
+type CommandResult<T> = Promise<{ status: "ok"; data: T } | { status: "error"; error: string }>;
 
 const commandMocks = vi.hoisted(() => ({
   getApiKeyStatus: vi.fn(() => Promise.resolve({})),
@@ -38,10 +44,7 @@ const commandMocks = vi.hoisted(() => ({
       },
     },
   })),
-  setMacGlobalHotkeySettings: vi.fn((global_hotkey: {
-    enabled: boolean;
-    shortcut: string;
-  }) => Promise.resolve({
+  setMacGlobalHotkeySettings: vi.fn((global_hotkey: MacGlobalHotkeySettings): CommandResult<MacProductivitySettings> => Promise.resolve({
     status: "ok" as const,
     data: {
       external_editor: "Cursor",
@@ -94,6 +97,12 @@ const commandMocks = vi.hoisted(() => ({
   })),
 }));
 
+const notificationMocks = vi.hoisted(() => ({
+  getNotificationPermissionState: vi.fn(() => Promise.resolve("granted")),
+  requestNotificationPermissionState: vi.fn(() => Promise.resolve("granted")),
+  sendSettingsTestNotification: vi.fn(),
+}));
+
 vi.mock("../../bindings", () => ({
   commands: {
     getApiKeyStatus: commandMocks.getApiKeyStatus,
@@ -119,14 +128,31 @@ vi.mock("@tauri-apps/plugin-global-shortcut", () => ({
 }));
 
 vi.mock("../../lib/notificationActions", () => ({
-  getNotificationPermissionState: vi.fn(() => Promise.resolve("granted")),
-  requestNotificationPermissionState: vi.fn(() => Promise.resolve("granted")),
-  sendSettingsTestNotification: vi.fn(),
+  getNotificationPermissionState: notificationMocks.getNotificationPermissionState,
+  requestNotificationPermissionState: notificationMocks.requestNotificationPermissionState,
+  sendSettingsTestNotification: notificationMocks.sendSettingsTestNotification,
 }));
 
 describe("SettingsDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    notificationMocks.getNotificationPermissionState.mockResolvedValue("granted");
+    notificationMocks.requestNotificationPermissionState.mockResolvedValue("granted");
+  });
+
+  it("shows a compact macOS status summary", async () => {
+    const user = userEvent.setup();
+    render(<SettingsDialog open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "macOS" }));
+
+    expect(await screen.findByText("Editor")).toBeTruthy();
+    expect(screen.getAllByText("Cursor").length).toBeGreaterThan(0);
+    expect(screen.getByText("Global Hotkey")).toBeTruthy();
+    expect(screen.getAllByText("Disabled").length).toBeGreaterThan(0);
+    expect(screen.getByText("Menu Bar")).toBeTruthy();
+    expect(screen.getByText("Hidden")).toBeTruthy();
+    expect(screen.getByText("Granted")).toBeTruthy();
   });
 
   it("loads and saves the macOS external editor preference", async () => {
@@ -185,6 +211,21 @@ describe("SettingsDialog", () => {
     });
   });
 
+  it("shows recovery guidance when macOS rejects a global hotkey", async () => {
+    commandMocks.setMacGlobalHotkeySettings.mockResolvedValueOnce({
+      status: "error",
+      error: "Global hotkey already registered by another app.",
+    });
+    const user = userEvent.setup();
+    render(<SettingsDialog open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "macOS" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Enable global hotkey" }));
+
+    expect(await screen.findByText("Global hotkey already registered by another app.")).toBeTruthy();
+    expect(screen.getByText("Pick a different shortcut, save again, or disable the global hotkey if another Mac app owns it.")).toBeTruthy();
+  });
+
   it("saves the opt-in macOS menu bar status item preference", async () => {
     const user = userEvent.setup();
     render(<SettingsDialog open onOpenChange={vi.fn()} />);
@@ -196,5 +237,20 @@ describe("SettingsDialog", () => {
       enabled: true,
     });
     expect(await screen.findByText("Menu bar status item enabled.")).toBeTruthy();
+  });
+
+  it("shows recovery guidance when macOS notifications are blocked", async () => {
+    notificationMocks.getNotificationPermissionState.mockResolvedValue("denied");
+    notificationMocks.requestNotificationPermissionState.mockResolvedValue("denied");
+    const user = userEvent.setup();
+    render(<SettingsDialog open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "macOS" }));
+    expect(await screen.findByText("Blocked")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Request Permission" }));
+
+    expect(await screen.findByText("Notifications are blocked in macOS System Settings.")).toBeTruthy();
+    expect(screen.getByText("Open macOS System Settings > Notifications and allow Xolotl Code, then return here and retry.")).toBeTruthy();
   });
 });
