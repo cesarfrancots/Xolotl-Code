@@ -13,6 +13,12 @@ describe("nativeMenuActionFromPayload", () => {
     expect(nativeMenuActionFromPayload("xolotl:status-open-active-project-terminal")).toBe("status-open-active-project-terminal");
     expect(nativeMenuActionFromPayload("xolotl:status-open-latest-agent")).toBe("open-latest-agent");
     expect(nativeMenuActionFromPayload("xolotl:open-latest-agent")).toBe("open-latest-agent");
+    expect(nativeMenuActionFromPayload("xolotl:reveal-latest-agent-worktree")).toBe("reveal-latest-agent-worktree");
+    expect(nativeMenuActionFromPayload("xolotl:open-latest-agent-worktree-editor")).toBe("open-latest-agent-worktree-editor");
+    expect(nativeMenuActionFromPayload("xolotl:open-latest-agent-worktree-terminal")).toBe("open-latest-agent-worktree-terminal");
+    expect(nativeMenuActionFromPayload("xolotl:copy-latest-agent-worktree-path")).toBe("copy-latest-agent-worktree-path");
+    expect(nativeMenuActionFromPayload("xolotl:copy-latest-agent-worktree-link")).toBe("copy-latest-agent-worktree-link");
+    expect(nativeMenuActionFromPayload("xolotl:copy-latest-agent-worktree-shell-open")).toBe("copy-latest-agent-worktree-shell-open");
     expect(nativeMenuActionFromPayload("xolotl:status-copy-active-project-link")).toBe("status-copy-active-project-link");
     expect(nativeMenuActionFromPayload("xolotl:status-copy-active-project-shell-open")).toBe("status-copy-active-project-shell-open");
     expect(nativeMenuActionFromPayload("xolotl:new-active-project-terminal-tab")).toBe("new-active-project-terminal-tab");

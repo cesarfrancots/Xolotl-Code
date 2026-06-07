@@ -73,6 +73,13 @@ const STATUS_OPEN_LATEST_AGENT: &str = "xolotl:status-open-latest-agent";
 const STATUS_COPY_ACTIVE_PROJECT_LINK: &str = "xolotl:status-copy-active-project-link";
 const STATUS_COPY_ACTIVE_PROJECT_SHELL_OPEN: &str = "xolotl:status-copy-active-project-shell-open";
 const MENU_OPEN_LATEST_AGENT: &str = "xolotl:open-latest-agent";
+const MENU_REVEAL_LATEST_AGENT_WORKTREE: &str = "xolotl:reveal-latest-agent-worktree";
+const MENU_OPEN_LATEST_AGENT_WORKTREE_EDITOR: &str = "xolotl:open-latest-agent-worktree-editor";
+const MENU_OPEN_LATEST_AGENT_WORKTREE_TERMINAL: &str = "xolotl:open-latest-agent-worktree-terminal";
+const MENU_COPY_LATEST_AGENT_WORKTREE_PATH: &str = "xolotl:copy-latest-agent-worktree-path";
+const MENU_COPY_LATEST_AGENT_WORKTREE_LINK: &str = "xolotl:copy-latest-agent-worktree-link";
+const MENU_COPY_LATEST_AGENT_WORKTREE_SHELL_OPEN: &str =
+    "xolotl:copy-latest-agent-worktree-shell-open";
 const MENU_NEW_ACTIVE_PROJECT_TERMINAL_TAB: &str = "xolotl:new-active-project-terminal-tab";
 const MENU_COPY_ACTIVE_PROJECT_PATH: &str = "xolotl:copy-active-project-path";
 const MENU_COPY_ACTIVE_PROJECT_CONTEXT: &str = "xolotl:copy-active-project-context";
@@ -391,6 +398,42 @@ fn build_active_project_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<ta
         .item(&copy_link)
         .item(&copy_shell)
         .item(&copy_context)
+        .build()
+}
+
+fn build_latest_agent_worktree_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
+    let reveal = MenuItemBuilder::with_id(
+        MENU_REVEAL_LATEST_AGENT_WORKTREE,
+        "Reveal Worktree in Finder",
+    )
+    .build(app)?;
+    let editor = MenuItemBuilder::with_id(MENU_OPEN_LATEST_AGENT_WORKTREE_EDITOR, "Open in Editor")
+        .build(app)?;
+    let terminal = MenuItemBuilder::with_id(
+        MENU_OPEN_LATEST_AGENT_WORKTREE_TERMINAL,
+        "Open in External Terminal",
+    )
+    .build(app)?;
+    let copy_path =
+        MenuItemBuilder::with_id(MENU_COPY_LATEST_AGENT_WORKTREE_PATH, "Copy POSIX Path")
+            .build(app)?;
+    let copy_link =
+        MenuItemBuilder::with_id(MENU_COPY_LATEST_AGENT_WORKTREE_LINK, "Copy Xolotl Link")
+            .build(app)?;
+    let copy_shell = MenuItemBuilder::with_id(
+        MENU_COPY_LATEST_AGENT_WORKTREE_SHELL_OPEN,
+        "Copy Shell Open Command",
+    )
+    .build(app)?;
+
+    SubmenuBuilder::new(app, "Latest Agent Worktree")
+        .item(&reveal)
+        .item(&editor)
+        .item(&terminal)
+        .separator()
+        .item(&copy_path)
+        .item(&copy_link)
+        .item(&copy_shell)
         .build()
 }
 
@@ -909,6 +952,7 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
         .build(app)?;
     let latest_agent_output =
         MenuItemBuilder::with_id(MENU_OPEN_LATEST_AGENT, "Latest Agent Output").build(app)?;
+    let latest_agent_worktree = build_latest_agent_worktree_menu(app)?;
 
     let app_menu = SubmenuBuilder::new(app, "Xolotl Code")
         .about(Some(about_metadata))
@@ -956,6 +1000,7 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
         .item(&civ_tab)
         .separator()
         .item(&latest_agent_output)
+        .item(&latest_agent_worktree)
         .build()?;
 
     let terminal_menu = SubmenuBuilder::new(app, "Terminal")
@@ -1017,6 +1062,18 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
         Some(STATUS_OPEN_ACTIVE_PROJECT_TERMINAL)
     } else if id == MENU_OPEN_LATEST_AGENT {
         Some(MENU_OPEN_LATEST_AGENT)
+    } else if id == MENU_REVEAL_LATEST_AGENT_WORKTREE {
+        Some(MENU_REVEAL_LATEST_AGENT_WORKTREE)
+    } else if id == MENU_OPEN_LATEST_AGENT_WORKTREE_EDITOR {
+        Some(MENU_OPEN_LATEST_AGENT_WORKTREE_EDITOR)
+    } else if id == MENU_OPEN_LATEST_AGENT_WORKTREE_TERMINAL {
+        Some(MENU_OPEN_LATEST_AGENT_WORKTREE_TERMINAL)
+    } else if id == MENU_COPY_LATEST_AGENT_WORKTREE_PATH {
+        Some(MENU_COPY_LATEST_AGENT_WORKTREE_PATH)
+    } else if id == MENU_COPY_LATEST_AGENT_WORKTREE_LINK {
+        Some(MENU_COPY_LATEST_AGENT_WORKTREE_LINK)
+    } else if id == MENU_COPY_LATEST_AGENT_WORKTREE_SHELL_OPEN {
+        Some(MENU_COPY_LATEST_AGENT_WORKTREE_SHELL_OPEN)
     } else if id == STATUS_OPEN_LATEST_AGENT {
         Some(STATUS_OPEN_LATEST_AGENT)
     } else if id == STATUS_COPY_ACTIVE_PROJECT_LINK {
@@ -1255,6 +1312,40 @@ mod tests {
         assert_eq!(
             menu_action_for_id(&tauri::menu::MenuId::new(MENU_OPEN_LATEST_AGENT)),
             Some(MENU_OPEN_LATEST_AGENT)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(MENU_REVEAL_LATEST_AGENT_WORKTREE)),
+            Some(MENU_REVEAL_LATEST_AGENT_WORKTREE)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(
+                MENU_OPEN_LATEST_AGENT_WORKTREE_EDITOR
+            )),
+            Some(MENU_OPEN_LATEST_AGENT_WORKTREE_EDITOR)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(
+                MENU_OPEN_LATEST_AGENT_WORKTREE_TERMINAL
+            )),
+            Some(MENU_OPEN_LATEST_AGENT_WORKTREE_TERMINAL)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(
+                MENU_COPY_LATEST_AGENT_WORKTREE_PATH
+            )),
+            Some(MENU_COPY_LATEST_AGENT_WORKTREE_PATH)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(
+                MENU_COPY_LATEST_AGENT_WORKTREE_LINK
+            )),
+            Some(MENU_COPY_LATEST_AGENT_WORKTREE_LINK)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(
+                MENU_COPY_LATEST_AGENT_WORKTREE_SHELL_OPEN
+            )),
+            Some(MENU_COPY_LATEST_AGENT_WORKTREE_SHELL_OPEN)
         );
         assert_eq!(
             menu_action_for_id(&tauri::menu::MenuId::new(MENU_TAB_EVAL)),

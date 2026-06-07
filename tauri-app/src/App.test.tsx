@@ -10,8 +10,16 @@ import { useProjectStore } from "./stores/projectStore";
 import { useTerminalStore } from "./stores/terminalStore";
 import { useUiStore } from "./stores/uiStore";
 
+type CommandResult<T> = { status: "ok"; data: T } | { status: "error"; error: string };
+
 const tauriEventMocks = vi.hoisted(() => ({
   listen: vi.fn((_eventName: string, _handler?: unknown) => Promise.resolve(() => {})),
+}));
+const commandMocks = vi.hoisted(() => ({
+  getAgentWorktreePath: vi.fn<(agentId: string) => Promise<CommandResult<string>>>((_agentId) => Promise.resolve({
+    status: "ok",
+    data: "/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-executing",
+  })),
 }));
 const pathActionMocks = vi.hoisted(() => ({
   copyProjectContextHandoff: vi.fn((_path: string, _name?: string | null) => Promise.resolve()),
@@ -36,6 +44,10 @@ const agentStoreMocks = vi.hoisted(() => {
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: tauriEventMocks.listen,
+}));
+
+vi.mock("./bindings", () => ({
+  commands: commandMocks,
 }));
 
 vi.mock("./lib/pathActions", () => pathActionMocks);
@@ -129,6 +141,10 @@ describe("App tab navigation", () => {
     agentStoreMocks.state.expandedAgentId = null;
     agentStoreMocks.state.mergeCheckpointGroupId = null;
     agentStoreMocks.state.setExpandedAgent.mockClear();
+    commandMocks.getAgentWorktreePath.mockResolvedValue({
+      status: "ok",
+      data: "/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-executing",
+    });
     tauriEventMocks.listen.mockImplementation((_eventName: string, _handler?: unknown) => Promise.resolve(() => {}));
   });
 
@@ -356,8 +372,58 @@ describe("App tab navigation", () => {
     fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "open-latest-agent" }));
 
     expect(await screen.findByText("No agent output is available.")).toBeTruthy();
-    expect(screen.getByText("Start an agent run before using menu bar agent actions.")).toBeTruthy();
+    expect(screen.getByText("Start an agent run before using latest agent actions.")).toBeTruthy();
     expect(agentStoreMocks.state.setExpandedAgent).not.toHaveBeenCalled();
+  });
+
+  it("runs latest agent worktree handoffs from native menu actions", async () => {
+    agentStoreMocks.state.agents = [
+      { id: "agent-done", state: "Done" },
+      { id: "agent-waiting", state: "Waiting" },
+      { id: "agent-executing", state: "Executing" },
+    ];
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "reveal-latest-agent-worktree" }));
+
+    await waitFor(() => {
+      expect(commandMocks.getAgentWorktreePath).toHaveBeenCalledWith("agent-executing");
+      expect(pathActionMocks.revealPathInFinder).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-executing");
+    });
+    expect(await screen.findByText("Latest agent worktree revealed in Finder.")).toBeTruthy();
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "copy-latest-agent-worktree-shell-open" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/.xolotl-worktrees/agent-executing");
+    });
+    expect(await screen.findByText("Latest agent worktree shell open command copied.")).toBeTruthy();
+  });
+
+  it("shows recovery when the latest agent worktree cannot be resolved", async () => {
+    commandMocks.getAgentWorktreePath.mockResolvedValueOnce({
+      status: "error",
+      error: "no worktree path for agent agent-done",
+    });
+    agentStoreMocks.state.agents = [{ id: "agent-done", state: "Done" }];
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "open-latest-agent-worktree-editor" }));
+
+    expect(await screen.findByText("Open latest agent worktree in editor failed.")).toBeTruthy();
+    expect(screen.getByText(/latest agent still has a worktree/)).toBeTruthy();
+    expect(screen.getByText(/no worktree path for agent agent-done/)).toBeTruthy();
+    expect(pathActionMocks.openPathInExternalEditor).not.toHaveBeenCalled();
+  });
+
+  it("shows recovery when native latest agent worktree actions have no agent output", async () => {
+    render(<App />);
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "reveal-latest-agent-worktree" }));
+
+    expect(await screen.findByText("No agent output is available.")).toBeTruthy();
+    expect(screen.getByText("Start an agent run before using latest agent actions.")).toBeTruthy();
+    expect(commandMocks.getAgentWorktreePath).not.toHaveBeenCalled();
   });
 
   it("marks the active workbench segment and exposes Mac shortcut hints", async () => {

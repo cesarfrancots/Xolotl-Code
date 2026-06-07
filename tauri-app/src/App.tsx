@@ -17,6 +17,7 @@ import { useMacStatusItem } from "./hooks/useMacStatusItem";
 import { useProjectOpenEvents } from "./hooks/useProjectOpenEvents";
 import { AlertTriangle, CheckCircle2, Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves, X } from "lucide-react";
 import { centerTabFromSearch, initialCenterTabFromSearch, persistCenterTab, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
+import { commands } from "./bindings";
 import { errorDetail, MAC_APP_STATUS_EVENT, type MacAppStatus } from "./lib/macAppStatus";
 import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
@@ -108,7 +109,7 @@ export default function App() {
     setMacAppStatus({
       tone: "error",
       message: "No agent output is available.",
-      hint: "Start an agent run before using menu bar agent actions.",
+      hint: "Start an agent run before using latest agent actions.",
     });
   }, []);
 
@@ -147,6 +148,34 @@ export default function App() {
     }
     agentStore.setExpandedAgent(latestAgent.id);
     setMacAppStatus({ tone: "ok", message: "Latest agent output opened." });
+  }, [showNoAgentStatus]);
+
+  const runLatestAgentWorktreeHandoff = useCallback((
+    action: (path: string) => Promise<void>,
+    successMessage: string,
+    failureMessage: string,
+    recoveryHint: string,
+  ) => {
+    const agentStore = useAgentStore.getState();
+    const latestAgent = latestAgentForStatusMenu(agentStore.agents);
+    if (!latestAgent) {
+      showNoAgentStatus();
+      return;
+    }
+
+    void commands.getAgentWorktreePath(latestAgent.id)
+      .then(async (pathResult) => {
+        if (pathResult.status === "error") throw new Error(pathResult.error);
+        await action(pathResult.data);
+        setMacAppStatus({ tone: "ok", message: successMessage });
+      })
+      .catch((err) => {
+        setMacAppStatus({
+          tone: "error",
+          message: failureMessage,
+          hint: `${recoveryHint} ${errorDetail(err)}`,
+        });
+      });
   }, [showNoAgentStatus]);
 
   const closeActiveTerminalTab = useCallback(() => {
@@ -257,6 +286,60 @@ export default function App() {
       openLatestAgentOutput();
       return;
     }
+    if (action === "reveal-latest-agent-worktree") {
+      runLatestAgentWorktreeHandoff(
+        revealPathInFinder,
+        "Latest agent worktree revealed in Finder.",
+        "Reveal latest agent worktree in Finder failed.",
+        "Check that the latest agent still has a worktree and that macOS can access it.",
+      );
+      return;
+    }
+    if (action === "open-latest-agent-worktree-editor") {
+      runLatestAgentWorktreeHandoff(
+        openPathInExternalEditor,
+        "Latest agent worktree opened in the external editor.",
+        "Open latest agent worktree in editor failed.",
+        "Check that the latest agent still has a worktree, then check the preferred external editor in macOS Settings or choose an installed editor app.",
+      );
+      return;
+    }
+    if (action === "open-latest-agent-worktree-terminal") {
+      runLatestAgentWorktreeHandoff(
+        openPathInExternalTerminal,
+        "Latest agent worktree opened in the external terminal.",
+        "Open latest agent worktree in external terminal failed.",
+        "Check that the latest agent still has a worktree, then check the preferred external terminal in macOS Settings or choose an installed terminal app.",
+      );
+      return;
+    }
+    if (action === "copy-latest-agent-worktree-path") {
+      runLatestAgentWorktreeHandoff(
+        copyTextToClipboard,
+        "Latest agent worktree POSIX path copied.",
+        "Copy latest agent worktree POSIX path failed.",
+        "Check that the latest agent still has a worktree, then check clipboard permissions and try again.",
+      );
+      return;
+    }
+    if (action === "copy-latest-agent-worktree-link") {
+      runLatestAgentWorktreeHandoff(
+        copyXolotlCodeOpenUrl,
+        "Latest agent worktree Xolotl link copied.",
+        "Copy latest agent worktree Xolotl link failed.",
+        "Check that the latest agent still has a worktree, then check clipboard permissions and try again.",
+      );
+      return;
+    }
+    if (action === "copy-latest-agent-worktree-shell-open") {
+      runLatestAgentWorktreeHandoff(
+        copyXolotlCodeOpenShellCommand,
+        "Latest agent worktree shell open command copied.",
+        "Copy latest agent worktree shell open command failed.",
+        "Check that the latest agent still has a worktree, then check clipboard permissions and try again.",
+      );
+      return;
+    }
     if (action === "new-active-project-terminal-tab") {
       addActiveProjectTerminalTab();
       return;
@@ -311,7 +394,7 @@ export default function App() {
       void loadCivilizationView();
       selectCenterTab("civ");
     }
-  }, [addActiveProjectTerminalTab, addTerminalTab, closeActiveTerminalTab, openLatestAgentOutput, runActiveProjectHandoff, selectAdjacentTerminalTab, selectCenterTab]);
+  }, [addActiveProjectTerminalTab, addTerminalTab, closeActiveTerminalTab, openLatestAgentOutput, runActiveProjectHandoff, runLatestAgentWorktreeHandoff, selectAdjacentTerminalTab, selectCenterTab]);
 
   useEffect(() => listenForNativeMenuActions(handleNativeMenuAction), [handleNativeMenuAction]);
 
