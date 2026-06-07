@@ -26,6 +26,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - The macOS bundle registers Finder/Open With document types for project folders plus common source/text documents.
 - The macOS bundle registers `xolotl-code://open?path=...` project links for Shortcuts, Raycast, Alfred, and shell automation.
 - Project rows and the command palette can copy `xolotl-code://open?path=...` links for saved projects, current folders, and visible file-browser entries.
+- The command palette can copy a prompt-ready active project context block with the POSIX path and `xolotl-code://` link for Shortcuts, Raycast, Alfred, and shell automation.
 - Saved project rows and file browser entries can reveal their target in Finder.
 - File browser entries can copy POSIX paths and project-relative paths.
 - File browser browse failures show macOS-specific recovery for missing folders and privacy-denied folder access.
@@ -358,7 +359,7 @@ Deliverables:
 
 - Make project and file handoff frictionless:
   - Continue expanding `xolotl-code://open?path=...` links where they naturally fit.
-  - Add a command-palette action to copy a prompt-ready project context link when a project is active.
+  - Add a command-palette action to copy a prompt-ready project context link when a project is active. Done for active project path + `xolotl-code://` link context blocks.
   - Add documentation or in-app affordances for using links from Shortcuts, Raycast, Alfred, and shell scripts without adding noisy onboarding text to the main UI.
 - Improve Finder-originated workflows:
   - Complete end-to-end manual QA for drag/drop, Open With, and file-url launch using real folders with spaces and package directories.

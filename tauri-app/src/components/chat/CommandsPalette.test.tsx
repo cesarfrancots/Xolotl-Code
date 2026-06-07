@@ -5,6 +5,7 @@ import { NATIVE_MENU_EVENT, type NativeMenuAction } from "../../lib/nativeMenu";
 import { useProjectStore } from "../../stores/projectStore";
 
 const pathActionMocks = vi.hoisted(() => ({
+  copyProjectContextHandoff: vi.fn(() => Promise.resolve()),
   copyTextToClipboard: vi.fn(() => Promise.resolve()),
   copyXolotlCodeOpenUrl: vi.fn(() => Promise.resolve()),
   openPathInExternalEditor: vi.fn(() => Promise.resolve()),
@@ -20,6 +21,7 @@ vi.mock("../../lib/pathActions", async () => {
   const actual = await vi.importActual<typeof import("../../lib/pathActions")>("../../lib/pathActions");
   return {
     ...actual,
+    copyProjectContextHandoff: pathActionMocks.copyProjectContextHandoff,
     copyTextToClipboard: pathActionMocks.copyTextToClipboard,
     copyXolotlCodeOpenUrl: pathActionMocks.copyXolotlCodeOpenUrl,
     openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
@@ -100,6 +102,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Reveal Active Project in Finder")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Path")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Xolotl Link")).toBeTruthy();
+    expect(screen.getByText("Copy Active Project Context Prompt")).toBeTruthy();
     expect(screen.getByText("Open Active Project in Editor")).toBeTruthy();
     expect(screen.getByText("Start Chat With Clipboard")).toBeTruthy();
     expect(screen.getByText("Explain Clipboard Snippet")).toBeTruthy();
@@ -160,6 +163,21 @@ describe("CommandsPalette", () => {
 
     await waitFor(() => {
       expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it("copies active project context prompts from the palette", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Active Project Context Prompt" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyProjectContextHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl",
+        "Xolotl",
+      );
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
   });

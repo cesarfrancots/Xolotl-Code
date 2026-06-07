@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { relativePathFromRoot, xolotlCodeOpenUrl } from "./pathActions";
+import { projectContextHandoffText, relativePathFromRoot, xolotlCodeOpenUrl } from "./pathActions";
 
 describe("relativePathFromRoot", () => {
   it("returns a project-relative path for children", () => {
@@ -24,5 +24,22 @@ describe("xolotlCodeOpenUrl", () => {
     expect(xolotlCodeOpenUrl("/Users/cesar/Documents/Pivot app")).toBe(
       "xolotl-code://open?path=%2FUsers%2Fcesar%2FDocuments%2FPivot+app",
     );
+  });
+});
+
+describe("projectContextHandoffText", () => {
+  it("formats a prompt-ready project context block for Mac automation", () => {
+    expect(projectContextHandoffText("/Users/cesar/Documents/Pivot app", "Pivot app")).toBe([
+      "Xolotl Code project context",
+      "Project: Pivot app",
+      "Path: /Users/cesar/Documents/Pivot app",
+      "Open: xolotl-code://open?path=%2FUsers%2Fcesar%2FDocuments%2FPivot+app",
+      "",
+      "Use this as the active project context for Xolotl Code automation, Shortcuts, Raycast, Alfred, or shell handoff.",
+    ].join("\n"));
+  });
+
+  it("falls back to the path basename when no project name is available", () => {
+    expect(projectContextHandoffText("/Users/cesar/Documents/Xolotl").split("\n")[1]).toBe("Project: Xolotl");
   });
 });

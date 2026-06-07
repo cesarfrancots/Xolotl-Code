@@ -25,7 +25,7 @@ import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "..
 import { MAC_COMMANDS, type MacCommandId, type MacCommandSpec } from "../../lib/macCommandModel";
 import { formatMacShortcut } from "../../lib/macShortcuts";
 import { dispatchNativeMenuAction, type NativeMenuAction } from "../../lib/nativeMenu";
-import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, quickLookPath, readTextFromClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { copyProjectContextHandoff, copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, quickLookPath, readTextFromClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 import { openTerminalAtPath } from "../../lib/terminalActions";
 
 type CommandAction = () => void | Promise<void>;
@@ -168,11 +168,15 @@ export function CommandsPalette({
       .filter((command) => command.id !== "commands")
       .map((command) => paletteCommandFromMacCommand(command, runNativeAction, activeProjectPath));
 
+    const activeProject = activeProjectPath
+      ? projects.find((project) => project.path === activeProjectPath)
+      : null;
     const projectCommands: PaletteCommand[] = [
       ...(activeProjectPath ? [
         { id: "project-reveal", kind: "action" as const, label: "Reveal Active Project in Finder", description: macPathLabel(activeProjectPath), icon: ExternalLink, run: () => runMacHandoff("Reveal in Finder", () => revealPathInFinder(activeProjectPath), "finder") },
         { id: "project-copy-path", kind: "action" as const, label: "Copy Active Project Path", description: macPathLabel(activeProjectPath), icon: Copy, run: () => runMacHandoff("Copy project path", () => copyTextToClipboard(activeProjectPath), "clipboard") },
         { id: "project-copy-link", kind: "action" as const, label: "Copy Active Project Xolotl Link", description: macPathLabel(activeProjectPath), icon: Link2, run: () => runMacHandoff("Copy Xolotl link", () => copyXolotlCodeOpenUrl(activeProjectPath), "clipboard") },
+        { id: "project-copy-context", kind: "action" as const, label: "Copy Active Project Context Prompt", description: "Path and Xolotl link for Shortcuts, Raycast, Alfred, or shell handoff.", icon: ClipboardList, run: () => runMacHandoff("Copy project context", () => copyProjectContextHandoff(activeProjectPath, activeProject?.name), "clipboard") },
         { id: "project-open-editor", kind: "action" as const, label: "Open Active Project in Editor", description: macPathLabel(activeProjectPath), icon: Code2, run: () => runMacHandoff("Open in editor", () => openPathInExternalEditor(activeProjectPath), "editor") },
       ] : []),
       ...projects.slice(0, 5).map((project) => ({

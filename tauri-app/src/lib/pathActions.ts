@@ -33,6 +33,28 @@ export async function copyXolotlCodeOpenUrl(path: string) {
   await copyTextToClipboard(xolotlCodeOpenUrl(path));
 }
 
+function projectLabelFromPath(path: string): string {
+  const normalized = path.replace(/[\\/]+$/, "");
+  const parts = normalized.split(/[\\/]/);
+  return parts[parts.length - 1] || path;
+}
+
+export function projectContextHandoffText(path: string, name?: string | null): string {
+  const label = name?.trim() || projectLabelFromPath(path);
+  return [
+    "Xolotl Code project context",
+    `Project: ${label}`,
+    `Path: ${path}`,
+    `Open: ${xolotlCodeOpenUrl(path)}`,
+    "",
+    "Use this as the active project context for Xolotl Code automation, Shortcuts, Raycast, Alfred, or shell handoff.",
+  ].join("\n");
+}
+
+export async function copyProjectContextHandoff(path: string, name?: string | null) {
+  await copyTextToClipboard(projectContextHandoffText(path, name));
+}
+
 export async function readTextFromClipboard() {
   try {
     return await readText();
