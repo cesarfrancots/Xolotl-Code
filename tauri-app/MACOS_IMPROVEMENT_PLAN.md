@@ -49,6 +49,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - macOS Settings include opt-in notification toggles for agent completion, eval completion, and permission prompts. Backend notifications now respect those toggles.
 - Mac productivity notifications emit route metadata and Dock/app reopen can route back to the related Chat, Eval, or Agent view; eval ids are preserved while the lazy Eval view mounts.
 - Command palette includes clipboard-aware actions to seed a chat from the current text clipboard or ask for an explanation of the clipboard snippet.
+- The last workbench tab is restored on reopen when the URL does not explicitly request a tab, while direct `?tab=` links still take priority.
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
 - macOS Settings include an opt-in menu bar status item with active project and agent-state summary plus quick access to common commands.
 - The Mac UI respects system reduced-motion and higher-contrast preferences, with a fallback keyboard focus ring for custom workbench controls.
@@ -373,8 +374,8 @@ Deliverables:
 
 - Restore useful workspace state on reopen:
   - Last active project.
-  - Last workbench tab.
-  - Terminal dock visibility.
+  - Last workbench tab. Done for Chat/Eval/Civ restoration with direct URL priority.
+  - Terminal dock visibility. Done through persisted UI state.
   - Command palette or modal state only when restoration is clearly helpful.
 - Improve reopen and notification routing:
   - Keep Dock/app reopen focused on the most useful current task.

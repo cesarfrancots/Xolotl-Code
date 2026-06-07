@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { persistCenterTab } from "./lib/appNavigation";
 import { NATIVE_MENU_EVENT } from "./lib/nativeMenu";
 import { useProjectStore } from "./stores/projectStore";
 import { useTerminalStore } from "./stores/terminalStore";
@@ -48,8 +49,30 @@ vi.mock("./stores/agentStore", () => ({
     selector({ expandedAgentId: null, mergeCheckpointGroupId: null }),
 }));
 
+function installTestStorage() {
+  const items = new Map<string, string>();
+  const storage: Storage = {
+    get length() {
+      return items.size;
+    },
+    clear: () => items.clear(),
+    getItem: (key) => items.get(key) ?? null,
+    key: (index) => Array.from(items.keys())[index] ?? null,
+    removeItem: (key) => {
+      items.delete(key);
+    },
+    setItem: (key, value) => {
+      items.set(key, value);
+    },
+  };
+  Object.defineProperty(window, "localStorage", { configurable: true, value: storage });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
+}
+
 describe("App tab navigation", () => {
   beforeEach(() => {
+    installTestStorage();
+    localStorage.clear();
     window.history.replaceState(null, "", "/");
     useUiStore.setState({
       sessionsCollapsed: false,
@@ -73,6 +96,24 @@ describe("App tab navigation", () => {
   });
 
   it("opens the eval workspace from the tab query", async () => {
+    window.history.replaceState(null, "", "/?tab=eval");
+
+    render(<App />);
+
+    expect(await screen.findByText("Eval workspace")).toBeTruthy();
+  });
+
+  it("restores the last workbench tab when the URL has no explicit tab", async () => {
+    persistCenterTab("civ");
+
+    render(<App />);
+
+    expect(await screen.findByText("Civilization workspace")).toBeTruthy();
+    expect(window.location.search).toBe("");
+  });
+
+  it("lets explicit tab URLs override the restored workbench tab", async () => {
+    persistCenterTab("civ");
     window.history.replaceState(null, "", "/?tab=eval");
 
     render(<App />);
@@ -139,6 +180,7 @@ describe("App tab navigation", () => {
 
     expect(chat.getAttribute("aria-pressed")).toBe("false");
     expect(evalTab.getAttribute("aria-pressed")).toBe("true");
+    expect(localStorage.getItem("xolotl-last-workbench-tab")).toBe("eval");
   });
 
   it("exposes overlay-titlebar drag regions in the workbench toolbar", () => {

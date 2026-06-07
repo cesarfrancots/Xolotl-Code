@@ -16,7 +16,7 @@ import { useMacNotificationRoutes } from "./hooks/useMacNotificationRoutes";
 import { useMacStatusItem } from "./hooks/useMacStatusItem";
 import { useProjectOpenEvents } from "./hooks/useProjectOpenEvents";
 import { Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves } from "lucide-react";
-import { centerTabFromSearch, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
+import { centerTabFromSearch, initialCenterTabFromSearch, persistCenterTab, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
 import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
 import {
@@ -52,7 +52,7 @@ function isCompactShell() {
 }
 
 export default function App() {
-  const [centerTab, setCenterTab] = useState<CenterTab>(() => centerTabFromSearch(window.location.search));
+  const [centerTab, setCenterTab] = useState<CenterTab>(() => initialCenterTabFromSearch(window.location.search));
   const [compactShell, setCompactShell] = useState(isCompactShell);
   const expandedAgentId = useAgentStore((s) => s.expandedAgentId);
   const mergeCheckpointGroupId = useAgentStore((s) => s.mergeCheckpointGroupId);
@@ -174,6 +174,10 @@ export default function App() {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+
+  useEffect(() => {
+    persistCenterTab(centerTab);
+  }, [centerTab]);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
