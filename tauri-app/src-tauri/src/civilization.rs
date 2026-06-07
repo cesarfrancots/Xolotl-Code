@@ -25,6 +25,20 @@ const DEEP_WATER_Y: u32 = 34;
 const EGG_HATCH_TURNS: u32 = 3;
 const ELDER_BASE_AGE: f32 = 22.0;
 
+// GEN-02 selection-pressure tuning. `gene_mortality_modifier` turns a mismatch
+// between an axolotl's resistance genes and the live environment into a bounded
+// extra per-turn death probability. Comfort temp/span are chosen against
+// `season_target_temp` (summer 24 / autumn 14 / winter 4) so winter and a
+// `cold_snap` both bite while autumn/spring are benign. The coefficients and cap
+// keep selection STRONG enough to shift mean resistance within a feasible turn
+// count yet BOUNDED so a civ never collapses in one turn (a >=1-survivor floor in
+// `run_life_cycle` guarantees the rest).
+const COMFORT_TEMP: f32 = 16.0; // at/above this, no cold pressure
+const COMFORT_SPAN: f32 = 14.0; // this far below comfort (≈2°C) = full cold pressure
+const COLD_COEFF: f32 = 0.18; // max extra death prob from cold for a 0-resistance axolotl
+const DISEASE_COEFF: f32 = 0.18; // max extra death prob from plague for a 0-resistance axolotl
+const MORTALITY_CAP: f32 = 0.25; // hard ceiling on per-turn selection death prob
+
 // Colour genetics. Order matches the sprite-sheet variant order on the frontend.
 const MORPHS: [&str; 12] = [
     "leucistic",
@@ -2802,9 +2816,17 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
     let mut rng = snapshot.seed ^ snapshot.turn.wrapping_mul(0x9E37_79B9) ^ 0x5A5A_5A5A;
     let health = snapshot.civs[ci].health;
     let morale = snapshot.civs[ci].morale;
+    // GEN-02: read the (small) live environment into a local BEFORE the `&mut
+    // entities` borrow so the selection roll can consult it without a borrow
+    // conflict (mirrors the health/morale locals above — Pitfall 3).
+    let env = snapshot.environment.clone();
 
     // 1) Age living axolotls; refresh stage/size/role; sync vitals; elder passing.
+    // `deaths` collects elder deaths; `selection_deaths` collects the GEN-02
+    // env-vs-genes deaths separately so the survivor floor can trim ONLY the
+    // selection ones (never an elder death) when it would otherwise wipe the civ.
     let mut deaths: Vec<String> = Vec::new();
+    let mut selection_deaths: Vec<String> = Vec::new();
     for entity in snapshot
         .world
         .entities
@@ -2830,7 +2852,37 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
         let elder_at = (ELDER_BASE_AGE * longevity) as u32;
         if entity.stage == "elder" && entity.age > elder_at + 6 && rand_f(&mut rng) < 0.35 {
             deaths.push(entity.id.clone());
+            continue; // already doomed this turn; don't also roll selection on it
         }
+        // GEN-02 selection roll: ill-adapted living (non-egg) axolotls die more.
+        // Reuses the SAME seed^turn rng (no reseed — Pitfall 2) and pushes into a
+        // shared deaths set so the existing retain + population mirror handle it.
+        if entity.stage != "egg" {
+            if let Some(g) = entity.genes.as_ref() {
+                let p_die = gene_mortality_modifier(g, &env);
+                if p_die > 0.0 && rand_f(&mut rng) < p_die {
+                    selection_deaths.push(entity.id.clone());
+                }
+            }
+        }
+    }
+    // Survivor floor (T-05-06): selection (plus elders) must never drop this civ's
+    // living non-egg axolotls below 1 this turn. Count current living, subtract the
+    // elder deaths already doomed, then trim selection deaths (deterministically,
+    // from the end of the ordered vec — no rng) until at least one survives.
+    let living_now = snapshot
+        .world
+        .entities
+        .iter()
+        .filter(|e| e.kind == "axolotl" && e.stage != "egg" && e.civ_id.as_deref() == Some(civ_id))
+        .count();
+    let elder_doomed = deaths.len();
+    let after_elders = living_now.saturating_sub(elder_doomed);
+    // At most `after_elders - 1` selection deaths may stand (keep >=1 alive). If
+    // elders already reduced the civ to <=1, no selection death may stand.
+    let allowed_selection = after_elders.saturating_sub(1);
+    if selection_deaths.len() > allowed_selection {
+        selection_deaths.truncate(allowed_selection);
     }
     for id in &deaths {
         push_log(
@@ -2840,6 +2892,15 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
             &format!("An elder axolotl returned to the pond after a long life ({id})."),
         );
     }
+    for id in &selection_deaths {
+        push_log(
+            snapshot,
+            "lifecycle",
+            "An axolotl succumbed to the elements",
+            &format!("An ill-adapted axolotl could not weather the season ({id})."),
+        );
+    }
+    deaths.extend(selection_deaths);
     if !deaths.is_empty() {
         snapshot.world.entities.retain(|e| !deaths.contains(&e.id));
     }
@@ -5371,6 +5432,44 @@ fn civ_strength(snapshot: &CivSessionSnapshot, civ_id: &str) -> f32 {
     round1((pop * 1.0 + tools * 0.2 + tech * 1.5 + owned * 2.0 + f64::from(gene_str) * 0.5) as f32)
 }
 
+/// Whether a disaster kind is the first-class `plague` (drives `disease_resistance`
+/// selection in `gene_mortality_modifier`). Kept a named predicate so the kind
+/// string lives in exactly one place.
+fn is_plague_kind(kind: &str) -> bool {
+    kind == "plague"
+}
+
+/// Extra per-turn death probability from environment-vs-genes mismatch (GEN-02).
+/// PURE, bounded to `[0.0, MORTALITY_CAP]`, deterministic (no rng/wall-clock).
+/// Monotonic: lower `cold_resistance` ⇒ higher result under cold (temp below
+/// comfort and/or an active `cold_snap`); lower `disease_resistance` ⇒ higher
+/// result under an active `plague`. Returns 0.0 in a benign environment.
+///
+/// `cold_resistance`/`disease_resistance` are clamped to `0.0..=1.0` at breeding
+/// (cross_genes/random_genes, 05-01), so `1.0 - g.*` is in `[0, 1]` and the result
+/// can neither go negative nor exceed the cap (NaN/extreme env temp is absorbed by
+/// the `clamp` on the cold term — T-05-09).
+fn gene_mortality_modifier(g: &CivGenes, env: &CivEnvironment) -> f32 {
+    let mut p = 0.0_f32;
+    // Cold: how far temperature sits below comfort, floored by an active cold_snap.
+    let cold = ((COMFORT_TEMP - env.temperature) / COMFORT_SPAN)
+        .clamp(0.0, 1.0)
+        .max(if env.disasters.iter().any(|d| d.kind == "cold_snap") {
+            0.6
+        } else {
+            0.0
+        });
+    p += cold * (1.0 - g.cold_resistance) * COLD_COEFF;
+    // Disease: from the first-class plague disaster.
+    let plague = if env.disasters.iter().any(|d| is_plague_kind(&d.kind)) {
+        1.0
+    } else {
+        0.0
+    };
+    p += plague * (1.0 - g.disease_resistance) * DISEASE_COEFF;
+    p.clamp(0.0, MORTALITY_CAP)
+}
+
 /// Living (non-egg) axolotl entities of `civ_id`. Eggs survive a raid — only living
 /// axolotls fight and fall.
 fn living_axolotl_count(snapshot: &CivSessionSnapshot, civ_id: &str) -> u32 {
@@ -6004,7 +6103,10 @@ const ENV_FORECAST_SALT: u32 = 0xD15A_57E2;
 /// effect — no new `CivModifier` kind without a matching arm (Pitfall 5).
 fn disaster_kinds_for(season: &str, temperature: f32) -> &'static [&'static str] {
     match season {
-        "winter" => &["cold_snap", "storm", "quake"],
+        // `plague` (GEN-02): cold-season crowding spreads disease; its mechanical
+        // effect is the gene_mortality_modifier disease branch (no terrain/modifier
+        // arm needed — Pitfall 5), and it is announced via tick_environment's log.
+        "winter" => &["cold_snap", "storm", "quake", "plague"],
         "summer" => {
             if temperature >= 22.0 {
                 &["drought", "flood", "storm", "quake"]
@@ -6014,8 +6116,9 @@ fn disaster_kinds_for(season: &str, temperature: f32) -> &'static [&'static str]
         }
         "spring" => &["flood", "storm", "predator_incursion"],
         // autumn (and any unknown season): wet-season erosion makes landslides
-        // (terrain-reshape, via apply_disaster_to_tiles) plausible here.
-        _ => &["storm", "quake", "drought", "landslide"],
+        // (terrain-reshape, via apply_disaster_to_tiles) plausible here, and the
+        // damp cold opens a `plague` window (GEN-02).
+        _ => &["storm", "quake", "drought", "landslide", "plague"],
     }
 }
 
@@ -6118,7 +6221,7 @@ fn apply_disaster_to_tiles(tiles: &mut [CivTile], dis: &CivDisaster, width: u32)
 fn disaster_duration(kind: &str) -> u32 {
     let raw = match kind {
         "drought" | "cold_snap" => 5,
-        "flood" => 4,
+        "flood" | "plague" => 4,
         "predator_incursion" => 3,
         "quake" | "storm" => 2,
         _ => 3,
@@ -8618,6 +8721,45 @@ mod tests {
         }
     }
 
+    /// Seed a civ with `n` adult axolotls whose `cold_resistance` (and
+    /// `disease_resistance`) span a SPREAD, so the GEN-02 selection roll has
+    /// variance to act on. Axolotl `i` gets `(base + i*spread).clamp(0,1)`.
+    /// Longevity is set high so the cohort stays adult across a multi-turn run —
+    /// isolating SELECTION mortality from the age-based elder roll.
+    fn give_civ_axolotls_with_genes(
+        s: &mut CivSessionSnapshot,
+        civ_id: &str,
+        n: u32,
+        base: f32,
+        spread: f32,
+    ) {
+        for i in 0..n {
+            let res = (base + (i as f32) * spread).clamp(0.0, 1.0);
+            let genes = CivGenes {
+                cold_resistance: res,
+                disease_resistance: res,
+                longevity: 100.0,
+                ..default_genes()
+            };
+            s.world.entities.push(CivEntity {
+                id: format!("axo-gen-{civ_id}-{i}"),
+                kind: "axolotl".to_string(),
+                name: format!("Gene Axolotl {i}"),
+                x: 14 + i,
+                y: 24,
+                health: 80.0,
+                mood: 70.0,
+                role: "worker".to_string(),
+                civ_id: Some(civ_id.to_string()),
+                stage: "adult".to_string(),
+                sex: if i % 2 == 0 { "f" } else { "m" }.to_string(),
+                age: 10,
+                genes: Some(genes),
+                ..Default::default()
+            });
+        }
+    }
+
     #[test]
     fn civ_strength_monotonic() {
         let base = multi_civ_snapshot(2024, 2);
@@ -8889,6 +9031,331 @@ mod tests {
         assert_eq!(hatched.pattern, expected);
         assert_eq!(hatched.pattern, "marbled");
         assert!(!hatched.pattern.is_empty(), "hatched pattern must be set");
+    }
+
+    // ---- GEN-02 selection-pressure tests ----
+
+    /// Build a `CivEnvironment` with a given temperature and optional disaster kinds.
+    fn env_with(temperature: f32, disaster_kinds: &[&str]) -> CivEnvironment {
+        let disasters = disaster_kinds
+            .iter()
+            .enumerate()
+            .map(|(i, k)| CivDisaster {
+                id: format!("dis-test-{i}-{k}"),
+                kind: (*k).to_string(),
+                epicenter_x: 5,
+                radius: 2,
+                intensity: 1.0,
+                remaining_turns: 99,
+            })
+            .collect();
+        CivEnvironment {
+            season: "winter".to_string(),
+            turn_of_season: 0,
+            temperature,
+            water_level: 0,
+            disasters,
+            forecast: None,
+        }
+    }
+
+    /// Genes carrying explicit cold/disease resistances (otherwise default).
+    fn genes_res(cold: f32, disease: f32) -> CivGenes {
+        CivGenes {
+            cold_resistance: cold,
+            disease_resistance: disease,
+            ..default_genes()
+        }
+    }
+
+    #[test]
+    fn gene_mortality_monotonic_cold() {
+        // Cold via low temperature: low cold_resistance dies more than high.
+        let cold_env = env_with(2.0, &[]);
+        let weak = gene_mortality_modifier(&genes_res(0.1, 0.5), &cold_env);
+        let strong = gene_mortality_modifier(&genes_res(0.9, 0.5), &cold_env);
+        assert!(
+            weak > strong,
+            "low cold_resistance must die more under cold ({weak} <= {strong})"
+        );
+        assert!(strong >= 0.0, "the resistant axolotl is still non-negative");
+
+        // Cold via an active cold_snap disaster (even at a benign temperature).
+        let snap_env = env_with(COMFORT_TEMP, &["cold_snap"]);
+        let weak_snap = gene_mortality_modifier(&genes_res(0.1, 0.5), &snap_env);
+        let strong_snap = gene_mortality_modifier(&genes_res(0.9, 0.5), &snap_env);
+        assert!(
+            weak_snap > strong_snap,
+            "a cold_snap must raise mortality more for low cold_resistance"
+        );
+        assert!(
+            weak_snap > 0.0,
+            "an active cold_snap must produce some cold pressure even at comfort temp"
+        );
+    }
+
+    #[test]
+    fn gene_mortality_bounds_and_disease() {
+        // Benign: comfortable temperature, no disasters -> exactly 0.0.
+        let benign = env_with(COMFORT_TEMP + 5.0, &[]);
+        assert_eq!(
+            gene_mortality_modifier(&genes_res(0.0, 0.0), &benign),
+            0.0,
+            "a benign environment must produce zero extra mortality"
+        );
+
+        // Disease under plague: low disease_resistance dies more than high.
+        let plague_env = env_with(COMFORT_TEMP, &["plague"]);
+        let weak = gene_mortality_modifier(&genes_res(0.5, 0.1), &plague_env);
+        let strong = gene_mortality_modifier(&genes_res(0.5, 0.9), &plague_env);
+        assert!(
+            weak > strong,
+            "low disease_resistance must die more under plague ({weak} <= {strong})"
+        );
+
+        // No plague -> disease_resistance is irrelevant (no disease term).
+        let no_plague = env_with(COMFORT_TEMP, &["storm"]);
+        assert_eq!(
+            gene_mortality_modifier(&genes_res(0.5, 0.1), &no_plague),
+            gene_mortality_modifier(&genes_res(0.5, 0.9), &no_plague),
+            "without a plague, disease_resistance must not change mortality"
+        );
+
+        // Always within [0.0, MORTALITY_CAP], even combined cold + plague + extremes.
+        let worst = env_with(-50.0, &["cold_snap", "plague"]);
+        let p = gene_mortality_modifier(&genes_res(0.0, 0.0), &worst);
+        assert!(
+            (0.0..=MORTALITY_CAP).contains(&p),
+            "combined worst-case mortality must clamp to [0, {MORTALITY_CAP}], got {p}"
+        );
+        assert!(p.is_finite(), "mortality must never be NaN/inf");
+        // The cap actually binds under the worst case (selection math is meaningful).
+        assert_eq!(p, MORTALITY_CAP, "the worst case must hit the cap exactly");
+    }
+
+    #[test]
+    fn plague_is_first_class_disaster() {
+        // Forecastable: appears in the season kind lists.
+        assert!(
+            disaster_kinds_for("winter", 4.0).contains(&"plague"),
+            "plague must be a winter-eligible disaster kind"
+        );
+        assert!(
+            disaster_kinds_for("autumn", 14.0).contains(&"plague"),
+            "plague must be an autumn-eligible disaster kind"
+        );
+        // Bounded duration.
+        let d = disaster_duration("plague");
+        assert!(
+            (1..=12).contains(&d),
+            "plague duration must be in [1, 12], got {d}"
+        );
+        // Predicate identifies only plague.
+        assert!(is_plague_kind("plague"));
+        assert!(!is_plague_kind("cold_snap"));
+        assert!(!is_plague_kind("storm"));
+    }
+
+    /// Mean cold_resistance of a civ's living non-egg axolotls (0.0 if none).
+    fn mean_cold_resistance(s: &CivSessionSnapshot, civ_id: &str) -> f32 {
+        let vals: Vec<f32> = s
+            .world
+            .entities
+            .iter()
+            .filter(|e| {
+                e.kind == "axolotl" && e.stage != "egg" && e.civ_id.as_deref() == Some(civ_id)
+            })
+            .filter_map(|e| e.genes.as_ref().map(|g| g.cold_resistance))
+            .collect();
+        if vals.is_empty() {
+            0.0
+        } else {
+            vals.iter().sum::<f32>() / vals.len() as f32
+        }
+    }
+
+    /// THE GEN-02 PROOF: under sustained cold, mean cold_resistance of the surviving
+    /// population RISES from turn 0 to turn N. Selection removes the ill-adapted, so
+    /// trait frequency measurably shifts. Deterministic for a fixed (seed, turn).
+    #[test]
+    fn selection_raises_cold_resistance_over_run() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        // civ-1 (index 1) has NO founder entities and no nests -> breeding never fires
+        // (can_breed needs nests > 0), so the population only SHRINKS via selection
+        // and the mean shift is pure selection, not breeding dilution.
+        let cid = civ_id_for(1);
+        // A large founding population with a full spread of cold_resistance.
+        give_civ_axolotls_with_genes(&mut s, &cid, 60, 0.0, 1.0 / 60.0);
+        // Pin the environment cold AND inject a lingering cold_snap so pressure bites.
+        s.environment.temperature = 2.0;
+        s.environment.disasters.push(CivDisaster {
+            id: "dis-test-coldsnap".to_string(),
+            kind: "cold_snap".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 2.0,
+            remaining_turns: 999,
+        });
+
+        let mean_0 = mean_cold_resistance(&s, &cid);
+        for _ in 0..30 {
+            s.turn += 1;
+            run_life_cycle(&mut s, &cid);
+        }
+        let mean_n = mean_cold_resistance(&s, &cid);
+
+        assert!(
+            mean_n > mean_0,
+            "sustained cold must RAISE mean cold_resistance (turn0 {mean_0} -> turnN {mean_n})"
+        );
+        // Selection left survivors (the floor held).
+        assert!(
+            living_axolotl_count(&s, &cid) >= 1,
+            "the population must not be wiped out"
+        );
+
+        // Deterministic: a fresh identical run reproduces the same trajectory.
+        let mut s2 = multi_civ_snapshot(2024, 2);
+        give_civ_axolotls_with_genes(&mut s2, &cid, 60, 0.0, 1.0 / 60.0);
+        s2.environment.temperature = 2.0;
+        s2.environment.disasters.push(CivDisaster {
+            id: "dis-test-coldsnap".to_string(),
+            kind: "cold_snap".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 2.0,
+            remaining_turns: 999,
+        });
+        for _ in 0..30 {
+            s2.turn += 1;
+            run_life_cycle(&mut s2, &cid);
+        }
+        assert_eq!(
+            mean_n,
+            mean_cold_resistance(&s2, &cid),
+            "selection trajectory must be deterministic for a fixed (seed, turn)"
+        );
+    }
+
+    /// The survivor floor holds even under the harshest possible environment for
+    /// many turns: a civ NEVER drops below 1 living axolotl from selection.
+    #[test]
+    fn selection_leaves_survivors() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(1);
+        // A small, uniformly LOWEST-resistance population — maximal selection
+        // mortality (the helper gives high longevity so the elder roll, a separate
+        // mechanic, doesn't confound the SELECTION floor under test).
+        give_civ_axolotls_with_genes(&mut s, &cid, 5, 0.0, 0.0);
+        // Harshest env: extreme cold + cold_snap + plague.
+        s.environment.temperature = -50.0;
+        s.environment.disasters.push(CivDisaster {
+            id: "dis-test-snap".to_string(),
+            kind: "cold_snap".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 3.0,
+            remaining_turns: 999,
+        });
+        s.environment.disasters.push(CivDisaster {
+            id: "dis-test-plague".to_string(),
+            kind: "plague".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 3.0,
+            remaining_turns: 999,
+        });
+        for _ in 0..50 {
+            s.turn += 1;
+            run_life_cycle(&mut s, &cid);
+            assert!(
+                living_axolotl_count(&s, &cid) >= 1,
+                "selection must never wipe the civ to 0 (turn {})",
+                s.turn
+            );
+        }
+    }
+
+    /// run_life_cycle selection is byte-deterministic: two clones run through the
+    /// same turns produce identical entity sets (no wall-clock/uuid/rand drift).
+    #[test]
+    fn life_cycle_mortality_deterministic() {
+        let mut base = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(1);
+        give_civ_axolotls_with_genes(&mut base, &cid, 40, 0.0, 1.0 / 40.0);
+        base.environment.temperature = 3.0;
+        base.environment.disasters.push(CivDisaster {
+            id: "dis-test-plague".to_string(),
+            kind: "plague".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 2.0,
+            remaining_turns: 999,
+        });
+        let mut a = base.clone();
+        let mut b = base.clone();
+        for _ in 0..12 {
+            a.turn += 1;
+            b.turn += 1;
+            run_life_cycle(&mut a, &cid);
+            run_life_cycle(&mut b, &cid);
+        }
+        assert_eq!(
+            serde_json::to_string(&a.world.entities).unwrap(),
+            serde_json::to_string(&b.world.entities).unwrap(),
+            "selection deaths must be byte-identical across clones"
+        );
+    }
+
+    /// The population mirror stays consistent after a selection turn: the civ's
+    /// `population` counter equals the count of living non-egg axolotl entities
+    /// (selection REMOVES entities — it never decrements the counter — Pitfall 1).
+    #[test]
+    fn selection_keeps_population_mirror_consistent() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(1);
+        let ci = civ_index(&s, &cid).unwrap();
+        give_civ_axolotls_with_genes(&mut s, &cid, 30, 0.0, 1.0 / 30.0);
+        s.environment.temperature = 2.0;
+        s.environment.disasters.push(CivDisaster {
+            id: "dis-test-snap".to_string(),
+            kind: "cold_snap".to_string(),
+            epicenter_x: 5,
+            radius: 2,
+            intensity: 2.0,
+            remaining_turns: 999,
+        });
+        for _ in 0..8 {
+            s.turn += 1;
+            run_life_cycle(&mut s, &cid);
+        }
+        let living = living_axolotl_count(&s, &cid);
+        assert_eq!(
+            s.civs[ci].population, living,
+            "population mirror must equal the living entity count after selection"
+        );
+    }
+
+    /// In a benign environment the selection roll adds NO deaths beyond the elder
+    /// roll — gene_mortality_modifier returns 0.0, so no extra removals occur.
+    #[test]
+    fn selection_no_op_in_benign_environment() {
+        let mut s = multi_civ_snapshot(2024, 2);
+        let cid = civ_id_for(1);
+        // Young adults (no elder deaths) in a warm, disaster-free pond.
+        give_civ_axolotls_with_genes(&mut s, &cid, 20, 0.2, 0.02);
+        s.environment.temperature = COMFORT_TEMP + 6.0;
+        s.environment.disasters.clear();
+        let before = living_axolotl_count(&s, &cid);
+        for _ in 0..10 {
+            s.turn += 1;
+            run_life_cycle(&mut s, &cid);
+        }
+        assert_eq!(
+            living_axolotl_count(&s, &cid),
+            before,
+            "a benign environment must not trigger any selection deaths"
+        );
     }
 
     #[test]
