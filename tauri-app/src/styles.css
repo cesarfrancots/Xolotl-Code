@@ -71,6 +71,9 @@ button {
 .xolotl-shell {
   --xolotl-titlebar-height: 44px;
   --xolotl-traffic-light-safe-width: 88px;
+  --xolotl-focus-ring: oklch(0.62 0.05 195);
+  --xolotl-focus-ring-soft: oklch(0.62 0.05 195 / 0.15);
+  --xolotl-focus-ring-contrast: oklch(0.82 0.12 195);
   height: 100dvh;
   max-height: 100dvh;
   min-height: 0;
@@ -80,6 +83,13 @@ button {
     linear-gradient(180deg, oklch(1 0 0 / 0.015) 0 1px, transparent 1px),
     linear-gradient(135deg, oklch(0.112 0.004 220), oklch(0.102 0.003 245) 50%, oklch(0.096 0.002 260));
   background-size: 48px 48px, 48px 48px, auto;
+}
+
+.xolotl-shell :where(button, [role="button"], [role="tab"], a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 1px var(--xolotl-focus-ring),
+    0 0 0 4px var(--xolotl-focus-ring-soft);
 }
 
 @supports not (height: 100dvh) {
@@ -1472,6 +1482,119 @@ button {
 }
 .xolotl-rise {
   animation: xolotl-rise 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+
+  .xolotl-shell *,
+  .xolotl-shell *::before,
+  .xolotl-shell *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .eval-creature-active,
+  .eval-arena-runner,
+  .benchmark-champion-icon,
+  .civ-thinking,
+  .xolotl-rise,
+  .animate-spin,
+  .animate-pulse,
+  .animate-bounce,
+  .animate-ping {
+    animation: none !important;
+  }
+
+  .benchmark-rank-row:hover,
+  .civ-eye:active,
+  .civ-slot:active:not(:disabled),
+  .civ-region-row:active,
+  .civ-cam-btn:active,
+  .xolotl-rise {
+    transform: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .xolotl-shell {
+    --xolotl-focus-ring: var(--xolotl-focus-ring-contrast);
+    --xolotl-focus-ring-soft: oklch(0.82 0.12 195 / 0.24);
+    background:
+      linear-gradient(90deg, oklch(0.88 0.08 195 / 0.045) 0 1px, transparent 1px),
+      linear-gradient(180deg, oklch(1 0 0 / 0.035) 0 1px, transparent 1px),
+      linear-gradient(135deg, oklch(0.075 0.003 235), oklch(0.055 0.002 250));
+  }
+
+  .xolotl-workbench-bar,
+  .xolotl-sidebar-header,
+  .xolotl-left-sidebar,
+  .xolotl-right-sidebar,
+  .xolotl-sidebar-empty-action,
+  .xolotl-segmented-control,
+  .xolotl-toolbar-icon-button,
+  .xolotl-keycap,
+  .xolotl-command-chip,
+  .xolotl-file-badge,
+  .civ-glass,
+  .civ-slot,
+  .civ-cam-btn,
+  .civ-region-row {
+    border-color: oklch(0.46 0.025 220) !important;
+  }
+
+  .xolotl-panel,
+  .xolotl-sidebar,
+  .xolotl-chat {
+    background:
+      linear-gradient(180deg, oklch(0.078 0.003 245), oklch(0.058 0.002 250)) !important;
+  }
+
+  .xolotl-workbench-bar {
+    background:
+      linear-gradient(180deg, oklch(0.090 0.004 245), oklch(0.062 0.003 250)) !important;
+  }
+
+  .xolotl-project-row-active,
+  .xolotl-segment-tab-active,
+  .xolotl-toolbar-icon-button-active {
+    color: oklch(0.94 0.04 195);
+    box-shadow:
+      inset 0 0 0 1px oklch(0.74 0.09 195),
+      0 0 0 1px oklch(0.03 0 0);
+  }
+
+  .xolotl-sidebar-title,
+  .xolotl-sidebar-section-title,
+  .xolotl-keycap,
+  .xolotl-command-chip,
+  .xolotl-file-badge,
+  .civ-stage-chip,
+  .civ-metric-label {
+    color: oklch(0.78 0.035 215);
+  }
+
+  .xolotl-shell :where(button, [role="button"], [role="tab"], a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])):focus-visible,
+  .xolotl-project-row:focus-visible,
+  .xolotl-file-row-main:focus-visible,
+  .xolotl-sidebar-empty-action:focus-visible,
+  .xolotl-sidebar-section-action:focus-visible,
+  .xolotl-sidebar-icon-button:focus-visible,
+  .xolotl-row-action-button:focus-visible,
+  .xolotl-file-convert-button:focus-visible,
+  .xolotl-segment-tab:focus-visible,
+  .xolotl-toolbar-icon-button:focus-visible,
+  .xolotl-palette-row-action:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--xolotl-focus-ring),
+      0 0 0 5px var(--xolotl-focus-ring-soft);
+  }
 }
 
 /* highlight.js github-dark theme CSS is imported in MarkdownRenderer component (Wave 2)

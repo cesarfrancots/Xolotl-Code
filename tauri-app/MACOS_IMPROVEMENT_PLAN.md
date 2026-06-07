@@ -43,6 +43,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - macOS Settings include opt-in notification toggles for agent completion, eval completion, and permission prompts. Backend notifications now respect those toggles.
 - Command palette includes clipboard-aware actions to seed a chat from the current text clipboard or ask for an explanation of the clipboard snippet.
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
+- The Mac UI respects system reduced-motion and higher-contrast preferences, with a fallback keyboard focus ring for custom workbench controls.
 
 ## Phase 1 - Native Mac Shell
 
@@ -88,10 +89,10 @@ Deliverables:
   - Tighten sidebar project/file-browser density while preserving Finder actions. Done for the first project and file-browser row pass.
 - Workbench navigation:
   - Convert center workbench switching into a tighter segmented-control pattern. Done for the main Chat/Eval/Civ toolbar.
-  - Add visible focus rings and predictable Tab order for sidebar, chat, eval, civ, terminal, and agent panels.
+  - Add visible focus rings and predictable Tab order for sidebar, chat, eval, civ, terminal, and agent panels. Done for the first global fallback focus-ring pass across custom controls.
   - Use Mac shortcut labels consistently in menus, buttons, tooltips, and command palette rows. Done for the first pass across toolbar, terminal, sidebar footer, composer, and palette.
 - Accessibility:
-  - Verify reduced motion and high-contrast behavior.
+  - Verify reduced motion and high-contrast behavior. Done for the first global CSS preference pass and regression coverage.
   - Avoid text clipping in compact sidebars, titlebar-safe areas, and terminal tabs.
   - Preserve non-pointer access to every primary workbench action.
 
