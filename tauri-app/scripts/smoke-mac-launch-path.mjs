@@ -1,4 +1,13 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -27,10 +36,41 @@ if (!existsSync(appBin)) {
   throw new Error(`Packaged app binary not found: ${appBin}. Run npm run build:mac first.`);
 }
 
-const tempHome = mkdtempSync(join(tmpdir(), "xolotl-smoke-home-"));
-const projectDir = mkdtempSync(join(tmpdir(), "xolotl-smoke-project-"));
-const canonicalProject = realpathSync(projectDir);
+const tempRoot = mkdtempSync(join(tmpdir(), "xolotl-launch-smoke-"));
+const tempHome = join(tempRoot, "home");
 const projectsJson = join(tempHome, ".xolotl-code", "projects.json");
+
+mkdirSync(tempHome, { recursive: true });
+
+function makeProject(name) {
+  const path = join(tempRoot, name);
+  mkdirSync(path, { recursive: true });
+  return path;
+}
+
+const projectWithSpaces = makeProject("Project With Spaces");
+const unicodeProject = makeProject("Project Ñandú 🚀");
+const packageProject = makeProject("Widget Package.xcodeproj");
+writeFileSync(join(packageProject, "project.pbxproj"), "// package project smoke\n", "utf8");
+
+const symlinkTarget = makeProject("Project Symlink Target");
+const symlinkProject = join(tempRoot, "Project Symlink Alias");
+symlinkSync(symlinkTarget, symlinkProject, "dir");
+
+const sourceRoot = makeProject("Project From Nested Source File");
+mkdirSync(join(sourceRoot, "src"), { recursive: true });
+writeFileSync(join(sourceRoot, "package.json"), "{\"name\":\"xolotl-smoke\"}\n", "utf8");
+const nestedSourceFile = join(sourceRoot, "src", "main.ts");
+writeFileSync(nestedSourceFile, "console.log('launch smoke');\n", "utf8");
+
+const projectCases = [
+  { label: "space path", launchPath: projectWithSpaces, expectedPath: realpathSync(projectWithSpaces) },
+  { label: "unicode path", launchPath: unicodeProject, expectedPath: realpathSync(unicodeProject) },
+  { label: "symlink path", launchPath: symlinkProject, expectedPath: realpathSync(symlinkTarget) },
+  { label: "package directory", launchPath: packageProject, expectedPath: realpathSync(packageProject) },
+  { label: "nested source file", launchPath: nestedSourceFile, expectedPath: realpathSync(sourceRoot) },
+];
+const expectedProjects = projectCases.map((item) => item.expectedPath);
 
 function sleep(ms) {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
@@ -43,7 +83,12 @@ async function waitForProjectImport() {
       const raw = readFileSync(projectsJson, "utf8");
       try {
         const projects = JSON.parse(raw);
-        if (Array.isArray(projects) && projects.some((project) => project?.path === canonicalProject)) {
+        if (
+          Array.isArray(projects) &&
+          expectedProjects.every((expectedPath) =>
+            projects.some((project) => project?.path === expectedPath)
+          )
+        ) {
           return;
         }
       } catch {
@@ -52,13 +97,16 @@ async function waitForProjectImport() {
     }
     await sleep(250);
   }
-  throw new Error(`Timed out waiting for launch project import: ${canonicalProject}`);
+  const seen = existsSync(projectsJson) ? readFileSync(projectsJson, "utf8") : "<missing projects.json>";
+  throw new Error(
+    `Timed out waiting for launch project import: ${expectedProjects.join(", ")}\nSeen projects: ${seen}`,
+  );
 }
 
 let child;
 let childExited = false;
 try {
-  child = spawn(appBin, [canonicalProject], {
+  child = spawn(appBin, projectCases.map((item) => item.launchPath), {
     env: { ...process.env, HOME: tempHome },
     stdio: ["ignore", "ignore", "pipe"],
   });
@@ -78,7 +126,9 @@ try {
   });
 
   await waitForProjectImport();
-  console.log(`launch path smoke ok: ${canonicalProject}`);
+  for (const item of projectCases) {
+    console.log(`launch path smoke ok (${item.label}): ${item.launchPath} -> ${item.expectedPath}`);
+  }
 } finally {
   if (child && !childExited) {
     child.kill();
@@ -88,6 +138,5 @@ try {
     }
     if (!childExited) child.kill("SIGKILL");
   }
-  rmSync(tempHome, { recursive: true, force: true });
-  rmSync(projectDir, { recursive: true, force: true });
+  rmSync(tempRoot, { recursive: true, force: true });
 }

@@ -43,6 +43,11 @@ npm run smoke:mac:open-project
 
 `MAC_DMG_ARCH=universal` packages and preflights the app from `src-tauri/target/universal-apple-darwin/release/bundle/macos/Xolotl Code.app` while keeping the DMG output in `src-tauri/target/release/bundle/dmg`. Use `MAC_APP_BUNDLE_PATH=/path/to/Xolotl Code.app` when a release runner needs to package or verify an app bundle from a custom location.
 
+The packaged smoke commands also validate Mac path edge cases:
+
+- `npm run smoke:mac:launch-path` launches the packaged binary with project paths containing spaces, Unicode, a symlink alias, an `.xcodeproj` package directory, and a nested source file that should resolve to the project root.
+- `npm run smoke:mac:open-project` sends Launch Services/Open With events for a direct project path, file URL, nested document URL, `xolotl-code://` URL, symlink alias, and `.xcodeproj` package directory.
+
 Strict release gate:
 
 ```bash
@@ -84,6 +89,7 @@ Run these checks on a clean macOS user profile before a public release:
 - Use Finder/Open With on a project folder and confirm it activates without duplicate recent-project rows.
 - Use Finder/Open With on a source or Markdown file and confirm Xolotl activates the containing folder as a project.
 - Open `xolotl-code://open?path=/absolute/project/path` from Shortcuts, Raycast, Alfred, or `open -u` and confirm Xolotl activates the project.
+- Repeat Finder/Open With and `xolotl-code://` checks with paths containing spaces, Unicode, symlinks, and package directories if the automated smoke scripts were skipped on the release machine.
 - Quit with terminal tabs open and confirm Xolotl-owned terminal processes are cleaned up.
 
 ## Artifacts

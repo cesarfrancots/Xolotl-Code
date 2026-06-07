@@ -41,8 +41,8 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Launched eval outcome artifacts can reveal their generated artifact folder in Finder, copy its POSIX path, and open it in the preferred external editor.
 - Expanded agent output can reveal the active agent worktree in Finder, copy its POSIX path, and open it in the preferred external editor.
 - Launched eval outcome artifacts and expanded agent worktrees can copy `xolotl-code://open?path=...` links for automation handoff.
-- Packaged launch-path smoke coverage is available through `npm run smoke:mac:launch-path`.
-- Packaged Launch Services/Open With smoke coverage is available through `npm run smoke:mac:open-project`.
+- Packaged launch-path smoke coverage is available through `npm run smoke:mac:launch-path`, including spaces, Unicode, symlink canonicalization, package-directory names, and nested source-file project-root detection.
+- Packaged Launch Services/Open With smoke coverage is available through `npm run smoke:mac:open-project`, including file URLs, document URLs, `xolotl-code://` URLs, spaces, Unicode, symlinks, and package directories.
 - Terminal tab commands are available from a native Terminal menu.
 - Terminal tabs capture the active project directory when they are created.
 - Terminal tabs use stable Mac-style compact sizing, active/focus close affordances, and Arrow/Home/End tablist navigation.
@@ -170,10 +170,10 @@ Status: in progress.
 
 Deliverables:
 
-- Open project folders from command-line launch arguments. Done for existing directory arguments passed to the app.
-- Open project folders from Finder. Done for Tauri window drops, macOS `RunEvent::Opened` file URLs, Info.plist document registration, and packaged Launch Services/Open With smoke coverage.
-- Open source/text files from Finder by activating the containing folder as a project. Done for macOS `RunEvent::Opened` file URLs and packaged Open With smoke coverage.
-- Open projects from `xolotl-code://open?path=...` deep links. Done for macOS URL scheme registration, native open-event parsing, and packaged smoke coverage.
+- Open project folders from command-line launch arguments. Done for existing directory arguments passed to the app, with packaged smoke coverage for spaces, Unicode, symlinks, package directories, and nested source files.
+- Open project folders from Finder. Done for Tauri window drops, macOS `RunEvent::Opened` file URLs, Info.plist document registration, and packaged Launch Services/Open With smoke coverage for spaces, Unicode, symlinks, and package directories.
+- Open source/text files from Finder by activating the containing folder as a project. Done for macOS `RunEvent::Opened` file URLs and packaged Open With smoke coverage for nested source files.
+- Open projects from `xolotl-code://open?path=...` deep links. Done for macOS URL scheme registration, native open-event parsing, and packaged smoke coverage for Unicode source-file paths.
 - Copy project and file-browser deep links for automation handoff. Done for saved project rows plus active/current/visible command-palette actions.
 - Add a Recent Projects menu that mirrors the project store. Done for File > Open Recent with menu refresh after project changes.
 - Add Dock menu shortcuts for New Chat, Open Folder, and recent projects if Tauri/AppKit support is practical. Evaluated against local Tauri 2.11 API: Dock visibility is exposed, but Dock menu construction is not; revisit only if an AppKit-specific shim is worth carrying.
@@ -194,7 +194,7 @@ Next implementation details:
 - Add Reveal in Finder for the active project, saved projects, terminal cwd, and file browser entries. Done for saved projects, current browser folder, terminal cwd, and visible entries.
 - Add Copy POSIX Path and Copy Relative Path actions to file browser rows. Done for visible entries; current folder and saved projects support POSIX path copy.
 - Investigate Tauri reopen/open-url/document-open support for dragging a folder onto the Dock icon or launching via Finder "Open With". Done for `RunEvent::Opened` and `RunEvent::Reopen` handling, with packaged Launch Services smoke coverage.
-- Add a packaged-app smoke script that launches the `.app` with a temporary directory argument and asserts the project is activated. Done via `npm run smoke:mac:launch-path`.
+- Add a packaged-app smoke script that launches the `.app` with temporary directory and source-file arguments and asserts the projects are activated. Done via `npm run smoke:mac:launch-path`, including spaces, Unicode, symlinks, package directories, and nested source files.
 - Evaluate Dock menu support only after project-open event handling is stable. Done: current Tauri API does not provide Dock menu construction.
 
 ## Phase 4 - Terminal and Developer Environment Polish
@@ -380,7 +380,7 @@ Deliverables:
   - Add documentation or in-app affordances for using links from Shortcuts, Raycast, Alfred, and shell scripts without adding noisy onboarding text to the main UI. Done for command-palette shell-open command copying.
   - Keep native-menu access for active project handoffs. Done for File > Active Project, including embedded-terminal, POSIX path, and prompt-ready context blocks.
 - Improve Finder-originated workflows:
-  - Complete end-to-end manual QA for drag/drop, Open With, and file-url launch using real folders with spaces and package directories.
+  - Complete end-to-end manual QA for drag/drop, Open With, and file-url launch using real folders with spaces and package directories. Automated packaged smoke now covers Open With/file-url/deep-link cases for spaces, Unicode, symlinks, package directories, and nested source files.
   - Consider an AppKit shim only for features Tauri cannot expose cleanly and only after the maintenance cost is clear.
 - Add Mac-friendly import/export surfaces:
   - Export eval artifacts and generated reports to Finder-visible locations with reveal/copy actions. Done for launched eval artifact folders and persisted Markdown eval reports.
@@ -475,7 +475,7 @@ Deliverables:
 - Add targeted regression checks for each Mac feature:
   - Unit tests for command, URL, path, and settings state.
   - Browser smoke for frontend rendering after visual changes.
-  - Packaged `.app` smoke for Launch Services, deep links, and release preflight.
+  - Packaged `.app` smoke for launch arguments, Launch Services, deep links, special paths, and release preflight.
 - Build a manual QA checklist for Mac-specific UX:
   - Apple Silicon current macOS.
   - Fresh profile and existing profile.
@@ -498,7 +498,7 @@ Acceptance:
 This is the near-term order for this branch.
 
 1. Finish Phase 3 native project workflows:
-   - Finder/Open With end-to-end smoke harness for packaged app file-url open events. Done via `npm run smoke:mac:open-project`.
+   - Finder/Open With end-to-end smoke harness for packaged app file-url open events. Done via `npm run smoke:mac:open-project`, including spaces, Unicode, symlinks, package directories, document URLs, and `xolotl-code://` URLs.
    - Optional AppKit Dock menu shim only if the benefit is worth the native-maintenance cost.
 2. Start Phase 2 Mac UI pass:
    - Audit the current app shell at desktop and compact MacBook widths.

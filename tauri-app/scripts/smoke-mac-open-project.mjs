@@ -6,6 +6,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -58,17 +59,36 @@ const processNeedles = [
 ];
 
 const projectFromPath = mkdtempSync(join(tempRoot, "Project From Open Path "));
-const projectFromUrl = mkdtempSync(join(tempRoot, "Project From File URL "));
-const projectFromFile = mkdtempSync(join(tempRoot, "Project From Opened File "));
-const projectFromScheme = mkdtempSync(join(tempRoot, "Project From URL Scheme "));
-const openedFile = join(projectFromFile, "README.md");
+const projectFromUrl = join(tempRoot, "Project From File URL Ñandú");
+mkdirSync(projectFromUrl, { recursive: true });
+
+const projectFromFile = join(tempRoot, "Project From Opened Source File");
+mkdirSync(join(projectFromFile, ".git"), { recursive: true });
+mkdirSync(join(projectFromFile, "src"), { recursive: true });
+const openedFile = join(projectFromFile, "src", "README With Spaces.md");
 writeFileSync(openedFile, "# Opened from Finder\n", "utf8");
-const schemeFile = join(projectFromScheme, "main.ts");
+
+const projectFromScheme = join(tempRoot, "Project From URL Scheme Ω");
+mkdirSync(join(projectFromScheme, "src"), { recursive: true });
+writeFileSync(join(projectFromScheme, "package.json"), "{\"name\":\"xolotl-scheme-smoke\"}\n", "utf8");
+const schemeFile = join(projectFromScheme, "src", "mañana.ts");
 writeFileSync(schemeFile, "console.log('opened from xolotl-code scheme');\n", "utf8");
+
+const symlinkTarget = join(tempRoot, "Project From Symlink Target");
+mkdirSync(symlinkTarget, { recursive: true });
+const symlinkProject = join(tempRoot, "Project From Symlink Alias");
+symlinkSync(symlinkTarget, symlinkProject, "dir");
+
+const packageProject = join(tempRoot, "Widget Package.xcodeproj");
+mkdirSync(packageProject, { recursive: true });
+writeFileSync(join(packageProject, "project.pbxproj"), "// package project smoke\n", "utf8");
+
 const canonicalPathProject = realpathSync(projectFromPath);
 const canonicalUrlProject = realpathSync(projectFromUrl);
 const canonicalFileProject = realpathSync(projectFromFile);
 const canonicalSchemeProject = realpathSync(projectFromScheme);
+const canonicalSymlinkProject = realpathSync(symlinkTarget);
+const canonicalPackageProject = realpathSync(packageProject);
 
 function sleep(ms) {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
@@ -190,10 +210,31 @@ try {
     canonicalSchemeProject,
   ]);
 
+  openApp(["-g", "-a", tempAppBundle, symlinkProject]);
+  await waitForProjects([
+    canonicalPathProject,
+    canonicalUrlProject,
+    canonicalFileProject,
+    canonicalSchemeProject,
+    canonicalSymlinkProject,
+  ]);
+
+  openApp(["-g", "-a", tempAppBundle, packageProject]);
+  await waitForProjects([
+    canonicalPathProject,
+    canonicalUrlProject,
+    canonicalFileProject,
+    canonicalSchemeProject,
+    canonicalSymlinkProject,
+    canonicalPackageProject,
+  ]);
+
   console.log(`open project smoke ok: ${canonicalPathProject}`);
   console.log(`open file-url smoke ok: ${canonicalUrlProject}`);
   console.log(`open document-url smoke ok: ${openedFile} -> ${canonicalFileProject}`);
   console.log(`open xolotl-code-url smoke ok: ${schemeUrl.href} -> ${canonicalSchemeProject}`);
+  console.log(`open symlink smoke ok: ${symlinkProject} -> ${canonicalSymlinkProject}`);
+  console.log(`open package-dir smoke ok: ${packageProject} -> ${canonicalPackageProject}`);
 } finally {
   await terminateApp();
   if (!keepTemp) {
