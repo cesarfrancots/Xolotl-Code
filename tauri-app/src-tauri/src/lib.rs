@@ -648,6 +648,14 @@ fn mac_status_item_has_agents(state: &MacStatusItemState) -> bool {
         || state.failed_agents > 0
 }
 
+fn mac_status_item_has_eval(state: &MacStatusItemState) -> bool {
+    state.total_eval_models > 0
+        || state.running_eval_models > 0
+        || state.pending_eval_models > 0
+        || state.completed_eval_models > 0
+        || state.failed_eval_models > 0
+}
+
 fn build_mac_status_item_menu(
     app: &tauri::AppHandle,
     state: &MacStatusItemState,
@@ -664,6 +672,7 @@ fn build_mac_status_item_menu(
     let open_latest_agent =
         MenuItemBuilder::with_id(STATUS_OPEN_LATEST_AGENT, "Open Latest Agent Output")
             .build(app)?;
+    let open_eval = MenuItemBuilder::with_id(MENU_TAB_EVAL, "Open Eval Workspace").build(app)?;
     let reveal_active_project = MenuItemBuilder::with_id(
         STATUS_REVEAL_ACTIVE_PROJECT,
         "Reveal Active Project in Finder",
@@ -720,7 +729,13 @@ fn build_mac_status_item_menu(
         .separator();
 
     if mac_status_item_has_agents(state) {
-        builder = builder.item(&open_latest_agent).separator();
+        builder = builder.item(&open_latest_agent);
+    }
+    if mac_status_item_has_eval(state) {
+        builder = builder.item(&open_eval);
+    }
+    if mac_status_item_has_agents(state) || mac_status_item_has_eval(state) {
+        builder = builder.separator();
     }
 
     if mac_status_item_has_active_project(state) {
@@ -1145,6 +1160,7 @@ mod tests {
         assert_eq!(mac_status_eval_label(&idle), "Eval: Idle");
         assert!(!mac_status_item_has_active_project(&idle));
         assert!(!mac_status_item_has_agents(&idle));
+        assert!(!mac_status_item_has_eval(&idle));
 
         let active = MacStatusItemState {
             active_project_name: Some("Xolotl Code".into()),
@@ -1173,6 +1189,7 @@ mod tests {
         );
         assert!(mac_status_item_has_active_project(&active));
         assert!(mac_status_item_has_agents(&active));
+        assert!(mac_status_item_has_eval(&active));
     }
 
     #[test]
@@ -1205,6 +1222,7 @@ mod tests {
             "Eval: Complete (2 done, 1 failed)"
         );
         assert_eq!(mac_status_item_title(&completed), "Xolotl");
+        assert!(mac_status_item_has_eval(&completed));
     }
 
     #[test]
@@ -1226,6 +1244,10 @@ mod tests {
         assert_eq!(
             menu_action_for_id(&tauri::menu::MenuId::new(STATUS_OPEN_LATEST_AGENT)),
             Some(STATUS_OPEN_LATEST_AGENT)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(MENU_TAB_EVAL)),
+            Some(MENU_TAB_EVAL)
         );
         assert_eq!(
             menu_action_for_id(&tauri::menu::MenuId::new(STATUS_COPY_ACTIVE_PROJECT_LINK)),
