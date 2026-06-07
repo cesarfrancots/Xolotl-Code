@@ -64,6 +64,9 @@ declare global {
       recenter(): void;
       toggleFollow(): void;
       focusRegion(x: number, width: number): void;
+      // Additive (REN-02): the four above remain (ARENA-02 extend-only contract).
+      focusCiv?(civId: string): void;
+      frameAll?(): void;
     };
     civPilotControls?: {
       start(options?: {
@@ -300,6 +303,12 @@ export function CivilizationView() {
     const scoped = selectedCivId ? all.filter((entry) => entry.civ_id === selectedCivId) : all;
     return scoped.slice(0, 12);
   }, [snapshot?.log, selectedCivId]);
+  // Drive the camera from the selection signal (REN-02): a selected civ (e.g. a
+  // leaderboard row click, Phase 1) focuses that civ; clearing it frames all civs.
+  useEffect(() => {
+    if (selectedCivId) window.civCamera?.focusCiv?.(selectedCivId);
+    else window.civCamera?.frameAll?.();
+  }, [selectedCivId]);
   const mvpStatus = snapshot ? getMvpStatus(snapshot, activeCiv) : null;
   const activePlayerTask = useMemo(
     () => (snapshot ? activeCivPlayerTask(snapshot, activeCiv) : null),

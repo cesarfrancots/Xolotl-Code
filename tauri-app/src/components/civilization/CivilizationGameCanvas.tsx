@@ -14,6 +14,9 @@ declare global {
       recenter(): void;
       toggleFollow(): void;
       focusRegion(x: number, width: number): void;
+      // Additive (REN-02): the four above remain (ARENA-02 extend-only contract).
+      focusCiv?(civId: string): void;
+      frameAll?(): void;
     };
   }
 }
@@ -433,6 +436,10 @@ class CivPhaserScene extends Phaser.Scene {
   private elapsed = 0;
   private prevTurn = 0;
   private colony = { x: 0, y: 0 };
+  // One framing point (world pixels) per civ; drives the multi-colony camera fit.
+  private colonies: { civId: string; x: number; y: number; alive: boolean }[] = [];
+  // Living-civ count from the previous snapshot — a shrink triggers a collapse re-frame.
+  private prevLivingCount = -1;
   private civColorById = new Map<string, { tint: number; alive: boolean }>();
 
   private following = true;
@@ -516,9 +523,12 @@ class CivPhaserScene extends Phaser.Scene {
     this.installCameraApi();
     this.scale.on("resize", () => this.onResize());
 
+    this.civColorById = buildCivColorMap(this.snapshot.civs);
     this.rebuildWorld();
     this.syncEntities();
     this.recomputeColony();
+    this.recomputeColonies();
+    this.prevLivingCount = this.colonies.filter((c) => c.alive).length;
     this.onResize();
   }
 
@@ -536,6 +546,14 @@ class CivPhaserScene extends Phaser.Scene {
       this.clearPlayerTargetLock();
     }
     this.recomputeColony();
+    this.recomputeColonies();
+    // Re-frame on collapse: when the living-civ count shrinks, drop the dead civ
+    // from the default view. (World create/load re-frames via the `framed` flip.)
+    const living = this.colonies.filter((c) => c.alive).length;
+    if (this.prevLivingCount >= 0 && living < this.prevLivingCount && living > 0) {
+      this.frameAll();
+    }
+    this.prevLivingCount = living;
   }
 
   setTurnRunning(running: boolean) {
@@ -2980,7 +2998,44 @@ class CivPhaserScene extends Phaser.Scene {
         cam.pan(cx, cy, 420, Phaser.Math.Easing.Sine.Out);
         cam.zoomTo(target, 420, Phaser.Math.Easing.Sine.Out);
       },
+      // Additive (REN-02): the four methods above stay (ARENA-02 extend-only).
+      focusCiv: (civId: string) => this.focusCiv(civId),
+      frameAll: () => this.frameAll(),
     };
+  }
+
+  // Fit the camera over all LIVING colonies (the default multi-civ view). Falls
+  // back to the single-colony centre when no colony resolves (T-02-04).
+  private frameAll() {
+    const cam = this.cameras.main;
+    const cw = this.scale.width;
+    const ch = this.scale.height;
+    const b = colonyBounds(this.colonies, 6 * TILE_SIZE);
+    if (!b || b.w <= 0 || b.h <= 0) {
+      this.following = false;
+      cam.pan(this.colony.x, this.colony.y, 420, Phaser.Math.Easing.Sine.Out);
+      return;
+    }
+    this.following = false;
+    const fit = Math.min(cw / b.w, ch / b.h);
+    cam.zoomTo(Phaser.Math.Clamp(fit, this.minZoom, this.maxZoom), 420, Phaser.Math.Easing.Sine.Out);
+    cam.pan(b.x + b.w / 2, b.y + b.h / 2, 420, Phaser.Math.Easing.Sine.Out);
+  }
+
+  // Pan + zoom to one civ's colony. Unresolvable civ -> fall back to frameAll().
+  private focusCiv(civId: string) {
+    const tgt = focusTarget(civId, this.snapshot.civs, this.snapshot.world.regions, this.snapshot.world.entities);
+    if (!tgt) {
+      this.frameAll();
+      return;
+    }
+    this.following = false;
+    const cam = this.cameras.main;
+    const cx = tgt.tx * TILE_SIZE;
+    const cy = tgt.ty * TILE_SIZE;
+    const target = Phaser.Math.Clamp(cam.width / (28 * TILE_SIZE), this.minZoom, this.maxZoom);
+    cam.pan(cx, cy, 420, Phaser.Math.Easing.Sine.Out);
+    cam.zoomTo(target, 420, Phaser.Math.Easing.Sine.Out);
   }
 
   private onResize() {
@@ -2995,9 +3050,18 @@ class CivPhaserScene extends Phaser.Scene {
     this.mm = { x: 16, y: ch - mw * (this.snapshot.world.height / this.snapshot.world.width) - 16, w: mw, h: mw * (this.snapshot.world.height / this.snapshot.world.width) };
     if (!this.framed) {
       this.framed = true;
-      const fit = Math.min(cw / this.worldW, ch / this.worldH);
-      cam.setZoom(Phaser.Math.Clamp(Math.max(fit * 1.7, cw / (60 * TILE_SIZE)), this.minZoom, this.maxZoom));
-      cam.centerOn(this.colony.x, this.colony.y);
+      const b = colonyBounds(this.colonies, 6 * TILE_SIZE);
+      if (b && b.w > 0 && b.h > 0) {
+        // Multi-colony fit: frame the bounding box over all living colonies.
+        const fit = Math.min(cw / b.w, ch / b.h);
+        cam.setZoom(Phaser.Math.Clamp(fit, this.minZoom, this.maxZoom));
+        cam.centerOn(b.x + b.w / 2, b.y + b.h / 2);
+      } else {
+        // Fallback (single/no colony): the original world-fit centred on this.colony.
+        const fit = Math.min(cw / this.worldW, ch / this.worldH);
+        cam.setZoom(Phaser.Math.Clamp(Math.max(fit * 1.7, cw / (60 * TILE_SIZE)), this.minZoom, this.maxZoom));
+        cam.centerOn(this.colony.x, this.colony.y);
+      }
     } else {
       cam.setZoom(Phaser.Math.Clamp(cam.zoom, this.minZoom, this.maxZoom));
     }
@@ -3019,6 +3083,23 @@ class CivPhaserScene extends Phaser.Scene {
     const sx = axos.reduce((a, e) => a + e.x, 0) / axos.length;
     const sy = axos.reduce((a, e) => a + e.y, 0) / axos.length;
     this.colony = { x: sx * TILE_SIZE, y: sy * TILE_SIZE - 6 };
+  }
+
+  // One framing point (world pixels) per LIVING civ, via the same precedence as
+  // focusTarget (home-region centre -> entities centroid -> spawn_x). Feeds the
+  // multi-colony bounding box used by frameAll() and the default onResize fit.
+  private recomputeColonies() {
+    const civs = this.snapshot.civs ?? [];
+    const regions = this.snapshot.world.regions;
+    const entities = this.snapshot.world.entities;
+    const out: { civId: string; x: number; y: number; alive: boolean }[] = [];
+    for (const c of civs) {
+      if (!c.id || c.alive === false) continue;
+      const tgt = focusTarget(c.id, civs, regions, entities);
+      if (!tgt) continue;
+      out.push({ civId: c.id, x: tgt.tx * TILE_SIZE, y: tgt.ty * TILE_SIZE, alive: true });
+    }
+    this.colonies = out;
   }
 
   private spawnParticle(x: number, y: number, vx: number, vy: number, color: number, rise: boolean) {

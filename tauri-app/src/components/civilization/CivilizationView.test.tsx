@@ -253,6 +253,67 @@ describe("CivilizationView leaderboard top-bar", () => {
   });
 });
 
+describe("CivilizationView window.civCamera bridge (REN-02 / ARENA-02 additive)", () => {
+  // The real scene installs window.civCamera; the canvas is mocked here, so we
+  // install a six-method spy bridge and assert the View drives it. This mirrors
+  // the Phase 1 ARENA-02 back-compat style: the four pre-existing methods MUST
+  // remain alongside the two new ones (extend-only contract).
+  function installCameraSpy() {
+    const cam = {
+      zoomBy: vi.fn(),
+      recenter: vi.fn(),
+      toggleFollow: vi.fn(),
+      focusRegion: vi.fn(),
+      focusCiv: vi.fn(),
+      frameAll: vi.fn(),
+    };
+    window.civCamera = cam;
+    return cam;
+  }
+
+  afterEach(() => {
+    delete window.civCamera;
+  });
+
+  it("retains the four existing methods AND adds focusCiv + frameAll (all six are functions)", () => {
+    installCameraSpy();
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+    for (const name of ["zoomBy", "recenter", "toggleFollow", "focusRegion", "focusCiv", "frameAll"] as const) {
+      expect(typeof window.civCamera?.[name]).toBe("function");
+    }
+  });
+
+  it("focuses the selected civ via focusCiv and resets via frameAll when cleared", () => {
+    const cam = installCameraSpy();
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+    cam.focusCiv.mockClear();
+    cam.frameAll.mockClear();
+
+    selectCiv("civ-2");
+    expect(cam.focusCiv).toHaveBeenCalledWith("civ-2");
+
+    selectCiv(null);
+    expect(cam.frameAll).toHaveBeenCalled();
+  });
+
+  it("focuses the civ a leaderboard row click selects (Phase 1 row -> setSelectedCivId -> focusCiv)", async () => {
+    const cam = installCameraSpy();
+    const user = userEvent.setup();
+    render(<CivilizationView />);
+    hydrateMultiCiv();
+    cam.focusCiv.mockClear();
+
+    const board = document.querySelector(".civ-leaderboard") as HTMLElement;
+    const reefRow = within(board).getAllByRole("button").find((r) => r.textContent?.includes("Reef"))!;
+    await user.click(reefRow);
+
+    expect(useCivStore.getState().selectedCivId).toBe("civ-1");
+    expect(cam.focusCiv).toHaveBeenCalledWith("civ-1");
+  });
+});
+
 describe("CivilizationView selectedCivId-driven observer + log", () => {
   it("drives the observer score panel from the selected civ, not civs[0]", async () => {
     const user = userEvent.setup();
