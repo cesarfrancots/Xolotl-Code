@@ -344,6 +344,7 @@ type AxoSprite = {
   glowMorph: boolean;
   born: number;
   workSeed: number;
+  appliedTint?: number;
 };
 
 type Particle = { x: number; y: number; vx: number; vy: number; age: number; ttl: number; color: number; r: number; rise: boolean };
@@ -363,6 +364,7 @@ class CivPhaserScene extends Phaser.Scene {
   private bgBase?: Phaser.GameObjects.Rectangle;
   private water?: Phaser.GameObjects.TileSprite;
   private wash?: Phaser.GameObjects.Graphics;
+  private territory?: Phaser.GameObjects.Graphics;
   private depthGrad?: Phaser.GameObjects.Graphics;
   private skyGrad?: Phaser.GameObjects.Graphics;
   private substrate?: Phaser.GameObjects.Container;
@@ -431,6 +433,7 @@ class CivPhaserScene extends Phaser.Scene {
   private elapsed = 0;
   private prevTurn = 0;
   private colony = { x: 0, y: 0 };
+  private civColorById = new Map<string, { tint: number; alive: boolean }>();
 
   private following = true;
   private dragging = false;
@@ -465,6 +468,7 @@ class CivPhaserScene extends Phaser.Scene {
     this.water = this.add.tileSprite(0, 0, 10, 10, "civ-water").setOrigin(0, 0).setDepth(-12);
     this.water.setTileScale(TILE_SIZE / 256, TILE_SIZE / 256);
     this.wash = this.add.graphics().setDepth(-11);
+    this.territory = this.add.graphics().setDepth(-10.5);
     this.depthGrad = this.add.graphics().setDepth(-10);
     this.skyGrad = this.add.graphics().setDepth(-9);
     this.substrate = this.add.container().setDepth(-7);
@@ -482,7 +486,7 @@ class CivPhaserScene extends Phaser.Scene {
     this.cameras.main.ignore(this.minimap);
     this.uiCam.ignore(
       [
-        this.bgBase, this.water, this.wash, this.depthGrad, this.skyGrad,
+        this.bgBase, this.water, this.wash, this.territory, this.depthGrad, this.skyGrad,
         this.substrate, this.caustics, this.shadows, this.resourceLayer,
         this.buildingLayer, this.effects,
       ].filter(Boolean) as Phaser.GameObjects.GameObject[],
@@ -524,6 +528,7 @@ class CivPhaserScene extends Phaser.Scene {
     this.prevTurn = snapshot.turn;
     this.snapshot = snapshot;
     if (!this.sys?.isActive()) return;
+    this.civColorById = buildCivColorMap(snapshot.civs);
     this.rebuildWorld();
     this.syncEntities();
     if (this.possessedEntityId && !this.axos.has(this.possessedEntityId)) {
@@ -686,6 +691,20 @@ class CivPhaserScene extends Phaser.Scene {
       this.wash?.fillStyle(col, 0.1);
       this.wash?.fillRect(region.x * TILE_SIZE, SURFACE_ROWS * TILE_SIZE, region.width * TILE_SIZE, this.worldH);
     }
+    // per-owner territory overlay (civ-colour fill + border); unowned -> neutral.
+    this.territory?.clear();
+    const territoryTop = SURFACE_ROWS * TILE_SIZE;
+    for (const region of world.regions ?? []) {
+      const overlay = regionOverlayFor(region.owner, this.civColorById);
+      if (!overlay) continue;
+      const rx = region.x * TILE_SIZE;
+      const rw = region.width * TILE_SIZE;
+      const rh = this.worldH - territoryTop;
+      this.territory?.fillStyle(overlay.tint, overlay.alive ? 0.14 : 0.06);
+      this.territory?.fillRect(rx, territoryTop, rw, rh);
+      this.territory?.lineStyle(2, overlay.tint, overlay.alive ? 0.6 : 0.25);
+      this.territory?.strokeRect(rx, territoryTop, rw, rh);
+    }
     this.depthGrad?.clear();
     const bands = 40;
     const top = SURFACE_ROWS * TILE_SIZE;
@@ -749,7 +768,7 @@ class CivPhaserScene extends Phaser.Scene {
     if (!layer) return;
     let sig = "";
     for (const e of this.snapshot.world.entities) {
-      if (e.kind === "building" || e.kind === "object") sig += `${e.id},${e.kind},${e.x},${e.y},${e.role},${e.activity},${Math.round(e.health ?? 0)};`;
+      if (e.kind === "building" || e.kind === "object") sig += `${e.id},${e.kind},${e.x},${e.y},${e.role},${e.activity},${e.civ_id ?? ""},${Math.round(e.health ?? 0)};`;
     }
     if (sig === this.prevBuildingSig) return;
     this.prevBuildingSig = sig;
@@ -771,6 +790,9 @@ class CivPhaserScene extends Phaser.Scene {
       img.setDisplaySize(big, big);
       img.setDepth(entity.y * 0.02);
       layer.add(img);
+      const buildingInfo = this.civColorById.get(entity.civ_id ?? "");
+      const buildingTint = civTintFor(buildingInfo, GREY_TINT);
+      if (buildingTint != null) img.setTint(buildingTint);
       if (!this.knownBuildings.has(entity.id)) {
         this.spawnPulse(px, py - 6, 0xaee9ff);
         this.tweens.add({ targets: img, scaleX: img.scaleX * 1.12, scaleY: img.scaleY * 1.12, yoyo: true, duration: 240, ease: "Sine.out" });
@@ -942,6 +964,19 @@ class CivPhaserScene extends Phaser.Scene {
     }
   }
 
+  // Multiply-tint the body by the owning civ's colour (lightened so morph/GFP
+  // detail still reads), grey for a dead civ. Wild fauna (civ_id == null → map
+  // miss) keeps its default morph tint. Re-applies ONLY when the wanted tint
+  // differs from the last applied value (no per-frame whole-world re-tint).
+  private applyCivTint(axo: AxoSprite, entity: CivEntity) {
+    const info = this.civColorById.get(entity.civ_id ?? "");
+    const wanted = civTintFor(info, GREY_TINT);
+    if (wanted == null) return; // wild fauna — leave the morph default untouched
+    if (axo.appliedTint === wanted) return;
+    axo.body.setTint(wanted);
+    axo.appliedTint = wanted;
+  }
+
   private createAxo(entity: CivEntity): AxoSprite {
     const px = entity.x * TILE_SIZE + TILE_SIZE / 2;
     const py = entity.y * TILE_SIZE + TILE_SIZE / 2 - 6;
@@ -1005,6 +1040,7 @@ class CivPhaserScene extends Phaser.Scene {
     };
     this.syncAccessories(axo, entity);
     this.applyTarget(axo, entity);
+    this.applyCivTint(axo, entity);
     return axo;
   }
 
@@ -1029,6 +1065,7 @@ class CivPhaserScene extends Phaser.Scene {
     } else {
       this.applyTarget(axo, entity);
     }
+    this.applyCivTint(axo, entity);
   }
 
   private applyTarget(axo: AxoSprite, entity: CivEntity) {
@@ -1648,7 +1685,9 @@ class CivPhaserScene extends Phaser.Scene {
     for (const region of this.snapshot.world.regions ?? []) {
       const rx = x + region.x * sx;
       const rw = region.width * sx;
-      g.fillStyle(BIOME_WASH[region.biome] ?? 0x2f6f88, 0.34);
+      const overlay = regionOverlayFor(region.owner, this.civColorById);
+      const fill = overlay ? overlay.tint : BIOME_WASH[region.biome] ?? 0x2f6f88;
+      g.fillStyle(fill, 0.34);
       g.fillRect(rx, y + SURFACE_ROWS * sy, rw, h - SURFACE_ROWS * sy);
     }
     // seabed mass
