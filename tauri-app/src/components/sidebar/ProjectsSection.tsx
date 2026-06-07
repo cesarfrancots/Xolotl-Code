@@ -3,7 +3,7 @@ import { Code2, Copy, ExternalLink, Folder, FolderPlus, Link2, X } from "lucide-
 import { useProjectStore } from "../../stores/projectStore";
 import { macPathLabel } from "../../lib/fileBrowser";
 import { macFileAccessRecovery } from "../../lib/macFileRecovery";
-import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, openPathInExternalTerminal, revealPathInFinder } from "../../lib/pathActions";
 import {
   SidebarHandoffStatus,
   sidebarHandoffRecoveryHint,
@@ -206,6 +206,24 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
                     className="xolotl-row-action-button"
                   >
                     <Code2 className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void runHandoff(
+                        `Open ${project.name} in external terminal`,
+                        () => openPathInExternalTerminal(project.path),
+                        `${project.name} opened in the external terminal.`,
+                        "terminal",
+                        "project folder",
+                      );
+                    }}
+                    title="Open in external terminal"
+                    aria-label={`Open ${project.name} in external terminal`}
+                    className="xolotl-row-action-button"
+                  >
+                    <ExternalLink className="h-3 w-3" />
                   </button>
                   <button
                     type="button"

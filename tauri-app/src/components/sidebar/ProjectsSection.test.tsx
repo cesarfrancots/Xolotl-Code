@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectsSection } from "./ProjectsSection";
-import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, openPathInExternalTerminal, revealPathInFinder } from "../../lib/pathActions";
 import { useProjectStore } from "../../stores/projectStore";
 
 vi.mock("../../lib/pathActions", async () => {
@@ -11,6 +11,7 @@ vi.mock("../../lib/pathActions", async () => {
     copyTextToClipboard: vi.fn(() => Promise.resolve()),
     copyXolotlCodeOpenUrl: vi.fn(() => Promise.resolve()),
     openPathInExternalEditor: vi.fn(() => Promise.resolve()),
+    openPathInExternalTerminal: vi.fn(() => Promise.resolve()),
     revealPathInFinder: vi.fn(() => Promise.resolve()),
   };
 });
@@ -54,6 +55,10 @@ describe("ProjectsSection", () => {
 
     fireEvent.click(screen.getByLabelText("Open Xolotl in external editor"));
     expect(openPathInExternalEditor).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+    expect(onOpenProject).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByLabelText("Open Xolotl in external terminal"));
+    expect(openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
     expect(onOpenProject).toHaveBeenCalledTimes(1);
   });
 
@@ -116,6 +121,19 @@ describe("ProjectsSection", () => {
     expect(await screen.findByText("Open Xolotl in external editor failed.")).toBeTruthy();
     expect(screen.getByText(/Check the preferred editor in macOS Settings/)).toBeTruthy();
     expect(screen.getByText(/Cursor missing/)).toBeTruthy();
+    expect(onOpenProject).not.toHaveBeenCalled();
+  });
+
+  it("shows recovery guidance when the external terminal handoff fails", async () => {
+    vi.mocked(openPathInExternalTerminal).mockRejectedValueOnce(new Error("Terminal missing"));
+    const onOpenProject = vi.fn();
+
+    render(<ProjectsSection onOpenProject={onOpenProject} />);
+    fireEvent.click(screen.getByLabelText("Open Xolotl in external terminal"));
+
+    expect(await screen.findByText("Open Xolotl in external terminal failed.")).toBeTruthy();
+    expect(screen.getByText(/Check the preferred external terminal in macOS Settings/)).toBeTruthy();
+    expect(screen.getByText(/Terminal missing/)).toBeTruthy();
     expect(onOpenProject).not.toHaveBeenCalled();
   });
 });

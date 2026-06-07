@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 export type SidebarHandoffTone = "ok" | "error";
-export type SidebarHandoffKind = "finder" | "quick-look" | "editor" | "clipboard";
+export type SidebarHandoffKind = "finder" | "quick-look" | "editor" | "terminal" | "clipboard";
 
 export interface SidebarHandoffStatusState {
   tone: SidebarHandoffTone;
@@ -23,6 +23,8 @@ export function sidebarHandoffRecoveryHint(
       return `Check that the file still exists and can be previewed by Quick Look.${suffix}`;
     case "editor":
       return `Check the preferred editor in macOS Settings, or use an installed app name or executable path.${suffix}`;
+    case "terminal":
+      return `Check the preferred external terminal in macOS Settings, or use Terminal, iTerm, Warp, an app bundle path, or executable path.${suffix}`;
     case "clipboard":
       return `Check macOS clipboard access and try the copy action again.${suffix}`;
   }

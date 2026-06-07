@@ -25,7 +25,7 @@ import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "..
 import { MAC_COMMANDS, type MacCommandId, type MacCommandSpec } from "../../lib/macCommandModel";
 import { formatMacShortcut } from "../../lib/macShortcuts";
 import { dispatchNativeMenuAction, type NativeMenuAction } from "../../lib/nativeMenu";
-import { copyProjectContextHandoff, copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, quickLookPath, readTextFromClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { copyProjectContextHandoff, copyTextToClipboard, copyXolotlCodeOpenUrl, openPathInExternalEditor, openPathInExternalTerminal, quickLookPath, readTextFromClipboard, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 import { openTerminalAtPath } from "../../lib/terminalActions";
 
 type CommandAction = () => void | Promise<void>;
@@ -64,7 +64,7 @@ interface PaletteStatus {
   hint?: string;
 }
 
-type MacHandoffHintKey = "clipboard" | "editor" | "finder" | "quick-look";
+type MacHandoffHintKey = "clipboard" | "editor" | "finder" | "quick-look" | "terminal";
 
 const MAC_COMMAND_ICONS: Record<MacCommandId, React.ComponentType<{ className?: string }>> = {
   "new-chat": MessageSquare,
@@ -178,6 +178,7 @@ export function CommandsPalette({
         { id: "project-copy-link", kind: "action" as const, label: "Copy Active Project Xolotl Link", description: macPathLabel(activeProjectPath), icon: Link2, run: () => runMacHandoff("Copy Xolotl link", () => copyXolotlCodeOpenUrl(activeProjectPath), "clipboard") },
         { id: "project-copy-context", kind: "action" as const, label: "Copy Active Project Context Prompt", description: "Path and Xolotl link for Shortcuts, Raycast, Alfred, or shell handoff.", icon: ClipboardList, run: () => runMacHandoff("Copy project context", () => copyProjectContextHandoff(activeProjectPath, activeProject?.name), "clipboard") },
         { id: "project-open-editor", kind: "action" as const, label: "Open Active Project in Editor", description: macPathLabel(activeProjectPath), icon: Code2, run: () => runMacHandoff("Open in editor", () => openPathInExternalEditor(activeProjectPath), "editor") },
+        { id: "project-open-terminal", kind: "action" as const, label: "Open Active Project in External Terminal", description: macPathLabel(activeProjectPath), icon: TerminalSquare, run: () => runMacHandoff("Open in external terminal", () => openPathInExternalTerminal(activeProjectPath), "terminal") },
       ] : []),
       ...projects.slice(0, 5).map((project) => ({
         id: `recent-project-${project.path}`,
@@ -200,6 +201,7 @@ export function CommandsPalette({
       { id: "browser-copy-current", kind: "file", label: "Copy Current Folder Path", syntax: "Path", description: macPathLabel(currentBrowserPath), icon: Copy, run: () => runMacHandoff("Copy folder path", () => copyTextToClipboard(currentBrowserPath), "clipboard") },
       { id: "browser-copy-current-link", kind: "file", label: "Copy Current Folder Xolotl Link", syntax: "Link", description: macPathLabel(currentBrowserPath), icon: Link2, run: () => runMacHandoff("Copy Xolotl link", () => copyXolotlCodeOpenUrl(currentBrowserPath), "clipboard") },
       { id: "browser-terminal-current", kind: "file", label: "New Terminal in Current Folder", syntax: "Terminal", description: macPathLabel(currentBrowserPath), icon: TerminalSquare, run: () => { openTerminalAtPath(currentBrowserPath); onOpenChange(false); } },
+      { id: "browser-external-terminal-current", kind: "file", label: "Open Current Folder in External Terminal", syntax: "Terminal", description: macPathLabel(currentBrowserPath), icon: TerminalSquare, run: () => runMacHandoff("Open in external terminal", () => openPathInExternalTerminal(currentBrowserPath), "terminal") },
       ...(currentBrowserPath !== activeProjectPath ? [
         { id: "browser-copy-current-relative", kind: "file" as const, label: "Copy Current Folder Relative Path", syntax: "Relative", description: relativePathFromRoot(currentBrowserPath, activeProjectPath), icon: CornerDownRight, run: () => runMacHandoff("Copy relative path", () => copyTextToClipboard(relativePathFromRoot(currentBrowserPath, activeProjectPath)), "clipboard") },
       ] : []),
@@ -233,6 +235,13 @@ export function CommandsPalette({
               title: "New Terminal Here",
               icon: TerminalSquare,
               run: () => { openTerminalAtPath(child.path, child.name); onOpenChange(false); },
+            },
+            {
+              id: "external-terminal",
+              label: `Open ${child.name} in external terminal`,
+              title: "Open in external terminal",
+              icon: ExternalLink,
+              run: () => runMacHandoff("Open in external terminal", () => openPathInExternalTerminal(child.path), "terminal"),
             }] : []),
             {
               id: "reveal",
@@ -435,6 +444,8 @@ function macHandoffRecoveryHint(kind: MacHandoffHintKey, error: unknown): string
       return `Check that the path still exists and that macOS has allowed Xolotl Code to access it.${suffix}`;
     case "quick-look":
       return `Check that the file still exists and can be previewed by Quick Look.${suffix}`;
+    case "terminal":
+      return `Check the preferred external terminal in macOS Settings, or use Terminal, iTerm, Warp, an app bundle path, or executable path.${suffix}`;
     case "clipboard":
       return `Check macOS clipboard access and try the copy action again.${suffix}`;
   }

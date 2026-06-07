@@ -9,6 +9,7 @@ const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn(() => Promise.resolve()),
   copyXolotlCodeOpenUrl: vi.fn(() => Promise.resolve()),
   openPathInExternalEditor: vi.fn(() => Promise.resolve()),
+  openPathInExternalTerminal: vi.fn(() => Promise.resolve()),
   quickLookPath: vi.fn(() => Promise.resolve()),
   readTextFromClipboard: vi.fn(() => Promise.resolve("const answer = 42;")),
   revealPathInFinder: vi.fn(() => Promise.resolve()),
@@ -25,6 +26,7 @@ vi.mock("../../lib/pathActions", async () => {
     copyTextToClipboard: pathActionMocks.copyTextToClipboard,
     copyXolotlCodeOpenUrl: pathActionMocks.copyXolotlCodeOpenUrl,
     openPathInExternalEditor: pathActionMocks.openPathInExternalEditor,
+    openPathInExternalTerminal: pathActionMocks.openPathInExternalTerminal,
     quickLookPath: pathActionMocks.quickLookPath,
     readTextFromClipboard: pathActionMocks.readTextFromClipboard,
     revealPathInFinder: pathActionMocks.revealPathInFinder,
@@ -104,6 +106,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Copy Active Project Xolotl Link")).toBeTruthy();
     expect(screen.getByText("Copy Active Project Context Prompt")).toBeTruthy();
     expect(screen.getByText("Open Active Project in Editor")).toBeTruthy();
+    expect(screen.getByText("Open Active Project in External Terminal")).toBeTruthy();
     expect(screen.getByText("Start Chat With Clipboard")).toBeTruthy();
     expect(screen.getByText("Explain Clipboard Snippet")).toBeTruthy();
     expect(screen.getByText("Open Recent: Xolotl")).toBeTruthy();
@@ -116,6 +119,7 @@ describe("CommandsPalette", () => {
     expect(screen.getByText("Reveal Current Folder in Finder")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Xolotl Link")).toBeTruthy();
     expect(screen.getByText("New Terminal in Current Folder")).toBeTruthy();
+    expect(screen.getByText("Open Current Folder in External Terminal")).toBeTruthy();
     expect(screen.getByText("Copy Current Folder Relative Path")).toBeTruthy();
     expect(screen.getByText("Browse Parent Folder")).toBeTruthy();
     expect(screen.getByText("Back to Project Root")).toBeTruthy();
@@ -207,6 +211,31 @@ describe("CommandsPalette", () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
+  it("runs active project external terminal actions from the palette", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Active Project in External Terminal" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it("shows recovery guidance when an active project external terminal handoff fails", async () => {
+    pathActionMocks.openPathInExternalTerminal.mockRejectedValueOnce(new Error("Terminal missing"));
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Active Project in External Terminal" }));
+
+    expect(await screen.findByText("Open in external terminal failed.")).toBeTruthy();
+    expect(screen.getByText(/Check the preferred external terminal in macOS Settings/)).toBeTruthy();
+    expect(screen.getByText(/Terminal missing/)).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
   it("runs file-browser current folder path actions from the palette", async () => {
     const onOpenChange = vi.fn();
     render(<CommandsPalette open onOpenChange={onOpenChange} />);
@@ -284,6 +313,30 @@ describe("CommandsPalette", () => {
 
     expect(terminalActionMocks.openTerminalAtPath).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs");
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("opens the current file browser folder in the external terminal", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Current Folder in External Terminal" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it("opens a file-browser folder row in the external terminal", async () => {
+    const onOpenChange = vi.fn();
+    render(<CommandsPalette open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open src in external terminal" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/docs/src");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
   });
 
   it("seeds clipboard prompts through the composer callback", async () => {

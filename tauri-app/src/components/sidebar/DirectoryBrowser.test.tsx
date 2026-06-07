@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DirectoryBrowser } from "./DirectoryBrowser";
-import { copyTextToClipboard, quickLookPath, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, openPathInExternalTerminal, quickLookPath, revealPathInFinder } from "../../lib/pathActions";
 import { useProjectStore } from "../../stores/projectStore";
 
 const terminalActionMocks = vi.hoisted(() => ({
@@ -13,6 +13,7 @@ vi.mock("../../lib/pathActions", async () => {
   return {
     ...actual,
     copyTextToClipboard: vi.fn(() => Promise.resolve()),
+    openPathInExternalTerminal: vi.fn(() => Promise.resolve()),
     quickLookPath: vi.fn(() => Promise.resolve()),
     revealPathInFinder: vi.fn(() => Promise.resolve()),
   };
@@ -95,11 +96,17 @@ describe("DirectoryBrowser", () => {
       "Xolotl",
     );
 
+    fireEvent.click(screen.getByLabelText("Open current folder in external terminal"));
+    expect(openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+
     fireEvent.click(screen.getByLabelText("New terminal in src"));
     expect(terminalActionMocks.openTerminalAtPath).toHaveBeenCalledWith(
       "/Users/cesar/Documents/Xolotl/src",
       "src",
     );
+
+    fireEvent.click(screen.getByLabelText("Open src in external terminal"));
+    expect(openPathInExternalTerminal).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl/src");
   });
 
   it("shows recovery guidance when revealing the current folder fails", async () => {
@@ -111,6 +118,17 @@ describe("DirectoryBrowser", () => {
     expect(await screen.findByText("Reveal current folder in Finder failed.")).toBeTruthy();
     expect(screen.getByText(/Check that the folder still exists/)).toBeTruthy();
     expect(screen.getByText(/Folder missing/)).toBeTruthy();
+  });
+
+  it("shows recovery guidance when opening a folder in the external terminal fails", async () => {
+    vi.mocked(openPathInExternalTerminal).mockRejectedValueOnce(new Error("Terminal missing"));
+
+    render(<DirectoryBrowser />);
+    fireEvent.click(screen.getByLabelText("Open src in external terminal"));
+
+    expect(await screen.findByText("Open src in external terminal failed.")).toBeTruthy();
+    expect(screen.getByText(/Check the preferred external terminal in macOS Settings/)).toBeTruthy();
+    expect(screen.getByText(/Terminal missing/)).toBeTruthy();
   });
 
   it("shows macOS recovery guidance when folder browsing is blocked", () => {

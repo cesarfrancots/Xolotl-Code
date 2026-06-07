@@ -20,7 +20,7 @@ import { commands } from "../../bindings";
 import { useProjectStore, projectDisplayName } from "../../stores/projectStore";
 import { directoryChildBadges, macPathLabel, visibleDirectoryChildren } from "../../lib/fileBrowser";
 import { macFileAccessRecovery } from "../../lib/macFileRecovery";
-import { copyTextToClipboard, quickLookPath, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
+import { copyTextToClipboard, openPathInExternalTerminal, quickLookPath, relativePathFromRoot, revealPathInFinder } from "../../lib/pathActions";
 import { openTerminalAtPath } from "../../lib/terminalActions";
 import {
   SidebarHandoffStatus,
@@ -148,6 +148,21 @@ export function DirectoryBrowser() {
           className="xolotl-sidebar-icon-button"
         >
           <TerminalSquare className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          title="Open in external terminal"
+          aria-label="Open current folder in external terminal"
+          onClick={() => void runHandoff(
+            "Open current folder in external terminal",
+            () => openPathInExternalTerminal(currentPath),
+            "Current folder opened in external terminal.",
+            "terminal",
+            "folder",
+          )}
+          className="xolotl-sidebar-icon-button"
+        >
+          <ExternalLink className="h-3 w-3" />
         </button>
         <button
           type="button"
@@ -365,6 +380,26 @@ function PathActionButtons({
           className="xolotl-row-action-button"
         >
           <TerminalSquare className="h-3 w-3" />
+        </button>
+      )}
+      {canOpenTerminal && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            void runRowHandoff(
+              `Open ${label} in external terminal`,
+              () => openPathInExternalTerminal(path),
+              `${label} opened in external terminal.`,
+              "terminal",
+              "folder",
+            );
+          }}
+          title="Open in external terminal"
+          aria-label={`Open ${label} in external terminal`}
+          className="xolotl-row-action-button"
+        >
+          <ExternalLink className="h-3 w-3" />
         </button>
       )}
       {canQuickLook && (
