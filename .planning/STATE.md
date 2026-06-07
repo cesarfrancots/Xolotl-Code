@@ -4,13 +4,13 @@ milestone: v2.0
 milestone_name: Civ Simulation
 status: executing
 last_updated: "2026-06-07T00:52:55.946Z"
-last_activity: 2026-06-07 -- Phase 03 COMPLETE & verified (W4 environment engine; autonomous run)
+last_activity: 2026-06-07 -- Phase 04 COMPLETE & verified (W6 combat & diplomacy; autonomous run)
 progress:
   total_phases: 5
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
-  percent: 60
+  completed_phases: 4
+  total_plans: 12
+  completed_plans: 12
+  percent: 80
 ---
 
 # State: xolotl
@@ -24,26 +24,26 @@ progress:
 ## Project Reference
 
 - **Core Value:** A developer can spawn, monitor, and coordinate multiple AI agents working in parallel on a single project — from a chat-first desktop app — without being locked into OpenAI or Anthropic.
-- **Current Focus:** Autonomous run (auto_advance ON). Phases 01 ✅ 02 ✅ 03 ✅ done. Sim-first order: W9-lite ✅ → W8 ✅ → W4 ✅ → W6 (Phase 4, next) → W5.
+- **Current Focus:** Autonomous run (auto_advance ON). Phases 01 ✅ 02 ✅ 03 ✅ 04 ✅ done. Sim-first order: W9-lite ✅ → W8 ✅ → W4 ✅ → W6 ✅ → W5 (Phase 5, LAST).
 
 ## Current Position
 
-Phase: 03 (w4-environment-engine) — ✅ COMPLETE & VERIFIED
-Plan: 3 of 3 done (+ code-review fixes + Nyquist sign-off)
-Status: Phase 03 verified (ENV-01/02/03 logic PASS; ~29 env unit tests compile [cargo test --no-run 0], clippy baseline-only, run on CI). tick_environment wired at advance_civ_turn:799 (seasons/temp + forecast→fire→reshape-terrain + renewable-regrow-vs-finite). Code-review MEDIUM fixed (storm/predator disasters now have real morale effects). human_needed auto-resolved: backend tests run on CI (not Windows); aesthetic/emergent balance is manual observation. Nyquist signed off.
-Last activity: 2026-06-07 -- Phase 03 complete (autonomous)
-Next: Phase 4 (W6 — Combat & Diplomacy): WAR-01 territory claim/own/contest, WAR-02 combat/raids deterministic w/ consequences, WAR-03 diplomacy stances + trades (allies don't fight), WAR-04 wild predators hunt axolotls (consumes Phase 3's predator_incursion). Backend-heavy (civilization.rs) — verify via cargo check/clippy/test --no-run + CI.
+Phase: 04 (w6-combat-diplomacy) — ✅ COMPLETE & VERIFIED
+Plan: 3 of 3 done (+ Nyquist sign-off; code review CLEAN, no fixes needed)
+Status: Phase 04 verified PASSED (WAR-01/02/03/04; ~33 WAR unit tests compile [cargo test --no-run 0], clippy baseline-only, tsc 0, run on CI). Claim/contest territory + deterministic combat/raids (casualties remove entities, conserved plunder, region seize, no instant-wipeout) + diplomacy stances/trades (allies don't fight, unilateral gate) + wild predators (spawn on predator_incursion, hunt, civ_strength defense, expire). New CivDecisionAction fields → bindings regen (additive, tsc 0). civ_strength is the Phase-5 strength-gene seam. human_needed auto-resolved: tests run on CI; emergent balance is manual observation. Nyquist signed off.
+Last activity: 2026-06-07 -- Phase 04 complete (autonomous)
+Next: Phase 5 (W5 — Genetics Depth & Selection, FINAL): GEN-01 expanded genetics (new traits + pattern alleles, Mendelian crossing, visible), GEN-02 environmental pressure (ice age/plague) raises mortality for ill-adapted genes → populations measurably evolve. Depends on Phase 3 (env pressure) + Phase 4 (the civ_strength gene seam). Backend (civilization.rs genetics/breeding) — verify cargo check/clippy/test --no-run + CI; check whether new gene fields need a bindings regen.
 
-Progress: [██████████] 100% of Phase 03 (3/3 plans) · milestone 60% (3/5 phases)
+Progress: [██████████] 100% of Phase 04 (3/3 plans) · milestone 80% (4/5 phases)
 
 ## Performance Metrics
 
 | Metric | Value |
 |--------|-------|
-| v2.0 phases completed | 3 / 5 |
+| v2.0 phases completed | 4 / 5 |
 | v2.0 requirements mapped | 17 / 17 |
-| v2.0 requirements completed | 11 / 17 (CIV-01/02/03, ARENA-01/02/03, REN-01/02, ENV-01/02/03) |
-| Plans completed | 9 / 9 (Phases 01-03) |
+| v2.0 requirements completed | 15 / 17 (CIV-01/02/03, ARENA-01/02/03, REN-01/02, ENV-01/02/03, WAR-01/02/03/04) |
+| Plans completed | 12 / 12 (Phases 01-04) |
 | Active blockers | 0 |
 | v1.0 (shipped) | 6 phases / 33 plans / 40 reqs |
 
@@ -82,10 +82,10 @@ Progress: [██████████] 100% of Phase 03 (3/3 plans) · miles
 
 ## Session Continuity
 
-- **Last action:** Phase 03 (W4 Environment Engine) completed autonomously: full GSD pipeline — context → research → patterns → validation → 3 plans → plan-check (PASS) → execute (3 waves) → code-review (CLEAN; fixed 1 MED — storm/predator disasters were cosmetic, now push real morale modifiers) → verify (human_needed→auto-resolved) → Nyquist sign-off. tick_environment wired into the turn loop. All on civilization.rs; bindings unchanged; cargo test --no-run 0, clippy baseline-only.
-- **Next action (autonomous, auto_advance ON):** Plan + execute Phase 4 (W6 — Combat & Diplomacy: WAR-01 territory ownership/contest, WAR-02 deterministic combat/raids w/ pop/resource/territory consequences, WAR-03 diplomacy stances + trades [allies don't fight], WAR-04 wild predators hunt axolotls — consumes Phase 3's predator_incursion). Backend-heavy (civilization.rs): note CivCivilization already has a `diplomacy` map (HashMap, per-civ stance) and regions have `owner`; build on those. Windows: verify via cargo check/clippy/test --no-run; tests run on CI.
+- **Last action:** Phase 04 (W6 Combat & Diplomacy) completed autonomously: full GSD pipeline — context → research → patterns → validation → 3 plans → plan-check (PASS) → execute (3 waves: actions+bindings-regen, combat, predators) → verify (PASSED) → code-review (CLEAN, 0 HIGH/MED) → Nyquist sign-off. WAR-01/02/03/04 all delivered. Load-bearing invariant honored: combat/predator casualties remove axolotl ENTITIES (population is a mirror), resolved before resolve_environment. civ_strength left as the single Phase-5 gene seam. CivDecisionAction gained 5 optional fields → additive bindings regen (tsc 0).
+- **Next action (autonomous, auto_advance ON):** Plan + execute Phase 5 (W5 — Genetics Depth & Selection, the FINAL phase): GEN-01 expanded genetics (new traits + pattern alleles) crossing Mendelian-style + visible; GEN-02 environmental pressure (e.g. ice age, plague) raises mortality for ill-adapted genes so populations measurably evolve. Build on: existing CivGenes struct (axolotl genetics — already in bindings); Phase 4's `civ_strength` SEAM (add a genes.strength term THERE); Phase 3's seasons/disasters (the selection pressure). Backend (civilization.rs breeding/life-cycle). Check whether new gene fields need a bindings regen (likely yes → additive, like Phase 4). After Phase 5: milestone lifecycle (audit → complete → cleanup).
 - **Last updated:** 2026-06-07
-- **Resume file:** .planning/phases/03-w4-environment-engine/03-VERIFICATION.md
+- **Resume file:** .planning/phases/04-w6-combat-diplomacy/04-VERIFICATION.md
 
 ---
 *State initialized: 2026-05-07; milestone v2.0 started 2026-06-06*
