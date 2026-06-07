@@ -76,6 +76,10 @@ vi.mock("./components/agent/AgentPanel", () => ({
   AgentPanel: () => <aside>Agents</aside>,
 }));
 
+vi.mock("./components/mac/MacRuntimeBridge", () => ({
+  MacRuntimeBridge: () => null,
+}));
+
 vi.mock("./components/agent/AgentOutputView", () => ({
   AgentOutputView: () => <main>Agent output</main>,
 }));

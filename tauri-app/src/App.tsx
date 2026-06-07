@@ -6,11 +6,6 @@ import { useAgentStore, type AgentRecord } from "./stores/agentStore";
 import { useUiStore } from "./stores/uiStore";
 import { useTerminalStore } from "./stores/terminalStore";
 import { projectDisplayName, useProjectStore } from "./stores/projectStore";
-import { useProjectDrop } from "./hooks/useProjectDrop";
-import { useMacGlobalHotkey } from "./hooks/useMacGlobalHotkey";
-import { useMacNotificationRoutes } from "./hooks/useMacNotificationRoutes";
-import { useMacStatusItem } from "./hooks/useMacStatusItem";
-import { useProjectOpenEvents } from "./hooks/useProjectOpenEvents";
 import { AlertTriangle, CheckCircle2, Loader2, MessagesSquare, Sprout, Terminal as TerminalIcon, TestTubeDiagonal, Waves, X } from "lucide-react";
 import { centerTabFromSearch, initialCenterTabFromSearch, persistCenterTab, type CenterTab, urlForCenterTab } from "./lib/appNavigation";
 import { commands } from "./bindings";
@@ -33,6 +28,7 @@ const loadEvalView = () => import("./components/eval/EvalView");
 const loadCivilizationView = () => import("./components/civilization/CivilizationView");
 const loadChatPane = () => import("./components/chat/ChatPane");
 const loadAgentPanel = () => import("./components/agent/AgentPanel");
+const loadMacRuntimeBridge = () => import("./components/mac/MacRuntimeBridge");
 const loadPathActions = () => import("./lib/pathActions");
 
 const LazyChatPane = lazy(async () => {
@@ -58,6 +54,11 @@ const LazyTerminalDock = lazy(async () => {
 const LazyAgentPanel = lazy(async () => {
   const module = await loadAgentPanel();
   return { default: module.AgentPanel };
+});
+
+const LazyMacRuntimeBridge = lazy(async () => {
+  const module = await loadMacRuntimeBridge();
+  return { default: module.MacRuntimeBridge };
 });
 
 const LazyAgentOutputView = lazy(async () => {
@@ -156,11 +157,6 @@ export default function App() {
   const terminalDockMounted = terminalPanelOpen || terminalTabCount > 0;
   const handledMenuActionRef = useRef<{ action: NativeMenuAction; at: number } | null>(null);
 
-  useProjectDrop();
-  useMacGlobalHotkey();
-  useMacStatusItem();
-  useProjectOpenEvents();
-
   const showNoActiveProjectStatus = useCallback(() => {
     setMacAppStatus({
       tone: "error",
@@ -185,7 +181,6 @@ export default function App() {
       window.history.pushState(null, "", nextUrl);
     }
   }, []);
-  useMacNotificationRoutes(selectCenterTab);
 
   const addTerminalTab = useCallback(() => {
     useUiStore.getState().setTerminalPanelOpen(true);
@@ -758,6 +753,9 @@ export default function App() {
 
   return (
     <div className="min-h-0 w-screen flex flex-row overflow-hidden xolotl-shell">
+      <Suspense fallback={null}>
+        <LazyMacRuntimeBridge selectCenterTab={selectCenterTab} />
+      </Suspense>
       <SessionSidebar forceCollapsed={compactShell} />
       <div className="xolotl-workbench flex-1 min-w-0 min-h-0 flex flex-col">
         {!showAgentView && (
