@@ -31,7 +31,8 @@
 <a href="#the-game">The Game 🦎</a> ·
 <a href="#providers">Providers</a> ·
 <a href="#cli">CLI</a> ·
-<a href="#development">Development</a>
+<a href="#development">Development</a> ·
+<a href="docs/index.md">Docs 📚</a>
 
 </div>
 
