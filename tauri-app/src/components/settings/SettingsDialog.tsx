@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   CheckCircle, XCircle, Loader2, Eye, EyeOff, Key, Plug, FileCode,
-  RefreshCw, ShieldCheck, AlertCircle, Monitor, Code2,
+  RefreshCw, ShieldCheck, AlertCircle, Monitor, Code2, Bell,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -11,12 +11,19 @@ import { Input } from "../ui/input";
 import { commands } from "../../bindings";
 import type {
   ApiKeyProviderStatus,
+  MacNotificationSettings,
   MacProductivitySettings,
   SkillManifest,
   McpServerConfig,
   McpTestResult,
 } from "../../bindings";
 import { useUiStore } from "../../stores/uiStore";
+import {
+  getNotificationPermissionState,
+  requestNotificationPermissionState,
+  sendSettingsTestNotification,
+  type NotificationPermissionState,
+} from "../../lib/notificationActions";
 
 interface ProviderConfig {
   id: string;
@@ -366,6 +373,11 @@ function ProvidersPanel({ open }: { open: boolean }) {
 // ════════════════════════════════════════════════════════════════════════════
 const EMPTY_MAC_SETTINGS: MacProductivitySettings = {
   external_editor: null,
+  notifications: {
+    agent_finished: false,
+    eval_finished: false,
+    permission_required: false,
+  },
 };
 
 const EDITOR_PRESETS = ["Visual Studio Code", "Cursor", "Zed", "Sublime Text"];
@@ -373,6 +385,7 @@ const EDITOR_PRESETS = ["Visual Studio Code", "Cursor", "Zed", "Sublime Text"];
 function MacPanel({ open }: { open: boolean }) {
   const [settings, setSettings] = useState<MacProductivitySettings>(EMPTY_MAC_SETTINGS);
   const [editor, setEditor] = useState("");
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>("unknown");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -385,6 +398,7 @@ function MacPanel({ open }: { open: boolean }) {
       const next = await commands.getMacProductivitySettings();
       setSettings(next);
       setEditor(next.external_editor ?? "");
+      setNotificationPermission(await getNotificationPermissionState());
     } catch (err) {
       setError(String(err));
     } finally {
@@ -407,6 +421,70 @@ function MacPanel({ open }: { open: boolean }) {
       setError(result.error);
     }
     setSaving(false);
+  }
+
+  async function ensureNotificationPermission(): Promise<boolean> {
+    let permission = await getNotificationPermissionState();
+    if (permission === "default" || permission === "unknown") {
+      permission = await requestNotificationPermissionState();
+    }
+    setNotificationPermission(permission);
+    if (permission === "granted") return true;
+    setError(
+      permission === "denied"
+        ? "Notifications are blocked in macOS System Settings."
+        : "Notification permission is not available."
+    );
+    return false;
+  }
+
+  async function saveNotifications(nextNotifications: MacNotificationSettings) {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    const enabling = Object.entries(nextNotifications).some(([key, value]) => (
+      value && !settings.notifications[key as keyof MacNotificationSettings]
+    ));
+    if (enabling && !(await ensureNotificationPermission())) {
+      setSaving(false);
+      return;
+    }
+    const result = await commands.setMacNotificationSettings(nextNotifications);
+    if (result.status === "ok") {
+      setSettings(result.data);
+      setEditor(result.data.external_editor ?? "");
+      setMessage("Notification settings saved.");
+    } else {
+      setError(result.error);
+    }
+    setSaving(false);
+  }
+
+  async function toggleNotification(key: keyof MacNotificationSettings, checked: boolean) {
+    await saveNotifications({
+      ...settings.notifications,
+      [key]: checked,
+    });
+  }
+
+  async function handleRequestNotificationPermission() {
+    setMessage("");
+    setError("");
+    const permission = await requestNotificationPermissionState();
+    setNotificationPermission(permission);
+    setMessage(permission === "granted" ? "Notification permission granted." : "");
+    if (permission === "denied") setError("Notifications are blocked in macOS System Settings.");
+  }
+
+  function handleSendTestNotification() {
+    try {
+      sendSettingsTestNotification();
+      setMessage("Test notification sent.");
+      setError("");
+    } catch (err) {
+      setError(String(err));
+      setMessage("");
+    }
   }
 
   return (
@@ -458,18 +536,97 @@ function MacPanel({ open }: { open: boolean }) {
             Current: <code className="rounded bg-[oklch(0.15_0.004_245)] px-1 py-0.5 text-[10px]">{settings.external_editor}</code>
           </p>
         )}
-        {message && (
-          <p className="mt-2 flex items-center gap-1 text-xs text-emerald-400">
-            <CheckCircle className="h-3 w-3 shrink-0" /> {message}
-          </p>
-        )}
-        {error && (
-          <p className="mt-2 flex items-center gap-1 text-xs text-red-400">
-            <XCircle className="h-3 w-3 shrink-0" /> {error}
-          </p>
-        )}
       </div>
+
+      <div className="rounded-md border border-[oklch(0.22_0.008_240)] bg-[oklch(0.125_0.004_245)] px-3 py-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-[oklch(0.90_0.025_220)]">
+          <Bell className="h-4 w-4 text-[oklch(0.68_0.050_190)]" />
+          Notifications
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[oklch(0.58_0.012_225)]">
+          <span className="rounded border border-[oklch(0.24_0.010_235)] bg-[oklch(0.15_0.004_245)] px-2 py-1">
+            Permission: {notificationPermissionLabel(notificationPermission)}
+          </span>
+          <Button size="sm" variant="outline" disabled={saving || loading} onClick={() => void handleRequestNotificationPermission()}>
+            Request Permission
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={saving || loading || notificationPermission !== "granted"}
+            onClick={handleSendTestNotification}
+          >
+            Send Test
+          </Button>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <NotificationToggle
+            label="Agent finished"
+            checked={settings.notifications.agent_finished}
+            disabled={saving || loading}
+            onChange={(checked) => void toggleNotification("agent_finished", checked)}
+          />
+          <NotificationToggle
+            label="Eval finished"
+            checked={settings.notifications.eval_finished}
+            disabled={saving || loading}
+            onChange={(checked) => void toggleNotification("eval_finished", checked)}
+          />
+          <NotificationToggle
+            label="Permission required"
+            checked={settings.notifications.permission_required}
+            disabled={saving || loading}
+            onChange={(checked) => void toggleNotification("permission_required", checked)}
+          />
+        </div>
+      </div>
+
+      {message && (
+        <p className="flex items-center gap-1 text-xs text-emerald-400">
+          <CheckCircle className="h-3 w-3 shrink-0" /> {message}
+        </p>
+      )}
+      {error && (
+        <p className="flex items-center gap-1 text-xs text-red-400">
+          <XCircle className="h-3 w-3 shrink-0" /> {error}
+        </p>
+      )}
     </div>
+  );
+}
+
+function notificationPermissionLabel(permission: NotificationPermissionState): string {
+  switch (permission) {
+    case "granted": return "Granted";
+    case "denied": return "Blocked";
+    case "default": return "Not requested";
+    case "unsupported": return "Unavailable";
+    default: return "Unknown";
+  }
+}
+
+function NotificationToggle({
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded border border-[oklch(0.22_0.008_240)] bg-[oklch(0.105_0.004_245)] px-3 py-2 text-xs text-[oklch(0.76_0.018_220)]">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 accent-[oklch(0.68_0.050_190)]"
+      />
+      <span>{label}</span>
+    </label>
   );
 }
 

@@ -102,6 +102,8 @@ export const commands = {
 	 *  Code" or "Cursor" on macOS, or a full executable path for CLI launchers.
 	 */
 	setExternalEditor: (editor: string) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_external_editor", { editor })),
+	/**  Set opt-in macOS notification preferences for long-running work. */
+	setMacNotificationSettings: (settings: MacNotificationSettings) => typedError<MacProductivitySettings, string>(__TAURI_INVOKE("set_mac_notification_settings", { settings })),
 	/**
 	 *  Save an API key for a provider. Pass an empty string to clear the key.
 	 *  On macOS app-saved keys are stored in Keychain; other config.json fields
@@ -742,8 +744,15 @@ export type JudgeScores = {
 	rationale: { [key in string]: string },
 };
 
+export type MacNotificationSettings = {
+	agent_finished: boolean,
+	eval_finished: boolean,
+	permission_required: boolean,
+};
+
 export type MacProductivitySettings = {
 	external_editor: string | null,
+	notifications: MacNotificationSettings,
 };
 
 /**  User-authored post-eval review, intentionally separate from blind rubric scores. */

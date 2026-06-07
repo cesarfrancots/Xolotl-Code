@@ -38,6 +38,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Keychain read failures surface in Settings with recovery text instead of looking like missing provider keys.
 - Terminal tabs resolve zsh/bash/fish-aware shell profiles and display shell, cwd, and environment source metadata.
 - macOS Settings include a preferred external editor, and active projects can open in that editor from project rows or the command palette.
+- macOS Settings include opt-in notification toggles for agent completion, eval completion, and permission prompts. Backend notifications now respect those toggles.
 
 ## Phase 1 - Native Mac Shell
 
@@ -223,9 +224,9 @@ Deliverables:
   - Reveal generated eval artifacts in Finder.
   - Open project folder in the user's preferred external editor if configured. Done for active project rows and command palette access.
 - Notification actions for long-running tasks:
-  - Agent finished.
-  - Eval finished.
-  - Permission required.
+  - Agent finished. Done for opt-in native completion alerts.
+  - Eval finished. Done for opt-in single eval, goal eval, and suite completion alerts.
+  - Permission required. Done for opt-in tool permission prompt alerts.
 - Clipboard-aware command palette actions:
   - Explain selected code.
   - Start chat with clipboard snippet.
@@ -242,6 +243,7 @@ Implementation order:
 1. Add non-interruptive Finder actions first.
    - Done for active project external-editor launch with a macOS Settings preference.
 2. Add notification routing for existing long-running work.
+   - Done for opt-in backend notifications. Click-to-view routing remains a follow-up because the current Tauri desktop notification wrapper ignores Rust-side action metadata.
 3. Add opt-in global hotkey with settings UI and tests.
 4. Evaluate menu bar helper only after agent/eval status events are stable enough to summarize.
 

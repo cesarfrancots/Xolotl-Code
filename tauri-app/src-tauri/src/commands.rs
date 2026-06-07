@@ -657,6 +657,12 @@ pub fn test_permission_prompt(
             },
         )
         .map_err(|e| e.to_string())?;
+    show_productivity_notification_if_enabled(
+        &app_handle,
+        MacNotificationKind::PermissionRequired,
+        "Permission required",
+        "A tool request is waiting for review.",
+    );
 
     let pending = pending_prompts.inner().clone();
     let id_clone = prompt_id.clone();
@@ -1422,6 +1428,8 @@ pub async fn run_eval_suite(
     let suite_run_clone = suite_run_id.clone();
     tokio::spawn(async move {
         let channel = format!("suite-event:{suite_run_clone}");
+        let suite_name = suite.name.clone();
+        let prompt_count = suite.prompts.len();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _ = app_handle.emit(
             &channel,
@@ -1463,6 +1471,12 @@ pub async fn run_eval_suite(
         let _ = app_handle.emit(
             &channel,
             serde_json::json!({ "type": "SuiteComplete", "suite_run_id": suite_run_clone }),
+        );
+        show_productivity_notification_if_enabled(
+            &app_handle,
+            MacNotificationKind::EvalFinished,
+            "Eval suite finished",
+            format!("{prompt_count} prompts complete - {suite_name}"),
         );
     });
 
@@ -1563,6 +1577,7 @@ async fn start_eval_inner_full(
 ) -> Result<String, String> {
     let evals_dir = home_evals_dir();
     std::fs::create_dir_all(&evals_dir).map_err(|e| e.to_string())?;
+    let is_suite_prompt = suite_run_id.is_some();
 
     let created_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1816,6 +1831,34 @@ async fn start_eval_inner_full(
         &channel,
         serde_json::json!({ "type": "EvalComplete", "eval_id": eval_id }),
     );
+    if !is_suite_prompt {
+        let failed = eval_result
+            .results
+            .iter()
+            .filter(|result| result.error.is_some())
+            .count();
+        let completed = eval_result.results.len().saturating_sub(failed);
+        let result_summary = if failed == 0 {
+            format!("{completed} model{} complete", if completed == 1 { "" } else { "s" })
+        } else {
+            format!("{completed} complete, {failed} failed")
+        };
+        let title = if eval_result.is_goal_eval {
+            "Goal eval finished"
+        } else {
+            "Eval finished"
+        };
+        show_productivity_notification_if_enabled(
+            &app_handle,
+            MacNotificationKind::EvalFinished,
+            title,
+            format!(
+                "{} - {}",
+                result_summary,
+                truncate_notification_text(&eval_result.prompt, 72)
+            ),
+        );
+    }
 
     Ok(eval_id)
 }
@@ -2487,6 +2530,14 @@ pub struct ApiKeyProviderStatus {
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct MacProductivitySettings {
     pub external_editor: Option<String>,
+    pub notifications: MacNotificationSettings,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct MacNotificationSettings {
+    pub agent_finished: bool,
+    pub eval_finished: bool,
+    pub permission_required: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2602,6 +2653,9 @@ fn config_get(config: &ConfigMap, key: &str) -> Option<String> {
 }
 
 const EXTERNAL_EDITOR_CONFIG_KEY: &str = "XOLOTL_EXTERNAL_EDITOR";
+const NOTIFY_AGENT_FINISHED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_AGENT_FINISHED";
+const NOTIFY_EVAL_FINISHED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_EVAL_FINISHED";
+const NOTIFY_PERMISSION_REQUIRED_CONFIG_KEY: &str = "XOLOTL_NOTIFY_PERMISSION_REQUIRED";
 
 fn config_string(config: &ConfigMap, key: &str) -> Option<String> {
     config
@@ -2611,13 +2665,41 @@ fn config_string(config: &ConfigMap, key: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+fn config_bool(config: &ConfigMap, key: &str) -> bool {
+    match config.get(key) {
+        Some(serde_json::Value::Bool(value)) => *value,
+        Some(serde_json::Value::String(value)) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        _ => false,
+    }
+}
+
+fn set_config_bool(config: &mut ConfigMap, key: &str, value: bool) {
+    if value {
+        config.insert(key.to_string(), serde_json::Value::Bool(true));
+    } else {
+        config.remove(key);
+    }
+}
+
 fn external_editor_from_config(config: &ConfigMap) -> Option<String> {
     config_string(config, EXTERNAL_EDITOR_CONFIG_KEY)
+}
+
+fn mac_notification_settings_from_config(config: &ConfigMap) -> MacNotificationSettings {
+    MacNotificationSettings {
+        agent_finished: config_bool(config, NOTIFY_AGENT_FINISHED_CONFIG_KEY),
+        eval_finished: config_bool(config, NOTIFY_EVAL_FINISHED_CONFIG_KEY),
+        permission_required: config_bool(config, NOTIFY_PERMISSION_REQUIRED_CONFIG_KEY),
+    }
 }
 
 fn mac_productivity_settings_from_config(config: &ConfigMap) -> MacProductivitySettings {
     MacProductivitySettings {
         external_editor: external_editor_from_config(config),
+        notifications: mac_notification_settings_from_config(config),
     }
 }
 
@@ -2631,6 +2713,66 @@ fn set_external_editor_in_config(config: &mut ConfigMap, editor: &str) {
             serde_json::Value::String(editor.to_string()),
         );
     }
+}
+
+fn set_mac_notification_settings_in_config(
+    config: &mut ConfigMap,
+    settings: &MacNotificationSettings,
+) {
+    set_config_bool(
+        config,
+        NOTIFY_AGENT_FINISHED_CONFIG_KEY,
+        settings.agent_finished,
+    );
+    set_config_bool(config, NOTIFY_EVAL_FINISHED_CONFIG_KEY, settings.eval_finished);
+    set_config_bool(
+        config,
+        NOTIFY_PERMISSION_REQUIRED_CONFIG_KEY,
+        settings.permission_required,
+    );
+}
+
+pub(crate) enum MacNotificationKind {
+    AgentFinished,
+    EvalFinished,
+    PermissionRequired,
+}
+
+fn mac_notification_enabled(config: &ConfigMap, kind: MacNotificationKind) -> bool {
+    let settings = mac_notification_settings_from_config(config);
+    match kind {
+        MacNotificationKind::AgentFinished => settings.agent_finished,
+        MacNotificationKind::EvalFinished => settings.eval_finished,
+        MacNotificationKind::PermissionRequired => settings.permission_required,
+    }
+}
+
+fn truncate_notification_text(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
+}
+
+pub(crate) fn show_productivity_notification_if_enabled(
+    app_handle: &AppHandle,
+    kind: MacNotificationKind,
+    title: impl Into<String>,
+    body: impl Into<String>,
+) {
+    let config = load_config();
+    if !mac_notification_enabled(&config, kind) {
+        return;
+    }
+    let _ = app_handle
+        .notification()
+        .builder()
+        .title(title.into())
+        .body(body.into())
+        .show();
 }
 
 fn external_editor_is_app_bundle(editor: &str) -> bool {
@@ -3000,6 +3142,18 @@ pub fn get_mac_productivity_settings() -> MacProductivitySettings {
 pub fn set_external_editor(editor: String) -> Result<MacProductivitySettings, String> {
     let mut config = load_config();
     set_external_editor_in_config(&mut config, &editor);
+    save_config(&config)?;
+    Ok(mac_productivity_settings_from_config(&config))
+}
+
+/// Set opt-in macOS notification preferences for long-running work.
+#[tauri::command]
+#[specta::specta]
+pub fn set_mac_notification_settings(
+    settings: MacNotificationSettings,
+) -> Result<MacProductivitySettings, String> {
+    let mut config = load_config();
+    set_mac_notification_settings_in_config(&mut config, &settings);
     save_config(&config)?;
     Ok(mac_productivity_settings_from_config(&config))
 }
@@ -4810,13 +4964,13 @@ pub(crate) fn spawn_event_relay(app_handle: AppHandle, agent_id: AgentId, handle
                                 "Failed"
                             };
                             let title: String = handle.task.chars().take(60).collect();
-                            let body = format!("{} — ${:.4}", state_label, cost);
-                            let _ = app_handle
-                                .notification()
-                                .builder()
-                                .title(&title)
-                                .body(&body)
-                                .show();
+                            let body = format!("{} - ${:.4}", state_label, cost);
+                            show_productivity_notification_if_enabled(
+                                &app_handle,
+                                MacNotificationKind::AgentFinished,
+                                title,
+                                body,
+                            );
                         }
                     }
                 }
@@ -5035,6 +5189,76 @@ mod config_tests {
         set_external_editor_in_config(&mut cfg, "  ");
         assert_eq!(external_editor_from_config(&cfg), None);
         assert_eq!(config_get(&cfg, "ANTHROPIC_API_KEY"), Some("ant-xxx".into()));
+    }
+
+    #[test]
+    fn mac_notification_settings_default_to_opt_in_off() {
+        let cfg = make_legacy_cli_config();
+        let settings = mac_notification_settings_from_config(&cfg);
+
+        assert!(!settings.agent_finished);
+        assert!(!settings.eval_finished);
+        assert!(!settings.permission_required);
+    }
+
+    #[test]
+    fn mac_notification_settings_preserve_other_config_fields() {
+        let mut cfg = make_legacy_cli_config();
+
+        set_mac_notification_settings_in_config(
+            &mut cfg,
+            &MacNotificationSettings {
+                agent_finished: true,
+                eval_finished: true,
+                permission_required: false,
+            },
+        );
+        let settings = mac_notification_settings_from_config(&cfg);
+
+        assert!(settings.agent_finished);
+        assert!(settings.eval_finished);
+        assert!(!settings.permission_required);
+        assert_eq!(
+            config_get(&cfg, "KIMI_CODING_BASE_URL"),
+            Some("https://api.kimi.com/coding/v1".into())
+        );
+
+        set_mac_notification_settings_in_config(
+            &mut cfg,
+            &MacNotificationSettings {
+                agent_finished: false,
+                eval_finished: false,
+                permission_required: false,
+            },
+        );
+        let settings = mac_notification_settings_from_config(&cfg);
+        assert!(!settings.agent_finished);
+        assert!(!settings.eval_finished);
+        assert!(!settings.permission_required);
+        assert!(!cfg.contains_key(NOTIFY_AGENT_FINISHED_CONFIG_KEY));
+        assert_eq!(config_get(&cfg, "ANTHROPIC_API_KEY"), Some("ant-xxx".into()));
+    }
+
+    #[test]
+    fn mac_notification_settings_read_legacy_string_booleans() {
+        let mut cfg = make_legacy_cli_config();
+        cfg.insert(
+            NOTIFY_AGENT_FINISHED_CONFIG_KEY.to_string(),
+            serde_json::Value::String("yes".into()),
+        );
+        cfg.insert(
+            NOTIFY_EVAL_FINISHED_CONFIG_KEY.to_string(),
+            serde_json::Value::String("0".into()),
+        );
+        cfg.insert(
+            NOTIFY_PERMISSION_REQUIRED_CONFIG_KEY.to_string(),
+            serde_json::Value::Bool(true),
+        );
+
+        let settings = mac_notification_settings_from_config(&cfg);
+        assert!(settings.agent_finished);
+        assert!(!settings.eval_finished);
+        assert!(settings.permission_required);
     }
 
     #[test]

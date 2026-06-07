@@ -21,13 +21,14 @@ use crate::commands::{
     load_session, merge_worktrees, migrate_api_key_to_keychain, open_path_in_external_editor,
     pick_directory, remove_project, respond_to_permission, reveal_in_finder, run_agent_turn,
     run_eval_suite, run_goal_grade, run_llm_judge, save_human_scores, save_manual_reviews,
-    save_session, set_api_key, set_external_editor, smoke_test, spawn_agent, start_eval,
-    start_eval_artifact, start_goal_eval, stop_agent, test_api_connection, test_permission_prompt,
-    touch_project, AutoScores, ChatMessage, DirChild, DirListing, EvalArtifactFileInput,
-    EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta, EvalResult, EvalSuite, FileDiff,
-    GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores, JudgeScores, MacProductivitySettings,
-    ManualReview, ModelEvalResult, ProfileBuildResult, Project, PromptCommand, ProposalBuildResult,
-    ReasoningFlag, ReliabilityMetrics, RoleConfig, SessionMeta, SuitePrompt,
+    save_session, set_api_key, set_external_editor, set_mac_notification_settings, smoke_test,
+    spawn_agent, start_eval, start_eval_artifact, start_goal_eval, stop_agent,
+    test_api_connection, test_permission_prompt, touch_project, AutoScores, ChatMessage, DirChild,
+    DirListing, EvalArtifactFileInput, EvalArtifactLaunchResult, EvalArtifactRequest, EvalMeta,
+    EvalResult, EvalSuite, FileDiff, GoalAxisScore, GoalGrade, GroupLaunchResult, HumanScores,
+    JudgeScores, MacNotificationSettings, MacProductivitySettings, ManualReview, ModelEvalResult,
+    ProfileBuildResult, Project, PromptCommand, ProposalBuildResult, ReasoningFlag,
+    ReliabilityMetrics, RoleConfig, SessionMeta, SuitePrompt,
 };
 use crate::permission_prompter::{PendingPrompts, PermissionDecision};
 use crate::skills_mcp::{
@@ -113,6 +114,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             get_mac_productivity_settings,
             migrate_api_key_to_keychain,
             set_external_editor,
+            set_mac_notification_settings,
             set_api_key,
             open_path_in_external_editor,
             test_api_connection,
@@ -153,6 +155,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<SessionMeta>()
         .typ::<Project>()
         .typ::<MacProductivitySettings>()
+        .typ::<MacNotificationSettings>()
         .typ::<DirChild>()
         .typ::<DirListing>()
         .typ::<RoleConfig>()

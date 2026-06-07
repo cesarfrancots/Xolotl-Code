@@ -51,6 +51,7 @@ impl PermissionPrompter for TauriPermissionPrompter {
 
         // First 120 chars of input as preview — use .chars().take(120) for correct Unicode handling
         let preview: String = request.input.chars().take(120).collect();
+        let tool_name = request.tool_name.clone();
 
         // WR-06: check emit result — on failure, immediately remove the pending entry
         // and return Deny rather than blocking on recv_timeout for 60 seconds with a
@@ -61,7 +62,7 @@ impl PermissionPrompter for TauriPermissionPrompter {
                 "permission-request",
                 PermissionRequestPayload {
                     prompt_id: prompt_id.clone(),
-                    tool_name: request.tool_name.clone(),
+                    tool_name: tool_name.clone(),
                     preview,
                 },
             )
@@ -75,6 +76,12 @@ impl PermissionPrompter for TauriPermissionPrompter {
                 reason: "Failed to emit permission request to frontend".to_string(),
             };
         }
+        crate::commands::show_productivity_notification_if_enabled(
+            &self.app_handle,
+            crate::commands::MacNotificationKind::PermissionRequired,
+            "Permission required",
+            format!("{tool_name} is waiting for review."),
+        );
 
         // SAFE: decide() is always called from within tokio::task::spawn_blocking
         // (ORC-03 invariant). recv_timeout blocks this OS thread — not an async task.

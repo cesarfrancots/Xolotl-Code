@@ -31,6 +31,7 @@ const PREVIEW_PROVIDERS = [
 ];
 
 const PREVIEW_EXTERNAL_EDITOR_KEY = "xolotl-preview-external-editor";
+const PREVIEW_NOTIFICATIONS_KEY = "xolotl-preview-notifications";
 
 const PREVIEW_SUITES = [
   {
@@ -1199,6 +1200,42 @@ function writePreviewExternalEditor(value: string) {
   return editor || null;
 }
 
+const EMPTY_PREVIEW_NOTIFICATIONS = {
+  agent_finished: false,
+  eval_finished: false,
+  permission_required: false,
+};
+
+function readPreviewNotifications() {
+  try {
+    const raw = globalThis.localStorage?.getItem(PREVIEW_NOTIFICATIONS_KEY);
+    if (!raw) return EMPTY_PREVIEW_NOTIFICATIONS;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return EMPTY_PREVIEW_NOTIFICATIONS;
+    return {
+      agent_finished: parsed.agent_finished === true,
+      eval_finished: parsed.eval_finished === true,
+      permission_required: parsed.permission_required === true,
+    };
+  } catch {
+    return EMPTY_PREVIEW_NOTIFICATIONS;
+  }
+}
+
+function writePreviewNotifications(value: unknown) {
+  const notifications = isRecord(value) ? {
+    agent_finished: value.agent_finished === true,
+    eval_finished: value.eval_finished === true,
+    permission_required: value.permission_required === true,
+  } : EMPTY_PREVIEW_NOTIFICATIONS;
+  try {
+    globalThis.localStorage?.setItem(PREVIEW_NOTIFICATIONS_KEY, JSON.stringify(notifications));
+  } catch {
+    // Browser preview can run with storage disabled; keep the native API shape.
+  }
+  return notifications;
+}
+
 function installTauriBrowserFallback() {
   if (!import.meta.env.DEV) return;
   if (typeof window === "undefined") return;
@@ -1285,11 +1322,30 @@ function handlePreviewCommand(cmd: string, args?: unknown): unknown {
         ])
       );
     case "get_mac_productivity_settings":
-      return { external_editor: readPreviewExternalEditor() };
+      return {
+        external_editor: readPreviewExternalEditor(),
+        notifications: readPreviewNotifications(),
+      };
     case "set_external_editor": {
       const editor = isRecord(args) && typeof args.editor === "string" ? args.editor : "";
-      return { external_editor: writePreviewExternalEditor(editor) };
+      return {
+        external_editor: writePreviewExternalEditor(editor),
+        notifications: readPreviewNotifications(),
+      };
     }
+    case "set_mac_notification_settings": {
+      const notifications = isRecord(args) ? writePreviewNotifications(args.settings) : EMPTY_PREVIEW_NOTIFICATIONS;
+      return {
+        external_editor: readPreviewExternalEditor(),
+        notifications,
+      };
+    }
+    case "plugin:notification|is_permission_granted":
+      return true;
+    case "plugin:notification|request_permission":
+      return "granted";
+    case "plugin:notification|notify":
+      return null;
     case "migrate_api_key_to_keychain":
       throw "Preview mode does not migrate keys to macOS Keychain.";
     case "load_session":
