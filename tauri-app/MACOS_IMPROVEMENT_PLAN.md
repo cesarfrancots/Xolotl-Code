@@ -21,7 +21,8 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Mac command routing uses a shared command model for global keydown handling, native-menu action normalization, and command-palette action rows.
 - File > Open Recent is populated from the persisted project store and refreshes after project add/remove/activation.
 - Directory paths passed at app launch are imported into the project store and activated on startup.
-- macOS open/reopen events are handled: file URLs from Finder/Open With are normalized into project-open requests, and Dock/app reopen focuses the main window.
+- macOS open/reopen events are handled: folder URLs from Finder/Open With activate directly, document file URLs activate their containing folder, and Dock/app reopen focuses the main window.
+- The macOS bundle registers Finder/Open With document types for project folders plus common source/text documents.
 - Saved project rows and file browser entries can reveal their target in Finder.
 - File browser entries can copy POSIX paths and project-relative paths.
 - File browser entries can preview files with macOS Quick Look from row actions and the command palette.
@@ -149,7 +150,8 @@ Status: in progress.
 Deliverables:
 
 - Open project folders from command-line launch arguments. Done for existing directory arguments passed to the app.
-- Open project folders from Finder. Done for Tauri window drops, macOS `RunEvent::Opened` file URLs, and packaged Launch Services/Open With smoke coverage.
+- Open project folders from Finder. Done for Tauri window drops, macOS `RunEvent::Opened` file URLs, Info.plist document registration, and packaged Launch Services/Open With smoke coverage.
+- Open source/text files from Finder by activating the containing folder as a project. Done for macOS `RunEvent::Opened` file URLs and packaged Open With smoke coverage.
 - Add a Recent Projects menu that mirrors the project store. Done for File > Open Recent with menu refresh after project changes.
 - Add Dock menu shortcuts for New Chat, Open Folder, and recent projects if Tauri/AppKit support is practical. Evaluated against local Tauri 2.11 API: Dock visibility is exposed, but Dock menu construction is not; revisit only if an AppKit-specific shim is worth carrying.
 - Support drag-and-drop of folders onto the app window to open a project. Done for Tauri window drops; still needs end-to-end Finder smoke coverage with a real project folder.

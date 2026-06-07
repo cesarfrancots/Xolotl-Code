@@ -326,13 +326,35 @@ fn build_recent_projects_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<t
     builder.build()
 }
 
-fn canonical_project_path_from_arg(arg: OsString) -> Option<String> {
-    let raw = PathBuf::from(arg);
-    if !raw.is_dir() {
-        return None;
+fn file_project_container(file: &Path) -> Option<PathBuf> {
+    let fallback = file.parent()?.to_path_buf();
+    for dir in fallback.ancestors() {
+        if dir.join(".git").exists()
+            || dir.join("package.json").is_file()
+            || dir.join("Cargo.toml").is_file()
+            || dir.join("pyproject.toml").is_file()
+            || dir.join("go.mod").is_file()
+        {
+            return Some(dir.to_path_buf());
+        }
     }
-    let canonical = std::fs::canonicalize(&raw).unwrap_or(raw);
+    Some(fallback)
+}
+
+fn canonical_project_path_from_input_path(raw: PathBuf) -> Option<String> {
+    let target = if raw.is_dir() {
+        raw
+    } else if raw.is_file() {
+        file_project_container(&raw)?
+    } else {
+        return None;
+    };
+    let canonical = std::fs::canonicalize(&target).unwrap_or(target);
     Some(canonical.to_string_lossy().into_owned())
+}
+
+fn canonical_project_path_from_arg(arg: OsString) -> Option<String> {
+    canonical_project_path_from_input_path(PathBuf::from(arg))
 }
 
 fn launch_project_paths_from_args<I>(args: I) -> Vec<String>
@@ -366,7 +388,7 @@ fn project_path_from_open_url(url: &tauri::Url) -> Option<String> {
         return None;
     }
     let path = url.to_file_path().ok()?;
-    canonical_project_path_from_arg(path.into_os_string())
+    canonical_project_path_from_input_path(path)
 }
 
 fn project_paths_from_open_urls(urls: Vec<tauri::Url>) -> Vec<String> {
@@ -914,6 +936,30 @@ mod tests {
     }
 
     #[test]
+    fn launch_project_paths_accept_files_by_parent_directory() {
+        let root =
+            std::env::temp_dir().join(format!("xolotl-launch-file-path-{}", std::process::id()));
+        let project = root.join("Project From File Arg");
+        let file = project.join("README.md");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&project).expect("project test dir should be created");
+        std::fs::write(&file, "# Project").expect("project file should be written");
+
+        let paths = launch_project_paths_from_args(vec![
+            OsString::from("xolotl-code"),
+            file.into_os_string(),
+        ]);
+
+        let expected = std::fs::canonicalize(&project)
+            .expect("project test dir should canonicalize")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(paths, vec![expected]);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn project_paths_from_open_urls_accepts_file_directory_urls() {
         let root = std::env::temp_dir().join(format!("xolotl-open-url-{}", std::process::id()));
         let project = root.join("Project From Finder");
@@ -933,17 +979,40 @@ mod tests {
     }
 
     #[test]
-    fn project_paths_from_open_urls_rejects_non_file_urls_and_files() {
+    fn project_paths_from_open_urls_accepts_file_urls_by_project_root() {
+        let root =
+            std::env::temp_dir().join(format!("xolotl-open-file-url-{}", std::process::id()));
+        let project = root.join("Project From Source File");
+        let file = project.join("src").join("main.ts");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(project.join(".git")).expect("project marker should be created");
+        std::fs::create_dir_all(file.parent().expect("file should have parent"))
+            .expect("project test dir should be created");
+        std::fs::write(&file, "console.log('xolotl');").expect("project file should be written");
+
+        let file_url = tauri::Url::from_file_path(&file).expect("file url should be created");
+        let paths = project_paths_from_open_urls(vec![file_url]);
+
+        let expected = std::fs::canonicalize(&project)
+            .expect("project root should canonicalize")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(paths, vec![expected]);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn project_paths_from_open_urls_rejects_non_file_urls_and_missing_paths() {
         let root =
             std::env::temp_dir().join(format!("xolotl-open-url-reject-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("project test dir should be created");
-        let file = root.join("note.txt");
-        std::fs::write(&file, "not a project").expect("test file should be written");
+        let missing = root.join("missing");
 
         let urls = vec![
             tauri::Url::parse("https://example.com/project").expect("https url should parse"),
-            tauri::Url::from_file_path(&file).expect("file url should be created"),
+            tauri::Url::from_file_path(&missing).expect("missing file url should be created"),
         ];
 
         assert!(project_paths_from_open_urls(urls).is_empty());

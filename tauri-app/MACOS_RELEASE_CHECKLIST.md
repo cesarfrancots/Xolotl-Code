@@ -33,6 +33,7 @@ npm run smoke:mac:open-project
 - App bundle exists.
 - DMG exists.
 - `Info.plist` name, bundle id, version, executable, and Developer Tools category match project config.
+- `Info.plist` registers Finder/Open With document types for folders and source/text documents.
 - App icon exists.
 - Executable architecture matches the current Mac, or both `arm64` and `x86_64` when universal mode is requested.
 - DMG mounts and contains `Xolotl Code.app` plus an `Applications` symlink.
@@ -80,6 +81,7 @@ Run these checks on a clean macOS user profile before a public release:
 - Enable notifications, run a test notification, and confirm notification routing returns to the expected view.
 - Launch the app with a project path and confirm the project is active.
 - Use Finder/Open With on a project folder and confirm it activates without duplicate recent-project rows.
+- Use Finder/Open With on a source or Markdown file and confirm Xolotl activates the containing folder as a project.
 - Quit with terminal tabs open and confirm Xolotl-owned terminal processes are cleaned up.
 
 ## Artifacts

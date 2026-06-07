@@ -38,6 +38,9 @@
       "icons/icon.ico"
     ],
     "category": "DeveloperTool",
-    "shortDescription": "Desktop coding agent platform for evaluating and racing LLMs."
+    "shortDescription": "Desktop coding agent platform for evaluating and racing LLMs.",
+    "macOS": {
+      "infoPlist": "Info.plist"
+    }
   }
 }

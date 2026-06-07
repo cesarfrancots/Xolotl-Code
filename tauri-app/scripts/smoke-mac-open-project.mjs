@@ -6,6 +6,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -58,8 +59,12 @@ const processNeedles = [
 
 const projectFromPath = mkdtempSync(join(tempRoot, "Project From Open Path "));
 const projectFromUrl = mkdtempSync(join(tempRoot, "Project From File URL "));
+const projectFromFile = mkdtempSync(join(tempRoot, "Project From Opened File "));
+const openedFile = join(projectFromFile, "README.md");
+writeFileSync(openedFile, "# Opened from Finder\n", "utf8");
 const canonicalPathProject = realpathSync(projectFromPath);
 const canonicalUrlProject = realpathSync(projectFromUrl);
+const canonicalFileProject = realpathSync(projectFromFile);
 
 function sleep(ms) {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
@@ -168,8 +173,12 @@ try {
   openApp(["-g", "-a", tempAppBundle, "-u", pathToFileURL(canonicalUrlProject).href]);
   await waitForProjects([canonicalPathProject, canonicalUrlProject]);
 
+  openApp(["-g", "-a", tempAppBundle, "-u", pathToFileURL(openedFile).href]);
+  await waitForProjects([canonicalPathProject, canonicalUrlProject, canonicalFileProject]);
+
   console.log(`open project smoke ok: ${canonicalPathProject}`);
   console.log(`open file-url smoke ok: ${canonicalUrlProject}`);
+  console.log(`open document-url smoke ok: ${openedFile} -> ${canonicalFileProject}`);
 } finally {
   await terminateApp();
   if (!keepTemp) {

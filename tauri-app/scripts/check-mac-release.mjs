@@ -24,6 +24,12 @@ const dmgPath = resolve(positional[1] ?? defaultDmgPath);
 const expectUniversal = args.has("--expect-universal") || process.env.MAC_RELEASE_EXPECT_UNIVERSAL === "1";
 const requireSigning = args.has("--require-signing") || process.env.MAC_RELEASE_REQUIRE_SIGNING === "1";
 const requireNotarization = args.has("--require-notarization") || process.env.MAC_RELEASE_REQUIRE_NOTARIZATION === "1";
+const expectedDocumentContentTypes = [
+  "public.folder",
+  "public.source-code",
+  "public.plain-text",
+  "public.json",
+];
 
 const failures = [];
 const warnings = [];
@@ -56,6 +62,14 @@ function commandOutput(command, args) {
 
 function plistValue(plistPath, key) {
   return commandOutput("/usr/libexec/PlistBuddy", ["-c", `Print :${key}`, plistPath]);
+}
+
+function optionalPlistValue(plistPath, key) {
+  try {
+    return plistValue(plistPath, key);
+  } catch {
+    return "";
+  }
 }
 
 function attachDmg(path) {
@@ -110,6 +124,15 @@ if (existsSync(appPath)) {
     check(plistValue(infoPlist, "CFBundleExecutable") === "xolotl", "CFBundleExecutable does not match expected binary name.");
     check(plistValue(infoPlist, "LSApplicationCategoryType") === "public.app-category.developer-tools", "App category is not Developer Tools.");
     notes.push("Info.plist identity and category are consistent");
+
+    const documentTypes = optionalPlistValue(infoPlist, "CFBundleDocumentTypes");
+    check(Boolean(documentTypes), "CFBundleDocumentTypes is missing; Finder/Open With document registration is not packaged.");
+    for (const contentType of expectedDocumentContentTypes) {
+      check(documentTypes.includes(contentType), `CFBundleDocumentTypes does not include ${contentType}.`);
+    }
+    if (documentTypes) {
+      notes.push("Finder/Open With document types are registered");
+    }
   }
 
   if (existsSync(executable)) {
