@@ -17,6 +17,10 @@ function openProjectPath(payload: unknown) {
   if (path) void useProjectStore.getState().addProjectPath(path);
 }
 
+function errorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error ?? "");
+}
+
 export function useProjectOpenEvents() {
   useEffect(() => {
     if (!isTauriRuntime()) return undefined;
@@ -31,6 +35,7 @@ export function useProjectOpenEvents() {
       })
       .catch((err) => {
         console.error("project open listener failed:", err);
+        useProjectStore.getState().setProjectError(`Project open listener unavailable. ${errorDetail(err)}`);
       });
 
     void commands.launchProjectPaths()
@@ -40,6 +45,7 @@ export function useProjectOpenEvents() {
       })
       .catch((err) => {
         console.error("launch project path restore failed:", err);
+        useProjectStore.getState().setProjectError(`Could not restore launch project paths. ${errorDetail(err)}`);
       });
 
     return () => {

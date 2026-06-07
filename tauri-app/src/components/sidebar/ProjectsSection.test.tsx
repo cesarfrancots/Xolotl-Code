@@ -70,6 +70,31 @@ describe("ProjectsSection", () => {
     expect(onOpenProject).not.toHaveBeenCalled();
   });
 
+  it("shows and dismisses project-open recovery from the project store", async () => {
+    const onOpenProject = vi.fn();
+    useProjectStore.setState({ error: "Folder is not accessible" });
+
+    render(<ProjectsSection onOpenProject={onOpenProject} />);
+
+    expect(screen.getByText("Could not open project folder.")).toBeTruthy();
+    expect(screen.getByText(/Check that the folder still exists/)).toBeTruthy();
+    expect(screen.getByText(/Folder is not accessible/)).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText("Dismiss project open error"));
+
+    expect(useProjectStore.getState().error).toBeNull();
+  });
+
+  it("uses specific recovery copy when drag and drop setup fails", () => {
+    const onOpenProject = vi.fn();
+    useProjectStore.setState({ error: "Project drag and drop unavailable. Listener missing" });
+
+    render(<ProjectsSection onOpenProject={onOpenProject} />);
+
+    expect(screen.getByText("Project drag and drop unavailable.")).toBeTruthy();
+    expect(screen.getByText(/Restart Xolotl Code and try dragging the folder again/)).toBeTruthy();
+  });
+
   it("shows recovery guidance when the external editor handoff fails", async () => {
     vi.mocked(openPathInExternalEditor).mockRejectedValueOnce(new Error("Cursor missing"));
     const onOpenProject = vi.fn();

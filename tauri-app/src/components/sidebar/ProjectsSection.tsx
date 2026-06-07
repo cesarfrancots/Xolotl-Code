@@ -18,8 +18,10 @@ import {
 export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: string) => void }) {
   const projects = useProjectStore((s) => s.projects);
   const activePath = useProjectStore((s) => s.activeProjectPath);
+  const projectError = useProjectStore((s) => s.error);
   const openFolderDialog = useProjectStore((s) => s.openFolderDialog);
   const removeProject = useProjectStore((s) => s.removeProject);
+  const clearProjectError = useProjectStore((s) => s.clearProjectError);
   const [handoffStatus, setHandoffStatus] = useState<SidebarHandoffStatusState | null>(null);
 
   async function runHandoff(
@@ -67,6 +69,14 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
           status={handoffStatus}
           onDismiss={() => setHandoffStatus(null)}
           dismissLabel="Dismiss project status"
+        />
+      )}
+
+      {projectError && (
+        <SidebarHandoffStatus
+          status={projectOpenErrorStatus(projectError)}
+          onDismiss={clearProjectError}
+          dismissLabel="Dismiss project open error"
         />
       )}
 
@@ -216,4 +226,34 @@ export function ProjectsSection({ onOpenProject }: { onOpenProject: (path: strin
       )}
     </div>
   );
+}
+
+function projectOpenErrorStatus(error: string): SidebarHandoffStatusState {
+  const lower = error.toLowerCase();
+  if (lower.includes("drag and drop unavailable")) {
+    return {
+      tone: "error",
+      message: "Project drag and drop unavailable.",
+      hint: `Restart Xolotl Code and try dragging the folder again. ${error}`,
+    };
+  }
+  if (lower.includes("project open listener unavailable")) {
+    return {
+      tone: "error",
+      message: "Project URL open unavailable.",
+      hint: `Restart Xolotl Code and try the xolotl-code link again. ${error}`,
+    };
+  }
+  if (lower.includes("restore launch project paths")) {
+    return {
+      tone: "error",
+      message: "Could not restore launch project folders.",
+      hint: `Use Open Folder to add the folder again. ${error}`,
+    };
+  }
+  return {
+    tone: "error",
+    message: "Could not open project folder.",
+    hint: sidebarHandoffRecoveryHint("finder", error, "folder"),
+  };
 }

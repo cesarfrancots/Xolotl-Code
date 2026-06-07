@@ -39,6 +39,8 @@ export interface ProjectState {
   setActiveProject: (path: string | null) => void;
   browse: (path: string) => Promise<void>;
   refreshBrowse: () => Promise<void>;
+  setProjectError: (error: string | null) => void;
+  clearProjectError: () => void;
 }
 
 export const useProjectStore = create<ProjectState>()((set, get) => ({
@@ -54,7 +56,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
     set({ loading: true, error: null });
     try {
       const projects = await commands.listProjects();
-      set({ projects, loading: false });
+      set({ projects, loading: false, error: null });
       refreshNativeMenu();
       const active = get().activeProjectPath;
       if (active && !get().listing) {
@@ -66,6 +68,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
   },
 
   openFolderDialog: async () => {
+    set({ error: null });
     const res = await commands.pickDirectory();
     if (res.status === "error") {
       set({ error: res.error });
@@ -75,12 +78,13 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
   },
 
   addProjectPath: async (path) => {
+    set({ error: null });
     const res = await commands.addProject(path);
     if (res.status === "error") {
       set({ error: res.error });
       return;
     }
-    set({ projects: res.data });
+    set({ projects: res.data, error: null });
     refreshNativeMenu();
     // The command sorts most-recently-opened first, so the freshly added (or
     // re-touched) project is at the top with its canonical path.
@@ -89,12 +93,13 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
   },
 
   removeProject: async (path) => {
+    set({ error: null });
     const res = await commands.removeProject(path);
     if (res.status === "error") {
       set({ error: res.error });
       return;
     }
-    set({ projects: res.data });
+    set({ projects: res.data, error: null });
     refreshNativeMenu();
     if (get().activeProjectPath === path) get().setActiveProject(null);
   },
@@ -127,6 +132,10 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
     const current = get().listing?.path ?? get().activeProjectPath;
     if (current) await get().browse(current);
   },
+
+  setProjectError: (error) => set({ error }),
+
+  clearProjectError: () => set({ error: null }),
 }));
 
 /** Display name for a project path (its last path component). */

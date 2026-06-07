@@ -15,6 +15,10 @@ export function isTauriRuntime() {
   return Boolean((window as TauriGlobal).__TAURI_INTERNALS__);
 }
 
+function errorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error ?? "");
+}
+
 export function useProjectDrop() {
   useEffect(() => {
     if (!isTauriRuntime()) return undefined;
@@ -35,6 +39,7 @@ export function useProjectDrop() {
       })
       .catch((err) => {
         console.error("project drop listener failed:", err);
+        useProjectStore.getState().setProjectError(`Project drag and drop unavailable. ${errorDetail(err)}`);
       });
 
     return () => {
