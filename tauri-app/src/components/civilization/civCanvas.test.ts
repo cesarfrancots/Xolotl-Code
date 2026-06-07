@@ -1,22 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-
-// The tint helpers live in CivilizationGameCanvas.tsx, which imports Phaser at
-// module load (Phaser's ESM init touches a real canvas and crashes under jsdom).
-// The helpers themselves are pure (no Phaser), so stub the module to import them
-// safely — mirrors the Phase 1 civPilot.test.ts pattern. Mock BEFORE the import.
-vi.mock("phaser", () => {
-  class Scene {}
-  return {
-    default: {
-      Scene,
-      Game: class {},
-      AUTO: 0,
-      Scale: { RESIZE: 0, NO_CENTER: 0 },
-      TintModes: { FILL: 1, MULTIPLY: 0 },
-    },
-    Scene,
-  };
-});
+import { describe, expect, it } from "vitest";
 
 import {
   buildCivColorMap,
@@ -25,7 +7,7 @@ import {
   focusTarget,
   hexToTint,
   regionOverlayFor,
-} from "./CivilizationGameCanvas";
+} from "../../lib/civVisualHelpers";
 
 const GREY = 0x888888;
 

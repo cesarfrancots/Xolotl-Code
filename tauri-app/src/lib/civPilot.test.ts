@@ -1,15 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { chooseCivPilotDecision, createCivPilotMemory, type CivPilotTextState } from "./civPilot";
-
-// renderSnapshotToText lives in the canvas module, which imports Phaser at module
-// load (Phaser's ESM init touches a canvas and crashes under jsdom). The render
-// function itself is pure (no Phaser), so stub the module to import it safely.
-vi.mock("phaser", () => {
-  class Scene {}
-  return { default: { Scene, Game: class {}, AUTO: 0, Scale: { RESIZE: 0, NO_CENTER: 0 } }, Scene };
-});
-
-import { renderSnapshotToText } from "../components/civilization/CivilizationGameCanvas";
+import { renderSnapshotToText } from "./civSnapshotText";
 import type { CivCivilization, CivSessionSnapshot } from "../bindings";
 
 function fixtureCiv(overrides: Partial<CivCivilization> = {}): CivCivilization {

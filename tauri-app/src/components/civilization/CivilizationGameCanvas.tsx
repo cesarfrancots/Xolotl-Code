@@ -4,6 +4,15 @@ import type { CivSessionSnapshot, CivEntity } from "../../bindings";
 import { primaryCiv } from "../../stores/civStore";
 import { activeCivPlayerTask, type CivPlayerTask } from "../../lib/civPlayerTasks";
 import type { CivPilotCommand } from "../../lib/civPilot";
+import { renderSnapshotToText } from "../../lib/civSnapshotText";
+import {
+  buildCivColorMap,
+  civTintFor,
+  colonyBounds,
+  focusTarget,
+  GREY_TINT,
+  regionOverlayFor,
+} from "../../lib/civVisualHelpers";
 
 declare global {
   interface Window {
@@ -37,7 +46,6 @@ const TILE_SIZE = 16;
 const VARIANT_COUNT = 12;
 const FRAMES_PER_VARIANT = 4;
 const SURFACE_ROWS = 6; // air band at the very top (matches backend WATER_SURFACE_Y)
-const WATER_FLOOR_Y = 50; // base seabed row where colonies live (matches backend WATER_FLOOR_Y)
 const PLAYER_DASH_COOLDOWN_MS = 1350;
 const PLAYER_JUMP_IMPULSE = -8.2;
 const PLAYER_JUMP_GRAVITY = 0.28;
@@ -141,38 +149,6 @@ export type PlayerMove = {
   y: number;
   tileX: number;
   tileY: number;
-};
-
-type PlayerTextState = {
-  possessedEntityId: string | null;
-  control_mode?: "released" | "manual" | "codex";
-  pilot_active?: boolean;
-  player_tool: PlayerTool;
-  player: {
-    x: number;
-    y: number;
-    tile_x: number;
-    tile_y: number;
-    activity: string;
-    locomotion?: "swim" | "grounded" | "jump" | "wall_slide";
-    floor_y?: number;
-    wall_contact?: PlayerWallContactState | null;
-    velocity_x?: number;
-    velocity_y?: number;
-    jump_velocity_y?: number;
-    jump_buffer_ms?: number;
-    coyote_ms?: number;
-    dash_ready?: boolean;
-    dash_cooldown_ms?: number;
-    blocked?: PlayerBlockState | null;
-    hazard_contact?: PlayerHazardState | null;
-    oxygen?: PlayerOxygenState;
-  } | null;
-  active_target?: PlayerInteraction | null;
-  target_lock?: PlayerTargetLockState | null;
-  lastInteraction: PlayerInteraction | null;
-  nearby_interactions: PlayerInteraction[];
-  task_interactions: PlayerInteraction[];
 };
 
 type PlayerTargetLockState = {
@@ -3236,146 +3212,6 @@ function shade(color: number, factor: number): number {
   return (r << 16) | (g << 8) | b;
 }
 
-// Blend each channel toward white by `t` (0 = unchanged, 1 = white). Pure; used
-// to keep a multiply civ-tint light enough that morph/GFP detail still reads.
-function lighten(color: number, t: number): number {
-  const f = Math.max(0, Math.min(1, t));
-  const r = (color >> 16) & 0xff;
-  const g = (color >> 8) & 0xff;
-  const b = color & 0xff;
-  const blend = (c: number) => Math.round(c + (0xff - c) * f);
-  return (blend(r) << 16) | (blend(g) << 8) | blend(b);
-}
-
-/** Flat grey used to desaturate dead/collapsed civs' entities and overlays. */
-const GREY_TINT = 0x888888;
-
-// ── pure civ-tint helpers (Phaser-free named exports, unit-tested) ──────────
-
-/**
- * Resolve a hex colour string to a 24-bit tint number. Total / fail-safe:
- * tolerant of a leading "#" and 3-digit shorthand; missing or non-finite input
- * returns 0xffffff (T-02-01 — a colour string only ever becomes a number, never
- * markup, and never throws / NaN).
- */
-export function hexToTint(hex: string | null | undefined): number {
-  if (!hex) return 0xffffff;
-  const h = hex.replace(/^#/, "");
-  if (h.length !== 3 && h.length !== 6) return 0xffffff;
-  if (!/^[0-9a-fA-F]+$/.test(h)) return 0xffffff;
-  const expanded = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
-  const n = Number.parseInt(expanded, 16);
-  return Number.isFinite(n) ? n : 0xffffff;
-}
-
-/**
- * Build the per-snapshot `civ_id -> {tint, alive}` lookup. Skips id-less civs;
- * `alive` defaults to true; an undefined civ list yields an empty map.
- */
-export function buildCivColorMap(
-  civs: { id?: string; color?: string; alive?: boolean }[] | undefined,
-): Map<string, { tint: number; alive: boolean }> {
-  const m = new Map<string, { tint: number; alive: boolean }>();
-  for (const c of civs ?? []) {
-    if (!c.id) continue;
-    m.set(c.id, { tint: hexToTint(c.color), alive: c.alive !== false });
-  }
-  return m;
-}
-
-/**
- * Pick the tint to apply for an entity given its resolved civ info.
- * - undefined info (map miss — wild fauna / null civ_id) -> null = leave default.
- * - living civ -> a lightened identity tint (multiply keeps morph detail).
- * - dead civ -> the flat grey constant.
- */
-export function civTintFor(
-  info: { tint: number; alive: boolean } | undefined,
-  grey: number = GREY_TINT,
-): number | null {
-  if (!info) return null;
-  return info.alive ? lighten(info.tint, 0.5) : grey;
-}
-
-/**
- * Decide the territory overlay for a region's owner. Null when unowned/absent or
- * the owner is not a known civ (neutral, Pitfall 4); else the {tint, alive} entry.
- */
-export function regionOverlayFor(
-  owner: string | null | undefined,
-  map: Map<string, { tint: number; alive: boolean }>,
-): { tint: number; alive: boolean } | null {
-  if (!owner) return null;
-  return map.get(owner) ?? null;
-}
-
-/**
- * Axis-aligned bounding box over all LIVING colonies, in whatever unit the caller
- * passed (the scene passes world pixels). Dead colonies are excluded so a collapse
- * re-frame drops them; returns null when no colony is alive (T-02-04 — the caller
- * falls back to `this.colony`). Each side is inflated by `pad`. Pure — no Phaser.
- */
-export function colonyBounds(
-  colonies: { x: number; y: number; alive: boolean }[],
-  pad: number,
-): { x: number; y: number; w: number; h: number } | null {
-  const live = colonies.filter((c) => c.alive);
-  if (live.length === 0) return null;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const c of live) {
-    minX = Math.min(minX, c.x);
-    maxX = Math.max(maxX, c.x);
-    minY = Math.min(minY, c.y);
-    maxY = Math.max(maxY, c.y);
-  }
-  return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
-}
-
-/**
- * Resolve a civ's home point in WORLD-TILE coordinates (the caller multiplies by
- * TILE_SIZE, mirroring focusRegion's `(rx + width/2) * TILE_SIZE` math). Precedence:
- *   (a) the civ's home_region matched in `regions` -> that region's centre
- *       (`y + height/2`, NOT `height/2` — the region starts at its `y`, not 0);
- *   (b) else the centroid of entities whose civ_id === civId (~seabed level);
- *   (c) else the civ's spawn_x at the seabed band (WATER_FLOOR_Y), so all three
- *       branches resolve to comparable altitudes (the colony band, not the surface);
- *   (d) else null (T-02-04 — the caller falls back to frameAll()).
- * Pure — no Phaser; never throws on missing/malformed input.
- */
-export function focusTarget(
-  civId: string,
-  civs: { id?: string; spawn_x?: number; home_region?: string }[] | undefined,
-  regions: { id: string; x: number; y: number; width: number; height?: number; owner?: string | null }[] | undefined,
-  entities: { civ_id?: string | null; x: number; y: number }[] | undefined,
-): { tx: number; ty: number } | null {
-  const civ = (civs ?? []).find((c) => c.id === civId);
-  if (!civ) return null;
-  // (a) home-region centre: region top (y) + half its height, not height/2.
-  if (civ.home_region) {
-    const region = (regions ?? []).find((r) => r.id === civ.home_region);
-    if (region) {
-      return { tx: region.x + region.width / 2, ty: region.y + (region.height ?? 0) / 2 };
-    }
-  }
-  // (b) centroid of the civ's entities (already at ~seabed level).
-  const own = (entities ?? []).filter((e) => e.civ_id === civId);
-  if (own.length > 0) {
-    const sx = own.reduce((a, e) => a + e.x, 0) / own.length;
-    const sy = own.reduce((a, e) => a + e.y, 0) / own.length;
-    return { tx: sx, ty: sy };
-  }
-  // (c) spawn_x at the seabed band — colonies live near WATER_FLOOR_Y, not the
-  // water surface; matching the colony altitude the other branches resolve to.
-  if (typeof civ.spawn_x === "number") {
-    return { tx: civ.spawn_x, ty: WATER_FLOOR_Y };
-  }
-  // (d) unresolvable.
-  return null;
-}
-
 function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(ax - bx, ay - by);
 }
@@ -3413,86 +3249,4 @@ function seedVariant(seed: number, id: string): number {
     hash = Math.imul(hash, 16777619) >>> 0;
   }
   return hash % VARIANT_COUNT;
-}
-
-export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?: PlayerTextState): string {
-  const civ = primaryCiv(snapshot);
-  const possessedPlayer = playerState?.possessedEntityId && playerState.player
-    ? { id: playerState.possessedEntityId, player: playerState.player }
-    : null;
-  return JSON.stringify({
-    coordinate_system: "origin top-left; x right; y down; tiles are 16px",
-    session: { id: snapshot.id, turn: snapshot.turn, model: civ.model ?? "unknown" },
-    civilization: {
-      id: civ.id,
-      era: civ.era,
-      population: civ.population,
-      health: civ.health,
-      morale: civ.morale,
-      score: civ.score,
-      resources: civ.resources,
-      modifiers: snapshot.modifiers.map((modifier) => ({
-        kind: modifier.kind,
-        polarity: modifier.polarity,
-        remaining_turns: modifier.remaining_turns,
-      })),
-    },
-    player: playerState ?? {
-      possessedEntityId: null,
-      control_mode: "released",
-      pilot_active: false,
-      player_tool: "use",
-      player: null,
-      active_target: null,
-      target_lock: null,
-      lastInteraction: null,
-      nearby_interactions: [],
-      task_interactions: [],
-    },
-    player_task: activeCivPlayerTask(snapshot, civ),
-    visible_entities: snapshot.world.entities.map((entity) => {
-      const livePlayer = possessedPlayer?.id === entity.id ? possessedPlayer.player : null;
-      return {
-        id: entity.id,
-        name: entity.name,
-        kind: entity.kind,
-        role: entity.role,
-        morph: entity.morph,
-        pattern: entity.pattern, // GEN-01 visible pattern (ARENA-01 text-state, mirrors morph)
-        stage: entity.stage,
-        sex: entity.sex,
-        age: entity.age,
-        accessories: entity.accessories,
-        activity: livePlayer?.activity ?? entity.activity,
-        target_x: entity.target_x,
-        target_y: entity.target_y,
-        x: livePlayer?.tile_x ?? entity.x,
-        y: livePlayer?.tile_y ?? entity.y,
-      };
-    }),
-    civs: (snapshot.civs ?? []).map((c) => ({
-      id: c.id,
-      name: c.name,
-      model: c.model,
-      color: c.color,
-      alive: c.alive,
-      population: c.population,
-      era: c.era,
-      score: c.score,
-      controller: c.controller ?? null,
-      resources: c.resources,
-    })),
-    leaderboard: [...(snapshot.civs ?? [])]
-      .sort((a, b) => (b.score.total ?? 0) - (a.score.total ?? 0))
-      .map((c) => ({
-        id: c.id,
-        name: c.name,
-        model: c.model,
-        color: c.color,
-        alive: c.alive,
-        score: c.score,
-        controller: c.controller ?? null,
-      })),
-    environment: snapshot.environment,
-  });
 }
