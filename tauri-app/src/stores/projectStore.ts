@@ -32,6 +32,8 @@ export interface ProjectState {
   browseError: string | null;
 
   loadProjects: () => Promise<void>;
+  /** Revalidate and reactivate the last saved working directory on app reopen. */
+  restoreActiveProject: () => Promise<boolean>;
   /** Native folder picker → add → activate. */
   openFolderDialog: () => Promise<void>;
   addProjectPath: (path: string) => Promise<void>;
@@ -66,6 +68,30 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
     } catch (err) {
       set({ error: String(err), loading: false });
     }
+  },
+
+  restoreActiveProject: async () => {
+    const active = get().activeProjectPath;
+    if (!active) return false;
+
+    const res = await commands.addProject(active);
+    if (get().activeProjectPath !== active) return false;
+
+    if (res.status === "error") {
+      get().setActiveProject(null);
+      set({
+        error: `Could not restore last active project. ${res.error}`,
+        browseError: null,
+        browseLoading: false,
+      });
+      return false;
+    }
+
+    set({ projects: res.data, error: null });
+    refreshNativeMenu();
+    const canonical = res.data[0]?.path ?? active;
+    get().setActiveProject(canonical);
+    return true;
   },
 
   openFolderDialog: async () => {

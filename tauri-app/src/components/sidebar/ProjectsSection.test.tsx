@@ -111,6 +111,17 @@ describe("ProjectsSection", () => {
     expect(screen.getByText(/Restart Xolotl Code and try dragging the folder again/)).toBeTruthy();
   });
 
+  it("uses specific recovery copy when the last active project cannot be restored", () => {
+    const onOpenProject = vi.fn();
+    useProjectStore.setState({ error: "Could not restore last active project. Not a directory: /Users/cesar/Documents/Moved" });
+
+    render(<ProjectsSection onOpenProject={onOpenProject} />);
+
+    expect(screen.getByText("Could not restore last active project.")).toBeTruthy();
+    expect(screen.getByText(/Use Open Folder or choose another recent project/)).toBeTruthy();
+    expect(screen.getByText(/Not a directory/)).toBeTruthy();
+  });
+
   it("shows recovery guidance when the external editor handoff fails", async () => {
     vi.mocked(openPathInExternalEditor).mockRejectedValueOnce(new Error("Cursor missing"));
     const onOpenProject = vi.fn();

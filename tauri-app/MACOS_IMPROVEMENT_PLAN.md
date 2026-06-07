@@ -58,6 +58,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - App-level Mac recovery status surfaces native menu, notification routing, app reopen routing, global hotkey, productivity settings, and menu bar status item runtime failures without replacing the active workspace.
 - Command palette includes clipboard-aware actions to seed a chat from the current text clipboard or ask for an explanation of the clipboard snippet.
 - The last workbench tab is restored on reopen when the URL does not explicitly request a tab, while direct `?tab=` links still take priority.
+- The last active project is revalidated and restored on reopen when Finder/Open With/URL launch paths are absent; stale or inaccessible folders clear the active scope with Mac recovery guidance.
 - macOS Settings include an opt-in, configurable global hotkey that can bring the app window forward from anywhere.
 - macOS Settings include an opt-in menu bar status item with active project and agent-state summary plus quick access to common commands.
 - macOS Settings show compact status tiles and targeted recovery guidance for editor, global-hotkey, menu-bar, and notification states.
@@ -382,7 +383,7 @@ Acceptance:
 Deliverables:
 
 - Restore useful workspace state on reopen:
-  - Last active project.
+  - Last active project. Done with startup revalidation, canonical path refresh, launch-path priority, and stale-folder recovery.
   - Last workbench tab. Done for Chat/Eval/Civ restoration with direct URL priority.
   - Terminal dock visibility. Done through persisted UI state.
   - Command palette or modal state only when restoration is clearly helpful.
@@ -399,6 +400,7 @@ Acceptance:
 - Quit/reopen feels intentional and does not strand users on an empty screen.
 - Notification and Dock routing never opens the wrong project or loses eval/chat context.
 - State restoration has tests for missing, moved, or inaccessible project paths.
+  - Done for stale last-active-project cleanup and launch-path priority over restore.
 
 ### D. Developer Handoff Features
 

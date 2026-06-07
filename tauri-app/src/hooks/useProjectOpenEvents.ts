@@ -12,9 +12,9 @@ export function projectOpenPathFromPayload(payload: unknown): string | null {
   return path.length > 0 ? path : null;
 }
 
-function openProjectPath(payload: unknown) {
+async function openProjectPath(payload: unknown) {
   const path = projectOpenPathFromPayload(payload);
-  if (path) void useProjectStore.getState().addProjectPath(path);
+  if (path) await useProjectStore.getState().addProjectPath(path);
 }
 
 function errorDetail(error: unknown): string {
@@ -39,9 +39,22 @@ export function useProjectOpenEvents() {
       });
 
     void commands.launchProjectPaths()
-      .then((paths) => {
+      .then(async (paths) => {
         if (cancelled) return;
-        for (const path of paths) openProjectPath(path);
+        if (paths.length > 0) {
+          for (const path of paths) {
+            if (cancelled) return;
+            await openProjectPath(path);
+          }
+          return;
+        }
+        try {
+          await useProjectStore.getState().restoreActiveProject();
+        } catch (err) {
+          if (cancelled) return;
+          console.error("last active project restore failed:", err);
+          useProjectStore.getState().setProjectError(`Could not restore last active project. ${errorDetail(err)}`);
+        }
       })
       .catch((err) => {
         console.error("launch project path restore failed:", err);

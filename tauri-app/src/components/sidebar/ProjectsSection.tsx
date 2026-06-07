@@ -270,6 +270,13 @@ function projectOpenErrorStatus(error: string): SidebarHandoffStatusState {
       hint: `Use Open Folder to add the folder again. ${error}`,
     };
   }
+  if (lower.includes("restore last active project")) {
+    return {
+      tone: "error",
+      message: "Could not restore last active project.",
+      hint: `Use Open Folder or choose another recent project. If macOS moved or denied this folder, grant access in System Settings and open it again. ${error}`,
+    };
+  }
   const recovery = macFileAccessRecovery(error, "project-open");
   return {
     tone: "error",

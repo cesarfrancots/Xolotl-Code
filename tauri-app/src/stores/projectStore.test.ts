@@ -5,6 +5,7 @@ import { useProjectStore } from "./projectStore";
 const commandMocks = vi.hoisted(() => ({
   addProject: vi.fn(),
   browseDirectory: vi.fn(),
+  listProjects: vi.fn(),
   refreshNativeMenu: vi.fn(() => Promise.resolve({ status: "ok" as const, data: null })),
   touchProject: vi.fn(() => Promise.resolve({ status: "ok" as const, data: null })),
 }));
@@ -35,6 +36,7 @@ describe("projectStore project errors", () => {
         children: [],
       },
     });
+    commandMocks.listProjects.mockResolvedValue([]);
     useProjectStore.setState({
       projects: [],
       activeProjectPath: null,
@@ -78,5 +80,57 @@ describe("projectStore project errors", () => {
 
     expect(useProjectStore.getState().error).toBe("Open failed");
     expect(useProjectStore.getState().browseError).toBeNull();
+  });
+
+  it("restores and canonicalizes the last active project on Mac reopen", async () => {
+    useProjectStore.setState({
+      activeProjectPath: "/Users/cesar/Documents/Xolotl Link",
+    });
+    commandMocks.addProject.mockResolvedValueOnce({
+      status: "ok",
+      data: [
+        {
+          name: "Xolotl",
+          path: "/Users/cesar/Documents/Xolotl",
+          added_at: 1,
+          last_opened_at: 3,
+        },
+      ],
+    });
+
+    const restored = await useProjectStore.getState().restoreActiveProject();
+
+    expect(restored).toBe(true);
+    expect(commandMocks.addProject).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl Link");
+    expect(useProjectStore.getState().activeProjectPath).toBe("/Users/cesar/Documents/Xolotl");
+    expect(useProjectStore.getState().projects[0]?.path).toBe("/Users/cesar/Documents/Xolotl");
+    expect(commandMocks.browseDirectory).toHaveBeenCalledWith("/Users/cesar/Documents/Xolotl");
+  });
+
+  it("clears stale last active projects when macOS cannot reopen the folder", async () => {
+    useProjectStore.setState({
+      activeProjectPath: "/Users/cesar/Documents/Moved",
+      listing: {
+        path: "/Users/cesar/Documents/Moved",
+        parent: "/Users/cesar/Documents",
+        children: [],
+      },
+      browseError: "Previous browse failure",
+      browseLoading: true,
+    });
+    commandMocks.addProject.mockResolvedValueOnce({
+      status: "error",
+      error: "Not a directory: /Users/cesar/Documents/Moved",
+    });
+
+    const restored = await useProjectStore.getState().restoreActiveProject();
+
+    expect(restored).toBe(false);
+    expect(useProjectStore.getState().activeProjectPath).toBeNull();
+    expect(useProjectStore.getState().listing).toBeNull();
+    expect(useProjectStore.getState().browseError).toBeNull();
+    expect(useProjectStore.getState().browseLoading).toBe(false);
+    expect(useProjectStore.getState().error).toBe("Could not restore last active project. Not a directory: /Users/cesar/Documents/Moved");
+    expect(commandMocks.browseDirectory).not.toHaveBeenCalled();
   });
 });
