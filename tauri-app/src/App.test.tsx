@@ -23,6 +23,7 @@ const commandMocks = vi.hoisted(() => ({
 }));
 const pathActionMocks = vi.hoisted(() => ({
   copyPathContextHandoff: vi.fn((_path: string, _options?: unknown) => Promise.resolve()),
+  copyProjectAutomationHandoff: vi.fn((_path: string, _name?: string | null) => Promise.resolve()),
   copyProjectContextHandoff: vi.fn((_path: string, _name?: string | null) => Promise.resolve()),
   copyTextToClipboard: vi.fn((_text: string) => Promise.resolve()),
   copyXolotlCodeOpenShellCommand: vi.fn((_path: string) => Promise.resolve()),
@@ -278,6 +279,16 @@ describe("App tab navigation", () => {
       );
     });
     expect(await screen.findByText("Active project context prompt copied.")).toBeTruthy();
+
+    fireEvent(window, new CustomEvent(NATIVE_MENU_EVENT, { detail: "copy-active-project-shortcuts-json" }));
+
+    await waitFor(() => {
+      expect(pathActionMocks.copyProjectAutomationHandoff).toHaveBeenCalledWith(
+        "/Users/cesar/Documents/Xolotl",
+        "Xolotl Code",
+      );
+    });
+    expect(await screen.findByText("Active project Shortcuts JSON copied.")).toBeTruthy();
   });
 
   it("copies only the active project POSIX path from native active project actions", async () => {

@@ -26,6 +26,7 @@ describe("nativeMenuActionFromPayload", () => {
     expect(nativeMenuActionFromPayload("xolotl:new-active-project-terminal-tab")).toBe("new-active-project-terminal-tab");
     expect(nativeMenuActionFromPayload("xolotl:copy-active-project-path")).toBe("copy-active-project-path");
     expect(nativeMenuActionFromPayload("xolotl:copy-active-project-context")).toBe("copy-active-project-context");
+    expect(nativeMenuActionFromPayload("xolotl:copy-active-project-shortcuts-json")).toBe("copy-active-project-shortcuts-json");
   });
 
   it("accepts already-normalized frontend actions", () => {

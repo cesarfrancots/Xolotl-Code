@@ -14,7 +14,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - File > New Chat, workbench tab shortcuts, command palette, and terminal toggle route through the native menu bridge.
 - Workbench > Latest Agent Output can open the most relevant agent output even when the optional menu bar status item is disabled.
 - Workbench > Latest Agent Worktree and the optional menu bar status item expose Finder, external editor, embedded terminal, external terminal, POSIX path, `xolotl-code://` link, shell open-command, and context-prompt handoffs for the most relevant agent run.
-- File > Active Project exposes native-menu Finder, editor, external terminal, embedded terminal, POSIX path, `xolotl-code://` link, shell open-command, and context-prompt handoffs.
+- File > Active Project exposes native-menu Finder, editor, external terminal, embedded terminal, POSIX path, `xolotl-code://` link, shell open-command, context-prompt, and Shortcuts JSON handoffs.
 - Workbench toolbar uses a quieter macOS utility style with a focused segmented control and explicit active states.
 - Main window uses macOS overlay titlebar chrome with hidden title text, explicit traffic-light positioning, custom drag regions, and safe spacing when the left rail is collapsed.
 - Sidebar projects and file browser use compact Mac navigator rows, count badges, consistent utility icon buttons, and tighter Finder-style metadata labels.
@@ -69,7 +69,7 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - App-level Mac recovery status surfaces native menu, notification routing, app reopen routing, global hotkey, productivity settings, and menu bar status item runtime failures without replacing the active workspace.
 - Command palette includes clipboard-aware actions to seed a chat from the current text clipboard or ask for an explanation of the clipboard snippet.
 - Command palette tracks recent file-browser folders within the active project and offers quick browse, terminal/editor/Finder, POSIX path, Xolotl link, shell-open command, context handoff, and clear-recent actions.
-- Command palette can copy Shortcuts/Raycast-friendly JSON payloads for the active project and current file-browser folder.
+- Command palette, File > Active Project, and the optional menu bar status item can copy Shortcuts/Raycast-friendly JSON payloads for the active project; the command palette can also copy a current-folder JSON payload.
 - The last workbench tab is restored on reopen when the URL does not explicitly request a tab, while direct `?tab=` links still take priority.
 - The last active project is revalidated and restored on reopen when Finder/Open With/URL launch paths are absent; stale or inaccessible folders clear the active scope with Mac recovery guidance.
 - Settings and the command palette share a tighter macOS utility-dialog surface and close with `Cmd+W` before underlying app shortcuts see the event.
@@ -287,8 +287,8 @@ Deliverables:
   - First pass done with `xolotl-code://open?path=...` deep links for Shortcuts, Raycast, Alfred, and shell automation.
   - Link-copying actions are available from saved project rows and the command palette.
   - Shell open-command copying is available from the command palette for active projects, current folders, and visible file-browser entries.
-  - Structured JSON payload copying is available from the command palette for active projects and current file-browser folders.
-  - Active project links, shell open commands, and context prompts are available from the native File menu.
+  - Structured JSON payload copying is available from the command palette for active projects and current file-browser folders, and from the native File menu/menu bar status item for the active project.
+  - Active project links, shell open commands, context prompts, and Shortcuts JSON payloads are available from the native File menu.
 
 Acceptance:
 
@@ -393,7 +393,7 @@ Deliverables:
   - Keep saved-project sidebar rows useful for direct Mac automation handoff. Done for POSIX path, `xolotl-code://` link, shell open command, and prompt-ready context prompt copying.
   - Keep file-browser current folders and visible rows useful for direct Mac automation handoff. Done for prompt-ready folder/file context prompt copying with project-relative paths where useful.
   - Add documentation or in-app affordances for using links from Shortcuts, Raycast, Alfred, and shell scripts without adding noisy onboarding text to the main UI. Done for command-palette shell-open command copying and Shortcuts/Raycast-friendly JSON payloads for active projects and current folders.
-  - Keep native-menu access for active project handoffs. Done for File > Active Project, including embedded-terminal, POSIX path, and prompt-ready context blocks.
+  - Keep native-menu access for active project handoffs. Done for File > Active Project, including embedded-terminal, POSIX path, prompt-ready context blocks, and Shortcuts JSON payloads.
 - Improve Finder-originated workflows:
   - Complete end-to-end manual QA for drag/drop, Open With, and file-url launch using real folders with spaces and package directories. Automated packaged smoke now covers Open With/file-url/deep-link cases for spaces, Unicode, symlinks, package directories, and nested source files.
   - Consider an AppKit shim only for features Tauri cannot expose cleanly and only after the maintenance cost is clear.

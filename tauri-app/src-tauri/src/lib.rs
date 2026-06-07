@@ -86,6 +86,8 @@ const MENU_COPY_LATEST_AGENT_WORKTREE_CONTEXT: &str = "xolotl:copy-latest-agent-
 const MENU_NEW_ACTIVE_PROJECT_TERMINAL_TAB: &str = "xolotl:new-active-project-terminal-tab";
 const MENU_COPY_ACTIVE_PROJECT_PATH: &str = "xolotl:copy-active-project-path";
 const MENU_COPY_ACTIVE_PROJECT_CONTEXT: &str = "xolotl:copy-active-project-context";
+const MENU_COPY_ACTIVE_PROJECT_SHORTCUTS_JSON: &str =
+    "xolotl:copy-active-project-shortcuts-json";
 const MENU_FOCUS_WINDOW: &str = "xolotl:focus-window";
 const MENU_NEW_CHAT: &str = "xolotl:new-chat";
 const MENU_OPEN_FOLDER: &str = "xolotl:open-folder";
@@ -390,6 +392,11 @@ fn build_active_project_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<ta
     let copy_context =
         MenuItemBuilder::with_id(MENU_COPY_ACTIVE_PROJECT_CONTEXT, "Copy Context Prompt")
             .build(app)?;
+    let copy_shortcuts_json = MenuItemBuilder::with_id(
+        MENU_COPY_ACTIVE_PROJECT_SHORTCUTS_JSON,
+        "Copy Shortcuts JSON",
+    )
+    .build(app)?;
 
     SubmenuBuilder::new(app, "Active Project")
         .item(&reveal)
@@ -401,6 +408,7 @@ fn build_active_project_menu(app: &tauri::AppHandle) -> tauri::Result<Submenu<ta
         .item(&copy_link)
         .item(&copy_shell)
         .item(&copy_context)
+        .item(&copy_shortcuts_json)
         .build()
 }
 
@@ -773,6 +781,11 @@ fn build_mac_status_item_menu(
         "Copy Active Project Context Prompt",
     )
     .build(app)?;
+    let copy_active_project_shortcuts_json = MenuItemBuilder::with_id(
+        MENU_COPY_ACTIVE_PROJECT_SHORTCUTS_JSON,
+        "Copy Active Project Shortcuts JSON",
+    )
+    .build(app)?;
     let open = MenuItemBuilder::with_id(MENU_FOCUS_WINDOW, "Open Xolotl Code").build(app)?;
     let new_chat = MenuItemBuilder::with_id(MENU_NEW_CHAT, "New Chat").build(app)?;
     let open_folder = MenuItemBuilder::with_id(MENU_OPEN_FOLDER, "Open Folder...").build(app)?;
@@ -811,6 +824,7 @@ fn build_mac_status_item_menu(
             .item(&copy_active_project_link)
             .item(&copy_active_project_shell_open)
             .item(&copy_active_project_context)
+            .item(&copy_active_project_shortcuts_json)
             .separator();
     }
 
@@ -1108,6 +1122,8 @@ fn menu_action_for_id(id: &tauri::menu::MenuId) -> Option<&'static str> {
         Some(MENU_COPY_ACTIVE_PROJECT_PATH)
     } else if id == MENU_COPY_ACTIVE_PROJECT_CONTEXT {
         Some(MENU_COPY_ACTIVE_PROJECT_CONTEXT)
+    } else if id == MENU_COPY_ACTIVE_PROJECT_SHORTCUTS_JSON {
+        Some(MENU_COPY_ACTIVE_PROJECT_SHORTCUTS_JSON)
     } else {
         None
     }
@@ -1408,6 +1424,12 @@ mod tests {
         assert_eq!(
             menu_action_for_id(&tauri::menu::MenuId::new(MENU_COPY_ACTIVE_PROJECT_CONTEXT)),
             Some(MENU_COPY_ACTIVE_PROJECT_CONTEXT)
+        );
+        assert_eq!(
+            menu_action_for_id(&tauri::menu::MenuId::new(
+                MENU_COPY_ACTIVE_PROJECT_SHORTCUTS_JSON
+            )),
+            Some(MENU_COPY_ACTIVE_PROJECT_SHORTCUTS_JSON)
         );
     }
 

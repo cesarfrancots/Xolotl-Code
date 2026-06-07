@@ -32,6 +32,7 @@ const MENU_ACTION_BY_ID = {
   "xolotl:new-active-project-terminal-tab": "new-active-project-terminal-tab",
   "xolotl:copy-active-project-path": "copy-active-project-path",
   "xolotl:copy-active-project-context": "copy-active-project-context",
+  "xolotl:copy-active-project-shortcuts-json": "copy-active-project-shortcuts-json",
 } as const;
 
 export type NativeMenuAction = (typeof MENU_ACTION_BY_ID)[keyof typeof MENU_ACTION_BY_ID];

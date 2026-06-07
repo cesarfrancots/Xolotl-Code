@@ -23,6 +23,7 @@ import { macCommandActionForKeydown } from "./lib/macCommandModel";
 import { shortcutTitle } from "./lib/macShortcuts";
 import {
   copyPathContextHandoff,
+  copyProjectAutomationHandoff,
   copyProjectContextHandoff,
   copyTextToClipboard,
   copyXolotlCodeOpenShellCommand,
@@ -400,6 +401,16 @@ export default function App() {
         copyProjectContextHandoff,
         "Active project context prompt copied.",
         "Copy active project context prompt failed.",
+        "Check clipboard permissions and try again.",
+        { includeProjectName: true },
+      );
+      return;
+    }
+    if (action === "copy-active-project-shortcuts-json") {
+      runActiveProjectHandoff(
+        copyProjectAutomationHandoff,
+        "Active project Shortcuts JSON copied.",
+        "Copy active project Shortcuts JSON failed.",
         "Check clipboard permissions and try again.",
         { includeProjectName: true },
       );
