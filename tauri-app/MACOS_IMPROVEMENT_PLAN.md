@@ -37,8 +37,8 @@ This plan tracks the macOS-specific work for the `codex/mac-version` branch. The
 - Project and file-browser access failures can reopen the native folder picker from the recovery banner to refresh macOS folder permission.
 - File browser entries can preview files with macOS Quick Look from row actions and the command palette.
 - File browser folders can open embedded terminals at the current folder or selected child folder, matching Finder-style "New Terminal Here" workflow.
-- Terminal cwd metadata can reveal its folder in Finder and copy the POSIX cwd path.
-- Terminal cwd Finder/copy actions show inline success or recovery feedback instead of failing silently.
+- Terminal cwd metadata can reveal its folder in Finder and copy POSIX path, `xolotl-code://` link, and Terminal-safe shell-open command handoffs.
+- Terminal cwd Finder/copy/terminal automation actions show inline success or recovery feedback instead of failing silently.
 - Eval history can reveal saved eval JSON files and the generated eval artifacts folder in Finder.
 - Eval history can export saved evals as Markdown reports to `~/Documents/Xolotl Code/Eval Reports` with reveal/copy follow-up actions.
 - Launched eval outcome artifacts can reveal their generated artifact folder in Finder, copy its POSIX path, and open it in the preferred external editor or terminal.
@@ -441,7 +441,7 @@ Deliverables:
 - Add task-result handoffs:
   - Reveal artifacts, copy paths, copy deep links, copy shell-open commands, and open folders in editor or external terminal from eval/agent result surfaces. Done for launched eval artifact folders and expanded agent worktree folders, including `xolotl-code://` link-copying and Terminal-safe shell-open command handoffs.
 - Add visible recovery for failed handoff actions. Done for command-palette Finder/editor/Quick Look/clipboard actions.
-  - Done for terminal cwd Finder/copy actions.
+  - Done for terminal cwd Finder/copy/link/shell-command actions.
   - Done for expanded agent worktree Finder/copy/editor actions.
 
 Acceptance:

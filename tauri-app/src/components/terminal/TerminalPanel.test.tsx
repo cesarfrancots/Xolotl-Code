@@ -8,6 +8,8 @@ import { useProjectStore } from "../../stores/projectStore";
 
 const pathActionMocks = vi.hoisted(() => ({
   copyTextToClipboard: vi.fn().mockResolvedValue(undefined),
+  copyXolotlCodeOpenShellCommand: vi.fn().mockResolvedValue(undefined),
+  copyXolotlCodeOpenUrl: vi.fn().mockResolvedValue(undefined),
   openPathInExternalTerminal: vi.fn().mockResolvedValue(undefined),
   revealPathInFinder: vi.fn().mockResolvedValue(undefined),
 }));
@@ -76,7 +78,7 @@ it("shows active terminal shell profile metadata after spawn", () => {
   expect(screen.getByText("Inherited app environment + $SHELL")).toBeTruthy();
 });
 
-it("offers external terminal, Finder, and copy actions for the active terminal cwd", async () => {
+it("offers external terminal, Finder, and automation copy actions for the active terminal cwd", async () => {
   const user = userEvent.setup();
   render(<TerminalPanel />);
   const tab = useTerminalStore.getState().tabs[0];
@@ -107,6 +109,18 @@ it("offers external terminal, Finder, and copy actions for the active terminal c
   await waitFor(() => {
     expect(pathActionMocks.copyTextToClipboard).toHaveBeenCalledWith("/Users/cesar/project-a");
     expect(screen.getByText("Terminal cwd path copied.")).toBeTruthy();
+  });
+
+  await user.click(screen.getByLabelText("Copy terminal cwd Xolotl link"));
+  await waitFor(() => {
+    expect(pathActionMocks.copyXolotlCodeOpenUrl).toHaveBeenCalledWith("/Users/cesar/project-a");
+    expect(screen.getByText("Terminal cwd Xolotl link copied.")).toBeTruthy();
+  });
+
+  await user.click(screen.getByLabelText("Copy terminal cwd shell open command"));
+  await waitFor(() => {
+    expect(pathActionMocks.copyXolotlCodeOpenShellCommand).toHaveBeenCalledWith("/Users/cesar/project-a");
+    expect(screen.getByText("Terminal cwd shell open command copied.")).toBeTruthy();
   });
 });
 
@@ -176,6 +190,52 @@ it("shows recovery guidance when copying the terminal cwd fails", async () => {
 
   expect(await screen.findByText("Copy terminal cwd path failed.")).toBeTruthy();
   expect(screen.getByText(/Check macOS clipboard access/)).toBeTruthy();
+  expect(screen.getByText(/Clipboard blocked/)).toBeTruthy();
+});
+
+it("shows recovery guidance when copying the terminal cwd Xolotl link fails", async () => {
+  pathActionMocks.copyXolotlCodeOpenUrl.mockRejectedValueOnce(new Error("Clipboard blocked"));
+  const user = userEvent.setup();
+  render(<TerminalPanel />);
+  const tab = useTerminalStore.getState().tabs[0];
+
+  act(() => {
+    useTerminalStore.getState().setBackendInfo(tab.key, {
+      id: "pty-1",
+      shell: "/bin/zsh",
+      shell_name: "zsh",
+      cwd: "/Users/cesar/project-a",
+      env_source: "Inherited app environment + $SHELL",
+    });
+  });
+
+  await user.click(screen.getByLabelText("Copy terminal cwd Xolotl link"));
+
+  expect(await screen.findByText("Copy terminal cwd Xolotl link failed.")).toBeTruthy();
+  expect(screen.getByText(/try copying the Xolotl link again/)).toBeTruthy();
+  expect(screen.getByText(/Clipboard blocked/)).toBeTruthy();
+});
+
+it("shows recovery guidance when copying the terminal cwd shell open command fails", async () => {
+  pathActionMocks.copyXolotlCodeOpenShellCommand.mockRejectedValueOnce(new Error("Clipboard blocked"));
+  const user = userEvent.setup();
+  render(<TerminalPanel />);
+  const tab = useTerminalStore.getState().tabs[0];
+
+  act(() => {
+    useTerminalStore.getState().setBackendInfo(tab.key, {
+      id: "pty-1",
+      shell: "/bin/zsh",
+      shell_name: "zsh",
+      cwd: "/Users/cesar/project-a",
+      env_source: "Inherited app environment + $SHELL",
+    });
+  });
+
+  await user.click(screen.getByLabelText("Copy terminal cwd shell open command"));
+
+  expect(await screen.findByText("Copy terminal cwd shell open command failed.")).toBeTruthy();
+  expect(screen.getByText(/try copying the shell open command again/)).toBeTruthy();
   expect(screen.getByText(/Clipboard blocked/)).toBeTruthy();
 });
 
