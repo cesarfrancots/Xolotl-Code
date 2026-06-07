@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, within } from "@testing-library/react";
+import { act, cleanup, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CivilizationView } from "./CivilizationView";
 import { normalizeCivSnapshot, useCivStore } from "../../stores/civStore";
@@ -194,7 +194,15 @@ function multiCivSnapshot(): CivSessionSnapshot {
 }
 
 function hydrateMultiCiv(snapshot: CivSessionSnapshot = multiCivSnapshot()) {
-  useCivStore.setState({ activeSessionId: snapshot.id, activeSnapshot: snapshot, selectedCivId: null });
+  act(() => {
+    useCivStore.setState({ activeSessionId: snapshot.id, activeSnapshot: snapshot, selectedCivId: null });
+  });
+}
+
+function selectCiv(id: string | null) {
+  act(() => {
+    useCivStore.setState({ selectedCivId: id });
+  });
 }
 
 function openObserver(user: ReturnType<typeof userEvent.setup>) {
@@ -250,7 +258,7 @@ describe("CivilizationView selectedCivId-driven observer + log", () => {
     const user = userEvent.setup();
     render(<CivilizationView />);
     hydrateMultiCiv();
-    useCivStore.setState({ selectedCivId: "civ-2" });
+    selectCiv("civ-2");
     await openObserver(user);
 
     const drawer = document.querySelector(".civ-drawer-right") as HTMLElement;
@@ -269,7 +277,7 @@ describe("CivilizationView selectedCivId-driven observer + log", () => {
     expect(document.body.textContent).toContain("Coral builds a nest.");
 
     // Select civ-2 -> only Coral entries remain in the log.
-    useCivStore.setState({ selectedCivId: "civ-2" });
+    selectCiv("civ-2");
     const log = document.querySelector(".civ-log") as HTMLElement;
     expect(within(log).queryByText("Reef gathers food.")).toBeNull();
     expect(within(log).getByText("Coral builds a nest.")).toBeDefined();
