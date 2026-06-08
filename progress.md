@@ -1464,3 +1464,30 @@ Next TODO:
 - Continue playtesting the next-turn hatchling care lifecycle: after a fed hatchling advances a turn, verify whether it should become `play`/`rest`, remain feedable, or grow toward juvenile in a way that is clear to the player.
 - Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
 - Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 hatchling care lifecycle pass:
+- Playtested feeding a hatchling and advancing one more turn:
+  - Immediately after feeding, the hatchling correctly showed `activity=fed`, `fed_this_turn=true`, and `can_feed=false`.
+  - On the next turn, the hatchling became feedable again, but text-state still reported `activity=fed`, which made the action availability and animation state contradict each other.
+- Fixed fed-state lifecycle:
+  - Rust lifecycle now treats `fed` as a one-turn transient care state and clears it before assigning normal young activity.
+  - Browser-preview lifecycle now ages living axolotls each turn and mirrors the stage/activity reset enough for playtests to match backend behavior.
+  - Existing feed-care Rust test now asserts that a fed hatchling returns to `activity=play` after the next lifecycle tick.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatch-next-turn-playtest/01-after-hatch-feed-target.png`
+  - `tauri-app/output/web-game/civ-hatch-next-turn-playtest/02-after-feed.png`
+  - `tauri-app/output/web-game/civ-hatch-next-turn-playtest/03-next-turn-after-feed.png`
+  - Smoke text-state showed after the next turn: hatchling `age=1`, `activity=play`, `animation=play`, `fed_this_turn=false`, `can_feed=true`, and active target `feed_hatchling`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (74 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml feed_hatchling_spends_food_and_improves_care --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Known tool limitation:
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Continue playtesting hatchling growth at age 3/7 so the player sees clear stage/level progression from hatchling to juvenile/adult.
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.

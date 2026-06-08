@@ -581,6 +581,34 @@ function assignPreviewBuilders(x: number, y: number) {
   }
 }
 
+function advancePreviewAxolotlLifecycle() {
+  for (const entity of previewCivSession.world.entities) {
+    if (entity.kind !== "axolotl" || entity.stage === "egg") continue;
+    entity.age = Math.max(0, Math.floor(entity.age ?? 0) + 1);
+    if (entity.age < 3) {
+      entity.stage = "hatchling";
+      entity.role = "juvenile";
+      entity.size = 0.5;
+    } else if (entity.age < 7) {
+      entity.stage = "juvenile";
+      entity.role = "juvenile";
+      entity.size = 0.72;
+    } else {
+      entity.stage = "adult";
+      entity.role = entity.role === "elder" ? "elder" : "worker";
+      entity.size = 1;
+    }
+    if (entity.activity === "fed") entity.activity = "";
+    if (!entity.activity) {
+      entity.activity = entity.stage === "hatchling" || entity.stage === "juvenile"
+        ? "play"
+        : entity.stage === "elder"
+          ? "rest"
+          : "";
+    }
+  }
+}
+
 function advancePreviewConstruction(nextTurn: number, createdAt: number) {
   const logs: typeof previewCivSession.log = [];
   const activeSites: Array<{ x: number; y: number }> = [];
@@ -608,6 +636,7 @@ function advancePreviewConstruction(nextTurn: number, createdAt: number) {
 function advancePreviewCiv() {
   const nextTurn = previewCivSession.turn + 1;
   const nextUpdatedAt = previewCivSession.updated_at + 10;
+  advancePreviewAxolotlLifecycle();
   const lifecycleLog = advancePreviewEggLifecycle(nextTurn, nextUpdatedAt + 1);
   const constructionLog = advancePreviewConstruction(nextTurn, nextUpdatedAt + 2);
   const population = previewLivingPopulation();

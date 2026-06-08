@@ -2883,6 +2883,9 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
         entity.role = role_for_stage(&entity.stage);
         entity.health = health;
         entity.mood = morale;
+        if entity.activity == "fed" {
+            entity.activity = String::new();
+        }
         // Idle young play; idle elders rest. Working axolotls keep their activity.
         if entity.activity.is_empty() {
             entity.activity = match entity.stage.as_str() {
@@ -7836,6 +7839,16 @@ mod tests {
         assert_eq!(snapshot.civs[0].resources["food"], 4);
         assert_eq!(hatchling_again.mood, mood_after_feed);
         assert_eq!(hatchling_again.health, health_after_feed);
+
+        let cid = first_civ_id(&snapshot);
+        run_life_cycle(&mut snapshot, &cid);
+        let hatchling_next_turn = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.id == hatchling_id)
+            .unwrap();
+        assert_eq!(hatchling_next_turn.activity, "play");
     }
 
     #[test]
