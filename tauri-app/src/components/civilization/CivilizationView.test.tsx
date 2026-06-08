@@ -193,6 +193,33 @@ function multiCivSnapshot(): CivSessionSnapshot {
   });
 }
 
+function shopSnapshot(pearls: number): CivSessionSnapshot {
+  return normalizeCivSnapshot({
+    id: "shop-sess",
+    name: "Shop Pond",
+    version: 2,
+    turn: 4,
+    world: {
+      width: 64,
+      height: 36,
+      tiles: [],
+      entities: [],
+      regions: [],
+    },
+    civs: [
+      civ({
+        id: "civ-1",
+        name: "Shop Pond",
+        color: "#7fdfff",
+        alive: true,
+        population: 8,
+        resources: { food: 20, clean_water: 20, pearls },
+        score: { survival: 30, ethics: 30, intelligence: 30, total: 90 },
+      }),
+    ],
+  });
+}
+
 function hydrateMultiCiv(snapshot: CivSessionSnapshot = multiCivSnapshot()) {
   act(() => {
     useCivStore.setState({ activeSessionId: snapshot.id, activeSnapshot: snapshot, selectedCivId: null });
@@ -404,5 +431,25 @@ describe("CivilizationView civPilotControls", () => {
 
     expect(useCivStore.getState().selectedCivId).toBe("civ-2");
     expect(setCivController).toHaveBeenCalledWith("sess-1", "civ-2", "codex");
+  });
+});
+
+describe("CivilizationView Play shop goals", () => {
+  it("shows common egg, rare lure, and rare egg milestones with current affordability", async () => {
+    const user = userEvent.setup();
+    render(<CivilizationView />);
+    hydrateMultiCiv(shopSnapshot(12));
+
+    await user.click(document.querySelector(".civ-mode-switch button") as HTMLElement);
+
+    const goals = document.querySelector("[aria-label='Shop goals']") as HTMLElement;
+    expect(goals).not.toBeNull();
+    expect(within(goals).getByText("Common Egg")).toBeDefined();
+    expect(within(goals).getByText("Rare Lure")).toBeDefined();
+    expect(within(goals).getByText("Rare Egg")).toBeDefined();
+
+    expect(within(goals).getByRole("button", { name: "Buy Common Egg" })).toHaveProperty("disabled", false);
+    expect(within(goals).getByRole("button", { name: "Buy Rare Lure" })).toHaveProperty("disabled", false);
+    expect(within(goals).getByRole("button", { name: "Rare Egg needs 18 more pearls" })).toHaveProperty("disabled", true);
   });
 });

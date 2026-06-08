@@ -1233,3 +1233,28 @@ Next TODO:
 - Add a fuller Play-mode shop goal set after the Common Egg path, including Rare Egg and Rare Lure milestones.
 - Add hatchling follow-up choices beyond feeding, such as assigning a nursery task, naming, or training for a future role.
 - Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 Play HUD shop-milestone pass:
+- Expanded the Play-mode shop goal strip from one Common Egg prompt into a compact three-milestone tracker:
+  - Common Egg
+  - Rare Lure
+  - Rare Egg
+- Each milestone now shows its own funded/required pearl count, progress bar, and Buy button state.
+- Buying from the milestone strip still uses the existing shop purchase path, so it stays aligned with the Hatchery/Shop drawer behavior.
+- Added React coverage for the Play HUD milestone state at 12 pearls: Common Egg and Rare Lure are ready, Rare Egg is locked.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-shop-milestones-smoke/01-milestones-initial.png`
+  - `tauri-app/output/web-game/civ-shop-milestones-smoke/02-milestones-ready.png`
+  - `tauri-app/output/web-game/civ-shop-milestones-smoke/03-rare-lure-bought.png`
+  - `summary.json` shows 0/3 ready at 6 pearls, 2/3 ready at 12 pearls, and clicking `Buy Rare Lure` changed pearls 12 -> 2.
+  - The smoke had no page errors; only Chromium WebGL ReadPixels performance warnings from screenshot capture.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (60 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add hatchling follow-up choices beyond feeding, such as assigning a nursery task, naming, or training for a future role.
+- Add more Play-mode HUD economy goals after purchase, such as farm/workshop/storage kit milestones when the colony needs buildings.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
