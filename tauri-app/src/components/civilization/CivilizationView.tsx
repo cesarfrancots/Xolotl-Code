@@ -330,6 +330,8 @@ export function CivilizationView() {
   const skipNextPlayerSessionPersistRef = useRef(false);
   const nextAlertIdRef = useRef(1);
   const playModeAutoPossessedSessionRef = useRef<string | null>(null);
+  const hatchAlertSessionRef = useRef<string | null>(null);
+  const hatchAlertSeenKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     void loadModels();
@@ -408,6 +410,22 @@ export function CivilizationView() {
     const scoped = selectedCivId ? all.filter((entry) => entry.civ_id === selectedCivId) : all;
     return scoped.slice(0, 12);
   }, [snapshot?.log, selectedCivId]);
+  useEffect(() => {
+    const sessionId = snapshot?.id ?? null;
+    if (!snapshot || !sessionId) return;
+    const hatchLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Eggs hatched") ?? null;
+    const hatchKey = hatchLog ? `${sessionId}:${hatchLog.turn}:${hatchLog.created_at}:${hatchLog.body}` : null;
+    if (hatchAlertSessionRef.current !== sessionId) {
+      hatchAlertSessionRef.current = sessionId;
+      hatchAlertSeenKeyRef.current = hatchKey;
+      return;
+    }
+    if (!hatchLog || !hatchKey || hatchAlertSeenKeyRef.current === hatchKey) return;
+    hatchAlertSeenKeyRef.current = hatchKey;
+    const detail = cleanCivLogBody(hatchLog);
+    setPlayerMessage(detail);
+    pushGameAlert("world", "Eggs hatched", detail);
+  }, [snapshot]);
   // Drive the camera from the selection signal (REN-02): a selected civ (e.g. a
   // leaderboard row click, Phase 1) focuses that civ; clearing it frames all civs.
   useEffect(() => {

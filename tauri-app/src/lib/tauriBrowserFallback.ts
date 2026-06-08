@@ -522,17 +522,66 @@ function previewCivMeta() {
   }];
 }
 
+function advancePreviewEggLifecycle(nextTurn: number, createdAt: number) {
+  let hatched = 0;
+  for (const entity of previewCivSession.world.entities) {
+    if (entity.kind !== "egg" && entity.stage !== "egg") continue;
+    const remaining = typeof entity.hatches_in === "number" && Number.isFinite(entity.hatches_in)
+      ? Math.max(0, Math.floor(entity.hatches_in))
+      : 0;
+    if (remaining > 1) {
+      entity.hatches_in = remaining - 1;
+      continue;
+    }
+    const genes = entity.genes ?? { allele_a: entity.morph ?? "leucistic", allele_b: "wild", size_gene: 1, fertility: 0.8, longevity: 1, vigor: 1 };
+    const suffix = entity.id.match(/\d+$/)?.[0] ?? entity.id.slice(-3);
+    entity.kind = "axolotl";
+    entity.name = `Hatchling ${suffix}`;
+    entity.role = "juvenile";
+    entity.stage = "hatchling";
+    entity.sex = nextTurn % 2 === 0 ? "f" : "m";
+    entity.age = 0;
+    entity.size = 0.5;
+    entity.morph = typeof genes.allele_a === "string" ? genes.allele_a : (entity.morph ?? "leucistic");
+    const patterned = entity as typeof entity & { pattern?: string | null };
+    patterned.pattern = patterned.pattern ?? "plain";
+    entity.hatches_in = null;
+    entity.activity = "play";
+    entity.genes = genes;
+    hatched += 1;
+  }
+  if (hatched === 0) return [];
+  return [{
+    turn: nextTurn,
+    kind: "lifecycle",
+    title: "Eggs hatched",
+    body: `${hatched} egg(s) hatched into wriggling hatchlings.`,
+    created_at: createdAt,
+  }];
+}
+
+function previewLivingPopulation() {
+  return previewCivSession.world.entities.filter((entity) => (
+    entity.kind === "axolotl" && entity.stage !== "egg"
+  )).length;
+}
+
 function advancePreviewCiv() {
+  const nextTurn = previewCivSession.turn + 1;
+  const nextUpdatedAt = previewCivSession.updated_at + 10;
+  const lifecycleLog = advancePreviewEggLifecycle(nextTurn, nextUpdatedAt + 1);
+  const population = previewLivingPopulation();
   previewCivSession = {
     ...previewCivSession,
-    turn: previewCivSession.turn + 1,
-    updated_at: previewCivSession.updated_at + 10,
+    turn: nextTurn,
+    updated_at: nextUpdatedAt,
     civilization: {
       ...previewCivSession.civilization,
+      population,
       resources: {
         ...previewCivSession.civilization.resources,
-        food: Math.max(0, previewCivSession.civilization.resources.food + 5 - previewCivSession.civilization.population),
-        clean_water: Math.max(0, previewCivSession.civilization.resources.clean_water + 4 - previewCivSession.civilization.population),
+        food: Math.max(0, previewCivSession.civilization.resources.food + 5 - population),
+        clean_water: Math.max(0, previewCivSession.civilization.resources.clean_water + 4 - population),
         wood: previewCivSession.civilization.resources.wood + 3,
       },
       score: {
@@ -548,12 +597,13 @@ function advancePreviewCiv() {
     log: [
       ...previewCivSession.log,
       {
-        turn: previewCivSession.turn + 1,
+        turn: nextTurn,
         kind: "ai_decision",
         title: "AI intent: reinforce basics",
         body: "The preview model gathered food and kept water reserves stable.",
-        created_at: previewCivSession.updated_at + 10,
+        created_at: nextUpdatedAt,
       },
+      ...lifecycleLog,
     ].slice(-80),
   };
   persistPreviewCivSession();

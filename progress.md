@@ -1132,3 +1132,26 @@ Next TODO:
 - Add visible hatch completion feedback and a first-hatchling tutorial beat so warming eggs feels like a complete loop.
 - Add richer world currency drops and rare-object discovery, including rare object alerts that connect directly to shop/egg goals.
 - Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 hatch completion feedback pass:
+- Closed the warm-egg payoff loop in browser preview:
+  - Preview turn advancement now hatches ready eggs into hatchlings, updates population, and writes the same `Eggs hatched` lifecycle log shape as the Rust backend.
+  - Hatchlings keep the same entity id, switch to `kind=axolotl`, `stage=hatchling`, `role=juvenile`, `activity=play`, and show up immediately in the world after the next turn.
+- Added visible hatch feedback:
+  - `CivilizationView` watches for new `Eggs hatched` logs in the active session and raises a world alert/player message.
+  - The watcher seeds itself on session load so old saved hatch logs do not replay as fresh alerts.
+- Extended `window.render_game_to_text().hatchery` with `recent_hatch` for automation-friendly hatch verification.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatch-feedback-smoke/01-ready-next-turn.png`
+  - `tauri-app/output/web-game/civ-hatch-feedback-smoke/02-hatch-alert.png`
+  - `summary.json` shows turn 3 -> 4, eggs 1 -> 0, population 8 -> 9, `egg-preview-1` becoming `stage=hatchling`, and `recent_hatch.turn=4`, with no console/page errors.
+- Verification passed:
+  - `npm test -- civCreatureProgression.test.ts CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (63 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+- Official `develop-web-game` client still cannot resolve `playwright` from the skill script; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add richer world currency drops and rare-object discovery, including rare object alerts that connect directly to shop/egg goals.
+- Add a first-hatchling interaction/tutorial beat, such as feeding or assigning the hatchling, so hatching creates a new manual choice.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.

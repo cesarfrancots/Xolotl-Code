@@ -3459,6 +3459,7 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
   )).length;
   const failedCivs = (snapshot.civs ?? []).filter((c) => c.alive === false || (c.population ?? 0) <= 0).length;
   const eggs = snapshot.world.entities.filter((entity) => isEggEntity(entity) && (!entity.civ_id || entity.civ_id === civ.id));
+  const recentHatchLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Eggs hatched") ?? null;
   return JSON.stringify({
     coordinate_system: "origin top-left; x right; y down; tiles are 16px",
     session: { id: snapshot.id, turn: snapshot.turn, model: civ.model ?? "unknown", view_mode: playerState?.view_mode ?? viewMode },
@@ -3498,6 +3499,10 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
     },
     player_task: activeCivPlayerTask(snapshot, civ),
     hatchery: {
+      recent_hatch: recentHatchLog ? {
+        turn: recentHatchLog.turn,
+        body: recentHatchLog.body,
+      } : null,
       eggs: eggs.map((entity) => {
         const hatchesIn = hatchTurnsRemaining(entity);
         return {
