@@ -1258,3 +1258,38 @@ Next TODO:
 - Add hatchling follow-up choices beyond feeding, such as assigning a nursery task, naming, or training for a future role.
 - Add more Play-mode HUD economy goals after purchase, such as farm/workshop/storage kit milestones when the colony needs buildings.
 - Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 axolotl action-animation pass:
+- Kept the approved README/screenshot axolotl graphic line:
+  - Checked available stock axolotl animation packs; did not import them because the viable packs are mostly pixel-art/paid or have license constraints, and they would not match the current chibi/painterly sprite line.
+  - Built the first animation layer from the existing approved `axolotl-animated-seeds.png` sheet instead.
+- Added explicit axolotl action animation states in the Phaser canvas:
+  - Movement/locomotion: idle, swim, walk, jump, dash, wall_slide, rest, play.
+  - Manual actions: mine, gather, build, repair, rescue, feed, talk, use.
+  - Lifecycle: hatch pop animation for newly created hatchlings.
+- Wired animations to real player actions:
+  - `E`/Space interaction now triggers action-specific frame sequences, squash/sway/bob motion, particles, and pulses.
+  - Build/place, mining, resource gathering, NPC talk, hatchling feed, repair, and rescue map to distinct states.
+  - Target axolotls also animate for talk/feed where applicable.
+- Extended `window.render_game_to_text()`:
+  - `player.player.animation` reports the live animation state.
+  - `player.player.action_ms_remaining` reports one-shot action timing for automation/playtest verification.
+- Added focused unit coverage:
+  - `axoActionAnimationForInteraction` maps terrain/resource/NPC/object actions to the expected animation state.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-action-animation-smoke/05-build-ready.png`
+  - `tauri-app/output/web-game/civ-action-animation-smoke/06-build-action.png`
+  - `tauri-app/output/web-game/civ-action-animation-smoke/08-talk-action.png`
+  - `tauri-app/output/web-game/civ-action-animation-smoke/09-swim-down.png`
+  - `tauri-app/output/web-game/civ-action-animation-smoke/10-mine-after-swim.png`
+  - Smoke text-state showed Build -> `animation=build`, Talk -> `animation=talk`, swim-down -> `animation=swim`, and Mine -> `animation=mine`; no page/console errors.
+- Verification passed:
+  - `npm test -- civCanvas.test.ts CivilizationView.test.tsx civStore.test.ts` (62 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Generate a small style-matched supplemental sprite sheet for mining/gathering/hatching poses only if it is based on the approved README/screenshot axolotl line.
+- Add a visible hatch ceremony/tutorial beat after egg hatching so the new hatch animation has a clear player-facing moment.
+- Add more Play-mode HUD economy goals after purchase, such as farm/workshop/storage kit milestones when the colony needs buildings.

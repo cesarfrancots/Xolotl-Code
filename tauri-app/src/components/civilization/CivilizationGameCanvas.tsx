@@ -149,6 +149,46 @@ export type PlayerInteraction = {
   cycle_count?: number;
 };
 
+export type AxoActionAnimation =
+  | "idle"
+  | "swim"
+  | "walk"
+  | "mine"
+  | "gather"
+  | "build"
+  | "repair"
+  | "rescue"
+  | "feed"
+  | "talk"
+  | "hatch"
+  | "dash"
+  | "jump"
+  | "wall_slide"
+  | "rest"
+  | "play"
+  | "eat"
+  | "use";
+
+export type AxoInteractionAnimation = {
+  state: AxoActionAnimation;
+  durationMs: number;
+  hue: number;
+};
+
+export function axoActionAnimationForInteraction(
+  interaction: Pick<PlayerInteraction, "kind" | "action">,
+): AxoInteractionAnimation | null {
+  if (interaction.action === "mine_tile") return { state: "mine", durationMs: 660, hue: 0xffc866 };
+  if (interaction.action === "place_tile") return { state: "build", durationMs: 700, hue: 0x72e6a4 };
+  if (interaction.action === "repair_object") return { state: "repair", durationMs: 760, hue: 0x73f0df };
+  if (interaction.action === "rescue_object") return { state: "rescue", durationMs: 860, hue: 0x80ffc0 };
+  if (interaction.action === "feed_hatchling") return { state: "feed", durationMs: 720, hue: 0xffd4ec };
+  if (interaction.kind === "resource") return { state: "gather", durationMs: 620, hue: 0xbfe9ff };
+  if (interaction.kind === "npc") return { state: "talk", durationMs: 620, hue: 0xffd4ec };
+  if (interaction.kind === "building" || interaction.kind === "object") return { state: "use", durationMs: 620, hue: 0xaee9ff };
+  return null;
+}
+
 export type PlayerMove = {
   entityId: string;
   x: number;
@@ -170,6 +210,8 @@ type PlayerTextState = {
     tile_y: number;
     activity: string;
     locomotion?: "swim" | "grounded" | "jump" | "wall_slide";
+    animation?: AxoActionAnimation;
+    action_ms_remaining?: number;
     floor_y?: number;
     wall_contact?: PlayerWallContactState | null;
     velocity_x?: number;
@@ -352,6 +394,7 @@ type AxoSprite = {
   container: Phaser.GameObjects.Container;
   body: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image;
   baseScale: number;
+  frameBase: number;
   glow?: Phaser.GameObjects.Sprite;
   accessories: AccSprite[];
   accSignature: string;
@@ -370,6 +413,10 @@ type AxoSprite = {
   glowMorph: boolean;
   born: number;
   workSeed: number;
+  animState: AxoActionAnimation;
+  animStartedAt: number;
+  animUntil: number;
+  animHue: number;
   appliedTint?: number;
 };
 
@@ -649,6 +696,7 @@ class CivPhaserScene extends Phaser.Scene {
     const axo = this.playerAxo();
     const hazardContact = axo ? this.playerHazardContact(axo) : null;
     const activeTarget = axo ? this.findPlayerInteraction(axo) : null;
+    const playerAnimation = axo ? this.currentAxoAnimation(axo) : null;
     return renderSnapshotToText(this.snapshot, {
       possessedEntityId: this.possessedEntityId,
       view_mode: this.gameMode,
@@ -662,6 +710,8 @@ class CivPhaserScene extends Phaser.Scene {
             tile_y: Math.floor(axo.renderY / TILE_SIZE),
             activity: "player",
             locomotion: this.lastPlayerLocomotion,
+            animation: playerAnimation?.state,
+            action_ms_remaining: playerAnimation?.active ? Math.max(0, Math.ceil(axo.animUntil - this.elapsed)) : 0,
             floor_y: Math.round(this.playerFloorY(axo.renderX)),
             wall_contact: this.recentPlayerWallContact(),
             velocity_x: Math.round(this.playerVelocityX() * 100) / 100,
@@ -1050,6 +1100,7 @@ class CivPhaserScene extends Phaser.Scene {
 
     let body: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image;
     let glow: Phaser.GameObjects.Sprite | undefined;
+    let frameBase = 0;
     const glowMorph = ["gfp", "mystic", "firefly"].includes(entity.morph ?? "");
 
     if (isEgg) {
@@ -1057,6 +1108,7 @@ class CivPhaserScene extends Phaser.Scene {
       body.setDisplaySize(13, 13);
     } else if (this.spritesReady) {
       const variant = morphVariant(entity, this.snapshot.seed);
+      frameBase = variant * FRAMES_PER_VARIANT;
       const s = this.add.sprite(0, 0, "civ-axolotls", variant * FRAMES_PER_VARIANT);
       s.setDisplaySize(38, 38);
       s.play({ key: `axo-${variant}`, startFrame: hashInt(entity.id) % FRAMES_PER_VARIANT });
@@ -1084,6 +1136,7 @@ class CivPhaserScene extends Phaser.Scene {
       container,
       body,
       baseScale: body.scaleX,
+      frameBase,
       glow,
       accessories: [],
       accSignature: "",
@@ -1100,7 +1153,17 @@ class CivPhaserScene extends Phaser.Scene {
       glowMorph,
       born: this.elapsed,
       workSeed: (hashInt(entity.id) % 100) * 0.1,
+      animState: !isEgg && entity.stage === "hatchling" && (entity.age ?? 99) <= 1 ? "hatch" : "idle",
+      animStartedAt: this.elapsed,
+      animUntil: !isEgg && entity.stage === "hatchling" && (entity.age ?? 99) <= 1 ? this.elapsed + 1400 : this.elapsed,
+      animHue: 0xffd4ec,
     };
+    if (axo.animState === "hatch") {
+      this.spawnPulse(px, py, axo.animHue);
+      for (let i = 0; i < 14; i += 1) {
+        this.spawnParticle(px + rand(-8, 8), py + rand(-8, 8), rand(-0.24, 0.24), rand(-0.58, -0.08), i % 2 === 0 ? 0xffd4ec : 0xc7f2ff, true);
+      }
+    }
     this.syncAccessories(axo, entity);
     this.applyTarget(axo, entity);
     this.applyCivTint(axo, entity);
@@ -1215,6 +1278,95 @@ class CivPhaserScene extends Phaser.Scene {
     }
   }
 
+  private triggerAxoActionAnimation(entityId: string | undefined, state: AxoActionAnimation, durationMs: number, hue: number) {
+    if (!entityId) return;
+    const axo = this.axos.get(entityId);
+    if (!axo || axo.isEgg) return;
+    axo.animState = state;
+    axo.animStartedAt = this.elapsed;
+    axo.animUntil = this.elapsed + durationMs;
+    axo.animHue = hue;
+  }
+
+  private currentAxoAnimation(axo: AxoSprite): { state: AxoActionAnimation; active: boolean; progress: number; hue: number } {
+    const active = this.elapsed < axo.animUntil;
+    if (active) {
+      const duration = Math.max(1, axo.animUntil - axo.animStartedAt);
+      return {
+        state: axo.animState,
+        active: true,
+        progress: Math.max(0, Math.min(1, (this.elapsed - axo.animStartedAt) / duration)),
+        hue: axo.animHue,
+      };
+    }
+    return { state: this.ambientAxoAnimation(axo), active: false, progress: 0, hue: axo.animHue };
+  }
+
+  private ambientAxoAnimation(axo: AxoSprite): AxoActionAnimation {
+    if (axo.isEgg) return "idle";
+    const playerControlled = axo.id === this.possessedEntityId;
+    if (playerControlled && this.elapsed - this.lastPlayerDashAt < 320) return "dash";
+    if (playerControlled) {
+      if (this.lastPlayerLocomotion === "wall_slide") return "wall_slide";
+      if (this.lastPlayerLocomotion === "jump") return "jump";
+      if (this.lastPlayerLocomotion === "grounded") return Math.abs(this.playerVelocityX()) > 0.08 ? "walk" : "rest";
+      return Math.hypot(this.playerVelocityX(), this.playerVelocityY()) > 0.08 ? "swim" : "idle";
+    }
+    if (axo.activity === "gather") return "gather";
+    if (axo.activity === "eat") return "eat";
+    if (axo.activity === "build") return "build";
+    if (axo.activity === "rest") return "rest";
+    if (axo.activity === "play") return "play";
+    if (axo.targetX !== undefined && axo.targetY !== undefined) return "swim";
+    return "idle";
+  }
+
+  private applyAxoFrame(axo: AxoSprite, anim: { state: AxoActionAnimation; active: boolean; progress: number }) {
+    if (axo.isEgg || !(axo.body instanceof Phaser.GameObjects.Sprite)) return;
+    const offset = this.axoFrameOffset(axo, anim);
+    axo.body.setFrame(axo.frameBase + offset);
+    axo.glow?.setFrame(axo.frameBase + offset);
+  }
+
+  private axoFrameOffset(axo: AxoSprite, anim: { state: AxoActionAnimation; active: boolean; progress: number }) {
+    const seq = (frames: number[]) => {
+      const idx = Math.min(frames.length - 1, Math.max(0, Math.floor(anim.progress * frames.length)));
+      return frames[idx] % FRAMES_PER_VARIANT;
+    };
+    const loop = (speed: number) => Math.floor(this.elapsed * speed + axo.phase * 10) % FRAMES_PER_VARIANT;
+    if (anim.active) {
+      switch (anim.state) {
+        case "mine": return seq([0, 1, 2, 3, 2, 1]);
+        case "gather":
+        case "feed": return seq([0, 1, 0, 2, 1]);
+        case "build":
+        case "repair": return seq([1, 2, 3, 2, 1]);
+        case "rescue": return seq([2, 3, 2, 1, 0]);
+        case "talk": return seq([0, 1, 0, 1]);
+        case "hatch": return seq([0, 1, 2, 3, 3, 2]);
+        case "dash": return seq([3, 2, 1]);
+        case "jump": return 2;
+        case "wall_slide": return 1;
+        case "use": return seq([0, 2, 1]);
+        default: break;
+      }
+    }
+    switch (anim.state) {
+      case "swim": return loop(0.010);
+      case "walk": return loop(0.018);
+      case "gather":
+      case "eat": return loop(0.021);
+      case "build":
+      case "repair": return loop(0.024);
+      case "play": return loop(0.026);
+      case "dash": return loop(0.036);
+      case "jump": return 2;
+      case "wall_slide": return 1;
+      case "rest": return Math.floor(this.elapsed * 0.004 + axo.phase) % 2;
+      default: return Math.floor(this.elapsed * 0.006 + axo.phase) % 2;
+    }
+  }
+
   private animateEntities(dtN: number) {
     const sh = this.shadows;
     if (!sh) return;
@@ -1225,6 +1377,7 @@ class CivPhaserScene extends Phaser.Scene {
       const playerControlled = axo.id === this.possessedEntityId && !axo.isEgg;
       const act = playerControlled ? "player" : axo.activity;
       const hasTarget = !playerControlled && axo.targetX !== undefined && axo.targetY !== undefined;
+      const anim = this.currentAxoAnimation(axo);
 
       // where it wants to be
       let wanderX = 0;
@@ -1302,6 +1455,105 @@ class CivPhaserScene extends Phaser.Scene {
         }
       }
 
+      if (!axo.isEgg) {
+        const hit = anim.active ? Math.sin(anim.progress * Math.PI) : 0;
+        const snap = anim.active ? Math.sin(anim.progress * Math.PI * 4) : Math.sin(this.elapsed * 0.018 + axo.phase);
+        switch (anim.state) {
+          case "mine": {
+            ease = Math.max(ease, 0.12);
+            const strike = Math.max(0, snap);
+            wanderX += axo.facing * strike * 3.2;
+            bob -= hit * 2.8;
+            sway += axo.facing * snap * 0.18;
+            squashX += hit * 0.16;
+            squashY -= hit * 0.10;
+            if (anim.active && Math.random() < 0.18 * dtN) {
+              this.spawnParticle(axo.renderX + axo.facing * 10 + rand(-2, 4), axo.renderY + rand(-5, 6), axo.facing * rand(0.10, 0.42), rand(-0.50, 0.08), 0xffc866, false);
+            }
+            break;
+          }
+          case "gather":
+          case "feed":
+          case "eat": {
+            const nibble = anim.active ? Math.abs(Math.sin(anim.progress * Math.PI * 5)) : Math.abs(Math.sin(this.elapsed * 0.02 + axo.workSeed));
+            bob -= nibble * 2.4;
+            squashY -= nibble * 0.12;
+            squashX += nibble * 0.08;
+            if (anim.active && Math.random() < 0.12 * dtN) {
+              this.spawnParticle(axo.renderX + axo.facing * 8 + rand(-4, 4), axo.renderY + 5, rand(-0.18, 0.18), rand(-0.48, -0.08), anim.hue, true);
+            }
+            break;
+          }
+          case "build":
+          case "repair": {
+            const tap = anim.active ? Math.abs(snap) : Math.abs(Math.sin(this.elapsed * 0.017 + axo.workSeed));
+            wanderX += axo.facing * tap * 1.8;
+            bob -= tap * 2.2;
+            sway += axo.facing * snap * 0.14;
+            squashX += tap * 0.12;
+            if (anim.active && Math.random() < 0.14 * dtN) {
+              this.spawnParticle(axo.renderX + axo.facing * 9 + rand(-5, 5), axo.renderY + rand(-5, 5), rand(-0.24, 0.24), rand(-0.52, -0.10), anim.hue, true);
+            }
+            break;
+          }
+          case "rescue": {
+            bob -= hit * 4.5;
+            sway += axo.facing * snap * 0.10;
+            squashX += hit * 0.12;
+            squashY += hit * 0.04;
+            if (anim.active && Math.random() < 0.18 * dtN) {
+              this.spawnParticle(axo.renderX + rand(-9, 9), axo.renderY + rand(-8, 6), rand(-0.24, 0.24), rand(-0.62, -0.10), anim.hue, true);
+            }
+            break;
+          }
+          case "talk": {
+            bob += snap * 1.1;
+            squashY += Math.abs(snap) * 0.05;
+            if (anim.active && Math.random() < 0.08 * dtN) {
+              this.spawnParticle(axo.renderX + rand(-5, 5), axo.renderY - 8 + rand(-3, 3), rand(-0.12, 0.12), rand(-0.40, -0.18), 0xffd4ec, true);
+            }
+            break;
+          }
+          case "hatch": {
+            bob -= hit * 7;
+            squashX += hit * 0.24;
+            squashY += hit * 0.18;
+            sway += Math.sin(anim.progress * Math.PI * 6) * 0.08;
+            if (anim.active && Math.random() < 0.16 * dtN) {
+              this.spawnParticle(axo.renderX + rand(-8, 8), axo.renderY + rand(-8, 6), rand(-0.20, 0.20), rand(-0.60, -0.16), anim.hue, true);
+            }
+            break;
+          }
+          case "dash": {
+            ease = Math.max(ease, 0.22);
+            sway += -axo.facing * 0.18;
+            squashX += 0.20;
+            squashY -= 0.10;
+            break;
+          }
+          case "jump": {
+            bob -= 2.4;
+            sway += -axo.facing * 0.08;
+            squashY += 0.08;
+            break;
+          }
+          case "wall_slide": {
+            bob += Math.sin(this.elapsed * 0.04 + axo.phase) * 0.9;
+            sway += -axo.facing * 0.16;
+            squashX -= 0.06;
+            break;
+          }
+          case "use": {
+            bob -= hit * 2.2;
+            squashX += hit * 0.10;
+            sway += axo.facing * snap * 0.08;
+            break;
+          }
+          default:
+            break;
+        }
+      }
+
       const anchorX = (hasTarget ? axo.targetX! : axo.homeX) + wanderX;
       const anchorY = (hasTarget ? axo.targetY! : axo.homeY) + wanderY;
       // facing follows the desired travel direction (captured BEFORE easing, with a
@@ -1323,6 +1575,7 @@ class CivPhaserScene extends Phaser.Scene {
 
       axo.body.y = bob;
       axo.body.setScale(axo.baseScale * squashX, axo.baseScale * squashY);
+      this.applyAxoFrame(axo, anim);
       for (const a of axo.accessories) a.img.y = a.baseOffY + bob;
       if (axo.glow) {
         axo.glow.y = bob;
@@ -1919,12 +2172,14 @@ class CivPhaserScene extends Phaser.Scene {
       this.wallKickControlUntil = this.elapsed + PLAYER_WALL_KICK_CONTROL_LOCK_MS;
       this.recordPlayerWallContact(jumpWallContact);
       this.spawnWallKickWake(axo, jumpWallContact.direction);
+      this.triggerAxoActionAnimation(axo.id, "jump", 420, 0xc7f2ff);
     } else if (jumpStarted) {
       this.lastJumpPressedAt = -Infinity;
       this.lastPlayerGroundedAt = -Infinity;
       this.playerJumpVelocityX = 0;
       this.playerJumpVelocityY = PLAYER_JUMP_IMPULSE * Math.max(0.86, hazardSpeed);
       this.spawnJumpWake(axo);
+      this.triggerAxoActionAnimation(axo.id, "jump", 420, 0xc7f2ff);
     }
     const jumpPhysicsActive = jumpStarted
       || wallJumpStarted
@@ -2051,6 +2306,7 @@ class CivPhaserScene extends Phaser.Scene {
           this.playerManualVelocityY = locomotion === "grounded" ? 0 : dy * 3.1 * Math.max(0.74, hazardSpeed);
         }
         this.spawnDashWake(axo, dx, dy);
+        this.triggerAxoActionAnimation(axo.id, "dash", 330, 0xffd76b);
       }
       const resolved = this.resolvePlayerTerrainMove(axo, nextRawX, nextRawY, locomotion, wantsUp);
       const next = this.clampPlayerPosition(resolved.x, resolved.y);
@@ -2122,6 +2378,21 @@ class CivPhaserScene extends Phaser.Scene {
     if (interaction.kind === "empty") {
       this.spawnPulse(x, y, 0x8aa0b8);
       return;
+    }
+
+    const actionAnimation = axoActionAnimationForInteraction(interaction);
+    if (actionAnimation) {
+      this.triggerAxoActionAnimation(interaction.entityId, actionAnimation.state, actionAnimation.durationMs, actionAnimation.hue);
+      if (interaction.targetId && interaction.targetId !== interaction.entityId) {
+        const targetState: AxoActionAnimation = actionAnimation.state === "feed"
+          ? "eat"
+          : actionAnimation.state === "talk"
+            ? "talk"
+            : actionAnimation.state === "rescue"
+              ? "rescue"
+              : "use";
+        this.triggerAxoActionAnimation(interaction.targetId, targetState, Math.min(actionAnimation.durationMs, 700), actionAnimation.hue);
+      }
     }
 
     if (interaction.action === "mine_tile") {

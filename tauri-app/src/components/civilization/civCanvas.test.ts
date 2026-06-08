@@ -19,6 +19,7 @@ vi.mock("phaser", () => {
 });
 
 import {
+  axoActionAnimationForInteraction,
   buildCivColorMap,
   civTintFor,
   colonyBounds,
@@ -28,6 +29,23 @@ import {
 } from "./CivilizationGameCanvas";
 
 const GREY = 0x888888;
+
+describe("axoActionAnimationForInteraction", () => {
+  it("maps manual world actions to distinct axolotl animations", () => {
+    expect(axoActionAnimationForInteraction({ kind: "terrain", action: "mine_tile" })?.state).toBe("mine");
+    expect(axoActionAnimationForInteraction({ kind: "terrain", action: "place_tile" })?.state).toBe("build");
+    expect(axoActionAnimationForInteraction({ kind: "object", action: "repair_object" })?.state).toBe("repair");
+    expect(axoActionAnimationForInteraction({ kind: "object", action: "rescue_object" })?.state).toBe("rescue");
+    expect(axoActionAnimationForInteraction({ kind: "npc", action: "feed_hatchling" })?.state).toBe("feed");
+  });
+
+  it("falls back from target kind for non-action interactions", () => {
+    expect(axoActionAnimationForInteraction({ kind: "resource" })?.state).toBe("gather");
+    expect(axoActionAnimationForInteraction({ kind: "npc" })?.state).toBe("talk");
+    expect(axoActionAnimationForInteraction({ kind: "building" })?.state).toBe("use");
+    expect(axoActionAnimationForInteraction({ kind: "empty" })).toBeNull();
+  });
+});
 
 describe("hexToTint", () => {
   it("parses a full 6-digit hex with leading #", () => {
