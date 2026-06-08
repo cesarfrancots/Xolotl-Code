@@ -61,6 +61,7 @@ const PLAYER_WALL_KICK_CONTROL_LOCK_MS = 520;
 const PLAYER_JUMP_BUFFER_MS = 180;
 const PLAYER_INTERACT_BUFFER_MS = 180;
 const PLAYER_BUILD_INTERACT_RADIUS = 86;
+const HATCHLING_CARE_INTERACT_RADIUS = 132;
 const PLAYER_GROUND_COYOTE_MS = 160;
 const PLAYER_WALL_COYOTE_MS = 150;
 const PLAYER_MANUAL_SWIM_ACCEL = 0.34;
@@ -1486,6 +1487,8 @@ class CivPhaserScene extends Phaser.Scene {
     const stop = anim.state === "talk" || anim.state === "feed" || anim.state === "eat" ? 18 : 9;
     const maxTravel = anim.state === "dash"
       ? 70
+      : anim.state === "feed"
+        ? 76
       : anim.state === "mine" || anim.state === "build" || anim.state === "repair" || anim.state === "rescue"
         ? 46
         : 34;
@@ -3081,6 +3084,8 @@ class CivPhaserScene extends Phaser.Scene {
       const taskNpc = this.npcInteractionOptions(axo, 54, 8).find((npc) => npc.targetId === task.npcId);
       if (taskNpc) return taskNpc;
     }
+    const hatchlingCare = this.hatchlingCareInteractionOptions(axo, HATCHLING_CARE_INTERACT_RADIUS, 1)[0];
+    if (hatchlingCare) return hatchlingCare;
     if (task && task.kind !== "visit_building" && task.status !== "ready") {
       const taskResource = this.taskResourceInteractionOptions(axo, 46, 6, task)[0];
       if (taskResource) return taskResource;
@@ -3150,8 +3155,10 @@ class CivPhaserScene extends Phaser.Scene {
     if (task && task.kind !== "visit_building" && task.status !== "ready") {
       taskOptions.push(...this.taskResourceInteractionOptions(axo, 52, 8, task));
     }
+    const hatchlingCare = this.hatchlingCareInteractionOptions(axo, HATCHLING_CARE_INTERACT_RADIUS, 4);
     return uniqueInteractions([
       ...taskOptions,
+      ...hatchlingCare,
       ...this.resourceInteractionOptions(axo, 46, 10),
       ...this.buildingInteractionOptions(axo, 58, 8),
       ...this.objectInteractionOptions(axo, 76, 8),
@@ -3279,6 +3286,7 @@ class CivPhaserScene extends Phaser.Scene {
 
   private nearbyInteractionOptions(axo: AxoSprite): PlayerInteraction[] {
     return uniqueInteractions([
+      ...this.hatchlingCareInteractionOptions(axo, HATCHLING_CARE_INTERACT_RADIUS, 4),
       ...this.resourceInteractionOptions(axo, 90, 8),
       ...this.buildingInteractionOptions(axo, 96, 5),
       ...this.objectInteractionOptions(axo, 120, 5),
@@ -3286,8 +3294,38 @@ class CivPhaserScene extends Phaser.Scene {
       ...this.terrainMineInteractionOptions(axo, 90, 4),
       ...this.terrainPlaceInteractionOptions(axo, 90, 3),
     ])
-      .sort((a, b) => (a.distance ?? 9999) - (b.distance ?? 9999))
+      .sort((a, b) => nearbyInteractionPriority(a) - nearbyInteractionPriority(b) || (a.distance ?? 9999) - (b.distance ?? 9999))
       .slice(0, 18);
+  }
+
+  private hatchlingCareInteractionOptions(axo: AxoSprite, radius: number, limit: number): PlayerInteraction[] {
+    const options: PlayerInteraction[] = [];
+    for (const entity of this.snapshot.world.entities) {
+      if (entity.kind !== "axolotl" || entity.id === axo.id || entity.stage !== "hatchling") continue;
+      if (hatchlingFedThisTurn(this.snapshot, entity.id)) continue;
+      const sprite = this.axos.get(entity.id);
+      if (!sprite) continue;
+      const d = dist(axo.renderX, axo.renderY, sprite.renderX, sprite.renderY);
+      if (d > radius) continue;
+      options.push({
+        entityId: axo.id,
+        kind: "npc",
+        action: "feed_hatchling",
+        label: entity.name || "Hatchling",
+        targetId: entity.id,
+        x: sprite.renderX,
+        y: sprite.renderY,
+        tileX: entity.x,
+        tileY: entity.y,
+        distance: Math.round(d),
+        stage: entity.stage,
+      });
+    }
+    return options.sort((a, b) => {
+      const bHatching = this.snapshot.world.entities.find((entity) => entity.id === b.targetId)?.activity === "hatch" ? 1 : 0;
+      const aHatching = this.snapshot.world.entities.find((entity) => entity.id === a.targetId)?.activity === "hatch" ? 1 : 0;
+      return bHatching - aHatching || (a.distance ?? 9999) - (b.distance ?? 9999);
+    }).slice(0, limit);
   }
 
   private taskInteractionOptions(axo: AxoSprite): PlayerInteraction[] {
@@ -3401,6 +3439,7 @@ class CivPhaserScene extends Phaser.Scene {
     const options: PlayerInteraction[] = [];
     for (const entity of this.snapshot.world.entities) {
       if (entity.kind !== "axolotl" || entity.id === axo.id || entity.stage === "egg") continue;
+      if (entity.stage === "hatchling" && hatchlingFedThisTurn(this.snapshot, entity.id)) continue;
       const sprite = this.axos.get(entity.id);
       if (!sprite) continue;
       const d = dist(axo.renderX, axo.renderY, sprite.renderX, sprite.renderY);
@@ -3410,7 +3449,7 @@ class CivPhaserScene extends Phaser.Scene {
         entityId: axo.id,
         kind: "npc",
         action: isHatchling ? "feed_hatchling" : undefined,
-        label: isHatchling ? `Feed ${entity.name || "hatchling"}` : entity.name || "Axolotl",
+        label: isHatchling ? entity.name || "Hatchling" : entity.name || "Axolotl",
         targetId: entity.id,
         x: sprite.renderX,
         y: sprite.renderY,
@@ -3840,6 +3879,24 @@ function resourceFeedbackColor(resource: string) {
   return 0xffd76b;
 }
 
+function nearbyInteractionPriority(item: PlayerInteraction) {
+  if (item.action === "feed_hatchling") return 0;
+  if (item.action === "repair_object" || item.action === "rescue_object") return 1;
+  if (item.kind === "building" || item.kind === "object") return 2;
+  if (item.kind === "npc") return 3;
+  if (item.kind === "resource") return 4;
+  if (item.kind === "terrain") return 5;
+  return 6;
+}
+
+function hatchlingFedThisTurn(snapshot: CivSessionSnapshot, entityId: string) {
+  return (snapshot.log ?? []).some((entry) => (
+    entry.turn === snapshot.turn
+    && entry.title === "Hatchling fed"
+    && entry.body.includes(`target=${entityId}`)
+  ));
+}
+
 function uniqueInteractions(items: PlayerInteraction[]) {
   const seen = new Set<string>();
   const unique: PlayerInteraction[] = [];
@@ -4188,20 +4245,24 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
           y: entity.y,
         };
       }),
-      care_targets: hatchlingCareTargets.slice(0, 5).map((entity) => ({
-        id: entity.id,
-        name: entity.name,
-        rarity: axolotlRarity(entity),
-        rarity_label: rarityLabel(axolotlRarity(entity)),
-        level: axolotlLevel(entity),
-        health: Math.round(entity.health ?? 0),
-        mood: Math.round(entity.mood ?? 0),
-        activity: entity.activity,
-        food_cost: 1,
-        can_feed: (civ.resources?.food ?? 0) >= 1,
-        x: entity.x,
-        y: entity.y,
-      })),
+      care_targets: hatchlingCareTargets.slice(0, 5).map((entity) => {
+        const fedThisTurn = hatchlingFedThisTurn(snapshot, entity.id);
+        return {
+          id: entity.id,
+          name: entity.name,
+          rarity: axolotlRarity(entity),
+          rarity_label: rarityLabel(axolotlRarity(entity)),
+          level: axolotlLevel(entity),
+          health: Math.round(entity.health ?? 0),
+          mood: Math.round(entity.mood ?? 0),
+          activity: entity.activity,
+          food_cost: 1,
+          fed_this_turn: fedThisTurn,
+          can_feed: !fedThisTurn && (civ.resources?.food ?? 0) >= 1,
+          x: entity.x,
+          y: entity.y,
+        };
+      }),
     },
     visible_entities: snapshot.world.entities.map((entity) => {
       const livePlayer = possessedPlayer?.id === entity.id ? possessedPlayer.player : null;

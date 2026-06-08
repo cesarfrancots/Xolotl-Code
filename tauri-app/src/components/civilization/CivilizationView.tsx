@@ -339,6 +339,7 @@ type HatchlingCareTarget = {
   mood: number;
   food: number;
   canFeed: boolean;
+  fedThisTurn: boolean;
   x: number;
   y: number;
 };
@@ -358,6 +359,7 @@ export function hatchlingCareTarget(
   if (!hatchling) return null;
   const rarity = axolotlRarity(hatchling);
   const food = civ.resources?.food ?? 0;
+  const fedThisTurn = hatchlingFedThisTurn(snapshot, hatchling.id);
   return {
     id: hatchling.id,
     name: hatchling.name || "Hatchling",
@@ -367,7 +369,8 @@ export function hatchlingCareTarget(
     health: Math.round(hatchling.health ?? 0),
     mood: Math.round(hatchling.mood ?? 0),
     food,
-    canFeed: food >= HATCHLING_FEED_FOOD_COST,
+    canFeed: !fedThisTurn && food >= HATCHLING_FEED_FOOD_COST,
+    fedThisTurn,
     x: hatchling.x,
     y: hatchling.y,
   };
@@ -2573,7 +2576,7 @@ function HatchlingCareStrip({ care }: { care: HatchlingCareTarget }) {
         </div>
       </div>
       <div className="civ-hatch-care-chips">
-        <span>{care.canFeed ? "Feed ready" : "Need food"}</span>
+        <span>{care.fedThisTurn ? "Fed" : care.canFeed ? "Feed ready" : "Need food"}</span>
         <span>{care.food} food</span>
       </div>
     </div>
@@ -3517,6 +3520,14 @@ function recentCompletedTaskSummary(snapshot: CivSessionSnapshot): CompletedTask
     .find((item) => item.kind === "player" && item.title === "Task complete");
   if (!entry || snapshot.turn - entry.turn > 2) return null;
   return { detail: cleanCivLogBody(entry).replace(/;$/, "") };
+}
+
+function hatchlingFedThisTurn(snapshot: CivSessionSnapshot, entityId: string) {
+  return (snapshot.log ?? []).some((entry) => (
+    entry.turn === snapshot.turn
+    && entry.title === "Hatchling fed"
+    && entry.body.includes(`target=${entityId}`)
+  ));
 }
 
 function rareDiscoveryAlertDetail(entry: CivLogEntry) {

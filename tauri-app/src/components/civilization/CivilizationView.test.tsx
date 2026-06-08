@@ -548,4 +548,28 @@ describe("CivilizationView Play target prompt", () => {
       keyAction: "Wait",
     });
   });
+
+  it("formats hatchling feed targets as a direct care action", () => {
+    const prompt = playerTargetPrompt({
+      entityId: "axo-1",
+      kind: "npc",
+      action: "feed_hatchling",
+      label: "Hatchling 1",
+      targetId: "egg-preview-1",
+      x: 815,
+      y: 706,
+      tileX: 50,
+      tileY: 44,
+      distance: 84,
+    }, "use");
+
+    expect(prompt).toMatchObject({
+      state: "active",
+      action: "Feed",
+      label: "Hatchling 1",
+      keyAction: "Feed",
+    });
+    expect(prompt.detail).toContain("84 px");
+    expect(prompt.detail).toContain("tile 50,44");
+  });
 });

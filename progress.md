@@ -1431,3 +1431,36 @@ Next TODO:
 - Continue playtesting hatchling care after pressing `E` near the new hatchling: feeding should visibly move the player/parent to the hatchling, update care logs, and possibly transition the hatchling from ceremony into play/rest.
 - Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
 - Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 hatchling feed targeting pass:
+- Playtested hatchling care after the hatch ceremony:
+  - The HUD showed `HATCHLING CARE`, but the active target stayed on nearby resources.
+  - Tab cycling did not expose the hatchling, so pressing `E` gathered fiber/wood instead of feeding the hatchling.
+  - This made the care prompt feel decorative rather than playable.
+- Fixed hatchling care targeting:
+  - Fresh hatchlings are now prioritized in the Play-mode Use target planner within a wider care radius.
+  - Target prompt now reads `Feed Hatchling 1` instead of duplicating the verb.
+  - Nearby interaction text-state preserves care/repair/building/NPC options ahead of generic resource/terrain options so AI systems can see the same important actions humans see.
+  - Feed animation travel is longer, making the possessed axolotl visibly surge toward the hatchling.
+- Fixed same-turn duplicate feed affordance:
+  - After feeding, care targets expose `fed_this_turn=true` and `can_feed=false`.
+  - The care strip changes from `Feed ready` to `Fed`.
+  - `feed_hatchling` leaves active/nearby target lists until a later turn instead of inviting a backend no-op.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatch-feed-playtest/01-after-hatch-feed-target.png`
+  - `tauri-app/output/web-game/civ-hatch-feed-playtest/02-during-feed-action.png`
+  - `tauri-app/output/web-game/civ-hatch-feed-playtest/03-after-feed-care-log.png`
+  - Smoke text-state showed active target `action=feed_hatchling`, nearby feed target present, player animation `feed`, `Hatchling fed` care log, food 38 -> 37, hatchling `activity=fed`, then `can_feed=false` and no same-turn feed target.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (74 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml feed_hatchling_spends_food_and_improves_care --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Known tool limitation:
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Continue playtesting the next-turn hatchling care lifecycle: after a fed hatchling advances a turn, verify whether it should become `play`/`rest`, remain feedable, or grow toward juvenile in a way that is clear to the player.
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.
