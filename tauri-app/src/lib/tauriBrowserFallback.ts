@@ -1,4 +1,5 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { EGG_INCUBATE_FOOD_COST, EGG_INCUBATE_PEARL_COST } from "./civCreatureProgression";
 
 declare global {
   interface Window {
@@ -271,6 +272,7 @@ const DEFAULT_PREVIEW_CIV_SESSION = {
       fiber: 12,
       tools: 2,
       glowshards: 1,
+      pearls: 6,
     },
     techs: ["forage", "basic_shelter"],
     policies: ["share_equally"],
@@ -289,12 +291,39 @@ const DEFAULT_PREVIEW_CIV_SESSION = {
 const PREVIEW_CIV_STORAGE_KEY = "xolotl-preview-civ-session-v1";
 const CIV_BROWSER_PREVIEW_SNAPSHOT_KEY = "xolotl-preview-civ-store-snapshot-v1";
 const PREVIEW_CIV_STORAGE_VERSION = 1;
-type PreviewCivSession = typeof DEFAULT_PREVIEW_CIV_SESSION;
+const PREVIEW_ELDER_BASE_AGE = 22;
+const PREVIEW_SHOP_BUILDING_INITIAL_HEALTH = 45;
+const PREVIEW_SHOP_BUILDING_PROGRESS_PER_TURN = 30;
+type PreviewCivSession = typeof DEFAULT_PREVIEW_CIV_SESSION & { civs?: Record<string, unknown>[] };
 
 let previewCivSession: PreviewCivSession = loadPreviewCivSession();
 
 function clonePreviewCivSession(session: PreviewCivSession = DEFAULT_PREVIEW_CIV_SESSION): PreviewCivSession {
   return JSON.parse(JSON.stringify(session)) as PreviewCivSession;
+}
+
+function syncPreviewPrimaryCiv(session: PreviewCivSession): PreviewCivSession {
+  if (!Array.isArray(session.civs) || !isRecord(session.civs[0])) return session;
+  const primary = session.civs[0];
+  return {
+    ...session,
+    civs: [
+      {
+        ...primary,
+        name: typeof primary.name === "string" ? primary.name : session.name,
+        model: typeof primary.model === "string" ? primary.model : session.model,
+        era: session.civilization.era,
+        population: session.civilization.population,
+        health: session.civilization.health,
+        morale: session.civilization.morale,
+        resources: session.civilization.resources,
+        techs: session.civilization.techs,
+        policies: session.civilization.policies,
+        score: session.civilization.score,
+      },
+      ...session.civs.slice(1),
+    ],
+  };
 }
 
 function loadPreviewCivSession(): PreviewCivSession {
@@ -318,6 +347,7 @@ function persistPreviewCivSession() {
   const storage = previewBrowserStorage();
   if (!storage) return;
   try {
+    previewCivSession = syncPreviewPrimaryCiv(previewCivSession);
     storage.setItem(PREVIEW_CIV_STORAGE_KEY, JSON.stringify({
       version: PREVIEW_CIV_STORAGE_VERSION,
       session: previewCivSession,
@@ -503,17 +533,189 @@ function previewCivMeta() {
   }];
 }
 
+function advancePreviewEggLifecycle(nextTurn: number, createdAt: number) {
+  let hatched = 0;
+  for (const entity of previewCivSession.world.entities) {
+    if (entity.kind !== "egg" && entity.stage !== "egg") continue;
+    const remaining = typeof entity.hatches_in === "number" && Number.isFinite(entity.hatches_in)
+      ? Math.max(0, Math.floor(entity.hatches_in))
+      : 0;
+    if (remaining > 1) {
+      entity.hatches_in = remaining - 1;
+      continue;
+    }
+    const genes = entity.genes ?? { allele_a: entity.morph ?? "leucistic", allele_b: "wild", size_gene: 1, fertility: 0.8, longevity: 1, vigor: 1 };
+    const suffix = entity.id.match(/\d+$/)?.[0] ?? entity.id.slice(-3);
+    entity.kind = "axolotl";
+    entity.name = `Hatchling ${suffix}`;
+    entity.role = "juvenile";
+    entity.stage = "hatchling";
+    entity.sex = nextTurn % 2 === 0 ? "f" : "m";
+    entity.age = 0;
+    entity.size = 0.5;
+    entity.morph = typeof genes.allele_a === "string" ? genes.allele_a : (entity.morph ?? "leucistic");
+    const patterned = entity as typeof entity & { pattern?: string | null };
+    patterned.pattern = patterned.pattern ?? "plain";
+    entity.hatches_in = null;
+    entity.activity = "hatch";
+    entity.genes = genes;
+    hatched += 1;
+  }
+  if (hatched === 0) return [];
+  return [{
+    turn: nextTurn,
+    kind: "lifecycle",
+    title: "Eggs hatched",
+    body: `${hatched} egg(s) hatched into wriggling hatchlings.`,
+    created_at: createdAt,
+  }];
+}
+
+function previewLivingPopulation() {
+  return previewCivSession.world.entities.filter((entity) => (
+    entity.kind === "axolotl" && entity.stage !== "egg"
+  )).length;
+}
+
+function assignPreviewBuilders(x: number, y: number) {
+  let assigned = 0;
+  for (const entity of previewCivSession.world.entities) {
+    if (assigned >= 2) break;
+    if (entity.kind !== "axolotl" || entity.stage === "egg") continue;
+    const directed = entity as typeof entity & { activity?: string; target_x?: number; target_y?: number };
+    directed.activity = "build";
+    directed.target_x = x;
+    directed.target_y = y;
+    assigned += 1;
+  }
+}
+
+function previewStageRank(stage: string | null | undefined) {
+  if (stage === "hatchling") return 1;
+  if (stage === "juvenile") return 2;
+  if (stage === "adult") return 3;
+  if (stage === "elder") return 4;
+  return 0;
+}
+
+function previewLifecycleAmbientActivity(activity: string | null | undefined) {
+  return activity === "play" || activity === "rest";
+}
+
+function previewMatureAxolotlName(name: string | null | undefined, stage: string, id: string) {
+  const prefix = stage === "hatchling"
+    ? "Hatchling"
+    : stage === "juvenile"
+      ? "Juvenile"
+      : stage === "adult"
+        ? "Adult"
+        : stage === "elder"
+          ? "Elder"
+          : "Axolotl";
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return `${prefix} ${id.split("-").pop() || id.slice(-4)}`;
+  for (const oldPrefix of ["Hatchling", "Juvenile", "Adult", "Elder", "Axolotl"]) {
+    if (trimmed === oldPrefix) return `${prefix} ${id.split("-").pop() || id.slice(-4)}`;
+    const marker = `${oldPrefix} `;
+    if (trimmed.startsWith(marker)) return `${prefix} ${trimmed.slice(marker.length)}`;
+  }
+  return trimmed;
+}
+
+function advancePreviewAxolotlLifecycle(nextTurn: number, createdAt: number) {
+  const logs: typeof previewCivSession.log = [];
+  for (const entity of previewCivSession.world.entities) {
+    if (entity.kind !== "axolotl" || entity.stage === "egg") continue;
+    const previousStage = entity.stage ?? "";
+    entity.age = Math.max(0, Math.floor(entity.age ?? 0) + 1);
+    if (entity.age < 3) {
+      entity.stage = "hatchling";
+      entity.role = "juvenile";
+      entity.size = 0.5;
+    } else if (entity.age < 7) {
+      entity.stage = "juvenile";
+      entity.role = "juvenile";
+      entity.size = 0.72;
+    } else if (entity.age < PREVIEW_ELDER_BASE_AGE) {
+      entity.stage = "adult";
+      entity.role = "worker";
+      entity.size = 1;
+    } else {
+      entity.stage = "elder";
+      entity.role = "elder";
+      entity.size = 1.06;
+    }
+    const stageChanged = Boolean(previousStage && previousStage !== entity.stage);
+    if (stageChanged && previewStageRank(entity.stage) > previewStageRank(previousStage)) {
+      entity.name = previewMatureAxolotlName(entity.name, entity.stage, entity.id);
+      logs.push({
+        turn: nextTurn,
+        kind: "lifecycle",
+        title: "Axolotl grew",
+        body: `target=${entity.id}; ${entity.name || "Axolotl"} grew from ${previousStage} to ${entity.stage}; age=${entity.age};`,
+        created_at: createdAt + logs.length,
+      });
+    }
+    if (
+      entity.activity === "fed"
+      || entity.activity === "hatch"
+      || (stageChanged && previewLifecycleAmbientActivity(entity.activity))
+    ) {
+      entity.activity = "";
+    }
+    if (!entity.activity) {
+      entity.activity = entity.stage === "hatchling" || entity.stage === "juvenile"
+        ? "play"
+        : entity.stage === "elder"
+          ? "rest"
+          : "";
+    }
+  }
+  return logs;
+}
+
+function advancePreviewConstruction(nextTurn: number, createdAt: number) {
+  const logs: typeof previewCivSession.log = [];
+  const activeSites: Array<{ x: number; y: number }> = [];
+  for (const entity of previewCivSession.world.entities) {
+    if (entity.kind !== "building" || entity.activity !== "construction") continue;
+    entity.health = Math.min(100, entity.health + PREVIEW_SHOP_BUILDING_PROGRESS_PER_TURN);
+    if (entity.health >= 95) {
+      entity.health = 100;
+      entity.activity = "built";
+      logs.push({
+        turn: nextTurn,
+        kind: "construction",
+        title: "Construction complete",
+        body: `${entity.name} is ready.`,
+        created_at: createdAt + logs.length,
+      });
+    } else {
+      activeSites.push({ x: entity.x, y: entity.y });
+    }
+  }
+  for (const site of activeSites) assignPreviewBuilders(site.x, site.y);
+  return logs;
+}
+
 function advancePreviewCiv() {
+  const nextTurn = previewCivSession.turn + 1;
+  const nextUpdatedAt = previewCivSession.updated_at + 10;
+  const growthLog = advancePreviewAxolotlLifecycle(nextTurn, nextUpdatedAt + 1);
+  const lifecycleLog = advancePreviewEggLifecycle(nextTurn, nextUpdatedAt + 1 + growthLog.length);
+  const constructionLog = advancePreviewConstruction(nextTurn, nextUpdatedAt + 2 + growthLog.length + lifecycleLog.length);
+  const population = previewLivingPopulation();
   previewCivSession = {
     ...previewCivSession,
-    turn: previewCivSession.turn + 1,
-    updated_at: previewCivSession.updated_at + 10,
+    turn: nextTurn,
+    updated_at: nextUpdatedAt,
     civilization: {
       ...previewCivSession.civilization,
+      population,
       resources: {
         ...previewCivSession.civilization.resources,
-        food: Math.max(0, previewCivSession.civilization.resources.food + 5 - previewCivSession.civilization.population),
-        clean_water: Math.max(0, previewCivSession.civilization.resources.clean_water + 4 - previewCivSession.civilization.population),
+        food: Math.max(0, previewCivSession.civilization.resources.food + 5 - population),
+        clean_water: Math.max(0, previewCivSession.civilization.resources.clean_water + 4 - population),
         wood: previewCivSession.civilization.resources.wood + 3,
       },
       score: {
@@ -529,12 +731,15 @@ function advancePreviewCiv() {
     log: [
       ...previewCivSession.log,
       {
-        turn: previewCivSession.turn + 1,
+        turn: nextTurn,
         kind: "ai_decision",
         title: "AI intent: reinforce basics",
         body: "The preview model gathered food and kept water reserves stable.",
-        created_at: previewCivSession.updated_at + 10,
+        created_at: nextUpdatedAt,
       },
+      ...growthLog,
+      ...lifecycleLog,
+      ...constructionLog,
     ].slice(-80),
   };
   persistPreviewCivSession();
@@ -801,6 +1006,7 @@ function applyPreviewCivIntervention(args?: unknown) {
   let shouldLog = kind !== "move_entity";
   let logKind = "intervention";
   let logTitle = "Observer intervention";
+  const extraLogs: Array<{ kind: string; title: string; body: string }> = [];
   const resourceKey = target as keyof typeof resources;
   if (kind === "grant_resource") resources[resourceKey] = (resources[resourceKey] ?? 0) + amount;
   if (kind === "remove_resource") resources[resourceKey] = Math.max(0, (resources[resourceKey] ?? 0) - amount);
@@ -816,6 +1022,16 @@ function applyPreviewCivIntervention(args?: unknown) {
       if (tile.amount === 0) tile.resource = null;
       const gainedKey = gained as keyof typeof resources;
       resources[gainedKey] = (resources[gainedKey] ?? 0) + harvested;
+      resources.pearls = (resources.pearls ?? 0) + previewCurrencyReward(gained, harvested);
+      const discovery = previewRareDiscovery("harvest", gained, x, y, harvested);
+      if (discovery) {
+        resources.pearls = (resources.pearls ?? 0) + discovery.pearls;
+        extraLogs.push({
+          kind: "player",
+          title: "Rare discovery",
+          body: previewDiscoveryLogBody(discovery, "harvesting", gained, x, y),
+        });
+      }
       logBody = `harvested ${harvested} ${gained} from ${x},${y}`;
     } else {
       logBody = `found no resource at ${x},${y}`;
@@ -832,6 +1048,16 @@ function applyPreviewCivIntervention(args?: unknown) {
       tile.amount = 0;
       const gainedKey = gained as keyof typeof resources;
       resources[gainedKey] = (resources[gainedKey] ?? 0) + 1;
+      resources.pearls = (resources.pearls ?? 0) + previewCurrencyReward(gained, 1);
+      const discovery = previewRareDiscovery("mine", gained, x, y, 1);
+      if (discovery) {
+        resources.pearls = (resources.pearls ?? 0) + discovery.pearls;
+        extraLogs.push({
+          kind: "player",
+          title: "Rare discovery",
+          body: previewDiscoveryLogBody(discovery, "mining", gained, x, y),
+        });
+      }
       const entityId = typeof intervention.entity_id === "string" ? intervention.entity_id : "";
       const entity = previewCivSession.world.entities.find((item) => item.id === entityId && item.kind === "axolotl");
       if (entity) {
@@ -872,6 +1098,7 @@ function applyPreviewCivIntervention(args?: unknown) {
         morale = Math.min(100, morale + 3);
         health = Math.min(100, health + 0.8);
         resources.glowshards = (resources.glowshards ?? 0) + 1;
+        resources.pearls = (resources.pearls ?? 0) + 5;
         const object = previewCivSession.world.entities.find((item) => item.id === task.objectId && item.kind === "object");
         if (object) {
           object.health = 100;
@@ -908,6 +1135,7 @@ function applyPreviewCivIntervention(args?: unknown) {
       if (have >= required) {
         resources[resourceKey] = Math.max(0, have - task.amount);
         resources.clean_water = (resources.clean_water ?? 0) + 1;
+        resources.pearls = (resources.pearls ?? 0) + 4;
         morale = Math.min(100, morale + 3);
         health = Math.min(100, health + 1.2);
         object.health = 100;
@@ -936,6 +1164,7 @@ function applyPreviewCivIntervention(args?: unknown) {
       if (remaining <= 0) {
         morale = Math.min(100, morale + 4);
         health = Math.min(100, health + 1);
+        resources.pearls = (resources.pearls ?? 0) + 6;
         object.health = 100;
         object.mood = 100;
         (object as { activity?: string }).activity = "rescued";
@@ -952,6 +1181,30 @@ function applyPreviewCivIntervention(args?: unknown) {
       }
     } else {
       shouldLog = false;
+    }
+  }
+  if (kind === "feed_hatchling") {
+    const entityId = typeof intervention.entity_id === "string" ? intervention.entity_id : "";
+    const hatchling = previewCivSession.world.entities.find((item) => (
+      item.id === entityId && item.kind === "axolotl" && item.stage === "hatchling"
+    ));
+    logKind = "player";
+    if (!hatchling) {
+      logTitle = "Hatchling care blocked";
+      logBody = "hatchling not found";
+    } else if (previewPlayerTargetUsedThisTurn("Hatchling fed", entityId)) {
+      shouldLog = false;
+    } else if ((resources.food ?? 0) < 1) {
+      logTitle = "Hatchling care blocked";
+      logBody = `target=${entityId}; not enough food for ${hatchling.name}`;
+    } else {
+      resources.food = Math.max(0, (resources.food ?? 0) - 1);
+      hatchling.health = Math.min(100, (hatchling.health ?? 0) + 6);
+      hatchling.mood = Math.min(100, (hatchling.mood ?? 0) + 8);
+      (hatchling as { activity?: string }).activity = "fed";
+      morale = Math.min(100, morale + 1);
+      logTitle = "Hatchling fed";
+      logBody = `target=${entityId}; Fed ${hatchling.name}; -1 food; care=feed_hatchling; health=${Math.round(hatchling.health ?? 0)}; mood=${Math.round(hatchling.mood ?? 0)};`;
     }
   }
   if (kind === "talk_entity") {
@@ -1022,8 +1275,10 @@ function applyPreviewCivIntervention(args?: unknown) {
             const rewardKey = task.rewardResource as keyof typeof resources;
             resources[rewardKey] = (resources[rewardKey] ?? 0) + Math.max(1, task.rewardAmount);
             morale = Math.min(100, morale + 1);
+            resources.pearls = (resources.pearls ?? 0) + 3;
           } else {
             morale = Math.min(100, morale + 2);
+            resources.pearls = (resources.pearls ?? 0) + 2;
           }
           logKind = "player";
           logTitle = "Task complete";
@@ -1086,10 +1341,11 @@ function applyPreviewCivIntervention(args?: unknown) {
     const building = previewCivSession.world.entities.find((item) => item.id === entityId && item.kind === "building");
     if (building) {
       const task = previewActivePlayerTask();
-      if (task?.kind === "visit_building" && task.buildingId === entityId) {
+        if (task?.kind === "visit_building" && task.buildingId === entityId) {
         morale = Math.min(100, morale + 2);
         health = Math.min(100, health + 0.8);
         if (building.role === "pond") resources.clean_water = (resources.clean_water ?? 0) + 1;
+        resources.pearls = (resources.pearls ?? 0) + 3;
         const npc = previewCivSession.world.entities.find((item) => item.id === task.npcId && item.kind === "axolotl");
         if (npc) {
           npc.mood = Math.min(100, (npc.mood ?? 0) + 5);
@@ -1113,9 +1369,128 @@ function applyPreviewCivIntervention(args?: unknown) {
         } else {
           morale = Math.min(100, morale + 0.4);
         }
+        resources.pearls = (resources.pearls ?? 0) + 1;
         logKind = "player";
         logTitle = "Building used";
         logBody = `target=${entityId}; used ${building.name}`;
+      }
+    }
+  }
+  if (kind === "shop_purchase") {
+    const cost = previewShopCost(target);
+    if (cost <= 0) {
+      logKind = "player";
+      logTitle = "Shop blocked";
+      logBody = `unknown shop item ${target}`;
+    } else if ((resources.pearls ?? 0) < cost) {
+      logKind = "player";
+      logTitle = "Shop blocked";
+      logBody = `not enough pearls for ${target}`;
+    } else {
+      resources.pearls = Math.max(0, (resources.pearls ?? 0) - cost);
+      logKind = "player";
+      logTitle = "Shop purchase";
+      if (target === "supply_cache") {
+        resources.wood = (resources.wood ?? 0) + 8;
+        resources.stone = (resources.stone ?? 0) + 8;
+        resources.clay = (resources.clay ?? 0) + 8;
+        resources.fiber = (resources.fiber ?? 0) + 8;
+        logBody = `bought Supply Cache for ${cost} pearls`;
+      } else if (target === "pond_blessing") {
+        morale = Math.min(100, morale + 3);
+        previewCivSession.modifiers.push({
+          id: `shop-cooperation-aura-preview-${previewCivSession.updated_at}`,
+          kind: "cooperation_aura",
+          label: "Cooperation Aura",
+          polarity: "buff",
+          remaining_turns: 6,
+          intensity: 1,
+        });
+        logBody = `bought Pond Blessing for ${cost} pearls`;
+      } else if (target === "rare_lure") {
+        const x = PREVIEW_HOME_X;
+        const y = PREVIEW_WORLD.floor[x] ?? PREVIEW_HOME_FLOOR;
+        previewPlace("amber", Math.max(1, x - 1), y, 3);
+        previewPlace("glowshards", Math.min(PREVIEW_WORLD.width - 2, x + 1), y, 3);
+        logBody = `bought Rare Lure for ${cost} pearls`;
+      } else if (target === "common_egg" || target === "rare_egg") {
+        const rare = target === "rare_egg";
+        const morph = rare ? "mystic" : "leucistic";
+        previewCivSession.world.entities.push({
+          id: `shop-egg-preview-${previewCivSession.world.entities.length}`,
+          kind: "egg",
+          name: rare ? "Rare Mystic Egg" : "Common Egg",
+          x: PREVIEW_HOME_X - 5,
+          y: PREVIEW_HOME_FLOOR - 3,
+          health: 100,
+          mood: 100,
+          role: "egg",
+          morph,
+          pattern: rare ? "marbled" : "plain",
+          stage: "egg",
+          sex: "",
+          age: 0,
+          size: 0.5,
+          accessories: [],
+          genes: { allele_a: morph, allele_b: rare ? "gfp" : "wild", size_gene: rare ? 1.1 : 1, fertility: 0.8, longevity: 1, vigor: 1 },
+          hatches_in: 3,
+          parents: ["shop"],
+        } as (typeof previewCivSession.world.entities)[number]);
+        logBody = `bought ${rare ? "Rare Egg" : "Common Egg"} for ${cost} pearls`;
+      } else {
+        const role = target === "workshop_kit" ? "workshop" : target === "storage_kit" ? "storage" : "farm";
+        const name = role === "workshop" ? "Tool Workshop" : role === "storage" ? "Shell Cache" : "Moss Farm";
+        const x = Math.min(PREVIEW_WORLD.width - 2, PREVIEW_HOME_X + 5 + previewCivSession.world.entities.length % 5);
+        const y = PREVIEW_HOME_FLOOR - 1;
+        previewCivSession.world.entities.push({
+          id: `shop-${role}-preview-${previewCivSession.world.entities.length}`,
+          kind: "building",
+          name,
+          x,
+          y,
+          health: PREVIEW_SHOP_BUILDING_INITIAL_HEALTH,
+          mood: 100,
+          role,
+          activity: "construction",
+        } as (typeof previewCivSession.world.entities)[number]);
+        assignPreviewBuilders(x, y);
+        logBody = `bought ${name} kit for ${cost} pearls; construction started near ${x},${y}`;
+      }
+    }
+  }
+  if (kind === "incubate_egg") {
+    const entityId = typeof intervention.entity_id === "string" ? intervention.entity_id : "";
+    const egg = previewCivSession.world.entities.find((entity) => (
+      entity.id === entityId && (entity.kind === "egg" || entity.stage === "egg")
+    ));
+    if (!egg) {
+      logKind = "player";
+      logTitle = "Incubation blocked";
+      logBody = "egg not found";
+    } else {
+      const remaining = typeof egg.hatches_in === "number" && Number.isFinite(egg.hatches_in)
+        ? Math.max(0, Math.floor(egg.hatches_in))
+        : 0;
+      if (remaining <= 1) {
+        logKind = "player";
+        logTitle = "Incubation blocked";
+        logBody = `${egg.name} is ready to hatch next turn`;
+      } else if ((resources.pearls ?? 0) < EGG_INCUBATE_PEARL_COST) {
+        logKind = "player";
+        logTitle = "Incubation blocked";
+        logBody = `not enough pearls for ${egg.name}`;
+      } else if ((resources.food ?? 0) < EGG_INCUBATE_FOOD_COST) {
+        logKind = "player";
+        logTitle = "Incubation blocked";
+        logBody = `not enough food for ${egg.name}`;
+      } else {
+        resources.pearls = Math.max(0, (resources.pearls ?? 0) - EGG_INCUBATE_PEARL_COST);
+        resources.food = Math.max(0, (resources.food ?? 0) - EGG_INCUBATE_FOOD_COST);
+        egg.hatches_in = remaining - 1;
+        egg.activity = "incubating";
+        logKind = "player";
+        logTitle = "Egg incubated";
+        logBody = `${egg.name} warmed; hatch timer is now ${remaining - 1} turn(s). Cost ${EGG_INCUBATE_PEARL_COST} pearls and ${EGG_INCUBATE_FOOD_COST} food.`;
       }
     }
   }
@@ -1147,6 +1522,13 @@ function applyPreviewCivIntervention(args?: unknown) {
             body: logBody || `${kind} ${target}`,
             created_at: previewCivSession.updated_at + 5,
           },
+          ...extraLogs.map((entry, index) => ({
+            turn: previewCivSession.turn,
+            kind: entry.kind,
+            title: entry.title,
+            body: entry.body,
+            created_at: previewCivSession.updated_at + 6 + index,
+          })),
         ].slice(-80)
       : previewCivSession.log,
   };
@@ -1155,6 +1537,103 @@ function applyPreviewCivIntervention(args?: unknown) {
 
 function previewHarvestYield(resource: string) {
   return resource === "moss" ? "food" : resource;
+}
+
+function previewCurrencyReward(resource: string, amount: number) {
+  const unit = resource === "glowshards" || resource === "amber"
+    ? 3
+    : ["ore", "sulfur", "coral", "tools"].includes(resource)
+      ? 2
+      : 1;
+  return unit * Math.max(1, amount);
+}
+
+type PreviewRareDiscovery = {
+  label: string;
+  resource: "pearls";
+  amount: number;
+  pearls: number;
+  shopHint: string;
+};
+
+function previewRareDiscovery(
+  action: "harvest" | "mine",
+  resource: string,
+  x: number,
+  y: number,
+  amount: number,
+): PreviewRareDiscovery | null {
+  if (resource === "glowshards" || resource === "amber") {
+    return {
+      label: "Prismatic Pearl Cache",
+      resource: "pearls",
+      amount: 4,
+      pearls: 4,
+      shopHint: "rare_egg",
+    };
+  }
+  if (["ore", "sulfur", "coral"].includes(resource)) {
+    return {
+      label: "Ancient Shell Cache",
+      resource: "pearls",
+      amount: 2,
+      pearls: 2,
+      shopHint: "rare_lure",
+    };
+  }
+  if (amount !== 1) return null;
+  const roll = previewHash(`${previewCivSession.seed}:${previewCivSession.turn}:${action}:${resource}:${x}:${y}:${amount}`);
+  const divisor = action === "mine" ? 5 : 7;
+  if (roll % divisor !== 0) return null;
+  return {
+    label: "Hidden Pearl Cache",
+    resource: "pearls",
+    amount: 1,
+    pearls: 1,
+    shopHint: "common_egg",
+  };
+}
+
+function previewDiscoveryLogBody(
+  discovery: PreviewRareDiscovery,
+  verb: string,
+  sourceResource: string,
+  x: number,
+  y: number,
+) {
+  return `Found ${discovery.label} while ${verb} ${sourceResource}; reward_resource=${discovery.resource}; reward_amount=${discovery.amount}; bonus_pearls=${discovery.pearls}; source=${sourceResource}; x=${x}; y=${y}; shop_hint=${discovery.shopHint};`;
+}
+
+function previewHash(value: string) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash >>> 0;
+}
+
+function previewShopCost(item: string) {
+  if (item === "supply_cache") return 6;
+  if (item === "pond_blessing") return 8;
+  if (item === "rare_lure") return 10;
+  if (item === "common_egg") return 12;
+  if (item === "farm_kit" || item === "storage_kit") return 14;
+  if (item === "workshop_kit") return 18;
+  if (item === "rare_egg") return 30;
+  return 0;
+}
+
+function previewPlace(resource: string, x: number, y: number, amount: number) {
+  for (let dy = 0; dy < 2; dy += 1) {
+    for (let dx = 0; dx < 3; dx += 1) {
+      const tile = previewCivSession.world.tiles.find((item) => item.x === x + dx && item.y === y + dy);
+      if (tile && previewIsSubstrate(tile.terrain)) {
+        tile.resource = resource;
+        tile.amount = amount;
+      }
+    }
+  }
 }
 
 function previewIsSubstrate(terrain: string) {

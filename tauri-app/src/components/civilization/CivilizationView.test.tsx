@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CivilizationView } from "./CivilizationView";
+import { CivilizationView, hatchlingCareTarget, playerTargetPrompt } from "./CivilizationView";
 import { normalizeCivSnapshot, useCivStore } from "../../stores/civStore";
-import type { CivLogEntry, CivSessionConfig, CivSessionSnapshot } from "../../bindings";
+import type { CivEntity, CivLogEntry, CivSessionConfig, CivSessionSnapshot } from "../../bindings";
 
 const createCivSession = vi.fn();
 const setCivController = vi.fn();
@@ -189,6 +189,33 @@ function multiCivSnapshot(): CivSessionSnapshot {
       decisionLog({ turn: 1, title: "Reef intent: gather", body: "Reef gathers food.", civ_id: "civ-1", reasoning: "Reef private chain-of-thought." }),
       decisionLog({ turn: 2, title: "Coral intent: build", body: "Coral builds a nest.", civ_id: "civ-2", reasoning: "Coral private chain-of-thought." }),
       decisionLog({ turn: 3, title: "Coral intent: trade", body: "Coral trades kelp.", civ_id: "civ-2", reasoning: null }),
+    ],
+  });
+}
+
+function shopSnapshot(pearls: number): CivSessionSnapshot {
+  return normalizeCivSnapshot({
+    id: "shop-sess",
+    name: "Shop Pond",
+    version: 2,
+    turn: 4,
+    world: {
+      width: 64,
+      height: 36,
+      tiles: [],
+      entities: [],
+      regions: [],
+    },
+    civs: [
+      civ({
+        id: "civ-1",
+        name: "Shop Pond",
+        color: "#7fdfff",
+        alive: true,
+        population: 8,
+        resources: { food: 20, clean_water: 20, pearls },
+        score: { survival: 30, ethics: 30, intelligence: 30, total: 90 },
+      }),
     ],
   });
 }
@@ -404,5 +431,145 @@ describe("CivilizationView civPilotControls", () => {
 
     expect(useCivStore.getState().selectedCivId).toBe("civ-2");
     expect(setCivController).toHaveBeenCalledWith("sess-1", "civ-2", "codex");
+  });
+});
+
+describe("CivilizationView Play shop goals", () => {
+  it("shows common egg, rare lure, and rare egg milestones with current affordability", async () => {
+    const user = userEvent.setup();
+    render(<CivilizationView />);
+    hydrateMultiCiv(shopSnapshot(12));
+
+    await user.click(document.querySelector(".civ-mode-switch button") as HTMLElement);
+
+    const goals = document.querySelector("[aria-label='Shop goals']") as HTMLElement;
+    expect(goals).not.toBeNull();
+    expect(within(goals).getByText("Common Egg")).toBeDefined();
+    expect(within(goals).getByText("Rare Lure")).toBeDefined();
+    expect(within(goals).getByText("Rare Egg")).toBeDefined();
+
+    expect(within(goals).getByRole("button", { name: "Buy Common Egg" })).toHaveProperty("disabled", false);
+    expect(within(goals).getByRole("button", { name: "Buy Rare Lure" })).toHaveProperty("disabled", false);
+    expect(within(goals).getByRole("button", { name: "Rare Egg needs 18 more pearls" })).toHaveProperty("disabled", true);
+  });
+});
+
+describe("CivilizationView hatchling care", () => {
+  it("prioritizes a fresh hatch ceremony hatchling and exposes feed readiness", () => {
+    const snapshot = shopSnapshot(4);
+    const civ = snapshot.civs?.[0]!;
+    snapshot.world.entities.push(
+      {
+        id: "older-hatchling",
+        kind: "axolotl",
+        name: "Older Hatchling",
+        x: 8,
+        y: 9,
+        health: 80,
+        mood: 75,
+        role: "juvenile",
+        civ_id: civ.id,
+        morph: "wild",
+        pattern: "plain",
+        stage: "hatchling",
+        sex: "f",
+        age: 3,
+        activity: "play",
+      } as CivEntity,
+      {
+        id: "fresh-hatchling",
+        kind: "axolotl",
+        name: "Fresh Hatchling",
+        x: 10,
+        y: 12,
+        health: 95,
+        mood: 88,
+        role: "juvenile",
+        civ_id: civ.id,
+        morph: "mystic",
+        pattern: "marbled",
+        stage: "hatchling",
+        sex: "m",
+        age: 0,
+        activity: "hatch",
+      } as CivEntity,
+    );
+
+    expect(hatchlingCareTarget(snapshot, civ)).toMatchObject({
+      id: "fresh-hatchling",
+      name: "Fresh Hatchling",
+      rarity: "mythic",
+      rarityLabel: "Mythic",
+      level: 8,
+      health: 95,
+      mood: 88,
+      food: 20,
+      canFeed: true,
+      x: 10,
+      y: 12,
+    });
+  });
+});
+
+describe("CivilizationView Play target prompt", () => {
+  it("formats active resource targets as immediate gather prompts", () => {
+    const prompt = playerTargetPrompt({
+      entityId: "axo-1",
+      kind: "resource",
+      label: "wood",
+      resource: "wood",
+      x: 920,
+      y: 740,
+      tileX: 57,
+      tileY: 46,
+      distance: 30,
+      cycle_index: 2,
+      cycle_count: 7,
+    }, "use");
+
+    expect(prompt).toMatchObject({
+      state: "active",
+      action: "Gather",
+      label: "Wood",
+      keyAction: "Gather",
+    });
+    expect(prompt.detail).toContain("30 px");
+    expect(prompt.detail).toContain("tile 57,46");
+  });
+
+  it("formats empty targets without implying an action will fire", () => {
+    const prompt = playerTargetPrompt(null, "mine");
+
+    expect(prompt).toMatchObject({
+      state: "empty",
+      action: "No target",
+      label: "In reach",
+      detail: "Mine ready",
+      keyAction: "Wait",
+    });
+  });
+
+  it("formats hatchling feed targets as a direct care action", () => {
+    const prompt = playerTargetPrompt({
+      entityId: "axo-1",
+      kind: "npc",
+      action: "feed_hatchling",
+      label: "Hatchling 1",
+      targetId: "egg-preview-1",
+      x: 815,
+      y: 706,
+      tileX: 50,
+      tileY: 44,
+      distance: 84,
+    }, "use");
+
+    expect(prompt).toMatchObject({
+      state: "active",
+      action: "Feed",
+      label: "Hatchling 1",
+      keyAction: "Feed",
+    });
+    expect(prompt.detail).toContain("84 px");
+    expect(prompt.detail).toContain("tile 50,44");
   });
 });

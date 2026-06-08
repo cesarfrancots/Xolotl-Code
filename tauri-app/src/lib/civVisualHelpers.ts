@@ -1,6 +1,37 @@
 export const CIV_WATER_FLOOR_Y = 50;
 export const GREY_TINT = 0x888888;
 
+export type AxoActionAnimation =
+  | "idle"
+  | "swim"
+  | "walk"
+  | "mine"
+  | "gather"
+  | "build"
+  | "repair"
+  | "rescue"
+  | "feed"
+  | "talk"
+  | "hatch"
+  | "dash"
+  | "jump"
+  | "wall_slide"
+  | "rest"
+  | "play"
+  | "eat"
+  | "use";
+
+export type AxoInteractionAnimation = {
+  state: AxoActionAnimation;
+  durationMs: number;
+  hue: number;
+};
+
+export type AxoInteractionTarget = {
+  kind: "resource" | "building" | "npc" | "terrain" | "object" | "empty";
+  action?: "mine_tile" | "place_tile" | "repair_object" | "rescue_object" | "feed_hatchling";
+};
+
 function lighten(color: number, t: number): number {
   const f = Math.max(0, Math.min(1, t));
   const r = (color >> 16) & 0xff;
@@ -18,6 +49,20 @@ export function hexToTint(hex: string | null | undefined): number {
   const expanded = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
   const n = Number.parseInt(expanded, 16);
   return Number.isFinite(n) ? n : 0xffffff;
+}
+
+export function axoActionAnimationForInteraction(
+  interaction: AxoInteractionTarget,
+): AxoInteractionAnimation | null {
+  if (interaction.action === "mine_tile") return { state: "mine", durationMs: 660, hue: 0xffc866 };
+  if (interaction.action === "place_tile") return { state: "build", durationMs: 700, hue: 0x72e6a4 };
+  if (interaction.action === "repair_object") return { state: "repair", durationMs: 760, hue: 0x73f0df };
+  if (interaction.action === "rescue_object") return { state: "rescue", durationMs: 860, hue: 0x80ffc0 };
+  if (interaction.action === "feed_hatchling") return { state: "feed", durationMs: 720, hue: 0xffd4ec };
+  if (interaction.kind === "resource") return { state: "gather", durationMs: 620, hue: 0xbfe9ff };
+  if (interaction.kind === "npc") return { state: "talk", durationMs: 620, hue: 0xffd4ec };
+  if (interaction.kind === "building" || interaction.kind === "object") return { state: "use", durationMs: 620, hue: 0xaee9ff };
+  return null;
 }
 
 export function buildCivColorMap(

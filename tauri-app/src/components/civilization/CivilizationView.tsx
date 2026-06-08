@@ -5,10 +5,12 @@ import {
   AlertTriangle,
   Bot,
   Brain,
+  Coins,
   Eye,
   EyeOff,
   FastForward,
   FlaskConical,
+  Flame,
   Gamepad2,
   Gift,
   Hammer,
@@ -34,6 +36,19 @@ import { CivilizationGameCanvas, type PlayerInteraction, type PlayerMove, type P
 import { primaryCiv, useCivStore } from "../../stores/civStore";
 import { activeCivPlayerTask, cleanCivLogBody, type CivPlayerTask } from "../../lib/civPlayerTasks";
 import {
+  axolotlLevel,
+  axolotlMorphAsset,
+  axolotlRarity,
+  EGG_INCUBATE_FOOD_COST,
+  EGG_INCUBATE_PEARL_COST,
+  genePotential,
+  hatchProgressPercent,
+  hatchTurnsRemaining,
+  isEggEntity,
+  rarityLabel,
+  type AxolotlRarity,
+} from "../../lib/civCreatureProgression";
+import {
   chooseCivPilotDecision,
   commandForCivPilotDecision,
   createCivPilotMemory,
@@ -43,6 +58,7 @@ import {
   type CivPilotDecision,
   type CivPilotGoal,
   type CivPilotMemory,
+  type CivPilotTextState,
   type CivPilotTarget,
 } from "../../lib/civPilot";
 import {
@@ -107,12 +123,73 @@ function biomeAccent(biome: string) {
   return BIOME_ACCENT[biome] ?? "oklch(0.70 0.030 220)";
 }
 
-const MVP_TARGET_TURN = 20;
 const RESOURCES = [
-  "food", "clean_water", "wood", "stone", "clay", "fiber", "tools", "glowshards",
+  "food", "clean_water", "pearls", "wood", "stone", "clay", "fiber", "tools", "glowshards",
   "kelp", "ore", "ice", "coral", "sulfur", "amber", "herbs",
 ];
 const BUILD_RESOURCES = ["stone", "clay", "wood", "fiber", "coral", "ice"];
+const RARE_RESOURCES = new Set(["glowshards", "ore", "coral", "sulfur", "amber"]);
+const CURRENCY_RESOURCE = "pearls";
+const HATCHLING_FEED_FOOD_COST = 1;
+const ACTION_COOLDOWNS_MS = {
+  gather: 1200,
+  mine: 1800,
+  build: 1600,
+  use: 900,
+} as const;
+type ActionCooldownKey = keyof typeof ACTION_COOLDOWNS_MS;
+const ACTION_COOLDOWN_KEYS = Object.keys(ACTION_COOLDOWNS_MS) as ActionCooldownKey[];
+type GameAlertKind = "resource" | "rare" | "task" | "world" | "admin" | "currency";
+type ShopItemId =
+  | "supply_cache"
+  | "rare_lure"
+  | "pond_blessing"
+  | "common_egg"
+  | "rare_egg"
+  | "farm_kit"
+  | "storage_kit"
+  | "workshop_kit";
+const SHOP_ITEMS: Array<{ id: ShopItemId; label: string; detail: string; cost: number; tone: GameAlertKind }> = [
+  { id: "supply_cache", label: "Supply Cache", detail: "wood, stone, clay, fiber", cost: 6, tone: "resource" },
+  { id: "pond_blessing", label: "Pond Blessing", detail: "cooperation aura", cost: 8, tone: "task" },
+  { id: "rare_lure", label: "Rare Lure", detail: "amber + glowshards", cost: 10, tone: "rare" },
+  { id: "common_egg", label: "Common Egg", detail: "hatches in the nest", cost: 12, tone: "currency" },
+  { id: "farm_kit", label: "Farm Kit", detail: "builds a moss farm", cost: 14, tone: "resource" },
+  { id: "storage_kit", label: "Storage Kit", detail: "builds a shell cache", cost: 14, tone: "resource" },
+  { id: "workshop_kit", label: "Workshop Kit", detail: "builds tool crafting", cost: 18, tone: "resource" },
+  { id: "rare_egg", label: "Rare Egg", detail: "rare genes", cost: 30, tone: "rare" },
+];
+const EGG_SHOP_ITEMS: ShopItemId[] = ["common_egg", "rare_egg"];
+const PLAY_SHOP_GOAL_ITEMS: ShopItemId[] = ["common_egg", "rare_lure", "rare_egg"];
+function shopItemById(id: string) {
+  return SHOP_ITEMS.find((item) => item.id === id) ?? null;
+}
+
+function isShopItemId(id: string): id is ShopItemId {
+  return SHOP_ITEMS.some((item) => item.id === id);
+}
+
+function shopPurchaseAlertDetail(item: NonNullable<ReturnType<typeof shopItemById>>) {
+  if (item.id.endsWith("_kit")) return `-${item.cost} ${resourceLabel(CURRENCY_RESOURCE)}. Construction started near the colony.`;
+  return `-${item.cost} ${resourceLabel(CURRENCY_RESOURCE)}. ${item.detail}.`;
+}
+
+function shopGoalsForPearls(pearls: number): ShopGoal[] {
+  const safePearls = Math.max(0, Math.floor(pearls));
+  return PLAY_SHOP_GOAL_ITEMS
+    .map((id) => shopItemById(id))
+    .filter((item): item is NonNullable<ReturnType<typeof shopItemById>> => Boolean(item))
+    .map((item) => {
+      const missing = Math.max(0, item.cost - safePearls);
+      return {
+        item,
+        missing,
+        progress: Math.max(0, Math.min(100, (safePearls / item.cost) * 100)),
+        ready: missing === 0,
+      };
+    });
+}
+
 const BUFFS = ["abundant_moss", "clear_water", "cooperation_aura", "curiosity_spark"];
 const DEBUFFS = ["drought", "cold_snap", "food_rot", "fatigue", "quarrel_pressure"];
 const ACCESSORIES = [
@@ -154,6 +231,17 @@ const CIV_PALETTE = [
   "#7fdfff", "#ff9ec7", "#9bffa0", "#ffd66e", "#c79cff", "#ff8f6e", "#6ee0c7", "#f4f59a",
 ];
 const MAX_PARTICIPANTS = 3;
+const ALERT_TTL_MS = 5200;
+
+type GameMode = "play" | "observe" | "god";
+
+type GameAlert = {
+  id: number;
+  kind: GameAlertKind;
+  title: string;
+  detail: string;
+  createdAt: number;
+};
 
 type CivParticipantDraft = { name: string; model: string; color: string };
 
@@ -185,16 +273,108 @@ type CivEventPayload = {
   error?: string;
 };
 
-type MvpStatus = {
+type RunStatus = {
   label: string;
   detail: string;
   progress: number;
   state: "stable" | "building" | "risk" | "collapsed";
 };
 
+type RunStats = {
+  turns: number;
+  livingCivs: number;
+  failedCivs: number;
+  deathEvents: number;
+  livingAxolotls: number;
+  eggs: number;
+  totalCivs: number;
+};
+
+type ShopGoal = {
+  item: NonNullable<ReturnType<typeof shopItemById>>;
+  missing: number;
+  progress: number;
+  ready: boolean;
+};
+
 type CompletedTaskSummary = {
   detail: string;
 };
+
+type LiveTargetLock = {
+  key?: string;
+  kind?: PlayerInteraction["kind"];
+  label?: string;
+  targetId?: string;
+  action?: PlayerInteraction["action"];
+  index?: number;
+  count?: number;
+};
+
+type LivePlayerTextState = NonNullable<CivPilotTextState["player"]> & {
+  active_target?: PlayerInteraction | null;
+  target_lock?: LiveTargetLock | null;
+};
+
+type LiveTargetState = {
+  target: PlayerInteraction | null;
+  lock: LiveTargetLock | null;
+};
+
+type PlayerTargetPrompt = {
+  state: "active" | "empty";
+  action: string;
+  label: string;
+  detail: string;
+  keyAction: string;
+};
+
+type HatchlingCareTarget = {
+  id: string;
+  name: string;
+  rarity: AxolotlRarity;
+  rarityLabel: string;
+  level: number;
+  health: number;
+  mood: number;
+  food: number;
+  canFeed: boolean;
+  fedThisTurn: boolean;
+  x: number;
+  y: number;
+};
+
+export function hatchlingCareTarget(
+  snapshot: CivSessionSnapshot | null | undefined,
+  civ: CivCivilization | null | undefined,
+): HatchlingCareTarget | null {
+  if (!snapshot || !civ) return null;
+  const hatchling = snapshot.world.entities
+    .filter((entity) => entity.kind === "axolotl" && entity.stage === "hatchling" && (!entity.civ_id || entity.civ_id === civ.id))
+    .sort((a, b) => {
+      const bHatching = (b.activity ?? "") === "hatch" ? 1 : 0;
+      const aHatching = (a.activity ?? "") === "hatch" ? 1 : 0;
+      return bHatching - aHatching || (a.age ?? 99) - (b.age ?? 99) || a.id.localeCompare(b.id);
+    })[0];
+  if (!hatchling) return null;
+  const rarity = axolotlRarity(hatchling);
+  const food = civ.resources?.food ?? 0;
+  const fedThisTurn = hatchlingFedThisTurn(snapshot, hatchling.id);
+  return {
+    id: hatchling.id,
+    name: hatchling.name || "Hatchling",
+    rarity,
+    rarityLabel: rarityLabel(rarity),
+    level: axolotlLevel(hatchling),
+    health: Math.round(hatchling.health ?? 0),
+    mood: Math.round(hatchling.mood ?? 0),
+    food,
+    canFeed: !fedThisTurn && food >= HATCHLING_FEED_FOOD_COST,
+    fedThisTurn,
+    x: hatchling.x,
+    y: hatchling.y,
+  };
+}
 
 export function CivilizationView() {
   const sessions = useCivStore((s) => s.sessions);
@@ -225,6 +405,10 @@ export function CivilizationView() {
   const [uiHidden, setUiHidden] = useState(false);
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
+  const [gameMode, setGameMode] = useState<GameMode>("observe");
+  const [alerts, setAlerts] = useState<GameAlert[]>([]);
+  const [adminCommand, setAdminCommand] = useState("");
+  const [adminHistory, setAdminHistory] = useState<string[]>([]);
   const [possessedEntityId, setPossessedEntityId] = useState<string | null>(null);
   const [playerMessage, setPlayerMessage] = useState<string | null>(null);
   const [codexPilot, setCodexPilot] = useState(false);
@@ -233,6 +417,14 @@ export function CivilizationView() {
   const [pilotCommand, setPilotCommand] = useState<CivPilotCommand>(null);
   const [pilotReadout, setPilotReadout] = useState<PilotReadout | null>(null);
   const [playerTool, setPlayerTool] = useState<PlayerTool>("use");
+  const [actionCooldowns, setActionCooldowns] = useState<Record<ActionCooldownKey, number>>({
+    gather: 0,
+    mine: 0,
+    build: 0,
+    use: 0,
+  });
+  const [cooldownNow, setCooldownNow] = useState(() => Date.now());
+  const [liveTargetState, setLiveTargetState] = useState<LiveTargetState | null>(null);
   const playerMovePendingRef = useRef(false);
   const playerMoveQueuedRef = useRef<PlayerMove | null>(null);
   const pilotMemoryRef = useRef<CivPilotMemory>(createCivPilotMemory());
@@ -243,6 +435,17 @@ export function CivilizationView() {
   const playerTaskToolSyncKeyRef = useRef<string | null>(null);
   const playerSessionRestoredRef = useRef<string | null>(null);
   const skipNextPlayerSessionPersistRef = useRef(false);
+  const nextAlertIdRef = useRef(1);
+  const playModeAutoPossessedSessionRef = useRef<string | null>(null);
+  const hatchAlertSessionRef = useRef<string | null>(null);
+  const hatchAlertSeenKeyRef = useRef<string | null>(null);
+  const growthAlertSessionRef = useRef<string | null>(null);
+  const growthAlertSeenKeyRef = useRef<string | null>(null);
+  const discoveryAlertSessionRef = useRef<string | null>(null);
+  const discoveryAlertSeenKeyRef = useRef<string | null>(null);
+  const constructionAlertSessionRef = useRef<string | null>(null);
+  const constructionAlertSeenKeyRef = useRef<string | null>(null);
+  const liveTargetKeyRef = useRef("");
 
   useEffect(() => {
     void loadModels();
@@ -293,9 +496,29 @@ export function CivilizationView() {
     return () => window.clearTimeout(timer);
   }, [autoplay, turnRunning, snapshot?.turn, advanceTurn, snapshot]);
 
+  useEffect(() => {
+    if (alerts.length === 0) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setAlerts((items) => items.filter((item) => now - item.createdAt < ALERT_TTL_MS));
+    }, 600);
+    return () => window.clearInterval(timer);
+  }, [alerts.length]);
+
+  useEffect(() => {
+    const hasActiveCooldown = ACTION_COOLDOWN_KEYS.some((key) => actionCooldowns[key] > Date.now());
+    if (!hasActiveCooldown) return;
+    const timer = window.setInterval(() => setCooldownNow(Date.now()), 150);
+    return () => window.clearInterval(timer);
+  }, [actionCooldowns]);
+
   const activeCiv = snapshot
     ? (snapshot.civs?.find((c) => c.id === selectedCivId) ?? primaryCiv(snapshot))
     : null;
+  const pearlBalance = activeCiv?.resources?.[CURRENCY_RESOURCE] ?? 0;
+  const foodBalance = activeCiv?.resources?.food ?? 0;
+  const shopGoals = shopGoalsForPearls(pearlBalance);
+  const hatchlingCare = useMemo(() => hatchlingCareTarget(snapshot, activeCiv), [snapshot, activeCiv]);
   // One combined chronological stream; when a civ is selected, scope it to that
   // civ via the robust civ_id field (Plan 01), never name-string matching.
   const recentLog = useMemo(() => {
@@ -303,13 +526,85 @@ export function CivilizationView() {
     const scoped = selectedCivId ? all.filter((entry) => entry.civ_id === selectedCivId) : all;
     return scoped.slice(0, 12);
   }, [snapshot?.log, selectedCivId]);
+  useEffect(() => {
+    const sessionId = snapshot?.id ?? null;
+    if (!snapshot || !sessionId) return;
+    const hatchLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Eggs hatched") ?? null;
+    const hatchKey = hatchLog ? `${sessionId}:${hatchLog.turn}:${hatchLog.created_at}:${hatchLog.body}` : null;
+    if (hatchAlertSessionRef.current !== sessionId) {
+      hatchAlertSessionRef.current = sessionId;
+      hatchAlertSeenKeyRef.current = hatchKey;
+      return;
+    }
+    if (!hatchLog || !hatchKey || hatchAlertSeenKeyRef.current === hatchKey) return;
+    hatchAlertSeenKeyRef.current = hatchKey;
+    const care = hatchlingCareTarget(snapshot, activeCiv ?? primaryCiv(snapshot));
+    const detail = care
+      ? `${care.name} hatched near the nest. Feed it.`
+      : cleanCivLogBody(hatchLog);
+    setPlayerMessage(detail);
+    pushGameAlert("world", "Hatchling emerged", detail);
+  }, [snapshot, activeCiv]);
+  useEffect(() => {
+    const sessionId = snapshot?.id ?? null;
+    if (!snapshot || !sessionId) return;
+    const growthLogs = (snapshot.log ?? []).filter((entry) => entry.title === "Axolotl grew");
+    const growthLog = growthLogs[growthLogs.length - 1] ?? null;
+    const latestTurnLogs = growthLog ? growthLogs.filter((entry) => entry.turn === growthLog.turn) : [];
+    const growthKey = growthLog
+      ? `${sessionId}:${growthLog.turn}:${latestTurnLogs.map((entry) => `${entry.created_at}:${entry.body}`).join("|")}`
+      : null;
+    if (growthAlertSessionRef.current !== sessionId) {
+      growthAlertSessionRef.current = sessionId;
+      growthAlertSeenKeyRef.current = growthKey;
+      return;
+    }
+    if (!growthLog || !growthKey || growthAlertSeenKeyRef.current === growthKey) return;
+    growthAlertSeenKeyRef.current = growthKey;
+    const detail = growthAlertDetail(latestTurnLogs);
+    setPlayerMessage(detail);
+    pushGameAlert("world", "Axolotl grew", detail, { replaceTitle: "Axolotl grew" });
+  }, [snapshot]);
+  useEffect(() => {
+    const sessionId = snapshot?.id ?? null;
+    if (!snapshot || !sessionId) return;
+    const discoveryLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Rare discovery") ?? null;
+    const discoveryKey = discoveryLog ? `${sessionId}:${discoveryLog.turn}:${discoveryLog.created_at}:${discoveryLog.body}` : null;
+    if (discoveryAlertSessionRef.current !== sessionId) {
+      discoveryAlertSessionRef.current = sessionId;
+      discoveryAlertSeenKeyRef.current = discoveryKey;
+      return;
+    }
+    if (!discoveryLog || !discoveryKey || discoveryAlertSeenKeyRef.current === discoveryKey) return;
+    discoveryAlertSeenKeyRef.current = discoveryKey;
+    const detail = rareDiscoveryAlertDetail(discoveryLog);
+    setPlayerMessage(detail);
+    pushGameAlert("rare", "Rare discovery", detail);
+  }, [snapshot]);
+  useEffect(() => {
+    const sessionId = snapshot?.id ?? null;
+    if (!snapshot || !sessionId) return;
+    const constructionLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Construction complete") ?? null;
+    const constructionKey = constructionLog ? `${sessionId}:${constructionLog.turn}:${constructionLog.created_at}:${constructionLog.body}` : null;
+    if (constructionAlertSessionRef.current !== sessionId) {
+      constructionAlertSessionRef.current = sessionId;
+      constructionAlertSeenKeyRef.current = constructionKey;
+      return;
+    }
+    if (!constructionLog || !constructionKey || constructionAlertSeenKeyRef.current === constructionKey) return;
+    constructionAlertSeenKeyRef.current = constructionKey;
+    const detail = cleanCivLogBody(constructionLog);
+    setPlayerMessage(detail);
+    pushGameAlert("task", "Construction complete", detail);
+  }, [snapshot]);
   // Drive the camera from the selection signal (REN-02): a selected civ (e.g. a
   // leaderboard row click, Phase 1) focuses that civ; clearing it frames all civs.
   useEffect(() => {
     if (selectedCivId) window.civCamera?.focusCiv?.(selectedCivId);
     else window.civCamera?.frameAll?.();
   }, [selectedCivId]);
-  const mvpStatus = snapshot ? getMvpStatus(snapshot, activeCiv) : null;
+  const runStatus = snapshot ? getRunStatus(snapshot, activeCiv) : null;
+  const runStats = snapshot ? getRunStats(snapshot) : null;
   const activePlayerTask = useMemo(
     () => (snapshot ? activeCivPlayerTask(snapshot, activeCiv) : null),
     [snapshot, activeCiv],
@@ -423,6 +718,33 @@ export function CivilizationView() {
   }, [activeSessionId, snapshot?.id, possessedEntityId, playerTool, pilotGoal, codexPilot]);
 
   useEffect(() => {
+    if (!snapshot || gameMode !== "play" || !possessedEntityId) {
+      liveTargetKeyRef.current = "";
+      setLiveTargetState(null);
+      return;
+    }
+
+    const syncTarget = () => {
+      const liveState = readCivPilotTextState();
+      const playerState = liveState?.player as LivePlayerTextState | undefined;
+      const next: LiveTargetState = playerState?.possessedEntityId === possessedEntityId
+        ? {
+            target: playerState.active_target ?? null,
+            lock: playerState.target_lock ?? null,
+          }
+        : { target: null, lock: null };
+      const nextKey = liveTargetStateKey(next);
+      if (nextKey === liveTargetKeyRef.current) return;
+      liveTargetKeyRef.current = nextKey;
+      setLiveTargetState(next);
+    };
+
+    syncTarget();
+    const timer = window.setInterval(syncTarget, 180);
+    return () => window.clearInterval(timer);
+  }, [gameMode, possessedEntityId, snapshot?.id]);
+
+  useEffect(() => {
     if (!possessedEntityId) return;
     const handleToolHotkey = (event: KeyboardEvent) => {
       if (event.repeat || event.ctrlKey || event.metaKey || event.altKey || isTextEntryTarget(event.target)) return;
@@ -459,6 +781,17 @@ export function CivilizationView() {
       setPossessedEntityId(null);
     }
   }, [possessedEntityId, possessableAxos]);
+
+  useEffect(() => {
+    const sessionId = snapshot?.id;
+    if (gameMode !== "play" || !sessionId || possessedEntityId || possessableAxos.length === 0) return;
+    if (playModeAutoPossessedSessionRef.current === sessionId) return;
+    playModeAutoPossessedSessionRef.current = sessionId;
+    const entity = possessableAxos[0];
+    setPossessedEntityId(entity.id);
+    setPlayerMessage(`Play mode ready: controlling ${entity.name}.`);
+    focusGameCanvasSoon();
+  }, [gameMode, possessedEntityId, possessableAxos, snapshot?.id]);
 
   useEffect(() => {
     const controls: NonNullable<Window["civPilotControls"]> = {
@@ -615,6 +948,19 @@ export function CivilizationView() {
 
   const canFound = !loading && participants.every((p) => Boolean(p.model));
 
+  function pushGameAlert(kind: GameAlertKind, title: string, detail: string, options?: { replaceTitle?: string }) {
+    const id = nextAlertIdRef.current;
+    nextAlertIdRef.current += 1;
+    setAlerts((items) => [
+      { id, kind, title, detail, createdAt: Date.now() },
+      ...(options?.replaceTitle ? items.filter((item) => item.title !== options.replaceTitle) : items),
+    ].slice(0, 5));
+  }
+
+  function dismissGameAlert(id: number) {
+    setAlerts((items) => items.filter((item) => item.id !== id));
+  }
+
   async function handleCreate() {
     if (!canFound) return;
     const fallback = preferredModel(models);
@@ -626,11 +972,251 @@ export function CivilizationView() {
     await createSession({ name, seed: null, civs });
     // Reset selection to the founding colony so the observer panel has a focus.
     setSelectedCivId(null);
+    setGameMode("play");
+    playModeAutoPossessedSessionRef.current = null;
     setLeftOpen(false);
+    pushGameAlert("world", "New colony founded", "A fresh playable world is ready.");
   }
 
   function sendIntervention(intervention: CivIntervention) {
-    void applyIntervention(intervention);
+    const scoped = activeCiv?.id && ["grant_resource", "remove_resource", "spawn_resource", "shop_purchase", "incubate_egg"].includes(intervention.kind)
+      ? { ...intervention, civ_id: intervention.civ_id ?? activeCiv.id }
+      : intervention;
+    void applyIntervention(scoped);
+  }
+
+  function actionCooldownRemaining(key: ActionCooldownKey, now = Date.now()) {
+    return Math.max(0, actionCooldowns[key] - now);
+  }
+
+  function startActionCooldown(key: ActionCooldownKey) {
+    if (codexPilot) return;
+    const readyAt = Date.now() + ACTION_COOLDOWNS_MS[key];
+    setCooldownNow(Date.now());
+    setActionCooldowns((items) => ({ ...items, [key]: readyAt }));
+  }
+
+  function guardActionCooldown(key: ActionCooldownKey, label: string) {
+    if (codexPilot) return false;
+    const remaining = actionCooldownRemaining(key);
+    if (remaining <= 0) return false;
+    const seconds = Math.ceil(remaining / 100) / 10;
+    setCooldownNow(Date.now());
+    setPlayerMessage(`${label} cooling down: ${seconds.toFixed(1)}s.`);
+    pushGameAlert("currency", "Action cooling down", `${label} ready in ${seconds.toFixed(1)}s.`);
+    return true;
+  }
+
+  async function handleRestartRun() {
+    const fallback = preferredModel(models);
+    const civs = snapshot
+      ? (snapshot.civs ?? []).slice(0, MAX_PARTICIPANTS).map((civ, index) => ({
+          name: civ.name?.trim() || `Civ ${index + 1}`,
+          model: civ.model || fallback,
+          color: civ.color || paletteColor(index),
+        }))
+      : participants.map((participant, index) => ({
+          name: participant.name.trim() || `Civ ${index + 1}`,
+          model: participant.model || fallback,
+          color: participant.color,
+        }));
+    if (civs.some((civ) => !civ.model)) return;
+    setAutoplay(false);
+    setCodexPilot(false);
+    setPilotCommand(null);
+    setPilotReadout(null);
+    setPilotStatus("Stopped");
+    setPossessedEntityId(null);
+    setSelectedCivId(null);
+    setGameMode("play");
+    playModeAutoPossessedSessionRef.current = null;
+    await createSession({ name: snapshot?.name ?? name, seed: null, civs });
+    pushGameAlert("world", "Run restarted", "A new procedural world was created with the same civ lineup.");
+  }
+
+  function switchGameMode(nextMode: GameMode) {
+    setGameMode(nextMode);
+    if (nextMode === "play") {
+      setRightOpen(false);
+      setCodexPilot(false);
+      setPilotCommand(null);
+      setPilotReadout(null);
+      setPilotStatus("Stopped");
+      if (!possessedEntityId) possessFirstAvailable();
+      setPlayerMessage("Play mode: manual controls and world interaction are in focus.");
+      pushGameAlert("world", "Play mode", "Harness controls are tucked away.");
+      return;
+    }
+    if (nextMode === "observe") {
+      setRightOpen(true);
+      setPlayerMessage("Observe mode: watch the colony and model decisions.");
+      pushGameAlert("world", "Observe mode", "Competition readouts and colony panels are visible.");
+      return;
+    }
+    setRightOpen(true);
+    setPlayerMessage("God mode: admin console, shop prototypes, and interventions are unlocked.");
+    pushGameAlert("admin", "God mode", "Admin commands and direct interventions are available.");
+  }
+
+  function recordAdmin(message: string) {
+    setAdminHistory((items) => [message, ...items].slice(0, 6));
+  }
+
+  function runAdminCommand(rawCommand = adminCommand) {
+    const raw = rawCommand.trim();
+    if (!raw) return;
+    const parts = raw.replace(/^\//, "").split(/\s+/);
+    const command = (parts[0] ?? "").toLowerCase();
+    const target = parts[1] ?? "";
+    const amountArg = Number(parts[2] ?? "1");
+    const commandAmount = Number.isFinite(amountArg) ? Math.max(1, Math.min(999, Math.floor(amountArg))) : 1;
+    setAdminCommand("");
+    if (command === "help") {
+      recordAdmin("Commands: /grant food 10, /spawn amber 3, /buy common_egg, /warm, /buff abundant_moss, /turn, /mode play, /reset.");
+      return;
+    }
+    if (command === "grant" && target) {
+      sendIntervention({ kind: "grant_resource", target, amount: commandAmount });
+      recordAdmin(`Granted ${commandAmount} ${resourceLabel(target)}.`);
+      pushGameAlert("admin", "Admin grant", `+${commandAmount} ${resourceLabel(target)}`);
+      return;
+    }
+    if (command === "remove" && target) {
+      sendIntervention({ kind: "remove_resource", target, amount: commandAmount });
+      recordAdmin(`Removed ${commandAmount} ${resourceLabel(target)}.`);
+      pushGameAlert("admin", "Admin remove", `-${commandAmount} ${resourceLabel(target)}`);
+      return;
+    }
+    if (command === "spawn" && target) {
+      sendIntervention({ kind: "spawn_resource", target, amount: commandAmount, x: spawnX });
+      recordAdmin(`Spawned ${commandAmount} ${resourceLabel(target)} near the colony.`);
+      pushGameAlert(RARE_RESOURCES.has(target) ? "rare" : "admin", "World spawn", `${resourceLabel(target)} pickups added.`);
+      return;
+    }
+    if ((command === "buff" || command === "debuff") && target) {
+      const durationArg = Number(parts[2] ?? "4");
+      const duration = Number.isFinite(durationArg) ? Math.max(1, Math.min(24, Math.floor(durationArg))) : 4;
+      sendIntervention({
+        kind: command === "buff" ? "apply_buff" : "apply_debuff",
+        target,
+        duration,
+        intensity: 1,
+      });
+      recordAdmin(`Applied ${modifierLabel(target)} for ${duration} turn(s).`);
+      pushGameAlert("admin", command === "buff" ? "Buff applied" : "Debuff applied", modifierLabel(target));
+      return;
+    }
+    if (command === "buy" && target) {
+      if (!isShopItemId(target)) {
+        recordAdmin(`Unknown shop item: ${target}.`);
+        return;
+      }
+      buyDevShopItem(target);
+      return;
+    }
+    if (command === "warm" || command === "incubate") {
+      const query = target.toLowerCase();
+      const eggs = (snapshot?.world.entities ?? []).filter((entity) => (
+        isEggEntity(entity) && entityOwnedBy(entity, activeCiv?.id)
+      ));
+      const egg = query
+        ? eggs.find((entity) => entity.id.toLowerCase() === query || (entity.name ?? "").toLowerCase().includes(query))
+        : (eggs.find((entity) => (hatchTurnsRemaining(entity) ?? 0) > 1) ?? eggs[0]);
+      if (!egg) {
+        recordAdmin(query ? `No egg matched ${target}.` : "No egg available to warm.");
+        return;
+      }
+      incubateEgg(egg);
+      return;
+    }
+    if (command === "turn") {
+      void advanceTurn();
+      recordAdmin("Advanced one turn.");
+      return;
+    }
+    if (command === "auto") {
+      const nextAuto = target === "off" ? false : target === "on" ? true : !autoplay;
+      setAutoplay(nextAuto);
+      recordAdmin(nextAuto ? "Auto turns enabled." : "Auto turns paused.");
+      return;
+    }
+    if (command === "mode" && (target === "play" || target === "observe" || target === "god")) {
+      switchGameMode(target);
+      recordAdmin(`Switched to ${target} mode.`);
+      return;
+    }
+    if (command === "possess") {
+      possessFirstAvailable();
+      recordAdmin("Possessed the first playable axolotl.");
+      return;
+    }
+    if (command === "release") {
+      setCodexPilot(false);
+      setPilotCommand(null);
+      setPilotReadout(null);
+      setPilotStatus("Stopped");
+      setPossessedEntityId(null);
+      setPlayerMessage("Released player control.");
+      recordAdmin("Released player control.");
+      return;
+    }
+    if (command === "reset" || command === "restart") {
+      void handleRestartRun();
+      recordAdmin("Restarting the world.");
+      return;
+    }
+    recordAdmin(`Unknown command: ${raw}. Try /help.`);
+  }
+
+  function buyDevShopItem(item: ShopItemId) {
+    const meta = shopItemById(item);
+    if (!meta) return;
+    if (pearlBalance < meta.cost) {
+      const missing = meta.cost - pearlBalance;
+      setPlayerMessage(`Need ${missing} more ${resourceLabel(CURRENCY_RESOURCE)} for ${meta.label}.`);
+      pushGameAlert("currency", "Not enough pearls", `${meta.label} costs ${meta.cost}.`);
+      recordAdmin(`Need ${missing} more ${resourceLabel(CURRENCY_RESOURCE)} for ${meta.label}.`);
+      return;
+    }
+    sendIntervention({ kind: "shop_purchase", target: item, amount: 1, x: spawnX });
+    pushGameAlert(meta.tone, meta.label, shopPurchaseAlertDetail(meta));
+    recordAdmin(`Bought ${meta.label} for ${meta.cost} ${resourceLabel(CURRENCY_RESOURCE)}.`);
+  }
+
+  function incubateEgg(egg: CivEntity) {
+    if (!activeCiv) return;
+    const remaining = hatchTurnsRemaining(egg);
+    if (remaining === null || remaining <= 1) {
+      setPlayerMessage(`${egg.name || "Egg"} is already ready for the next hatch cycle.`);
+      pushGameAlert("currency", "Egg already warm", "This egg is ready to hatch on the next turn.");
+      return;
+    }
+    if (pearlBalance < EGG_INCUBATE_PEARL_COST || foodBalance < EGG_INCUBATE_FOOD_COST) {
+      const missingPearls = Math.max(0, EGG_INCUBATE_PEARL_COST - pearlBalance);
+      const missingFood = Math.max(0, EGG_INCUBATE_FOOD_COST - foodBalance);
+      const shortage = [
+        missingPearls > 0 ? `${missingPearls} ${resourceLabel(CURRENCY_RESOURCE)}` : null,
+        missingFood > 0 ? `${missingFood} ${resourceLabel("food")}` : null,
+      ].filter(Boolean).join(" and ");
+      setPlayerMessage(`Need ${shortage} to warm ${egg.name || "this egg"}.`);
+      pushGameAlert("currency", "Incubator needs supplies", `Warm egg costs ${EGG_INCUBATE_PEARL_COST} pearls and ${EGG_INCUBATE_FOOD_COST} food.`);
+      return;
+    }
+    sendIntervention({
+      kind: "incubate_egg",
+      target: "warm",
+      amount: 1,
+      entity_id: egg.id,
+    });
+    const nextRemaining = remaining - 1;
+    const hatchText = nextRemaining <= 1 ? "next turn" : `in ${nextRemaining} turns`;
+    setPlayerMessage(`Warmed ${egg.name || "egg"}; it hatches ${hatchText}.`);
+    pushGameAlert(
+      "currency",
+      "Egg warmed",
+      `-${EGG_INCUBATE_PEARL_COST} ${resourceLabel(CURRENCY_RESOURCE)}, -${EGG_INCUBATE_FOOD_COST} food. Hatch timer -1 turn.`,
+    );
+    recordAdmin(`Warmed ${egg.name || egg.id}: hatch timer ${remaining} -> ${nextRemaining}.`);
   }
 
   function focusGameCanvasSoon() {
@@ -683,6 +1269,7 @@ export function CivilizationView() {
 
   function handlePlayerInteract(interaction: PlayerInteraction) {
     if (interaction.kind === "terrain" && interaction.action === "mine_tile" && activeCiv) {
+      if (guardActionCooldown("mine", "Mine")) return;
       const task = activePlayerTask;
       void applyIntervention({
         kind: "mine_tile",
@@ -693,6 +1280,7 @@ export function CivilizationView() {
         entity_id: interaction.entityId,
         civ_id: activeCiv.id,
       });
+      startActionCooldown("mine");
       if (task && isRescueRubbleInteraction(snapshot, task, interaction)) {
         const nextProgress = Math.min(task.amount, task.progress + 1);
         const rescueReady = nextProgress >= task.amount;
@@ -700,6 +1288,11 @@ export function CivilizationView() {
           rescueReady
             ? `Cleared the last rubble near ${task.objectName}. Use ${task.objectName} to finish the rescue.`
             : `Cleared rescue rubble for ${task.npcName} (${nextProgress}/${task.amount}).`,
+        );
+        pushGameAlert(
+          rescueReady ? "task" : "resource",
+          rescueReady ? "Rescue path clear" : "Rubble cleared",
+          rescueReady ? `${task.objectName} is reachable.` : `${nextProgress}/${task.amount} rubble cleared.`,
         );
         if (rescueReady) {
           playerTaskToolSyncKeyRef.current = null;
@@ -710,7 +1303,13 @@ export function CivilizationView() {
           }
         }
       } else {
-        setPlayerMessage(`Mined ${interaction.label} for ${resourceLabel(interaction.yieldsResource ?? "stone")}.`);
+        const minedResource = interaction.yieldsResource ?? "stone";
+        setPlayerMessage(`Mined ${interaction.label} for ${resourceLabel(minedResource)}.`);
+        pushGameAlert(
+          RARE_RESOURCES.has(minedResource) ? "rare" : "resource",
+          RARE_RESOURCES.has(minedResource) ? "Rare vein found" : "Resource mined",
+          `+1 ${resourceLabel(minedResource)}`,
+        );
       }
       return;
     }
@@ -720,6 +1319,7 @@ export function CivilizationView() {
         setPlayerMessage(`No ${resourceLabel(material)} available to build.`);
         return;
       }
+      if (guardActionCooldown("build", "Build")) return;
       void applyIntervention({
         kind: "place_tile",
         target: material,
@@ -729,6 +1329,7 @@ export function CivilizationView() {
         entity_id: interaction.entityId,
         civ_id: activeCiv.id,
       });
+      startActionCooldown("build");
       const task = activePlayerTask;
       if (task?.kind === "build_bridge") {
         const nextProgress = Math.min(task.amount, task.progress + 1);
@@ -738,16 +1339,23 @@ export function CivilizationView() {
             ? `Built ${task.objectName} for ${task.npcName}.`
             : `Placed bridge tile for ${task.npcName} (${nextProgress}/${task.amount}).`,
         );
+        pushGameAlert(
+          bridgeComplete ? "task" : "resource",
+          bridgeComplete ? "Bridge complete" : "Bridge tile placed",
+          bridgeComplete ? `${task.objectName} is usable.` : `${nextProgress}/${task.amount} tiles placed.`,
+        );
         if (bridgeComplete) {
           playerTaskToolSyncKeyRef.current = null;
           setPlayerTool("use");
         }
       } else {
         setPlayerMessage(`Placed ${interaction.label} using ${resourceLabel(material)}.`);
+        pushGameAlert("resource", "Tile placed", `-1 ${resourceLabel(material)}`);
       }
       return;
     }
     if (interaction.kind === "resource" && interaction.resource && activeCiv) {
+      if (guardActionCooldown("gather", "Gather")) return;
       const gained = playerResourceTarget(interaction.resource);
       void applyIntervention({
         kind: "harvest_resource",
@@ -758,6 +1366,7 @@ export function CivilizationView() {
         entity_id: interaction.entityId,
         civ_id: activeCiv.id,
       });
+      startActionCooldown("gather");
       const task = activePlayerTask;
       const taskResourceMatches = task
         && task.kind !== "visit_building"
@@ -771,9 +1380,15 @@ export function CivilizationView() {
       } else {
         setPlayerMessage(`Gathered ${resourceLabel(gained)} near ${tileLabel(interaction.x, interaction.y)}.`);
       }
+      pushGameAlert(
+        RARE_RESOURCES.has(gained) ? "rare" : "resource",
+        RARE_RESOURCES.has(gained) ? "Rare object found" : "Resource gathered",
+        `+1 ${resourceLabel(gained)}`,
+      );
       return;
     }
     if (interaction.kind === "building") {
+      if (guardActionCooldown("use", "Use")) return;
       if (interaction.targetId && activeCiv) {
         void applyIntervention({
           kind: "use_building",
@@ -781,9 +1396,11 @@ export function CivilizationView() {
           entity_id: interaction.targetId,
           civ_id: activeCiv.id,
         });
+        startActionCooldown("use");
       }
       if (activePlayerTask?.kind === "visit_building" && activePlayerTask.buildingId === interaction.targetId) {
         setPlayerMessage(`Checked ${interaction.label} for ${activePlayerTask.npcName}.`);
+        pushGameAlert("task", "Building checked", interaction.label);
       } else {
         setPlayerMessage(`Used ${interaction.label}.`);
       }
@@ -798,6 +1415,7 @@ export function CivilizationView() {
         setPlayerMessage(`Mine ${activePlayerTask.remaining} more rubble near ${interaction.label}.`);
         return;
       }
+      if (guardActionCooldown("use", "Use")) return;
       if (interaction.targetId && activeCiv) {
         void applyIntervention({
           kind: interaction.action === "repair_object" ? "repair_object" : interaction.action === "rescue_object" ? "rescue_object" : "use_object",
@@ -805,17 +1423,52 @@ export function CivilizationView() {
           entity_id: interaction.targetId,
           civ_id: activeCiv.id,
         });
+        startActionCooldown("use");
       }
       if (activePlayerTask?.kind === "repair_object" && activePlayerTask.objectId === interaction.targetId) {
         setPlayerMessage(`Repaired ${interaction.label} for ${activePlayerTask.npcName}.`);
+        pushGameAlert("task", "Repair complete", interaction.label);
       } else if (activePlayerTask?.kind === "rescue_object" && activePlayerTask.objectId === interaction.targetId) {
         setPlayerMessage(`Rescued ${interaction.label} for ${activePlayerTask.npcName}.`);
+        pushGameAlert("task", "Rescue complete", interaction.label);
       } else {
         setPlayerMessage(`Checked ${interaction.label}.`);
       }
       return;
     }
     if (interaction.kind === "npc") {
+      const targetEntity = interaction.targetId
+        ? snapshot?.world.entities.find((entity) => entity.id === interaction.targetId) ?? null
+        : null;
+      const isHatchling = interaction.action === "feed_hatchling"
+        || (targetEntity?.kind === "axolotl" && targetEntity.stage === "hatchling");
+      if (isHatchling) {
+        if (!activeCiv || !interaction.targetId) {
+          setPlayerMessage("No hatchling close enough to feed.");
+          return;
+        }
+        if ((activeCiv.resources?.food ?? 0) < 1) {
+          const name = targetEntity?.name ?? "hatchling";
+          setPlayerMessage(`Need 1 ${resourceLabel("food")} to feed ${name}.`);
+          pushGameAlert("currency", "Need food", `Gather moss before feeding ${name}.`);
+          return;
+        }
+        if (guardActionCooldown("use", "Feed")) return;
+        void applyIntervention({
+          kind: "feed_hatchling",
+          target: "food",
+          amount: 1,
+          entity_id: interaction.targetId,
+          civ_id: activeCiv.id,
+        });
+        startActionCooldown("use");
+        const fallbackName = interaction.label.replace(/^Feed\s+/, "").trim();
+        const name = targetEntity?.name || fallbackName || "hatchling";
+        setPlayerMessage(`Fed ${name}.`);
+        pushGameAlert("world", "Hatchling fed", `-1 ${resourceLabel("food")}. Health and mood improved.`);
+        return;
+      }
+      if (guardActionCooldown("use", "Talk")) return;
       if (interaction.targetId && activeCiv) {
         void applyIntervention({
           kind: "talk_entity",
@@ -823,14 +1476,17 @@ export function CivilizationView() {
           entity_id: interaction.targetId,
           civ_id: activeCiv.id,
         });
+        startActionCooldown("use");
       }
       const task = activePlayerTask;
       if (task && task.npcId === interaction.targetId) {
         setPlayerMessage(taskNpcMessage(task, interaction.label));
+        pushGameAlert(task.status === "ready" ? "task" : "world", task.status === "ready" ? "Task update" : "Request reminder", interaction.label);
       } else if (task) {
         setPlayerMessage(`${interaction.label} points you back to ${task.npcName}.`);
       } else {
         setPlayerMessage(`${interaction.label} gave you a request.`);
+        pushGameAlert("task", "New request", interaction.label);
       }
       return;
     }
@@ -879,7 +1535,7 @@ export function CivilizationView() {
 
 
   return (
-    <main className="civ-view">
+    <main className={["civ-view", `is-${gameMode}`].join(" ")}>
       {/* ── fullscreen world stage ─────────────────────────────────────── */}
       <div className="civ-stage">
         {snapshot ? (
@@ -889,6 +1545,7 @@ export function CivilizationView() {
             possessedEntityId={possessedEntityId}
             playerTool={playerTool}
             buildResource={buildResource}
+            gameMode={gameMode}
             pilotCommand={pilotCommand}
             pilotActive={codexPilot}
             onPlayerInteract={handlePlayerInteract}
@@ -902,8 +1559,8 @@ export function CivilizationView() {
                 <span className="text-sm font-semibold">Axolotl Civilization Lab</span>
               </div>
               <p className="mb-3 text-xs leading-relaxed text-[oklch(0.62_0.014_225)]">
-                Found a pixel axolotl colony and watch a model govern it turn by turn. You observe,
-                grant resources, and apply buffs or debuffs.
+                Found a playable axolotl colony, possess a citizen, gather resources, mine terrain,
+                and then switch to observe or god mode when you want model or admin controls.
               </p>
               <div className="space-y-2">
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Colony name" />
@@ -930,12 +1587,16 @@ export function CivilizationView() {
       </div>
 
       {/* ── persistent top-bar leaderboard (above the canvas) ──────────── */}
-      {!uiHidden && snapshot && (
+      {!uiHidden && snapshot && gameMode !== "play" && (
         <Leaderboard
           civs={snapshot.civs ?? []}
           selectedCivId={selectedCivId}
           onSelect={setSelectedCivId}
         />
+      )}
+
+      {!uiHidden && snapshot && (
+        <GameModeSwitch mode={gameMode} onChange={switchGameMode} />
       )}
 
       {/* ── persistent corner control: hide / reveal the HUD ───────────── */}
@@ -967,7 +1628,10 @@ export function CivilizationView() {
             <Metric icon={<Activity className="h-3 w-3" />} label="Pop" value={String(activeCiv?.population ?? 0)} />
             <Metric icon={<Shield className="h-3 w-3" />} label="HP" value={formatScore(activeCiv?.health)} />
             <Metric icon={<Sprout className="h-3 w-3" />} label="Mood" value={formatScore(activeCiv?.morale)} />
+            <Metric icon={<Coins className="h-3 w-3" />} label="Pearls" value={String(pearlBalance)} tone />
             <Metric icon={<FlaskConical className="h-3 w-3" />} label="Score" value={formatScore(activeCiv?.score.total)} tone />
+            {runStats && <Metric icon={<AlertTriangle className="h-3 w-3" />} label="Fail" value={`${runStats.failedCivs}/${runStats.totalCivs}`} />}
+            {runStats && <Metric icon={<Activity className="h-3 w-3" />} label="Deaths" value={String(runStats.deathEvents)} />}
           </div>
           {(possessedEntity || codexPilot) && (
             <ControlStateStrip
@@ -976,7 +1640,13 @@ export function CivilizationView() {
               detail={codexPilot ? pilotStatus : playerToolLabel(playerTool)}
             />
           )}
-          {mvpStatus && <ObjectiveStrip status={mvpStatus} />}
+          {gameMode === "play" && possessedEntity && (
+            <TargetPromptStrip state={liveTargetState} tool={playerTool} />
+          )}
+          {gameMode === "play" && hatchlingCare && <HatchlingCareStrip care={hatchlingCare} />}
+          {possessedEntity && <ActionCooldownStrip cooldowns={actionCooldowns} now={cooldownNow} />}
+          {runStatus && <ObjectiveStrip status={runStatus} />}
+          {gameMode === "play" && shopGoals.length > 0 && <ShopGoalStrip goals={shopGoals} onBuy={buyDevShopItem} />}
           {activePlayerTask && <PlayerTaskStrip task={activePlayerTask} />}
           {!activePlayerTask && recentCompletedTask && <PlayerTaskCompleteStrip summary={recentCompletedTask} />}
           {(possessedEntity || playerMessage) && (
@@ -1017,7 +1687,7 @@ export function CivilizationView() {
             <Leaf className="h-3.5 w-3.5" />
             <span>Colonies</span>
           </button>
-          {snapshot && (
+          {snapshot && gameMode !== "play" && (
             <button
               type="button"
               className="civ-edge-tab civ-edge-right"
@@ -1025,7 +1695,7 @@ export function CivilizationView() {
               aria-expanded={rightOpen}
             >
               <Hammer className="h-3.5 w-3.5" />
-              <span>Observer</span>
+              <span>{gameMode === "god" ? "Admin" : "Observe"}</span>
             </button>
           )}
         </>
@@ -1033,7 +1703,11 @@ export function CivilizationView() {
 
       {/* ── LEFT drawer: sessions + create ─────────────────────────────── */}
       {!uiHidden && (
-        <aside className={["civ-drawer civ-drawer-left civ-glass", leftOpen ? "is-open" : ""].join(" ")}>
+        <aside
+          className={["civ-drawer civ-drawer-left civ-glass", leftOpen ? "is-open" : ""].join(" ")}
+          aria-hidden={!leftOpen}
+          inert={!leftOpen ? true : undefined}
+        >
           <DrawerHeader title="Colonies" icon={<Leaf className="h-3.5 w-3.5" />} onClose={() => setLeftOpen(false)} />
           <div className="civ-drawer-body">
             <Section label="New colony" icon={<Plus className="h-3.5 w-3.5" />}>
@@ -1089,17 +1763,32 @@ export function CivilizationView() {
                 )}
               </div>
             </Section>
+            {snapshot && activeCiv && (
+              <Section label="Hatchery" icon={<Sparkles className="h-3.5 w-3.5" />}>
+                <HatcheryPanel snapshot={snapshot} civ={activeCiv} pearls={pearlBalance} food={foodBalance} onBuy={buyDevShopItem} onIncubate={incubateEgg} />
+              </Section>
+            )}
+            {snapshot && activeCiv && (
+              <Section label="Shop" icon={<Coins className="h-3.5 w-3.5" />}>
+                <DevShopPanel onBuy={buyDevShopItem} pearls={pearlBalance} />
+              </Section>
+            )}
           </div>
         </aside>
       )}
 
       {/* ── RIGHT drawer: observer panels ──────────────────────────────── */}
-      {!uiHidden && snapshot && (
-        <aside className={["civ-drawer civ-drawer-right civ-glass", rightOpen ? "is-open" : ""].join(" ")}>
-          <DrawerHeader title="Observer" icon={<Hammer className="h-3.5 w-3.5" />} onClose={() => setRightOpen(false)} />
+      {!uiHidden && snapshot && gameMode !== "play" && (
+        <aside
+          className={["civ-drawer civ-drawer-right civ-glass", rightOpen ? "is-open" : ""].join(" ")}
+          aria-hidden={!rightOpen}
+          inert={!rightOpen ? true : undefined}
+        >
+          <DrawerHeader title={gameMode === "god" ? "God Console" : "Observer"} icon={<Hammer className="h-3.5 w-3.5" />} onClose={() => setRightOpen(false)} />
           <div className="civ-drawer-body">
-            <Section label="MVP Status" icon={<Activity className="h-3.5 w-3.5" />}>
-              {mvpStatus && <MvpPanel status={mvpStatus} />}
+            <Section label="Run Status" icon={<Activity className="h-3.5 w-3.5" />}>
+              {runStatus && <RunStatusPanel status={runStatus} />}
+              {runStats && <RunStatsPanel stats={runStats} />}
             </Section>
             <Section label="Player" icon={<Gamepad2 className="h-3.5 w-3.5" />}>
               <PlayerPanel
@@ -1130,6 +1819,9 @@ export function CivilizationView() {
                 onTogglePilot={toggleCodexPilot}
               />
             </Section>
+            <Section label="Hatchery" icon={<Sparkles className="h-3.5 w-3.5" />}>
+              <HatcheryPanel snapshot={snapshot} civ={activeCiv} pearls={pearlBalance} food={foodBalance} onBuy={buyDevShopItem} onIncubate={incubateEgg} />
+            </Section>
             <Section label="Score" icon={<FlaskConical className="h-3.5 w-3.5" />}>
               <ScorePanel civ={activeCiv} />
             </Section>
@@ -1142,38 +1834,53 @@ export function CivilizationView() {
             <Section label="Resources" icon={<Hammer className="h-3.5 w-3.5" />}>
               <ResourcesPanel civ={activeCiv} />
             </Section>
-            <Section label="Intervene" icon={<Gift className="h-3.5 w-3.5" />}>
-              <div className="grid gap-2">
-                <div className="flex items-center gap-1.5">
-                  <select value={resource} onChange={(e) => setResource(e.target.value)} className="civ-select flex-1">
-                    {RESOURCES.map((item) => <option key={item} value={item}>{resourceLabel(item)}</option>)}
-                  </select>
-                  <Input type="number" min={1} max={99} value={amount} onChange={(e) => setAmount(Number(e.target.value))} className="w-16" />
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "grant_resource", target: resource, amount })}>Grant</Button>
-                  <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "remove_resource", target: resource, amount })}>Remove</Button>
-                  <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: spawnX })}>Spawn</Button>
-                </div>
-                <select value={modifier} onChange={(e) => setModifier(e.target.value)} className="civ-select">
-                  <optgroup label="Buffs">{BUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
-                  <optgroup label="Debuffs">{DEBUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
-                </select>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => sendIntervention({
-                    kind: isBuff ? "apply_buff" : "apply_debuff",
-                    target: modifier,
-                    duration: 4,
-                    intensity: 1,
-                  })}
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Apply {isBuff ? "Buff" : "Debuff"}
-                </Button>
-              </div>
-            </Section>
+            {gameMode === "god" && (
+              <>
+                <Section label="Admin Console" icon={<Brain className="h-3.5 w-3.5" />}>
+                  <AdminConsole
+                    command={adminCommand}
+                    history={adminHistory}
+                    onCommandChange={setAdminCommand}
+                    onRun={runAdminCommand}
+                  />
+                </Section>
+                <Section label="Shop" icon={<Gift className="h-3.5 w-3.5" />}>
+                  <DevShopPanel onBuy={buyDevShopItem} pearls={pearlBalance} />
+                </Section>
+                <Section label="Intervene" icon={<Gift className="h-3.5 w-3.5" />}>
+                  <div className="grid gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <select value={resource} onChange={(e) => setResource(e.target.value)} className="civ-select flex-1">
+                        {RESOURCES.map((item) => <option key={item} value={item}>{resourceLabel(item)}</option>)}
+                      </select>
+                      <Input type="number" min={1} max={99} value={amount} onChange={(e) => setAmount(Number(e.target.value))} className="w-16" />
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "grant_resource", target: resource, amount })}>Grant</Button>
+                      <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "remove_resource", target: resource, amount })}>Remove</Button>
+                      <Button size="xs" variant="outline" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: spawnX })}>Spawn</Button>
+                    </div>
+                    <select value={modifier} onChange={(e) => setModifier(e.target.value)} className="civ-select">
+                      <optgroup label="Buffs">{BUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
+                      <optgroup label="Debuffs">{DEBUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
+                    </select>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => sendIntervention({
+                        kind: isBuff ? "apply_buff" : "apply_debuff",
+                        target: modifier,
+                        duration: 4,
+                        intensity: 1,
+                      })}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Apply {isBuff ? "Buff" : "Debuff"}
+                    </Button>
+                  </div>
+                </Section>
+              </>
+            )}
             <Section label="Modifiers" icon={<AlertTriangle className="h-3.5 w-3.5" />}>
               <ModifiersPanel modifiers={snapshot.modifiers} />
             </Section>
@@ -1193,6 +1900,10 @@ export function CivilizationView() {
         </div>
       )}
 
+      {!uiHidden && alerts.length > 0 && (
+        <GameAlertStack alerts={alerts} onDismiss={dismissGameAlert} />
+      )}
+
       {/* ── minimal floating toolbelt (always visible) ─────────────────── */}
       {snapshot && (
         <div className="civ-toolbelt civ-glass">
@@ -1209,6 +1920,10 @@ export function CivilizationView() {
           >
             {autoplay ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             <span>Auto</span>
+          </button>
+          <button className="civ-slot" onClick={() => void handleRestartRun()} title="Start a fresh world with this civ lineup">
+            <RotateCcw className="h-4 w-4" />
+            <span>New Run</span>
           </button>
           <button
             className={["civ-slot", possessedEntity ? "is-player" : ""].join(" ")}
@@ -1232,27 +1947,31 @@ export function CivilizationView() {
             <Gamepad2 className="h-4 w-4" />
             <span>{possessedEntity ? "Release" : "Possess"}</span>
           </button>
-          <button
-            className={["civ-slot", codexPilot ? "is-pilot" : ""].join(" ")}
-            disabled={possessableAxos.length === 0}
-            aria-pressed={codexPilot}
-            onClick={(event) => {
-              event.currentTarget.blur();
-              toggleCodexPilot();
-            }}
-            title={codexPilot ? "Stop Codex pilot" : "Watch Codex pilot"}
-          >
-            <Bot className="h-4 w-4" />
-            <span>{codexPilot ? "Stop" : "Codex"}</span>
-          </button>
-          <select
-            value={pilotGoal}
-            onChange={(event) => setPilotGoal(event.target.value as CivPilotGoal)}
-            className="civ-slot-select civ-slot-select-tight"
-            title="Codex pilot goal"
-          >
-            {PILOT_GOALS.map((goal) => <option key={goal.value} value={goal.value}>{goal.label}</option>)}
-          </select>
+          {gameMode !== "play" && (
+            <>
+              <button
+                className={["civ-slot", codexPilot ? "is-pilot" : ""].join(" ")}
+                disabled={possessableAxos.length === 0}
+                aria-pressed={codexPilot}
+                onClick={(event) => {
+                  event.currentTarget.blur();
+                  toggleCodexPilot();
+                }}
+                title={codexPilot ? "Stop Codex pilot" : "Watch Codex pilot"}
+              >
+                <Bot className="h-4 w-4" />
+                <span>{codexPilot ? "Stop" : "Codex"}</span>
+              </button>
+              <select
+                value={pilotGoal}
+                onChange={(event) => setPilotGoal(event.target.value as CivPilotGoal)}
+                className="civ-slot-select civ-slot-select-tight"
+                title="Codex pilot goal"
+              >
+                {PILOT_GOALS.map((goal) => <option key={goal.value} value={goal.value}>{goal.label}</option>)}
+              </select>
+            </>
+          )}
           <span className="civ-toolbelt-div" />
           <button
             className={["civ-slot", playerTool === "use" ? "is-active" : ""].join(" ")}
@@ -1294,30 +2013,34 @@ export function CivilizationView() {
             <span>Build</span>
           </button>
           <span className="civ-toolbelt-div" />
-          <select value={resource} onChange={(e) => setResource(e.target.value)} className="civ-slot-select" title="Resource">
+          <select value={resource} onChange={(e) => setResource(e.target.value)} className="civ-slot-select" title="Build material / target resource">
             {RESOURCES.map((item) => <option key={item} value={item}>{resourceLabel(item)}</option>)}
           </select>
-          <button className="civ-slot" onClick={() => sendIntervention({ kind: "grant_resource", target: resource, amount })} title={`Grant ${amount} ${resourceLabel(resource)}`}>
-            <Plus className="h-4 w-4" /><span>Grant</span>
-          </button>
-          <button className="civ-slot" onClick={() => sendIntervention({ kind: "remove_resource", target: resource, amount })} title={`Remove ${amount} ${resourceLabel(resource)}`}>
-            <Minus className="h-4 w-4" /><span>Remove</span>
-          </button>
-          <button className="civ-slot" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: spawnX })} title={`Spawn ${resourceLabel(resource)} in the world`}>
-            <Sprout className="h-4 w-4" /><span>Spawn</span>
-          </button>
-          <span className="civ-toolbelt-div" />
-          <select value={modifier} onChange={(e) => setModifier(e.target.value)} className="civ-slot-select civ-slot-select-wide" title="Modifier">
-            <optgroup label="Buffs">{BUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
-            <optgroup label="Debuffs">{DEBUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
-          </select>
-          <button
-            className={["civ-slot", isBuff ? "is-buff" : "is-debuff"].join(" ")}
-            onClick={() => sendIntervention({ kind: isBuff ? "apply_buff" : "apply_debuff", target: modifier, duration: 4, intensity: 1 })}
-            title={`Apply ${modifierLabel(modifier)}`}
-          >
-            <Sparkles className="h-4 w-4" /><span>{isBuff ? "Buff" : "Debuff"}</span>
-          </button>
+          {gameMode === "god" && (
+            <>
+              <button className="civ-slot" onClick={() => sendIntervention({ kind: "grant_resource", target: resource, amount })} title={`Grant ${amount} ${resourceLabel(resource)}`}>
+                <Plus className="h-4 w-4" /><span>Grant</span>
+              </button>
+              <button className="civ-slot" onClick={() => sendIntervention({ kind: "remove_resource", target: resource, amount })} title={`Remove ${amount} ${resourceLabel(resource)}`}>
+                <Minus className="h-4 w-4" /><span>Remove</span>
+              </button>
+              <button className="civ-slot" onClick={() => sendIntervention({ kind: "spawn_resource", target: resource, amount, x: spawnX })} title={`Spawn ${resourceLabel(resource)} in the world`}>
+                <Sprout className="h-4 w-4" /><span>Spawn</span>
+              </button>
+              <span className="civ-toolbelt-div" />
+              <select value={modifier} onChange={(e) => setModifier(e.target.value)} className="civ-slot-select civ-slot-select-wide" title="Modifier">
+                <optgroup label="Buffs">{BUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
+                <optgroup label="Debuffs">{DEBUFFS.map((item) => <option key={item} value={item}>{modifierLabel(item)}</option>)}</optgroup>
+              </select>
+              <button
+                className={["civ-slot", isBuff ? "is-buff" : "is-debuff"].join(" ")}
+                onClick={() => sendIntervention({ kind: isBuff ? "apply_buff" : "apply_debuff", target: modifier, duration: 4, intensity: 1 })}
+                title={`Apply ${modifierLabel(modifier)}`}
+              >
+                <Sparkles className="h-4 w-4" /><span>{isBuff ? "Buff" : "Debuff"}</span>
+              </button>
+            </>
+          )}
           <span className="civ-toolbelt-div" />
           <div className="civ-cam">
             <button type="button" className="civ-cam-btn" onClick={() => window.civCamera?.zoomBy(0.83)} title="Zoom out">
@@ -1509,7 +2232,31 @@ function Metric({ icon, label, value, tone = false }: { icon: ReactNode; label: 
   );
 }
 
-function ObjectiveStrip({ status }: { status: MvpStatus }) {
+function GameModeSwitch({ mode, onChange }: { mode: GameMode; onChange: (mode: GameMode) => void }) {
+  const modes: Array<{ value: GameMode; label: string; icon: ReactNode }> = [
+    { value: "play", label: "Play", icon: <Gamepad2 className="h-3.5 w-3.5" /> },
+    { value: "observe", label: "Observe", icon: <Eye className="h-3.5 w-3.5" /> },
+    { value: "god", label: "God", icon: <Hammer className="h-3.5 w-3.5" /> },
+  ];
+  return (
+    <div className="civ-mode-switch" role="group" aria-label="Game mode">
+      {modes.map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          className={mode === item.value ? "is-active" : ""}
+          aria-pressed={mode === item.value}
+          onClick={() => onChange(item.value)}
+        >
+          {item.icon}
+          <span>{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ObjectiveStrip({ status }: { status: RunStatus }) {
   return (
     <div className={["civ-objective-strip", `is-${status.state}`].join(" ")}>
       <div className="flex items-center justify-between gap-2">
@@ -1518,6 +2265,54 @@ function ObjectiveStrip({ status }: { status: MvpStatus }) {
       </div>
       <div className="civ-progress">
         <div className="civ-progress-fill" style={{ width: `${status.progress}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ShopGoalStrip({ goals, onBuy }: { goals: ShopGoal[]; onBuy: (item: ShopItemId) => void }) {
+  const readyCount = goals.filter((goal) => goal.ready).length;
+  return (
+    <div className={["civ-shop-goal-strip", readyCount > 0 ? "is-ready" : ""].join(" ")} aria-label="Shop goals">
+      <Sparkles className="h-3.5 w-3.5" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-[10px] font-semibold uppercase tracking-[0.12em]">
+            Shop goals
+          </span>
+          <span className="text-[10px] tabular-nums">
+            {readyCount}/{goals.length} ready
+          </span>
+        </div>
+        <div className="civ-shop-goal-list">
+          {goals.map((goal) => {
+            const { item, missing, progress, ready } = goal;
+            const funded = Math.max(0, item.cost - missing);
+            return (
+              <div key={item.id} className={["civ-shop-goal-row", ready ? "is-ready" : ""].join(" ")}>
+                <div className="min-w-0 flex-1">
+                  <div className="civ-shop-goal-name">
+                    <span>{item.label}</span>
+                    <b className="tabular-nums">{funded}/{item.cost}</b>
+                  </div>
+                  <div className="civ-progress" aria-label={`${item.label} ${Math.round(progress)}% funded`}>
+                    <div className="civ-progress-fill" style={{ width: `${progress}%` }} />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={!ready}
+                  onClick={() => onBuy(item.id)}
+                  aria-label={ready ? `Buy ${item.label}` : `${item.label} needs ${missing} more pearls`}
+                  title={ready ? `Buy ${item.label}` : `${missing} more pearls needed`}
+                >
+                  <Coins className="h-3 w-3" />
+                  <span>Buy</span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -1534,6 +2329,64 @@ function ControlStateStrip({ mode, name, detail }: { mode: "manual" | "codex"; n
       </div>
     </div>
   );
+}
+
+function TargetPromptStrip({ state, tool }: { state: LiveTargetState | null; tool: PlayerTool }) {
+  const target = state?.target ?? null;
+  const prompt = playerTargetPrompt(target, tool);
+  const cycle = targetCycleLabel(target, state?.lock ?? null);
+  const Icon = targetPromptIcon(target);
+  return (
+    <div className={["civ-target-strip", prompt.state === "active" ? "is-active" : "is-empty"].join(" ")} aria-label="Active target">
+      <Icon className="h-3.5 w-3.5" />
+      <div className="min-w-0 flex-1">
+        <div className="civ-target-title">
+          <span>{prompt.action}</span>
+          <b>{prompt.label}</b>
+        </div>
+        <div className="civ-target-detail">{prompt.detail}</div>
+      </div>
+      <div className="civ-target-keys">
+        <span className="civ-key-chip">
+          <b>E</b>
+          <em>{prompt.keyAction}</em>
+        </span>
+        {cycle && (
+          <span className="civ-key-chip is-subtle">
+            <b>Tab</b>
+            <em>{cycle}</em>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ActionCooldownStrip({ cooldowns, now }: { cooldowns: Record<ActionCooldownKey, number>; now: number }) {
+  return (
+    <div className="civ-cooldown-strip" aria-label="Action cooldowns">
+      {ACTION_COOLDOWN_KEYS.map((key) => {
+        const remaining = Math.max(0, cooldowns[key] - now);
+        return (
+          <span key={key} className={remaining > 0 ? "is-cooling" : "is-ready"}>
+            <b>{actionCooldownLabel(key)}</b>
+            <em>{remaining > 0 ? formatCooldownTime(remaining) : "Ready"}</em>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function actionCooldownLabel(key: ActionCooldownKey) {
+  if (key === "gather") return "Gather";
+  if (key === "mine") return "Mine";
+  if (key === "build") return "Build";
+  return "Use";
+}
+
+function formatCooldownTime(ms: number) {
+  return `${(Math.ceil(ms / 100) / 10).toFixed(1)}s`;
 }
 
 function PlayerTaskStrip({ task }: { task: CivPlayerTask }) {
@@ -1621,6 +2474,93 @@ function playerToolLabel(tool: PlayerTool) {
   return "Use";
 }
 
+export function playerTargetPrompt(interaction: PlayerInteraction | null | undefined, tool: PlayerTool): PlayerTargetPrompt {
+  if (!interaction || interaction.kind === "empty") {
+    return {
+      state: "empty",
+      action: "No target",
+      label: "In reach",
+      detail: `${playerToolLabel(tool)} ready`,
+      keyAction: "Wait",
+    };
+  }
+  const action = targetActionLabel(interaction, tool);
+  return {
+    state: "active",
+    action,
+    label: targetDisplayLabel(interaction),
+    detail: targetDetailLabel(interaction),
+    keyAction: action,
+  };
+}
+
+function targetActionLabel(interaction: PlayerInteraction, tool: PlayerTool) {
+  if (interaction.action === "mine_tile") return "Mine";
+  if (interaction.action === "place_tile") return "Build";
+  if (interaction.action === "repair_object") return "Repair";
+  if (interaction.action === "rescue_object") return "Rescue";
+  if (interaction.action === "feed_hatchling") return "Feed";
+  if (interaction.kind === "resource") return "Gather";
+  if (interaction.kind === "npc") return "Talk";
+  if (interaction.kind === "building" || interaction.kind === "object") return "Use";
+  return playerToolLabel(tool);
+}
+
+function targetPromptIcon(target: PlayerInteraction | null) {
+  if (!target || target.kind === "empty") return LocateFixed;
+  if (target.action === "mine_tile" || target.action === "place_tile" || target.kind === "terrain") return Hammer;
+  if (target.kind === "resource") return Leaf;
+  if (target.kind === "npc") return Gamepad2;
+  if (target.kind === "object" || target.kind === "building") return Sparkles;
+  return LocateFixed;
+}
+
+function targetDisplayLabel(interaction: PlayerInteraction) {
+  if (interaction.kind === "resource" && interaction.resource) return titleTargetLabel(interaction.resource);
+  if (interaction.action === "place_tile" && interaction.buildResource) return titleTargetLabel(interaction.buildResource);
+  if (interaction.action === "mine_tile" && interaction.yieldsResource) return titleTargetLabel(interaction.yieldsResource);
+  const raw = interaction.label || interaction.targetId || interaction.kind;
+  return titleTargetLabel(raw);
+}
+
+function targetDetailLabel(interaction: PlayerInteraction) {
+  const parts: string[] = [];
+  if (typeof interaction.distance === "number") parts.push(`${Math.round(interaction.distance)} px`);
+  if (typeof interaction.tileX === "number" && typeof interaction.tileY === "number") {
+    parts.push(`tile ${interaction.tileX},${interaction.tileY}`);
+  } else if (Number.isFinite(interaction.x) && Number.isFinite(interaction.y)) {
+    parts.push(tileLabel(interaction.x, interaction.y));
+  }
+  if (interaction.kind === "terrain" && interaction.yieldsResource) parts.push(`+${resourceLabel(interaction.yieldsResource)}`);
+  if (interaction.amount && interaction.amount > 1) parts.push(`x${interaction.amount}`);
+  return parts.slice(0, 3).join(" · ") || interaction.kind;
+}
+
+function titleTargetLabel(value: string) {
+  return resourceLabel(value).replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function targetCycleLabel(target: PlayerInteraction | null, lock: LiveTargetLock | null) {
+  const count = target?.cycle_count ?? lock?.count ?? 0;
+  if (count <= 1) return "";
+  const index = target?.cycle_index ?? lock?.index ?? 1;
+  return `${Math.max(1, Math.min(count, index))}/${count}`;
+}
+
+function liveTargetStateKey(state: LiveTargetState) {
+  const target = state.target;
+  const lock = state.lock;
+  return [
+    target?.kind ?? "",
+    target?.action ?? "",
+    target?.targetId ?? "",
+    target?.label ?? "",
+    typeof target?.distance === "number" ? Math.round(target.distance) : "",
+    target?.cycle_index ?? lock?.index ?? "",
+    target?.cycle_count ?? lock?.count ?? "",
+  ].join("|");
+}
+
 function pilotTargetLabel(target: CivPilotTarget | null | undefined) {
   if (!target) return "";
   return target.label || target.targetId || target.kind;
@@ -1633,7 +2573,7 @@ function pilotTargetTileLabel(target: CivPilotTarget | null | undefined) {
   return `tile ${x},${y}`;
 }
 
-function MvpPanel({ status }: { status: MvpStatus }) {
+function RunStatusPanel({ status }: { status: RunStatus }) {
   return (
     <div className={["civ-mvp-panel", `is-${status.state}`].join(" ")}>
       <div className="flex items-center justify-between gap-2">
@@ -1646,6 +2586,152 @@ function MvpPanel({ status }: { status: MvpStatus }) {
       <div className="mt-2 text-[11px] leading-relaxed text-[oklch(0.58_0.014_225)]">{status.detail}</div>
     </div>
   );
+}
+
+function HatchlingCareStrip({ care }: { care: HatchlingCareTarget }) {
+  return (
+    <div className={["civ-hatch-care-strip", care.canFeed ? "is-ready" : "is-empty"].join(" ")} aria-label="Hatchling care">
+      <Sparkles className="h-3.5 w-3.5" />
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.12em]">Hatchling care</div>
+        <div className="truncate text-[10.5px]">
+          {care.name} · {care.rarityLabel} Lv {care.level}
+        </div>
+      </div>
+      <div className="civ-hatch-care-chips">
+        <span>{care.fedThisTurn ? "Fed" : care.canFeed ? "Feed ready" : "Need food"}</span>
+        <span>{care.food} food</span>
+      </div>
+    </div>
+  );
+}
+
+function RunStatsPanel({ stats }: { stats: RunStats }) {
+  const cells = [
+    ["Turns", stats.turns],
+    ["Living civs", `${stats.livingCivs}/${stats.totalCivs}`],
+    ["Failures", stats.failedCivs],
+    ["Death events", stats.deathEvents],
+    ["Axolotls", stats.livingAxolotls],
+    ["Eggs", stats.eggs],
+  ];
+  return (
+    <div className="civ-run-stats" aria-label="Run tracking">
+      {cells.map(([label, value]) => (
+        <div key={label} className="civ-run-stat">
+          <span>{label}</span>
+          <b>{value}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AdminConsole({
+  command,
+  history,
+  onCommandChange,
+  onRun,
+}: {
+  command: string;
+  history: string[];
+  onCommandChange: (command: string) => void;
+  onRun: (command?: string) => void;
+}) {
+  return (
+    <div className="civ-admin-console">
+      <form
+        className="civ-admin-command"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onRun();
+        }}
+      >
+        <Input
+          value={command}
+          onChange={(event) => onCommandChange(event.target.value)}
+          placeholder="/grant food 10"
+          aria-label="Admin command"
+        />
+        <Button size="sm" type="submit">
+          <Brain className="h-3.5 w-3.5" />
+          Run
+        </Button>
+      </form>
+      <div className="civ-admin-shortcuts">
+        {["/help", "/buy common_egg", "/turn", "/mode play", "/reset"].map((item) => (
+          <button key={item} type="button" onClick={() => onRun(item)}>{item}</button>
+        ))}
+      </div>
+      <div className="civ-admin-history" aria-live="polite">
+        {history.length === 0 ? (
+          <span>Type /help for commands.</span>
+        ) : (
+          history.map((item, index) => <span key={`${item}-${index}`}>{item}</span>)
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DevShopPanel({ onBuy, pearls }: { onBuy: (item: ShopItemId) => void; pearls: number }) {
+  return (
+    <div className="space-y-2">
+      <div className="civ-shop-balance">
+        <Coins className="h-3.5 w-3.5" />
+        <span>{pearls} {resourceLabel(CURRENCY_RESOURCE)}</span>
+      </div>
+      <div className="civ-shop-grid">
+        {SHOP_ITEMS.map((item) => {
+          const canAfford = pearls >= item.cost;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={["civ-shop-item", canAfford ? "" : "is-locked"].join(" ")}
+              disabled={!canAfford}
+              onClick={() => onBuy(item.id)}
+            >
+              {item.id.includes("egg") ? <Sparkles className="h-3.5 w-3.5" /> : <Gift className="h-3.5 w-3.5" />}
+              <span className="min-w-0">
+                <span className="block truncate font-semibold">{item.label}</span>
+                <span className="block truncate">{item.detail}</span>
+                <span className="civ-shop-cost"><Coins className="h-3 w-3" /> {item.cost}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function GameAlertStack({ alerts, onDismiss }: { alerts: GameAlert[]; onDismiss: (id: number) => void }) {
+  return (
+    <div className="civ-alert-stack" aria-live="polite">
+      {alerts.map((alert) => (
+        <article key={alert.id} className={["civ-game-alert", `is-${alert.kind}`].join(" ")}>
+          {alertIcon(alert.kind)}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-semibold">{alert.title}</div>
+            <div className="truncate text-[10.5px]">{alert.detail}</div>
+          </div>
+          <button type="button" onClick={() => onDismiss(alert.id)} aria-label="Dismiss alert" title="Dismiss alert">
+            <X className="h-3 w-3" />
+          </button>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function alertIcon(kind: GameAlertKind) {
+  if (kind === "rare") return <Sparkles className="h-3.5 w-3.5" />;
+  if (kind === "task") return <Gamepad2 className="h-3.5 w-3.5" />;
+  if (kind === "admin") return <Brain className="h-3.5 w-3.5" />;
+  if (kind === "currency") return <Coins className="h-3.5 w-3.5" />;
+  if (kind === "world") return <Waves className="h-3.5 w-3.5" />;
+  return <Hammer className="h-3.5 w-3.5" />;
 }
 
 function PlayerPanel({
@@ -2007,6 +3093,171 @@ function ScorePanel({ civ }: { civ: CivCivilization | null }) {
   );
 }
 
+const RARITY_LEVELS: AxolotlRarity[] = ["common", "uncommon", "rare", "mythic"];
+
+function HatcheryPanel({
+  snapshot,
+  civ,
+  pearls,
+  food,
+  onBuy,
+  onIncubate,
+}: {
+  snapshot: CivSessionSnapshot;
+  civ: CivCivilization | null;
+  pearls: number;
+  food: number;
+  onBuy: (item: ShopItemId) => void;
+  onIncubate: (egg: CivEntity) => void;
+}) {
+  const civId = civ?.id;
+  const eggs = snapshot.world.entities.filter((entity) => isEggEntity(entity) && entityOwnedBy(entity, civId));
+  const living = snapshot.world.entities.filter((entity) => (
+    entity.kind === "axolotl" && !isEggEntity(entity) && entityOwnedBy(entity, civId)
+  ));
+  const rarityCounts = RARITY_LEVELS.map((rarity) => ({
+    rarity,
+    count: living.filter((entity) => axolotlRarity(entity) === rarity).length,
+  }));
+
+  return (
+    <div className="space-y-2">
+      <div className="civ-hatchery-summary">
+        <div className="civ-hatchery-stat">
+          <span>Eggs</span>
+          <b>{eggs.length}</b>
+        </div>
+        <div className="civ-hatchery-rarities">
+          {rarityCounts.map(({ rarity, count }) => (
+            <span key={rarity} className={["civ-rarity-pill", `is-${rarity}`].join(" ")}>
+              {rarityLabel(rarity)} <b>{count}</b>
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="civ-hatchery-actions">
+        {EGG_SHOP_ITEMS.map((id) => {
+          const item = shopItemById(id);
+          if (!item) return null;
+          return (
+            <button
+              key={id}
+              type="button"
+              className="civ-hatchery-buy"
+              disabled={pearls < item.cost}
+              onClick={() => onBuy(id)}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>{item.label}</span>
+              <span className="civ-shop-cost"><Coins className="h-3 w-3" /> {item.cost}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="civ-hatchery-list">
+        {eggs.length === 0 ? (
+          <div className="civ-hatchery-empty">Nest empty.</div>
+        ) : (
+          eggs.map((egg) => (
+            <EggCard
+              key={egg.id}
+              egg={egg}
+              pearls={pearls}
+              food={food}
+              onIncubate={onIncubate}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EggCard({
+  egg,
+  pearls,
+  food,
+  onIncubate,
+}: {
+  egg: CivEntity;
+  pearls: number;
+  food: number;
+  onIncubate: (egg: CivEntity) => void;
+}) {
+  const morph = axolotlMorphAsset(egg.morph);
+  const rarity = axolotlRarity(egg);
+  const remaining = hatchTurnsRemaining(egg);
+  const hatchLabel = remaining === null
+    ? "Incubating"
+    : remaining <= 0
+      ? "Ready"
+      : remaining === 1
+        ? "Next turn"
+        : `${remaining} turns`;
+  const source = (egg.parents ?? []).includes("shop") ? "Shop" : (egg.parents?.length ? "Nest" : "Wild");
+  const progress = hatchProgressPercent(egg);
+  const canIncubate = remaining !== null
+    && remaining > 1
+    && pearls >= EGG_INCUBATE_PEARL_COST
+    && food >= EGG_INCUBATE_FOOD_COST;
+  const incubateTitle = remaining !== null && remaining <= 1
+    ? "Ready to hatch next turn"
+    : pearls < EGG_INCUBATE_PEARL_COST || food < EGG_INCUBATE_FOOD_COST
+      ? `Needs ${EGG_INCUBATE_PEARL_COST} pearls and ${EGG_INCUBATE_FOOD_COST} food`
+      : "Warm egg";
+  return (
+    <article className={["civ-egg-card", `is-${rarity}`].join(" ")}>
+      <div className="civ-egg-visual">
+        <img src="/civ/stages/egg-single.png" alt="" />
+        <img src={`/civ/axolotls/axo-${morph}.png`} alt="" className="civ-egg-preview" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-[11px] font-semibold text-[oklch(0.87_0.018_220)]">{egg.name || "Egg"}</span>
+          <RarityPill rarity={rarity} />
+        </div>
+        <div className="mt-0.5 flex flex-wrap gap-1">
+          <span className="civ-level-pill">Lv {axolotlLevel(egg)}</span>
+          <span className="civ-gene-pill">{genePotential(egg)}%</span>
+          <span className="civ-gene-pill">{modifierLabel(morph)}</span>
+          {(egg.pattern ?? "plain") !== "plain" && <span className="civ-gene-pill">{modifierLabel(egg.pattern ?? "plain")}</span>}
+        </div>
+        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[oklch(0.54_0.012_225)]">
+          <span>{hatchLabel}</span>
+          <span>{source}</span>
+        </div>
+        <div className="civ-hatch-bar" aria-label={`Hatch progress ${progress}%`}>
+          <span style={{ width: `${progress}%` }} />
+        </div>
+        <div className="civ-egg-actions">
+          <button
+            type="button"
+            className="civ-egg-incubate"
+            disabled={!canIncubate}
+            title={incubateTitle}
+            onClick={() => onIncubate(egg)}
+          >
+            <Flame className="h-3 w-3" />
+            <span>Warm</span>
+            <span className="civ-egg-cost">
+              <Coins className="h-3 w-3" /> {EGG_INCUBATE_PEARL_COST}
+              <Leaf className="h-3 w-3" /> {EGG_INCUBATE_FOOD_COST}
+            </span>
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function RarityPill({ rarity }: { rarity: AxolotlRarity }) {
+  return (
+    <span className={["civ-rarity-pill", `is-${rarity}`].join(" ")}>
+      {rarityLabel(rarity)}
+    </span>
+  );
+}
+
 function ColonyPanel({ snapshot, onEquip }: { snapshot: CivSessionSnapshot; onEquip: (entityId: string, accessory: string, equip: boolean) => void }) {
   const axos = snapshot.world.entities.filter((e) => e.kind === "axolotl");
   const eggCount = snapshot.world.entities.filter((e) => e.kind === "egg").length;
@@ -2072,16 +3323,20 @@ function RegionRow({ region, isHome }: { region: CivRegion; isHome: boolean }) {
 
 function RosterRow({ a, onEquip }: { a: CivEntity; onEquip: (entityId: string, accessory: string, equip: boolean) => void }) {
   const [acc, setAcc] = useState(ACCESSORIES[0]);
-  const morph = a.morph || "leucistic";
+  const morph = axolotlMorphAsset(a.morph);
   const sex = a.sex === "f" ? "♀" : a.sex === "m" ? "♂" : "—";
   const worn = a.accessories ?? [];
+  const rarity = axolotlRarity(a);
   return (
     <div className="civ-roster-row">
       <img src={`/civ/axolotls/axo-${morph}.png`} alt={morph} className="civ-roster-img" />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[11px] font-semibold text-[oklch(0.86_0.016_220)]">{a.name}</div>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-[11px] font-semibold text-[oklch(0.86_0.016_220)]">{a.name}</span>
+          <RarityPill rarity={rarity} />
+        </div>
         <div className="truncate text-[10px] text-[oklch(0.56_0.012_225)]">
-          {morph} · {sex} · {STAGE_LABEL[a.stage ?? "adult"] ?? a.stage} · {a.age ?? 0}t
+          Lv {axolotlLevel(a)} - {modifierLabel(morph)} - {sex} - {STAGE_LABEL[a.stage ?? "adult"] ?? a.stage} - {a.age ?? 0}t
         </div>
         {worn.length > 0 && (
           <div className="mt-0.5 flex flex-wrap gap-1">
@@ -2103,6 +3358,10 @@ function RosterRow({ a, onEquip }: { a: CivEntity; onEquip: (entityId: string, a
       </div>
     </div>
   );
+}
+
+function entityOwnedBy(entity: CivEntity, civId: string | null | undefined) {
+  return !civId || !entity.civ_id || entity.civ_id === civId;
 }
 
 function StageChip({ label, n, tone }: { label: string; n: number; tone: string }) {
@@ -2208,27 +3467,29 @@ function ScoreBar({ label, value, tone }: { label: string; value: number; tone: 
   );
 }
 
-function getMvpStatus(snapshot: CivSessionSnapshot, civ: CivCivilization | null): MvpStatus {
+function getRunStatus(snapshot: CivSessionSnapshot, civ: CivCivilization | null): RunStatus {
+  const stats = getRunStats(snapshot);
   if (!civ || !civ.alive || civ.population <= 0) {
     return {
       label: "Colony collapsed",
-      detail: "The current colony has no stable playable loop until a living axolotl returns.",
-      progress: Math.min(100, (snapshot.turn / MVP_TARGET_TURN) * 100),
+      detail: `This run remains tracked after failure. Start a new run when you want a fresh world; failures: ${stats.failedCivs}.`,
+      progress: 0,
       state: "collapsed",
     };
   }
-  const progress = Math.max(0, Math.min(100, (snapshot.turn / MVP_TARGET_TURN) * 100));
   const food = civ.resources.food ?? 0;
   const water = civ.resources.clean_water ?? 0;
   const lowStores = food < Math.max(6, civ.population) || water < Math.max(6, civ.population);
   const health = civ.health ?? 0;
   const morale = civ.morale ?? 0;
+  const storeScore = Math.min(100, ((food + water) / Math.max(1, civ.population * 3)) * 100);
+  const progress = Math.max(0, Math.min(100, (health + morale + storeScore) / 3));
   const fragile = health < 35 || morale < 35 || lowStores;
-  if (snapshot.turn >= MVP_TARGET_TURN && !fragile) {
+  if (!fragile) {
     return {
-      label: "MVP loop stable",
-      detail: `Survived ${MVP_TARGET_TURN} turns with a living colony, active resources, and playable possession.`,
-      progress: 100,
+      label: "Endless run stable",
+      detail: `No turn cap is active. Tracking ${stats.livingAxolotls} axolotl(s), ${stats.eggs} egg(s), ${stats.failedCivs} failed civ(s), and ${stats.deathEvents} death event(s).`,
+      progress,
       state: "stable",
     };
   }
@@ -2237,16 +3498,42 @@ function getMvpStatus(snapshot: CivSessionSnapshot, civ: CivCivilization | null)
       label: "Survival risk",
       detail: lowStores
         ? "Food or clean water is below the near-term population buffer."
-        : "Health or morale is low enough that the colony may fail before the MVP target.",
+        : "Health or morale is low enough that the colony may fail if the player or model does not intervene.",
       progress,
       state: "risk",
     };
   }
   return {
-    label: `Survive ${MVP_TARGET_TURN} turns`,
-    detail: "Core loop is running: turns advance, AI decisions apply, resources change, and possession is available.",
+    label: "Run continuing",
+    detail: "Core loop is running indefinitely: turns advance, resources change, deaths are tracked, and possession remains available.",
     progress,
     state: "building",
+  };
+}
+
+function getRunStats(snapshot: CivSessionSnapshot): RunStats {
+  const civs = snapshot.civs ?? [];
+  const livingAxolotls = snapshot.world.entities.filter((entity) => entity.kind === "axolotl" && (entity.stage ?? "adult") !== "egg").length;
+  const eggs = snapshot.world.entities.filter((entity) => entity.kind === "egg" || (entity.kind === "axolotl" && entity.stage === "egg")).length;
+  const failedCivs = civs.filter((civ) => {
+    const civId = civ.id ?? "";
+    const hasEgg = snapshot.world.entities.some((entity) => (
+      (entity.kind === "egg" || entity.stage === "egg")
+      && (!civId || entity.civ_id === civId)
+    ));
+    return civ.alive === false || ((civ.population ?? 0) <= 0 && !hasEgg);
+  }).length;
+  const deathEvents = (snapshot.log ?? []).filter((entry) => (
+    /\b(died|death|dead|collapsed|failure|failed|starved|perished)\b/i.test(`${entry.title} ${entry.body}`)
+  )).length;
+  return {
+    turns: snapshot.turn,
+    livingCivs: Math.max(0, civs.length - failedCivs),
+    failedCivs,
+    deathEvents,
+    livingAxolotls,
+    eggs,
+    totalCivs: Math.max(1, civs.length),
   };
 }
 
@@ -2256,6 +3543,62 @@ function recentCompletedTaskSummary(snapshot: CivSessionSnapshot): CompletedTask
     .find((item) => item.kind === "player" && item.title === "Task complete");
   if (!entry || snapshot.turn - entry.turn > 2) return null;
   return { detail: cleanCivLogBody(entry).replace(/;$/, "") };
+}
+
+function hatchlingFedThisTurn(snapshot: CivSessionSnapshot, entityId: string) {
+  return (snapshot.log ?? []).some((entry) => (
+    entry.turn === snapshot.turn
+    && entry.title === "Hatchling fed"
+    && entry.body.includes(`target=${entityId}`)
+  ));
+}
+
+function rareDiscoveryAlertDetail(entry: CivLogEntry) {
+  return entry.body
+    .replace(/\s*reward_resource=.*$/, "")
+    .replace(/;$/, "")
+    .trim();
+}
+
+function growthAlertDetail(entries: CivLogEntry[]) {
+  const parsed = entries.map(parseGrowthLog).filter((item): item is GrowthLogSummary => Boolean(item));
+  if (parsed.length > 1) {
+    const names = parsed.slice(0, 2).map((item) => item.name).join(", ");
+    const more = parsed.length > 2 ? ` +${parsed.length - 2}` : "";
+    return `${parsed.length} growth milestones: ${names}${more}`;
+  }
+  const entry = entries[0];
+  if (!entry) return "Axolotls reached new stages.";
+  const detail = cleanCivLogBody(entry)
+    .replace(/^target=[^;]+;\s*/, "")
+    .replace(/;$/, "")
+    .trim();
+  const match = detail.match(/^(.+?) grew from ([a-z_]+) to ([a-z_]+); age=(\d+)/i);
+  if (!match) return detail;
+  const [, name, , nextStage, age] = match;
+  const reached = growthStageLabel(nextStage);
+  return `${name} reached ${reached}. Age ${age}.`;
+}
+
+type GrowthLogSummary = {
+  name: string;
+  stage: string;
+  age: string;
+};
+
+function parseGrowthLog(entry: CivLogEntry): GrowthLogSummary | null {
+  const detail = cleanCivLogBody(entry)
+    .replace(/^target=[^;]+;\s*/, "")
+    .replace(/;$/, "")
+    .trim();
+  const match = detail.match(/^(.+?) grew from ([a-z_]+) to ([a-z_]+); age=(\d+)/i);
+  if (!match) return null;
+  const [, name, , stage, age] = match;
+  return { name, stage, age };
+}
+
+function growthStageLabel(stage: string) {
+  return stage === "adult" ? "adulthood" : `${STAGE_LABEL[stage] ?? stage} stage`;
 }
 
 function playerResourceTarget(resource: string) {

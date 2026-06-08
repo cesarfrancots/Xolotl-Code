@@ -827,6 +827,52 @@ button {
 .civ-eye:hover { color: oklch(0.90 0.03 195); background: oklch(0.16 0.008 240 / 0.85); }
 .civ-eye:active { transform: translateY(1px); }
 
+.civ-mode-switch {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 38;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: stretch;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 12px;
+  background: oklch(0.09 0.004 245 / 0.78);
+  border: 1px solid oklch(0.30 0.012 220 / 0.5);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.civ-mode-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 74px;
+  justify-content: center;
+  padding: 6px 9px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 700;
+  color: oklch(0.68 0.018 218);
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.civ-mode-switch button svg { color: oklch(0.58 0.030 205); }
+.civ-mode-switch button:hover { color: oklch(0.90 0.030 195); background: oklch(0.15 0.008 235 / 0.76); }
+.civ-mode-switch button.is-active {
+  color: oklch(0.94 0.040 178);
+  background: linear-gradient(180deg, oklch(0.25 0.050 172 / 0.86), oklch(0.17 0.030 178 / 0.86));
+  box-shadow: inset 0 0 0 1px oklch(0.48 0.070 170 / 0.58);
+}
+.civ-mode-switch button.is-active svg { color: oklch(0.86 0.080 170); }
+.civ-view.is-play .civ-hud-tl {
+  width: min(318px, 48vw);
+}
+.civ-view.is-god .civ-canvas-shell {
+  box-shadow:
+    inset 0 0 0 1px oklch(0.62 0.070 285 / 0.18),
+    inset 0 0 140px oklch(0 0 0 / 0.55);
+}
+
 /* top-left status HUD */
 .civ-hud { position: absolute; z-index: 20; }
 .civ-hud-tl { top: 12px; left: 12px; width: min(286px, 44vw); padding: 11px 12px; }
@@ -870,6 +916,100 @@ button {
 .civ-objective-strip.is-stable { border-color: oklch(0.48 0.070 155 / 0.75); color: oklch(0.82 0.070 155); }
 .civ-objective-strip.is-risk,
 .civ-objective-strip.is-collapsed { border-color: oklch(0.50 0.080 35 / 0.75); color: oklch(0.82 0.075 35); }
+.civ-shop-goal-strip {
+  margin-top: 7px;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+  min-height: 82px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  color: oklch(0.80 0.040 86);
+  background: oklch(0.15 0.018 80 / 0.58);
+  border: 1px solid oklch(0.38 0.045 84 / 0.66);
+}
+.civ-shop-goal-strip > svg {
+  flex: none;
+  color: oklch(0.86 0.078 84);
+}
+.civ-shop-goal-strip.is-ready {
+  color: oklch(0.84 0.066 155);
+  background: oklch(0.13 0.026 155 / 0.58);
+  border-color: oklch(0.46 0.064 155 / 0.72);
+}
+.civ-shop-goal-strip.is-ready > svg { color: oklch(0.78 0.075 155); }
+.civ-shop-goal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 5px;
+  min-width: 0;
+}
+.civ-shop-goal-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 10.5px;
+  color: oklch(0.62 0.018 220);
+}
+.civ-shop-goal-row.is-ready {
+  color: oklch(0.82 0.060 155);
+}
+.civ-shop-goal-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  min-width: 0;
+  margin-bottom: 2px;
+  line-height: 1.1;
+}
+.civ-shop-goal-name > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 680;
+}
+.civ-shop-goal-name > b {
+  flex: none;
+  font-size: 9.5px;
+  color: oklch(0.72 0.030 205);
+}
+.civ-shop-goal-row.is-ready .civ-shop-goal-name > b {
+  color: oklch(0.80 0.070 155);
+}
+.civ-shop-goal-row .civ-progress {
+  height: 4px;
+}
+.civ-shop-goal-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 22px;
+  padding: 3px 6px;
+  border-radius: 7px;
+  color: oklch(0.88 0.032 205);
+  background: oklch(0.12 0.010 230 / 0.82);
+  border: 1px solid oklch(0.34 0.026 210 / 0.72);
+  font-size: 10px;
+  font-weight: 760;
+}
+.civ-shop-goal-row button svg {
+  flex: none;
+  color: oklch(0.82 0.070 84);
+}
+.civ-shop-goal-row button:hover:not(:disabled) {
+  background: oklch(0.17 0.016 220 / 0.88);
+  border-color: oklch(0.45 0.050 190 / 0.76);
+}
+.civ-shop-goal-row button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
 .civ-control-strip {
   margin-top: 7px;
   display: flex;
@@ -894,6 +1034,44 @@ button {
   border: 1px solid oklch(0.42 0.058 190 / 0.66);
 }
 .civ-control-strip.is-codex svg { color: oklch(0.86 0.078 184); }
+.civ-cooldown-strip {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+.civ-cooldown-strip span {
+  min-width: 0;
+  padding: 4px 5px;
+  border-radius: 7px;
+  background: oklch(0.09 0.004 245 / 0.68);
+  border: 1px solid oklch(0.24 0.010 235 / 0.68);
+}
+.civ-cooldown-strip b,
+.civ-cooldown-strip em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.civ-cooldown-strip b {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: oklch(0.52 0.012 225);
+}
+.civ-cooldown-strip em {
+  margin-top: 1px;
+  font-size: 10px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: oklch(0.80 0.050 155);
+}
+.civ-cooldown-strip .is-cooling {
+  border-color: oklch(0.48 0.064 82 / 0.70);
+  background: oklch(0.16 0.026 82 / 0.56);
+}
+.civ-cooldown-strip .is-cooling em { color: oklch(0.88 0.078 84); }
 .civ-task-strip {
   margin-top: 7px;
   padding: 6px 7px;
@@ -967,6 +1145,55 @@ button {
   flex: none;
   color: oklch(0.80 0.085 150);
 }
+.civ-hatch-care-strip {
+  margin-top: 7px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 7px;
+  border-radius: 8px;
+  color: oklch(0.86 0.050 315);
+  background: oklch(0.15 0.028 315 / 0.68);
+  border: 1px solid oklch(0.48 0.060 315 / 0.62);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06);
+}
+.civ-hatch-care-strip.is-ready {
+  color: oklch(0.87 0.052 152);
+  background: oklch(0.13 0.028 152 / 0.68);
+  border-color: oklch(0.46 0.066 152 / 0.66);
+}
+.civ-hatch-care-strip > svg {
+  flex: none;
+  color: oklch(0.88 0.074 318);
+}
+.civ-hatch-care-strip.is-ready > svg { color: oklch(0.82 0.084 152); }
+.civ-hatch-care-chips {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  max-width: 88px;
+}
+.civ-hatch-care-chips span {
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 5px;
+  border-radius: 6px;
+  font-size: 9.5px;
+  line-height: 1.35;
+  color: oklch(0.86 0.038 315);
+  background: oklch(0.22 0.032 315 / 0.58);
+  border: 1px solid oklch(0.45 0.046 315 / 0.46);
+}
+.civ-hatch-care-strip.is-ready .civ-hatch-care-chips span {
+  color: oklch(0.84 0.052 152);
+  background: oklch(0.20 0.032 152 / 0.58);
+  border-color: oklch(0.44 0.052 152 / 0.48);
+}
 .civ-progress {
   height: 4px;
   overflow: hidden;
@@ -1007,6 +1234,100 @@ button {
   border: 1px solid oklch(0.44 0.050 85 / 0.55);
 }
 .civ-player-strip svg { flex: none; color: oklch(0.82 0.065 85); }
+.civ-target-strip {
+  margin-top: 7px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 6px 7px;
+  border-radius: 8px;
+  color: oklch(0.84 0.052 155);
+  background: oklch(0.12 0.026 155 / 0.70);
+  border: 1px solid oklch(0.42 0.060 155 / 0.68);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06);
+}
+.civ-target-strip.is-empty {
+  color: oklch(0.70 0.020 220);
+  background: oklch(0.11 0.010 230 / 0.64);
+  border-color: oklch(0.30 0.018 225 / 0.62);
+}
+.civ-target-strip > svg {
+  flex: none;
+  color: oklch(0.82 0.075 150);
+}
+.civ-target-strip.is-empty > svg { color: oklch(0.55 0.020 220); }
+.civ-target-title {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  line-height: 1.15;
+}
+.civ-target-title span {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.civ-target-title b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 750;
+  color: oklch(0.92 0.025 190);
+}
+.civ-target-detail {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: oklch(0.68 0.030 190);
+}
+.civ-target-keys {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.civ-key-chip {
+  display: grid;
+  min-width: 34px;
+  place-items: center;
+  padding: 3px 5px;
+  border-radius: 7px;
+  color: oklch(0.92 0.028 150);
+  background: oklch(0.24 0.050 150 / 0.76);
+  border: 1px solid oklch(0.55 0.070 150 / 0.70);
+}
+.civ-key-chip.is-subtle {
+  color: oklch(0.80 0.030 200);
+  background: oklch(0.16 0.020 205 / 0.66);
+  border-color: oklch(0.38 0.040 205 / 0.56);
+}
+.civ-key-chip b,
+.civ-key-chip em {
+  display: block;
+  max-width: 45px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.05;
+}
+.civ-key-chip b {
+  font-size: 11px;
+  font-weight: 850;
+}
+.civ-key-chip em {
+  margin-top: 1px;
+  font-size: 8px;
+  font-style: normal;
+}
 .civ-pilot-strip {
   display: flex;
   align-items: center;
@@ -1103,6 +1424,10 @@ button {
 .civ-drawer-left.is-open { transform: translateX(0); }
 .civ-drawer-right { right: 10px; transform: translateX(calc(100% + 16px)); }
 .civ-drawer-right.is-open { transform: translateX(0); }
+.civ-drawer:not(.is-open) {
+  opacity: 0;
+  pointer-events: none;
+}
 
 .civ-drawer-head {
   flex: none;
@@ -1177,6 +1502,63 @@ button {
   color: oklch(0.82 0.07 30);
   border-color: oklch(0.42 0.08 30 / 0.6) !important;
 }
+
+.civ-alert-stack {
+  position: absolute;
+  right: 12px;
+  top: 58px;
+  z-index: 44;
+  display: flex;
+  width: min(300px, calc(100vw - 24px));
+  flex-direction: column;
+  gap: 7px;
+  pointer-events: none;
+}
+.civ-game-alert {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 9px;
+  border-radius: 10px;
+  color: oklch(0.82 0.024 220);
+  background: linear-gradient(180deg, oklch(0.13 0.006 240 / 0.92), oklch(0.09 0.004 245 / 0.92));
+  border: 1px solid oklch(0.30 0.012 220 / 0.65);
+  box-shadow: 0 12px 28px oklch(0 0 0 / 0.36);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.civ-game-alert svg { flex: none; color: oklch(0.68 0.048 200); }
+.civ-game-alert.is-resource { border-color: oklch(0.42 0.052 165 / 0.66); }
+.civ-game-alert.is-resource svg { color: oklch(0.78 0.074 158); }
+.civ-game-alert.is-rare {
+  color: oklch(0.88 0.050 82);
+  border-color: oklch(0.56 0.084 80 / 0.75);
+  background: linear-gradient(180deg, oklch(0.19 0.038 82 / 0.92), oklch(0.10 0.012 245 / 0.92));
+}
+.civ-game-alert.is-rare svg { color: oklch(0.88 0.090 86); }
+.civ-game-alert.is-task { border-color: oklch(0.44 0.058 190 / 0.68); }
+.civ-game-alert.is-task svg { color: oklch(0.80 0.078 188); }
+.civ-game-alert.is-admin { border-color: oklch(0.46 0.070 285 / 0.68); }
+.civ-game-alert.is-admin svg { color: oklch(0.80 0.085 285); }
+.civ-game-alert.is-currency {
+  color: oklch(0.88 0.046 86);
+  border-color: oklch(0.56 0.078 88 / 0.72);
+  background: linear-gradient(180deg, oklch(0.18 0.028 88 / 0.92), oklch(0.10 0.006 245 / 0.92));
+}
+.civ-game-alert.is-currency svg { color: oklch(0.90 0.090 88); }
+.civ-game-alert button {
+  display: grid;
+  place-items: center;
+  height: 22px;
+  width: 22px;
+  flex: none;
+  border-radius: 7px;
+  color: oklch(0.56 0.014 225);
+  transition: color 0.12s, background 0.12s;
+}
+.civ-game-alert button:hover { color: oklch(0.90 0.030 205); background: oklch(0.20 0.010 235 / 0.72); }
 
 /* minimal floating toolbelt (Terraria-style hotbar) */
 .civ-toolbelt {
@@ -1264,6 +1646,14 @@ button {
 .civ-drawer-body button:focus-visible,
 .civ-drawer-head button:focus-visible,
 .civ-error button:focus-visible {
+  outline: 2px solid oklch(0.76 0.10 195);
+  outline-offset: 2px;
+}
+.civ-mode-switch button:focus-visible,
+.civ-game-alert button:focus-visible,
+.civ-admin-shortcuts button:focus-visible,
+.civ-shop-item:focus-visible,
+.civ-hatchery-buy:focus-visible {
   outline: 2px solid oklch(0.76 0.10 195);
   outline-offset: 2px;
 }
@@ -1355,6 +1745,219 @@ button {
   outline-offset: 2px;
 }
 
+.civ-rarity-pill,
+.civ-level-pill,
+.civ-gene-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.35;
+  border: 1px solid oklch(0.26 0.010 235 / 0.7);
+  background: oklch(0.10 0.004 245 / 0.72);
+}
+.civ-rarity-pill b { font-variant-numeric: tabular-nums; }
+.civ-rarity-pill.is-common { color: oklch(0.70 0.020 220); border-color: oklch(0.30 0.012 230 / 0.7); }
+.civ-rarity-pill.is-uncommon { color: oklch(0.76 0.070 155); border-color: oklch(0.42 0.070 155 / 0.62); background: oklch(0.14 0.025 155 / 0.55); }
+.civ-rarity-pill.is-rare { color: oklch(0.78 0.075 230); border-color: oklch(0.44 0.070 230 / 0.65); background: oklch(0.14 0.024 230 / 0.56); }
+.civ-rarity-pill.is-mythic { color: oklch(0.82 0.080 325); border-color: oklch(0.48 0.080 325 / 0.68); background: oklch(0.15 0.030 325 / 0.58); }
+.civ-level-pill { color: oklch(0.86 0.060 84); border-color: oklch(0.44 0.060 84 / 0.62); background: oklch(0.15 0.025 84 / 0.54); }
+.civ-gene-pill { color: oklch(0.70 0.028 205); border-color: oklch(0.34 0.025 205 / 0.58); }
+
+.civ-hatchery-summary {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 6px;
+  align-items: stretch;
+}
+.civ-hatchery-stat {
+  display: grid;
+  place-items: center;
+  padding: 7px;
+  border-radius: 8px;
+  color: oklch(0.80 0.052 84);
+  background: oklch(0.14 0.020 84 / 0.54);
+  border: 1px solid oklch(0.42 0.052 84 / 0.58);
+}
+.civ-hatchery-stat span {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: oklch(0.56 0.020 84);
+}
+.civ-hatchery-stat b {
+  font-size: 20px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.civ-hatchery-rarities {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 8px;
+  background: oklch(0.09 0.004 245 / 0.66);
+  border: 1px solid oklch(0.23 0.008 240 / 0.72);
+}
+.civ-hatchery-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.civ-hatchery-buy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px;
+  border-radius: 8px;
+  color: oklch(0.84 0.032 200);
+  background: oklch(0.12 0.008 235 / 0.78);
+  border: 1px solid oklch(0.30 0.022 205 / 0.72);
+  font-size: 10.5px;
+  font-weight: 700;
+  transition: color 0.12s, background 0.12s, border-color 0.12s, transform 0.06s;
+}
+.civ-hatchery-buy svg { flex: none; color: oklch(0.84 0.075 84); }
+.civ-hatchery-buy:hover {
+  color: oklch(0.94 0.035 195);
+  background: oklch(0.17 0.014 230 / 0.86);
+  border-color: oklch(0.44 0.045 195 / 0.76);
+}
+.civ-hatchery-buy:active { transform: translateY(1px); }
+.civ-hatchery-buy:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+.civ-hatchery-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.civ-hatchery-empty {
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: oklch(0.52 0.012 225);
+  background: oklch(0.09 0.004 245 / 0.72);
+  border: 1px solid oklch(0.23 0.008 240 / 0.72);
+}
+.civ-egg-card {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px;
+  border-radius: 8px;
+  background: oklch(0.10 0.004 245 / 0.74);
+  border: 1px solid oklch(0.25 0.010 235 / 0.72);
+}
+.civ-egg-card.is-uncommon { border-color: oklch(0.38 0.050 155 / 0.62); }
+.civ-egg-card.is-rare { border-color: oklch(0.42 0.055 230 / 0.66); }
+.civ-egg-card.is-mythic { border-color: oklch(0.48 0.070 325 / 0.70); }
+.civ-egg-visual {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: oklch(0.14 0.012 200 / 0.62);
+  border: 1px solid oklch(0.27 0.014 220 / 0.68);
+  overflow: hidden;
+}
+.civ-egg-visual img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.civ-egg-preview {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  width: 20px !important;
+  height: 20px !important;
+  opacity: 0.92;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.45));
+}
+.civ-hatch-bar {
+  height: 4px;
+  margin-top: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: oklch(0.17 0.008 235 / 0.76);
+}
+.civ-hatch-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, oklch(0.75 0.075 84), oklch(0.78 0.075 190));
+}
+.civ-egg-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 5px;
+}
+.civ-egg-incubate {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  max-width: 100%;
+  padding: 3px 6px;
+  border-radius: 7px;
+  color: oklch(0.82 0.026 220);
+  background: oklch(0.15 0.010 235 / 0.82);
+  border: 1px solid oklch(0.30 0.018 220 / 0.78);
+  font-size: 10.5px;
+  font-weight: 750;
+  line-height: 1;
+  transition: color 0.12s, background 0.12s, border-color 0.12s, transform 0.06s;
+}
+.civ-egg-incubate > svg:first-child {
+  color: oklch(0.82 0.080 58);
+  flex: none;
+}
+.civ-egg-incubate:hover:not(:disabled) {
+  color: oklch(0.94 0.035 190);
+  background: oklch(0.18 0.014 230 / 0.9);
+  border-color: oklch(0.45 0.050 190 / 0.8);
+}
+.civ-egg-incubate:active:not(:disabled) { transform: translateY(1px); }
+.civ-egg-incubate:disabled {
+  cursor: default;
+  opacity: 0.46;
+}
+.civ-egg-incubate:focus-visible {
+  outline: 2px solid oklch(0.75 0.075 84 / 0.8);
+  outline-offset: 2px;
+}
+.civ-egg-cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  color: oklch(0.63 0.024 215);
+  font-size: 10px;
+  font-weight: 700;
+}
+.civ-egg-cost svg {
+  flex: none;
+  color: oklch(0.78 0.065 85);
+}
+
 .civ-mvp-panel {
   padding: 8px;
   border-radius: 9px;
@@ -1364,6 +1967,135 @@ button {
 .civ-mvp-panel.is-stable { border-color: oklch(0.44 0.060 155 / 0.7); background: oklch(0.13 0.022 155 / 0.55); }
 .civ-mvp-panel.is-risk,
 .civ-mvp-panel.is-collapsed { border-color: oklch(0.48 0.070 35 / 0.7); background: oklch(0.14 0.024 35 / 0.52); }
+.civ-run-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 7px;
+}
+.civ-run-stat {
+  min-width: 0;
+  border-radius: 8px;
+  padding: 6px 7px;
+  background: oklch(0.10 0.004 245 / 0.7);
+  border: 1px solid oklch(0.24 0.008 240 / 0.7);
+}
+.civ-run-stat span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: oklch(0.48 0.012 225);
+}
+.civ-run-stat b {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: oklch(0.84 0.030 195);
+}
+.civ-admin-console {
+  display: grid;
+  gap: 7px;
+}
+.civ-admin-command {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+.civ-admin-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.civ-admin-shortcuts button {
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 10px;
+  color: oklch(0.70 0.032 210);
+  background: oklch(0.12 0.008 238 / 0.72);
+  border: 1px solid oklch(0.28 0.016 225 / 0.72);
+  transition: color 0.12s, background 0.12s;
+}
+.civ-admin-shortcuts button:hover { color: oklch(0.90 0.040 195); background: oklch(0.17 0.010 235 / 0.86); }
+.civ-admin-history {
+  display: grid;
+  gap: 4px;
+  max-height: 96px;
+  overflow-y: auto;
+  border-radius: 8px;
+  padding: 7px;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: oklch(0.60 0.016 225);
+  background: oklch(0.08 0.004 245 / 0.76);
+  border: 1px solid oklch(0.22 0.008 240 / 0.8);
+}
+.civ-shop-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.civ-shop-balance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: oklch(0.88 0.058 86);
+  background: oklch(0.15 0.026 86 / 0.54);
+  border: 1px solid oklch(0.46 0.060 86 / 0.62);
+  font-size: 11px;
+  font-weight: 700;
+}
+.civ-shop-balance svg { color: oklch(0.90 0.080 88); }
+.civ-shop-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px;
+  border-radius: 9px;
+  color: oklch(0.78 0.020 220);
+  background: oklch(0.10 0.004 245 / 0.72);
+  border: 1px solid oklch(0.26 0.010 235 / 0.7);
+  text-align: left;
+  transition: color 0.12s, background 0.12s, border-color 0.12s, transform 0.06s;
+}
+.civ-shop-item svg { flex: none; color: oklch(0.75 0.070 84); }
+.civ-shop-item:hover {
+  color: oklch(0.92 0.030 205);
+  background: oklch(0.16 0.010 235 / 0.88);
+  border-color: oklch(0.42 0.040 195 / 0.74);
+}
+.civ-shop-item:active { transform: translateY(1px); }
+.civ-shop-item > span > span:nth-child(2) {
+  font-size: 10px;
+  color: oklch(0.54 0.012 225);
+}
+.civ-shop-item:disabled {
+  cursor: default;
+  opacity: 0.52;
+}
+.civ-shop-item.is-locked:hover {
+  color: oklch(0.78 0.020 220);
+  background: oklch(0.10 0.004 245 / 0.72);
+  border-color: oklch(0.26 0.010 235 / 0.7);
+}
+.civ-shop-cost {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 3px;
+  margin-top: 3px;
+  color: oklch(0.82 0.058 86) !important;
+}
+.civ-shop-cost svg {
+  color: oklch(0.88 0.080 88);
+}
 .civ-task-panel {
   padding: 8px;
   border-radius: 9px;
@@ -1513,6 +2245,32 @@ button {
 .civ-cam-btn:focus-visible {
   outline: 2px solid oklch(0.76 0.10 195);
   outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .civ-mode-switch {
+    top: 48px;
+    left: 12px;
+    transform: none;
+  }
+  .civ-mode-switch button {
+    min-width: 58px;
+    padding-inline: 7px;
+  }
+  .civ-hud-tl,
+  .civ-view.is-play .civ-hud-tl {
+    top: 92px;
+    width: min(330px, calc(100vw - 24px));
+  }
+  .civ-alert-stack {
+    top: 96px;
+    right: 12px;
+    width: min(280px, calc(100vw - 24px));
+  }
+  .civ-shop-grid,
+  .civ-run-stats {
+    grid-template-columns: 1fr;
+  }
 }
 
 @keyframes eval-creature-bob {

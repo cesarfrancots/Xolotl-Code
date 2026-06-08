@@ -1042,3 +1042,551 @@ Next TODO:
 Remaining MVP audit items:
 - Do a final compact MVP readiness pass across task variety, controls, persistence, fail-state communication, and whether the current demo command is enough for a live user-watched run.
 - Native Tauri save/reload should get a quick smoke separately if the next session runs inside the actual desktop shell rather than browser preview.
+
+2026-06-08 human economy/shop and asset-line correction pass:
+- Reverted the rejected cyber/chrome/volt/nebula asset additions and returned the game to the README/screenshot graphic line:
+  - `tauri-app/public/civ/axolotls/` is back to the 12 existing chibi/painterly morph portraits.
+  - `tauri-app/public/civ/axolotl-animated-seeds.png` and `output/civ-gen/gen_axolotls.py` are back to the 12-variant sheet/generator.
+  - No new pearl icon sheet is used; pearls currently reuse the existing glowshard visual in-game to avoid introducing a mismatched asset.
+- Added the first real human economy/shop loop:
+  - `pearls` are now the player currency.
+  - Manual harvest, mining, task completion, and building use reward pearls.
+  - The shop can buy Supply Cache, Pond Blessing, Rare Lure, Common Egg, Rare Egg, Farm Kit, Storage Kit, and Workshop Kit.
+  - Purchases spend pearls and mutate the backend/browser-preview world/resources instead of being free prototype buttons.
+- Added more human-playable feedback around the economy:
+  - HUD shows Pearls.
+  - Shop lives in the left game drawer and in God mode.
+  - Admin console supports `/buy <item>`.
+  - Manual gather/mine/build/use interactions have visible cooldown readouts and alerts, while Codex pilot remains ungated for automation tests.
+- Found and fixed a browser-preview sync bug:
+  - Fallback interventions updated legacy `civilization.resources`, but the frontend prefers `civs[0].resources` when both shapes are present.
+  - `tauriBrowserFallback.ts` now syncs the primary civ before persisting/returning preview snapshots, so shop, harvest, mine, task, and building rewards all update visible UI/text state after reload-continuity hydration.
+- Fixed a drawer usability/accessibility gap found during Playwright smoke:
+  - Closed Civ drawers are now `inert`, `aria-hidden`, transparent, and pointer-events disabled, so hidden/offscreen shop buttons cannot intercept automation or focus.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-economy-shop-purchase-fixed/01-shop-open.png`
+  - `tauri-app/output/web-game/civ-economy-shop-purchase-fixed/02-supply-cache-bought.png`
+  - `summary.json` shows Supply Cache changed resources from `pearls=6, wood=18, stone=11, clay=8, fiber=12` to `pearls=0, wood=26, stone=19, clay=16, fiber=20`, with no missing morph-frame warnings and no console errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (59 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo check` (existing `TauriPermissionPrompter` dead-code warning)
+  - `cargo test shop_purchase --no-run` (compiled test binaries; still avoid executing Rust test binaries on Windows due the known Tauri `STATUS_ENTRYPOINT_NOT_FOUND` issue)
+- Official `develop-web-game` client is still blocked in this shell because its ESM script cannot resolve the bundled `playwright` package from the skill directory. Targeted Playwright smokes used the bundled Codex runtime package path directly.
+
+Next TODO:
+- Generate any new axolotl/egg/civ-level assets only in the README/screenshot chibi/painterly style, not the rejected cyber/pixel look.
+- Add a proper hatchery/rarity screen and egg lifecycle UI now that shop eggs can be bought.
+- Expand economy loops beyond the first pearl rewards: richer world drops, rare-object discovery, and cooldown/timer tuning for human play.
+- Consider surfacing the shop as a dedicated game HUD panel in Play mode, not only inside the drawer/God panels.
+
+2026-06-08 hatchery rarity/level UI pass:
+- Added shared creature progression helpers in `tauri-app/src/lib/civCreatureProgression.ts`:
+  - Classifies restored 12-line morphs as common, uncommon, rare, or mythic.
+  - Computes axolotl/egg level, gene potential, hatch turns remaining, and hatch progress.
+  - Falls back unknown morph assets to `leucistic`, so rejected/missing morph names do not request missing portrait files.
+- Added a proper Hatchery panel to the Play-accessible left drawer and observer/admin drawer:
+  - Shows egg count, living rarity counts, Common Egg/Rare Egg purchase buttons, egg cards, rarity pills, predicted level, gene potential, morph/pattern, hatch timer, source, and progress bar.
+  - Uses only the restored existing egg/axolotl assets; no new off-style generated assets were introduced.
+- Upgraded the colony roster so living axolotls show rarity and level alongside morph/stage/age.
+- Extended `window.render_game_to_text()` with:
+  - `hatchery.eggs[]` carrying rarity, rarity label, level, gene potential, hatch timer/progress, source, and tile.
+  - creature-only progression fields on `visible_entities` for axolotls/eggs.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatchery-rarity-smoke/01-hatchery-open.png`
+  - `tauri-app/output/web-game/civ-hatchery-rarity-smoke/02-common-egg-bought.png`
+  - `summary.json` shows the hatchery exposed a mythic egg, admin-granted pearls, bought a Common Egg through the Hatchery, increased eggs from 1 to 2, and spent pearls to 24 with no console errors or missing morph-frame warnings.
+- Verification passed:
+  - `npm test -- civCreatureProgression.test.ts CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (63 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+
+Next TODO:
+- Add actual hatch interaction/accelerator gameplay, such as spending pearls or food to reduce `hatches_in`, so timers are not only turn-driven.
+- Add a style-correct generated egg/rarity/civ-level asset set if the next step needs new visuals.
+- Add richer world currency drops and rare-object discovery so human players can earn egg purchases without admin grants.
+
+2026-06-08 egg incubation action pass:
+- Added a real manual hatchery accelerator:
+  - Hatchery egg cards now include a Warm action with flame/pearl/food controls.
+  - Warming an egg costs 4 pearls and 2 food, reduces `hatches_in` by 1, and disables once the egg is ready for the next turn.
+  - Admin console now supports `/warm` or `/incubate`, defaulting to the first warmable egg or targeting by id/name.
+- Added backend/browser-preview parity:
+  - Rust `incubate_egg` validates ownership, egg readiness, pearls, and food before mutating the timer and logging the action.
+  - Browser preview applies the same resource cost/timer mutation for local playtests.
+- Extended text-state parity:
+  - `window.render_game_to_text().hatchery.eggs[]` now includes `incubation_cost` and `can_incubate`, matching the UI button state.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-egg-incubation-smoke/01-hatchery-before.png`
+  - `tauri-app/output/web-game/civ-egg-incubation-smoke/02-incubated.png`
+  - `summary.json` shows `hatches_in` 2 -> 1, pearls 6 -> 2, food 45 -> 43, and the Warm button disabled afterward with no console/page errors.
+- Verification passed:
+  - `npm test -- civCreatureProgression.test.ts CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (63 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo check` (existing `TauriPermissionPrompter` dead-code warning)
+  - `cargo test incubate_egg --no-run` (compiled test binaries; still avoid executing Rust test binaries on Windows due the known Tauri `STATUS_ENTRYPOINT_NOT_FOUND` issue)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+- Official `develop-web-game` client remains blocked in this shell because its ESM script cannot resolve `playwright`; the smoke used the bundled Codex Playwright runtime directly.
+
+Next TODO:
+- Add visible hatch completion feedback and a first-hatchling tutorial beat so warming eggs feels like a complete loop.
+- Add richer world currency drops and rare-object discovery, including rare object alerts that connect directly to shop/egg goals.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 hatch completion feedback pass:
+- Closed the warm-egg payoff loop in browser preview:
+  - Preview turn advancement now hatches ready eggs into hatchlings, updates population, and writes the same `Eggs hatched` lifecycle log shape as the Rust backend.
+  - Hatchlings keep the same entity id, switch to `kind=axolotl`, `stage=hatchling`, `role=juvenile`, `activity=play`, and show up immediately in the world after the next turn.
+- Added visible hatch feedback:
+  - `CivilizationView` watches for new `Eggs hatched` logs in the active session and raises a world alert/player message.
+  - The watcher seeds itself on session load so old saved hatch logs do not replay as fresh alerts.
+- Extended `window.render_game_to_text().hatchery` with `recent_hatch` for automation-friendly hatch verification.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatch-feedback-smoke/01-ready-next-turn.png`
+  - `tauri-app/output/web-game/civ-hatch-feedback-smoke/02-hatch-alert.png`
+  - `summary.json` shows turn 3 -> 4, eggs 1 -> 0, population 8 -> 9, `egg-preview-1` becoming `stage=hatchling`, and `recent_hatch.turn=4`, with no console/page errors.
+- Verification passed:
+  - `npm test -- civCreatureProgression.test.ts CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (63 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+- Official `develop-web-game` client still cannot resolve `playwright` from the skill script; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add richer world currency drops and rare-object discovery, including rare object alerts that connect directly to shop/egg goals.
+- Add a first-hatchling interaction/tutorial beat, such as feeding or assigning the hatchling, so hatching creates a new manual choice.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 rare discovery economy pass:
+- Added deterministic rare-find rewards to manual world interaction:
+  - Harvesting or mining `glowshards`/`amber` now always discovers a Prismatic Pearl Cache for +4 extra pearls.
+  - Harvesting or mining `ore`/`sulfur`/`coral` now discovers an Ancient Shell Cache for +2 extra pearls.
+  - Common one-unit harvest/mine actions can deterministically discover a Hidden Pearl Cache from the world seed/turn/tile/action hash.
+- Added backend/browser-preview parity:
+  - Rust `harvest_resource` and `mine_tile` award the discovery bonus and append an authoritative `Rare discovery` player log with `reward_resource`, `reward_amount`, `bonus_pearls`, source tile, and `shop_hint`.
+  - Browser preview applies the same reward/log shape.
+- Added player-facing and automation feedback:
+  - `CivilizationView` watches for new `Rare discovery` logs and raises a rare-object alert/player message without replaying stale logs on session load.
+  - `window.render_game_to_text()` now includes `economy.pearls`, shop goals, and `economy.recent_discovery`.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-rare-discovery-smoke/01-before-use-rare-target.png`
+  - `tauri-app/output/web-game/civ-rare-discovery-smoke/02-rare-discovery-alert.png`
+  - `summary.json` shows Play mode targeting a glowshard tile, pressing `E`, pearls 6 -> 13, glowshards 1 -> 2, and `recent_discovery` reporting the Prismatic Pearl Cache with no console/page errors.
+- Verification passed:
+  - `npm test -- civCreatureProgression.test.ts CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (63 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo check` (existing `TauriPermissionPrompter` dead-code warning)
+  - `cargo test player_harvest_rare_resource_discovers_bonus_pearls --no-run`
+  - `cargo test player_mine_and_place_tile_edits_world --no-run`
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add a first-hatchling interaction/tutorial beat, such as feeding or assigning the hatchling, so hatching creates a new manual choice.
+- Add a compact Play-mode shop/egg goal surface so discoveries immediately point players toward what they can buy next.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 Play HUD shop-goal pass:
+- Added a compact Play-mode shop goal strip to the top-left HUD:
+  - Shows Common Egg funding progress from current pearl balance.
+  - Shows a disabled `Buy` affordance while underfunded and enables it once affordable.
+  - Buying from the strip uses the same shop purchase path as the drawer/Hatchery purchase controls.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-shop-goal-smoke/01-shop-goal-locked.png`
+  - `tauri-app/output/web-game/civ-shop-goal-smoke/02-shop-goal-ready.png`
+  - `tauri-app/output/web-game/civ-shop-goal-smoke/03-shop-goal-bought.png`
+  - `summary.json` shows locked `6/12`, ready `12/12`, then clicking `Buy` changed eggs 1 -> 2 and pearls 12 -> 0, with no console/page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (59 tests)
+  - `npm run build` (same large Civilization chunk warning)
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add a first-hatchling interaction/tutorial beat, such as feeding or assigning the hatchling, so hatching creates a new manual choice.
+- Add a fuller Play-mode shop goal set after the Common Egg path, including Rare Egg and Rare Lure milestones.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 hatchling care interaction pass:
+- Added a manual hatchling care action:
+  - Hatchlings now appear as Use-mode NPC targets with `action=feed_hatchling` and a `Feed Hatchling ...` target label.
+  - Pressing `E`/`Space` on the hatchling spends 1 food, improves hatchling health/mood, sets activity to `fed`, and raises a Play-mode alert/player message.
+  - The action is guarded once per hatchling per turn, matching existing anti-spam behavior for talk/building/object interactions.
+- Added backend/browser-preview parity:
+  - Rust `feed_hatchling` validates ownership, food, hatchling stage, applies care, and writes a `Hatchling fed` player log.
+  - Browser preview applies the same food/mood/health/activity/log path for local playtests.
+- Extended text-state support:
+  - `window.render_game_to_text().player.active_target` can now report `action=feed_hatchling` and `stage=hatchling`.
+  - `window.render_game_to_text().hatchery.recent_care` reports the latest care log for automation-friendly verification.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatchling-care-smoke/before-feed.png`
+  - `tauri-app/output/web-game/civ-hatchling-care-smoke/after-feed.png`
+  - `summary.json` shows Play mode targeting `action=feed_hatchling`, pressing `E`, food 38 -> 37, and `egg-preview-1` becoming `activity=fed`.
+  - The smoke had no page errors; only Chromium WebGL ReadPixels performance warnings from screenshot capture.
+- Verification passed:
+  - `npm test -- civCreatureProgression.test.ts CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (63 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo check` (existing `TauriPermissionPrompter` dead-code warning)
+  - `cargo test feed_hatchling_spends_food_and_improves_care --no-run`
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add a fuller Play-mode shop goal set after the Common Egg path, including Rare Egg and Rare Lure milestones.
+- Add hatchling follow-up choices beyond feeding, such as assigning a nursery task, naming, or training for a future role.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 Play HUD shop-milestone pass:
+- Expanded the Play-mode shop goal strip from one Common Egg prompt into a compact three-milestone tracker:
+  - Common Egg
+  - Rare Lure
+  - Rare Egg
+- Each milestone now shows its own funded/required pearl count, progress bar, and Buy button state.
+- Buying from the milestone strip still uses the existing shop purchase path, so it stays aligned with the Hatchery/Shop drawer behavior.
+- Added React coverage for the Play HUD milestone state at 12 pearls: Common Egg and Rare Lure are ready, Rare Egg is locked.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-shop-milestones-smoke/01-milestones-initial.png`
+  - `tauri-app/output/web-game/civ-shop-milestones-smoke/02-milestones-ready.png`
+  - `tauri-app/output/web-game/civ-shop-milestones-smoke/03-rare-lure-bought.png`
+  - `summary.json` shows 0/3 ready at 6 pearls, 2/3 ready at 12 pearls, and clicking `Buy Rare Lure` changed pearls 12 -> 2.
+  - The smoke had no page errors; only Chromium WebGL ReadPixels performance warnings from screenshot capture.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (60 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add hatchling follow-up choices beyond feeding, such as assigning a nursery task, naming, or training for a future role.
+- Add more Play-mode HUD economy goals after purchase, such as farm/workshop/storage kit milestones when the colony needs buildings.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 axolotl action-animation pass:
+- Kept the approved README/screenshot axolotl graphic line:
+  - Checked available stock axolotl animation packs; did not import them because the viable packs are mostly pixel-art/paid or have license constraints, and they would not match the current chibi/painterly sprite line.
+  - Built the first animation layer from the existing approved `axolotl-animated-seeds.png` sheet instead.
+- Added explicit axolotl action animation states in the Phaser canvas:
+  - Movement/locomotion: idle, swim, walk, jump, dash, wall_slide, rest, play.
+  - Manual actions: mine, gather, build, repair, rescue, feed, talk, use.
+  - Lifecycle: hatch pop animation for newly created hatchlings.
+- Wired animations to real player actions:
+  - `E`/Space interaction now triggers action-specific frame sequences, squash/sway/bob motion, particles, and pulses.
+  - Build/place, mining, resource gathering, NPC talk, hatchling feed, repair, and rescue map to distinct states.
+  - Target axolotls also animate for talk/feed where applicable.
+- Extended `window.render_game_to_text()`:
+  - `player.player.animation` reports the live animation state.
+  - `player.player.action_ms_remaining` reports one-shot action timing for automation/playtest verification.
+- Added focused unit coverage:
+  - `axoActionAnimationForInteraction` maps terrain/resource/NPC/object actions to the expected animation state.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-action-animation-smoke/05-build-ready.png`
+  - `tauri-app/output/web-game/civ-action-animation-smoke/06-build-action.png`
+  - `tauri-app/output/web-game/civ-action-animation-smoke/08-talk-action.png`
+  - `tauri-app/output/web-game/civ-action-animation-smoke/09-swim-down.png`
+  - `tauri-app/output/web-game/civ-action-animation-smoke/10-mine-after-swim.png`
+  - Smoke text-state showed Build -> `animation=build`, Talk -> `animation=talk`, swim-down -> `animation=swim`, and Mine -> `animation=mine`; no page/console errors.
+- Verification passed:
+  - `npm test -- civCanvas.test.ts CivilizationView.test.tsx civStore.test.ts` (62 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Generate a small style-matched supplemental sprite sheet for mining/gathering/hatching poses only if it is based on the approved README/screenshot axolotl line.
+- Add a visible hatch ceremony/tutorial beat after egg hatching so the new hatch animation has a clear player-facing moment.
+- Add more Play-mode HUD economy goals after purchase, such as farm/workshop/storage kit milestones when the colony needs buildings.
+
+2026-06-08 action movement correction pass:
+- Addressed the playtest issue where axolotls mostly looked like they were hopping in place:
+  - Added live visual destinations for non-player axolotls when the backend snapshot has an activity but no `target_x/target_y`.
+  - Idle and play axolotls now patrol over larger world-space arcs.
+  - Gatherers now commute between home and resource tiles instead of staying parked; build/repair/rescue-style activities can use object/building work destinations.
+  - Manual interactions now store an action target point so mine/build/talk/feed/repair/rescue actions surge toward the target in world space.
+- Extended text-state verification:
+  - `window.render_game_to_text().player.animated_entities` exposes live rendered axolotl positions, animation state, target kind/point, and whether the sprite is moving.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-action-motion-smoke/07-final-workers-travel.png`
+  - `tauri-app/output/web-game/civ-action-motion-smoke/08-final-workers-continue.png`
+  - `tauri-app/output/web-game/civ-action-motion-smoke/09-final-mine-movement.png`
+  - Smoke text-state showed idle/play workers moving ~60-90px, the gather worker moving 92px then another 52px, and manual mining moving the player 29px into the target action.
+  - The smoke had no page errors.
+- Verification passed:
+  - `npm test -- civCanvas.test.ts CivilizationView.test.tsx civStore.test.ts` (62 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add visible world-space paths for shop/building construction jobs after purchases, so newly bought kits send axolotls to the build site.
+- Add a visible hatch ceremony/tutorial beat after egg hatching so the hatch animation has a clear player-facing movement sequence.
+- Generate a small style-matched supplemental sprite sheet for mining/gathering/hatching poses only if it is based on the approved README/screenshot axolotl line.
+
+2026-06-08 first-play entry playability pass:
+- Broad playtest found a concrete first-human-run issue:
+  - Switching from Observe to Play possessed an axolotl in the upper water column with `active_target = Nothing in reach`.
+  - This made the first player interaction feel dead until the player learned to swim down to the settlement.
+- Fixed the canvas control handoff:
+  - On fresh Play-mode possession, if the player is not already at a useful nearby target, the canvas places the axolotl at a colony-side playable entry point.
+  - Entry point prefers the nearest resource tile to the colony, then nearest building/object, then colony floor fallback.
+  - The relocation is keyed by session/entity so it runs once per fresh control handoff and does not keep snapping the player while they play.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-entry-playtest/02-play-entry.png`
+  - `tauri-app/output/web-game/civ-entry-playtest/03-entry-interact.png`
+  - `tauri-app/output/web-game/civ-entry-playtest/04-new-run-entry.png`
+  - Smoke text-state showed Play mode starts at tile 55,46 with a wood resource target at distance 30; pressing `E` immediately gathered wood and raised resource/rare-discovery alerts; New Run also starts with a resource target in reach.
+- Verification passed:
+  - `npm test -- civCanvas.test.ts CivilizationView.test.tsx civStore.test.ts` (62 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Continue playtesting from the new entry point and fix the next human-first flow issue, likely task routing/building purchase construction feedback.
+- Add visible world-space paths for shop/building construction jobs after purchases, so newly bought kits send axolotls to the build site.
+- Add a visible hatch ceremony/tutorial beat after egg hatching so the hatch animation has a clear player-facing movement sequence.
+
+2026-06-08 active target HUD pass:
+- Playtest found the next first-human-run issue after the entry fix:
+  - `render_game_to_text()` exposed a reachable `active_target` and seven cycleable nearby interactions.
+  - The visible Play HUD only showed the generic mode alert/message, so a human tester could not immediately tell what pressing `E` would do.
+- Added a compact Play-mode target strip:
+  - Polls the existing `render_game_to_text()` bridge while a player axolotl is possessed.
+  - Shows the current action verb, target label, distance/tile, `E` action chip, and `Tab` cycle count when multiple targets are in reach.
+  - Supports resource, terrain mine/build, NPC, building/object, hatchling feed, repair, rescue, and empty target states.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-target-prompt-playtest/03-target-prompt-visible.png`
+  - `tauri-app/output/web-game/civ-target-prompt-playtest/04-target-prompt-tab-cycle.png`
+  - `tauri-app/output/web-game/civ-target-prompt-playtest/05-target-prompt-after-interact.png`
+  - Smoke text-state showed `Gather Wood` at tile 57,46 before action, `Tab 2/7` after cycling, and resource/pearl progress plus a resource alert after pressing `E`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (64 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Continue playtesting task/build/shop flow after the new target prompt, especially whether purchased buildings visibly send axolotls to construction sites.
+- Add visible world-space paths for shop/building construction jobs after purchases, so newly bought kits send axolotls to the build site.
+- Add a visible hatch ceremony/tutorial beat after egg hatching so the hatch animation has a clear player-facing movement sequence.
+
+2026-06-08 shop construction gameplay pass:
+- Playtested the Play-mode shop/build flow after the target prompt:
+  - Buying `Farm Kit` spent pearls and spawned `Moss Farm`, but the building was instantly `activity=built`.
+  - No axolotl had a build destination and `animated_entities` reported no build target, so the purchase felt like an admin mutation instead of a civ-building action.
+- Added real construction-state behavior:
+  - Shop building kits now spawn as `activity=construction` at 45 health instead of fully built.
+  - The owning colony immediately assigns builders to the site with `activity=build` and target tile coordinates.
+  - Construction progresses by 30 health on later turns and becomes `activity=built` at 100 health.
+  - Both Rust session logic and the browser-preview fallback implement the same loop.
+- Added player-facing construction visuals and alerts:
+  - Construction buildings render with scaffold/progress overlay.
+  - `render_game_to_text().visible_entities` now exposes entity `health`, so automation can verify construction progress.
+  - New `Construction complete` log entries trigger HUD alerts and player messages.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-shop-construction-playtest/04-farm-construction-started-clean.png`
+  - `tauri-app/output/web-game/civ-shop-construction-playtest/05-farm-construction-progress-clean.png`
+  - `tauri-app/output/web-game/civ-shop-construction-playtest/06-farm-construction-complete-alert.png`
+  - Smoke text-state showed Moss Farm `construction` health 45 after purchase, 75 after one turn, then `built` health 100 after two turns; alert stack showed `Construction complete`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (64 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml shop_purchase_spends_pearls_and_spawns_rewards --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Continue playtesting the hatchery loop: buying/incubating eggs should have a visible hatch ceremony and clearer playable care prompts.
+- Consider adding Play HUD goals for building kits after the first egg/lure milestones, so the player sees construction as part of the main progression rather than only in the drawer shop.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 hatch ceremony and care prompt pass:
+- Playtested the hatchery loop after construction:
+  - Eggs hatched correctly, but new hatchlings immediately switched to `activity=play`.
+  - The hatch animation expired quickly enough that a human tester could miss it, and the HUD only showed a generic hatch alert.
+- Added a durable hatch ceremony state:
+  - Rust lifecycle and browser-preview lifecycle now set new hatchlings to `activity=hatch`.
+  - Canvas hatch animation lasts longer, emits more hatch particles, and keeps hatchlings near the nest with a `hatch_ceremony` target instead of sending them into normal play patrol immediately.
+  - `render_game_to_text().hatchery.care_targets` now exposes hatchling id, rarity, level, health/mood, food cost, feed readiness, and tile position.
+- Added player-facing hatchling care UI:
+  - Play HUD now shows a compact `HATCHLING CARE` strip for the current hatchling.
+  - Hatch alerts now read as `Hatchling emerged` and direct the player to feed it.
+  - Added a focused helper test for hatchling-care targeting.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatch-ceremony-playtest/01-hatchery-initial.png`
+  - `tauri-app/output/web-game/civ-hatch-ceremony-playtest/02-one-turn-before-hatch.png`
+  - `tauri-app/output/web-game/civ-hatch-ceremony-playtest/03-hatch-ceremony-care.png`
+  - `tauri-app/output/web-game/civ-hatch-ceremony-playtest/04-hatch-ceremony-held.png`
+  - Smoke text-state showed `Hatchling 1` as mythic level 8 with `activity=hatch`, `animation=hatch`, `target_kind=hatch_ceremony`, and HUD `HATCHLING CARE` / `Feed ready`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (73 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml hatch_sets_expressed_pattern --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Known tool limitation:
+  - Direct `cargo test ... hatch_sets_expressed_pattern` compiled but the Windows test executable failed to launch with `STATUS_ENTRYPOINT_NOT_FOUND`; the `--no-run` compile gate passed.
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Continue playtesting hatchling care after pressing `E` near the new hatchling: feeding should visibly move the player/parent to the hatchling, update care logs, and possibly transition the hatchling from ceremony into play/rest.
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 hatchling feed targeting pass:
+- Playtested hatchling care after the hatch ceremony:
+  - The HUD showed `HATCHLING CARE`, but the active target stayed on nearby resources.
+  - Tab cycling did not expose the hatchling, so pressing `E` gathered fiber/wood instead of feeding the hatchling.
+  - This made the care prompt feel decorative rather than playable.
+- Fixed hatchling care targeting:
+  - Fresh hatchlings are now prioritized in the Play-mode Use target planner within a wider care radius.
+  - Target prompt now reads `Feed Hatchling 1` instead of duplicating the verb.
+  - Nearby interaction text-state preserves care/repair/building/NPC options ahead of generic resource/terrain options so AI systems can see the same important actions humans see.
+  - Feed animation travel is longer, making the possessed axolotl visibly surge toward the hatchling.
+- Fixed same-turn duplicate feed affordance:
+  - After feeding, care targets expose `fed_this_turn=true` and `can_feed=false`.
+  - The care strip changes from `Feed ready` to `Fed`.
+  - `feed_hatchling` leaves active/nearby target lists until a later turn instead of inviting a backend no-op.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatch-feed-playtest/01-after-hatch-feed-target.png`
+  - `tauri-app/output/web-game/civ-hatch-feed-playtest/02-during-feed-action.png`
+  - `tauri-app/output/web-game/civ-hatch-feed-playtest/03-after-feed-care-log.png`
+  - Smoke text-state showed active target `action=feed_hatchling`, nearby feed target present, player animation `feed`, `Hatchling fed` care log, food 38 -> 37, hatchling `activity=fed`, then `can_feed=false` and no same-turn feed target.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (74 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml feed_hatchling_spends_food_and_improves_care --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Known tool limitation:
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Continue playtesting the next-turn hatchling care lifecycle: after a fed hatchling advances a turn, verify whether it should become `play`/`rest`, remain feedable, or grow toward juvenile in a way that is clear to the player.
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 hatchling care lifecycle pass:
+- Playtested feeding a hatchling and advancing one more turn:
+  - Immediately after feeding, the hatchling correctly showed `activity=fed`, `fed_this_turn=true`, and `can_feed=false`.
+  - On the next turn, the hatchling became feedable again, but text-state still reported `activity=fed`, which made the action availability and animation state contradict each other.
+- Fixed fed-state lifecycle:
+  - Rust lifecycle now treats `fed` as a one-turn transient care state and clears it before assigning normal young activity.
+  - Browser-preview lifecycle now ages living axolotls each turn and mirrors the stage/activity reset enough for playtests to match backend behavior.
+  - Existing feed-care Rust test now asserts that a fed hatchling returns to `activity=play` after the next lifecycle tick.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatch-next-turn-playtest/01-after-hatch-feed-target.png`
+  - `tauri-app/output/web-game/civ-hatch-next-turn-playtest/02-after-feed.png`
+  - `tauri-app/output/web-game/civ-hatch-next-turn-playtest/03-next-turn-after-feed.png`
+  - Smoke text-state showed after the next turn: hatchling `age=1`, `activity=play`, `animation=play`, `fed_this_turn=false`, `can_feed=true`, and active target `feed_hatchling`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (74 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml feed_hatchling_spends_food_and_improves_care --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Known tool limitation:
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Continue playtesting hatchling growth at age 3/7 so the player sees clear stage/level progression from hatchling to juvenile/adult.
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 hatchling growth milestone pass:
+- Playtested the hatchling growth lifecycle from the preview egg:
+  - Turn 5 hatches `Hatchling 1` as a mythic level 8 hatchling with feed care available.
+  - Turn 6/7 keeps it as a hatchling in normal `play` activity.
+  - Turn 8 matures it into a juvenile at age 3 and level 12.
+- Fixed silent growth:
+  - Rust lifecycle now logs forward maturation with `Axolotl grew` and target id/body details.
+  - Browser preview mirrors that growth log, including `recent_growth` in `render_game_to_text`.
+  - Play HUD now surfaces a game alert and player message such as `Hatchling 1 became Juvenile. Age 3.`
+- Fixed related lifecycle animation state:
+  - One-turn `hatch` activity now clears on the next lifecycle tick, like `fed`, so young axolotls return to `play`.
+  - Preview elder staging now matches the Rust elder threshold instead of normalizing seeded elders backward to adults.
+  - Growth alerts only fire for forward stage progression, avoiding bogus cleanup/regression alerts.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/01-initial-play.png`
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/02-one-turn-before-hatch.png`
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/03-hatch-ceremony.png`
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/04-hatchling-age1.png`
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/05-hatchling-age2.png`
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/06-juvenile-growth-alert.png`
+  - Smoke text-state showed turn 8: `stage=juvenile`, `age=3`, `level=12`, `activity=play`, `recent_growth` body containing `grew from hatchling to juvenile`, no elder regression alert, and the seeded elder remained `elder`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (74 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml life_cycle_logs_stage_growth --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+  - `graphify update .` rebuilt the graph after code edits.
+- Known tool limitation:
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for actual browser interaction.
+
+Next TODO:
+- Continue playtesting the adult threshold at age 7 so juvenile -> adult growth is equally clear in HUD/text-state and animation.
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 adult growth identity pass:
+- Playtested the full hatchling -> juvenile -> adult lifecycle from the preview egg:
+  - Turn 5 hatches `Hatchling 1`.
+  - Turn 8 matures to juvenile.
+  - Turn 12 matures to adult.
+- Found a playability bug:
+  - The adult was still named `Hatchling 1`.
+  - The adult kept the juvenile `play` activity, so text-state and animation implied it was still acting like a young axolotl.
+- Fixed lifecycle identity/activity:
+  - Generated stage names now mature from `Hatchling N` -> `Juvenile N` -> `Adult N` -> `Elder N`.
+  - Custom names are preserved.
+  - Ambient lifecycle activities (`play`/`rest`) now clear on stage change, while work activities like gather/build remain intact.
+  - Adult growth HUD now reads like `Adult 1 reached adulthood. Age 7.`
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-adult-growth-playtest/01-initial-play.png`
+  - `tauri-app/output/web-game/civ-adult-growth-playtest/02-hatched.png`
+  - `tauri-app/output/web-game/civ-adult-growth-playtest/03-juvenile-growth.png`
+  - `tauri-app/output/web-game/civ-adult-growth-playtest/04-adult-growth.png`
+  - Smoke text-state showed turn 8: `name=Juvenile 1`, `stage=juvenile`, `activity=play`, `animation=play`.
+  - Smoke text-state showed turn 12: `name=Adult 1`, `stage=adult`, `role=worker`, `activity=""`, `animation=idle`, and `recent_growth` body containing `Adult 1 grew from juvenile to adult`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (74 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml life_cycle_renames_generated_hatchlings_as_they_mature --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+  - `graphify update .` rebuilt the graph after code edits.
+- Known tool limitation:
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for actual browser interaction.
+
+Next TODO:
+- Batch or throttle founder-cohort growth alerts so long turn bursts do not stack several `Axolotl grew` toasts over the playfield.
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 growth alert batching pass:
+- Reproduced the alert overload from a long Play-mode turn burst:
+  - Advancing preview turns 4 -> 12 left five visible `Axolotl grew` labels in page text before the fix.
+  - Screenshot: `tauri-app/output/web-game/civ-growth-alert-stack-playtest/01-before-alert-stack.png`.
+- Fixed growth alert stacking:
+  - Growth milestones now replace the previous visible growth toast instead of stacking.
+  - Multiple growth logs from the latest turn are summarized into one compact detail line.
+  - Generic founder names like `Axolotl 4` now mature into stage names like `Elder 4`, matching `Hatchling N` -> `Adult N` behavior.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-growth-alert-stack-playtest/02-after-alert-batching.png`
+  - `tauri-app/output/web-game/civ-growth-alert-stack-playtest/03-after-short-alert-summary.png`
+  - Final smoke text-state at turn 12 showed one visible growth alert: `2 growth milestones: Elder 4, Adult 1`.
+  - Final smoke confirmed `Elder 4` and `Adult 1` were visible entity names, and page text contained only one `Axolotl grew` label.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (74 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml life_cycle_renames_generated_hatchlings_as_they_mature --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+  - `graphify update .` rebuilt the graph after code edits.
+- Known tool limitation:
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for actual browser interaction.
+
+Next TODO:
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.
+- Continue manual playtest passes on gather/shop/build loops to find the next human-first progression gap.
