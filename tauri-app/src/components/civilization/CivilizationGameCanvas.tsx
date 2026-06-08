@@ -3460,6 +3460,7 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
   const failedCivs = (snapshot.civs ?? []).filter((c) => c.alive === false || (c.population ?? 0) <= 0).length;
   const eggs = snapshot.world.entities.filter((entity) => isEggEntity(entity) && (!entity.civ_id || entity.civ_id === civ.id));
   const recentHatchLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Eggs hatched") ?? null;
+  const recentDiscoveryLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Rare discovery") ?? null;
   return JSON.stringify({
     coordinate_system: "origin top-left; x right; y down; tiles are 16px",
     session: { id: snapshot.id, turn: snapshot.turn, model: civ.model ?? "unknown", view_mode: playerState?.view_mode ?? viewMode },
@@ -3483,6 +3484,19 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
         polarity: modifier.polarity,
         remaining_turns: modifier.remaining_turns,
       })),
+    },
+    economy: {
+      currency_resource: "pearls",
+      pearls: civ.resources?.pearls ?? 0,
+      shop_goals: [
+        { id: "common_egg", cost: 12 },
+        { id: "rare_lure", cost: 10 },
+        { id: "rare_egg", cost: 30 },
+      ],
+      recent_discovery: recentDiscoveryLog ? {
+        turn: recentDiscoveryLog.turn,
+        body: recentDiscoveryLog.body,
+      } : null,
     },
     player: playerState ?? {
       possessedEntityId: null,

@@ -870,6 +870,7 @@ function applyPreviewCivIntervention(args?: unknown) {
   let shouldLog = kind !== "move_entity";
   let logKind = "intervention";
   let logTitle = "Observer intervention";
+  const extraLogs: Array<{ kind: string; title: string; body: string }> = [];
   const resourceKey = target as keyof typeof resources;
   if (kind === "grant_resource") resources[resourceKey] = (resources[resourceKey] ?? 0) + amount;
   if (kind === "remove_resource") resources[resourceKey] = Math.max(0, (resources[resourceKey] ?? 0) - amount);
@@ -886,6 +887,15 @@ function applyPreviewCivIntervention(args?: unknown) {
       const gainedKey = gained as keyof typeof resources;
       resources[gainedKey] = (resources[gainedKey] ?? 0) + harvested;
       resources.pearls = (resources.pearls ?? 0) + previewCurrencyReward(gained, harvested);
+      const discovery = previewRareDiscovery("harvest", gained, x, y, harvested);
+      if (discovery) {
+        resources.pearls = (resources.pearls ?? 0) + discovery.pearls;
+        extraLogs.push({
+          kind: "player",
+          title: "Rare discovery",
+          body: previewDiscoveryLogBody(discovery, "harvesting", gained, x, y),
+        });
+      }
       logBody = `harvested ${harvested} ${gained} from ${x},${y}`;
     } else {
       logBody = `found no resource at ${x},${y}`;
@@ -903,6 +913,15 @@ function applyPreviewCivIntervention(args?: unknown) {
       const gainedKey = gained as keyof typeof resources;
       resources[gainedKey] = (resources[gainedKey] ?? 0) + 1;
       resources.pearls = (resources.pearls ?? 0) + previewCurrencyReward(gained, 1);
+      const discovery = previewRareDiscovery("mine", gained, x, y, 1);
+      if (discovery) {
+        resources.pearls = (resources.pearls ?? 0) + discovery.pearls;
+        extraLogs.push({
+          kind: "player",
+          title: "Rare discovery",
+          body: previewDiscoveryLogBody(discovery, "mining", gained, x, y),
+        });
+      }
       const entityId = typeof intervention.entity_id === "string" ? intervention.entity_id : "";
       const entity = previewCivSession.world.entities.find((item) => item.id === entityId && item.kind === "axolotl");
       if (entity) {
@@ -1339,6 +1358,13 @@ function applyPreviewCivIntervention(args?: unknown) {
             body: logBody || `${kind} ${target}`,
             created_at: previewCivSession.updated_at + 5,
           },
+          ...extraLogs.map((entry, index) => ({
+            turn: previewCivSession.turn,
+            kind: entry.kind,
+            title: entry.title,
+            body: entry.body,
+            created_at: previewCivSession.updated_at + 6 + index,
+          })),
         ].slice(-80)
       : previewCivSession.log,
   };
@@ -1356,6 +1382,71 @@ function previewCurrencyReward(resource: string, amount: number) {
       ? 2
       : 1;
   return unit * Math.max(1, amount);
+}
+
+type PreviewRareDiscovery = {
+  label: string;
+  resource: "pearls";
+  amount: number;
+  pearls: number;
+  shopHint: string;
+};
+
+function previewRareDiscovery(
+  action: "harvest" | "mine",
+  resource: string,
+  x: number,
+  y: number,
+  amount: number,
+): PreviewRareDiscovery | null {
+  if (resource === "glowshards" || resource === "amber") {
+    return {
+      label: "Prismatic Pearl Cache",
+      resource: "pearls",
+      amount: 4,
+      pearls: 4,
+      shopHint: "rare_egg",
+    };
+  }
+  if (["ore", "sulfur", "coral"].includes(resource)) {
+    return {
+      label: "Ancient Shell Cache",
+      resource: "pearls",
+      amount: 2,
+      pearls: 2,
+      shopHint: "rare_lure",
+    };
+  }
+  if (amount !== 1) return null;
+  const roll = previewHash(`${previewCivSession.seed}:${previewCivSession.turn}:${action}:${resource}:${x}:${y}:${amount}`);
+  const divisor = action === "mine" ? 5 : 7;
+  if (roll % divisor !== 0) return null;
+  return {
+    label: "Hidden Pearl Cache",
+    resource: "pearls",
+    amount: 1,
+    pearls: 1,
+    shopHint: "common_egg",
+  };
+}
+
+function previewDiscoveryLogBody(
+  discovery: PreviewRareDiscovery,
+  verb: string,
+  sourceResource: string,
+  x: number,
+  y: number,
+) {
+  return `Found ${discovery.label} while ${verb} ${sourceResource}; reward_resource=${discovery.resource}; reward_amount=${discovery.amount}; bonus_pearls=${discovery.pearls}; source=${sourceResource}; x=${x}; y=${y}; shop_hint=${discovery.shopHint};`;
+}
+
+function previewHash(value: string) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash >>> 0;
 }
 
 function previewShopCost(item: string) {

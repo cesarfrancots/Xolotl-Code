@@ -3190,6 +3190,11 @@ fn apply_intervention_to_snapshot(
                 .or_insert(0) += harvested;
             let pearls = currency_reward_for_resource(&gained_resource, harvested);
             add_currency_reward(snapshot, ci, pearls);
+            let discovery =
+                rare_discovery_for_action(snapshot, "harvest", &gained_resource, x, y, harvested);
+            if let Some(discovery) = &discovery {
+                add_discovery_reward(snapshot, ci, discovery);
+            }
             if let Some(eid) = intervention.entity_id.as_deref() {
                 if let Some(entity) = snapshot
                     .world
@@ -3211,6 +3216,14 @@ fn apply_intervention_to_snapshot(
                     "Player harvested {harvested} {gained_resource} from {tile_resource} near {x},{y} for {who}, earning {pearls} {CURRENCY_RESOURCE}."
                 ),
             );
+            if let Some(discovery) = discovery {
+                push_log(
+                    snapshot,
+                    "player",
+                    "Rare discovery",
+                    &discovery_log_body(&discovery, "harvesting", &gained_resource, x, y),
+                );
+            }
         }
         "mine_tile" => {
             let ci = target_ci.ok_or("no civilization in session")?;
@@ -3250,6 +3263,10 @@ fn apply_intervention_to_snapshot(
                 .or_insert(0) += 1;
             let pearls = currency_reward_for_resource(&gained_resource, 1);
             add_currency_reward(snapshot, ci, pearls);
+            let discovery = rare_discovery_for_action(snapshot, "mine", &gained_resource, x, y, 1);
+            if let Some(discovery) = &discovery {
+                add_discovery_reward(snapshot, ci, discovery);
+            }
             if let Some(eid) = intervention.entity_id.as_deref() {
                 if let Some(entity) = snapshot
                     .world
@@ -3269,6 +3286,14 @@ fn apply_intervention_to_snapshot(
                 "Tile mined",
                 &format!("Player mined {terrain} at {x},{y} for 1 {gained_resource} and {pearls} {CURRENCY_RESOURCE} for {who}."),
             );
+            if let Some(discovery) = discovery {
+                push_log(
+                    snapshot,
+                    "player",
+                    "Rare discovery",
+                    &discovery_log_body(&discovery, "mining", &gained_resource, x, y),
+                );
+            }
         }
         "place_tile" => {
             let ci = target_ci.ok_or("no civilization in session")?;
@@ -4720,6 +4745,107 @@ fn currency_reward_for_resource(resource: &str, amount: i32) -> i32 {
         _ => 1,
     };
     unit * amount.max(1)
+}
+
+#[derive(Clone, Debug)]
+struct RareDiscoveryReward {
+    label: &'static str,
+    resource: &'static str,
+    amount: i32,
+    pearls: i32,
+    shop_hint: &'static str,
+}
+
+fn rare_discovery_for_action(
+    snapshot: &CivSessionSnapshot,
+    action: &str,
+    resource: &str,
+    x: u32,
+    y: u32,
+    amount: i32,
+) -> Option<RareDiscoveryReward> {
+    match resource {
+        "glowshards" | "amber" => {
+            return Some(RareDiscoveryReward {
+                label: "Prismatic Pearl Cache",
+                resource: CURRENCY_RESOURCE,
+                amount: 4,
+                pearls: 4,
+                shop_hint: "rare_egg",
+            });
+        }
+        "ore" | "sulfur" | "coral" => {
+            return Some(RareDiscoveryReward {
+                label: "Ancient Shell Cache",
+                resource: CURRENCY_RESOURCE,
+                amount: 2,
+                pearls: 2,
+                shop_hint: "rare_lure",
+            });
+        }
+        _ => {}
+    }
+    if amount != 1 {
+        return None;
+    }
+    let roll = seed_from(&format!(
+        "{}:{}:{}:{}:{}:{}:{}",
+        snapshot.seed,
+        snapshot.turn,
+        action,
+        resource,
+        x,
+        y,
+        amount.max(1)
+    ));
+    let divisor = if action == "mine" { 5 } else { 7 };
+    if roll % divisor != 0 {
+        return None;
+    }
+    Some(RareDiscoveryReward {
+        label: "Hidden Pearl Cache",
+        resource: CURRENCY_RESOURCE,
+        amount: 1,
+        pearls: 1,
+        shop_hint: "common_egg",
+    })
+}
+
+fn add_discovery_reward(
+    snapshot: &mut CivSessionSnapshot,
+    ci: usize,
+    discovery: &RareDiscoveryReward,
+) {
+    if discovery.resource == CURRENCY_RESOURCE {
+        add_currency_reward(snapshot, ci, discovery.amount.max(discovery.pearls));
+        return;
+    }
+    *snapshot.civs[ci]
+        .resources
+        .entry(discovery.resource.to_string())
+        .or_insert(0) += discovery.amount.max(1);
+    add_currency_reward(snapshot, ci, discovery.pearls);
+}
+
+fn discovery_log_body(
+    discovery: &RareDiscoveryReward,
+    verb: &str,
+    source_resource: &str,
+    x: u32,
+    y: u32,
+) -> String {
+    format!(
+        "Found {} while {verb} {}; reward_resource={}; reward_amount={}; bonus_pearls={}; source={}; x={}; y={}; shop_hint={};",
+        discovery.label,
+        source_resource,
+        discovery.resource,
+        discovery.amount,
+        discovery.pearls,
+        source_resource,
+        x,
+        y,
+        discovery.shop_hint
+    )
 }
 
 fn add_currency_reward(snapshot: &mut CivSessionSnapshot, ci: usize, amount: i32) {
@@ -7116,6 +7242,56 @@ mod tests {
     }
 
     #[test]
+    fn player_harvest_rare_resource_discovers_bonus_pearls() {
+        let mut snapshot =
+            test_snapshot("rare-harvest-session", "Rare Harvest", "mock-model", 42, 1);
+        let tile_idx = snapshot
+            .world
+            .tiles
+            .iter()
+            .position(|tile| tile.resource.is_some())
+            .expect("expected a resource tile");
+        let x = snapshot.world.tiles[tile_idx].x;
+        let y = snapshot.world.tiles[tile_idx].y;
+        snapshot.world.tiles[tile_idx].resource = Some("amber".to_string());
+        snapshot.world.tiles[tile_idx].amount = 1;
+        let before_amber = snapshot.civs[0]
+            .resources
+            .get("amber")
+            .copied()
+            .unwrap_or(0);
+        let before_pearls = snapshot.civs[0].resources[CURRENCY_RESOURCE];
+
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "harvest_resource".to_string(),
+                target: "amber".to_string(),
+                amount: Some(1),
+                x: Some(x),
+                y: Some(y),
+                duration: None,
+                intensity: None,
+                entity_id: None,
+                accessory: None,
+                civ_id: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(snapshot.civs[0].resources["amber"], before_amber + 1);
+        assert_eq!(
+            snapshot.civs[0].resources[CURRENCY_RESOURCE],
+            before_pearls + currency_reward_for_resource("amber", 1) + 4
+        );
+        assert!(snapshot.log.iter().any(|entry| {
+            entry.title == "Rare discovery"
+                && entry.body.contains("Prismatic Pearl Cache")
+                && entry.body.contains("shop_hint=rare_egg")
+        }));
+    }
+
+    #[test]
     fn player_mine_and_place_tile_edits_world() {
         let mut snapshot = test_snapshot("terrain-session", "Terrain", "mock-model", 42, 1);
         let cid = first_civ_id(&snapshot);
@@ -7157,7 +7333,11 @@ mod tests {
             },
         )
         .unwrap();
-        let expected_pearls = currency_reward_for_resource(&expected_gain, 1);
+        let discovery_pearls =
+            rare_discovery_for_action(&snapshot, "mine", &expected_gain, tile.x, tile.y, 1)
+                .map(|discovery| discovery.amount.max(discovery.pearls))
+                .unwrap_or(0);
+        let expected_pearls = currency_reward_for_resource(&expected_gain, 1) + discovery_pearls;
         let mined = snapshot
             .world
             .tiles

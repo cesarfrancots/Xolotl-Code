@@ -1155,3 +1155,32 @@ Next TODO:
 - Add richer world currency drops and rare-object discovery, including rare object alerts that connect directly to shop/egg goals.
 - Add a first-hatchling interaction/tutorial beat, such as feeding or assigning the hatchling, so hatching creates a new manual choice.
 - Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 rare discovery economy pass:
+- Added deterministic rare-find rewards to manual world interaction:
+  - Harvesting or mining `glowshards`/`amber` now always discovers a Prismatic Pearl Cache for +4 extra pearls.
+  - Harvesting or mining `ore`/`sulfur`/`coral` now discovers an Ancient Shell Cache for +2 extra pearls.
+  - Common one-unit harvest/mine actions can deterministically discover a Hidden Pearl Cache from the world seed/turn/tile/action hash.
+- Added backend/browser-preview parity:
+  - Rust `harvest_resource` and `mine_tile` award the discovery bonus and append an authoritative `Rare discovery` player log with `reward_resource`, `reward_amount`, `bonus_pearls`, source tile, and `shop_hint`.
+  - Browser preview applies the same reward/log shape.
+- Added player-facing and automation feedback:
+  - `CivilizationView` watches for new `Rare discovery` logs and raises a rare-object alert/player message without replaying stale logs on session load.
+  - `window.render_game_to_text()` now includes `economy.pearls`, shop goals, and `economy.recent_discovery`.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-rare-discovery-smoke/01-before-use-rare-target.png`
+  - `tauri-app/output/web-game/civ-rare-discovery-smoke/02-rare-discovery-alert.png`
+  - `summary.json` shows Play mode targeting a glowshard tile, pressing `E`, pearls 6 -> 13, glowshards 1 -> 2, and `recent_discovery` reporting the Prismatic Pearl Cache with no console/page errors.
+- Verification passed:
+  - `npm test -- civCreatureProgression.test.ts CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (63 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo check` (existing `TauriPermissionPrompter` dead-code warning)
+  - `cargo test player_harvest_rare_resource_discovers_bonus_pearls --no-run`
+  - `cargo test player_mine_and_place_tile_edits_world --no-run`
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add a first-hatchling interaction/tutorial beat, such as feeding or assigning the hatchling, so hatching creates a new manual choice.
+- Add a compact Play-mode shop/egg goal surface so discoveries immediately point players toward what they can buy next.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.

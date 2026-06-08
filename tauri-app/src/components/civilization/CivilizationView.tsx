@@ -332,6 +332,8 @@ export function CivilizationView() {
   const playModeAutoPossessedSessionRef = useRef<string | null>(null);
   const hatchAlertSessionRef = useRef<string | null>(null);
   const hatchAlertSeenKeyRef = useRef<string | null>(null);
+  const discoveryAlertSessionRef = useRef<string | null>(null);
+  const discoveryAlertSeenKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     void loadModels();
@@ -425,6 +427,22 @@ export function CivilizationView() {
     const detail = cleanCivLogBody(hatchLog);
     setPlayerMessage(detail);
     pushGameAlert("world", "Eggs hatched", detail);
+  }, [snapshot]);
+  useEffect(() => {
+    const sessionId = snapshot?.id ?? null;
+    if (!snapshot || !sessionId) return;
+    const discoveryLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Rare discovery") ?? null;
+    const discoveryKey = discoveryLog ? `${sessionId}:${discoveryLog.turn}:${discoveryLog.created_at}:${discoveryLog.body}` : null;
+    if (discoveryAlertSessionRef.current !== sessionId) {
+      discoveryAlertSessionRef.current = sessionId;
+      discoveryAlertSeenKeyRef.current = discoveryKey;
+      return;
+    }
+    if (!discoveryLog || !discoveryKey || discoveryAlertSeenKeyRef.current === discoveryKey) return;
+    discoveryAlertSeenKeyRef.current = discoveryKey;
+    const detail = rareDiscoveryAlertDetail(discoveryLog);
+    setPlayerMessage(detail);
+    pushGameAlert("rare", "Rare discovery", detail);
   }, [snapshot]);
   // Drive the camera from the selection signal (REN-02): a selected civ (e.g. a
   // leaderboard row click, Phase 1) focuses that civ; clearing it frames all civs.
@@ -3124,6 +3142,13 @@ function recentCompletedTaskSummary(snapshot: CivSessionSnapshot): CompletedTask
     .find((item) => item.kind === "player" && item.title === "Task complete");
   if (!entry || snapshot.turn - entry.turn > 2) return null;
   return { detail: cleanCivLogBody(entry).replace(/;$/, "") };
+}
+
+function rareDiscoveryAlertDetail(entry: CivLogEntry) {
+  return entry.body
+    .replace(/\s*reward_resource=.*$/, "")
+    .replace(/;$/, "")
+    .trim();
 }
 
 function playerResourceTarget(resource: string) {
