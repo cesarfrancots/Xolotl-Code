@@ -590,6 +590,30 @@ function previewStageRank(stage: string | null | undefined) {
   return 0;
 }
 
+function previewLifecycleAmbientActivity(activity: string | null | undefined) {
+  return activity === "play" || activity === "rest";
+}
+
+function previewMatureAxolotlName(name: string | null | undefined, stage: string, id: string) {
+  const prefix = stage === "hatchling"
+    ? "Hatchling"
+    : stage === "juvenile"
+      ? "Juvenile"
+      : stage === "adult"
+        ? "Adult"
+        : stage === "elder"
+          ? "Elder"
+          : "Axolotl";
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return `${prefix} ${id.split("-").pop() || id.slice(-4)}`;
+  for (const oldPrefix of ["Hatchling", "Juvenile", "Adult", "Elder"]) {
+    if (trimmed === oldPrefix) return `${prefix} ${id.split("-").pop() || id.slice(-4)}`;
+    const marker = `${oldPrefix} `;
+    if (trimmed.startsWith(marker)) return `${prefix} ${trimmed.slice(marker.length)}`;
+  }
+  return trimmed;
+}
+
 function advancePreviewAxolotlLifecycle(nextTurn: number, createdAt: number) {
   const logs: typeof previewCivSession.log = [];
   for (const entity of previewCivSession.world.entities) {
@@ -613,7 +637,9 @@ function advancePreviewAxolotlLifecycle(nextTurn: number, createdAt: number) {
       entity.role = "elder";
       entity.size = 1.06;
     }
-    if (previousStage && previousStage !== entity.stage && previewStageRank(entity.stage) > previewStageRank(previousStage)) {
+    const stageChanged = Boolean(previousStage && previousStage !== entity.stage);
+    if (stageChanged && previewStageRank(entity.stage) > previewStageRank(previousStage)) {
+      entity.name = previewMatureAxolotlName(entity.name, entity.stage, entity.id);
       logs.push({
         turn: nextTurn,
         kind: "lifecycle",
@@ -622,7 +648,13 @@ function advancePreviewAxolotlLifecycle(nextTurn: number, createdAt: number) {
         created_at: createdAt + logs.length,
       });
     }
-    if (entity.activity === "fed" || entity.activity === "hatch") entity.activity = "";
+    if (
+      entity.activity === "fed"
+      || entity.activity === "hatch"
+      || (stageChanged && previewLifecycleAmbientActivity(entity.activity))
+    ) {
+      entity.activity = "";
+    }
     if (!entity.activity) {
       entity.activity = entity.stage === "hatchling" || entity.stage === "juvenile"
         ? "play"

@@ -1527,3 +1527,38 @@ Next TODO:
 - Continue playtesting the adult threshold at age 7 so juvenile -> adult growth is equally clear in HUD/text-state and animation.
 - Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
 - Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 adult growth identity pass:
+- Playtested the full hatchling -> juvenile -> adult lifecycle from the preview egg:
+  - Turn 5 hatches `Hatchling 1`.
+  - Turn 8 matures to juvenile.
+  - Turn 12 matures to adult.
+- Found a playability bug:
+  - The adult was still named `Hatchling 1`.
+  - The adult kept the juvenile `play` activity, so text-state and animation implied it was still acting like a young axolotl.
+- Fixed lifecycle identity/activity:
+  - Generated stage names now mature from `Hatchling N` -> `Juvenile N` -> `Adult N` -> `Elder N`.
+  - Custom names are preserved.
+  - Ambient lifecycle activities (`play`/`rest`) now clear on stage change, while work activities like gather/build remain intact.
+  - Adult growth HUD now reads like `Adult 1 reached adulthood. Age 7.`
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-adult-growth-playtest/01-initial-play.png`
+  - `tauri-app/output/web-game/civ-adult-growth-playtest/02-hatched.png`
+  - `tauri-app/output/web-game/civ-adult-growth-playtest/03-juvenile-growth.png`
+  - `tauri-app/output/web-game/civ-adult-growth-playtest/04-adult-growth.png`
+  - Smoke text-state showed turn 8: `name=Juvenile 1`, `stage=juvenile`, `activity=play`, `animation=play`.
+  - Smoke text-state showed turn 12: `name=Adult 1`, `stage=adult`, `role=worker`, `activity=""`, `animation=idle`, and `recent_growth` body containing `Adult 1 grew from juvenile to adult`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (74 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml life_cycle_renames_generated_hatchlings_as_they_mature --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+  - `graphify update .` rebuilt the graph after code edits.
+- Known tool limitation:
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for actual browser interaction.
+
+Next TODO:
+- Batch or throttle founder-cohort growth alerts so long turn bursts do not stack several `Axolotl grew` toasts over the playfield.
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.

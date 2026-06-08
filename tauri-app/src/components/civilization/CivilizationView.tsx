@@ -3563,7 +3563,8 @@ function growthAlertDetail(entry: CivLogEntry) {
   const match = detail.match(/^(.+?) grew from ([a-z_]+) to ([a-z_]+); age=(\d+)/i);
   if (!match) return detail;
   const [, name, , nextStage, age] = match;
-  return `${name} became ${STAGE_LABEL[nextStage] ?? nextStage}. Age ${age}.`;
+  const reached = nextStage === "adult" ? "adulthood" : `${STAGE_LABEL[nextStage] ?? nextStage} stage`;
+  return `${name} reached ${reached}. Age ${age}.`;
 }
 
 function playerResourceTarget(resource: string) {

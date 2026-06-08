@@ -2885,10 +2885,12 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
         entity.role = role_for_stage(&entity.stage);
         entity.health = health;
         entity.mood = morale;
+        let stage_changed = !previous_stage.is_empty() && previous_stage != entity.stage;
         if !previous_stage.is_empty()
             && previous_stage != entity.stage
             && stage_rank(&entity.stage) > stage_rank(&previous_stage)
         {
+            entity.name = mature_axolotl_name(&entity.name, &entity.stage, &entity.id);
             growth_events.push((
                 entity.id.clone(),
                 entity.name.clone(),
@@ -2897,7 +2899,10 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
                 entity.age,
             ));
         }
-        if entity.activity == "fed" || entity.activity == "hatch" {
+        if entity.activity == "fed"
+            || entity.activity == "hatch"
+            || (stage_changed && lifecycle_ambient_activity(&entity.activity))
+        {
             entity.activity = String::new();
         }
         // Idle young play; idle elders rest. Working axolotls keep their activity.
@@ -5676,6 +5681,33 @@ fn stage_rank(stage: &str) -> u8 {
     }
 }
 
+fn lifecycle_ambient_activity(activity: &str) -> bool {
+    matches!(activity, "play" | "rest")
+}
+
+fn mature_axolotl_name(name: &str, stage: &str, id: &str) -> String {
+    let prefix = match stage {
+        "hatchling" => "Hatchling",
+        "juvenile" => "Juvenile",
+        "adult" => "Adult",
+        "elder" => "Elder",
+        _ => "Axolotl",
+    };
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return format!("{prefix} {}", short_id(id));
+    }
+    for old in ["Hatchling", "Juvenile", "Adult", "Elder"] {
+        if trimmed == old {
+            return format!("{prefix} {}", short_id(id));
+        }
+        if let Some(suffix) = trimmed.strip_prefix(&format!("{old} ")) {
+            return format!("{prefix} {suffix}");
+        }
+    }
+    trimmed.to_string()
+}
+
 fn size_for_stage(stage: &str, size_gene: f32) -> f32 {
     let base = match stage {
         "hatchling" => 0.5,
@@ -8181,6 +8213,48 @@ mod tests {
                     .body
                     .contains("Sprout grew from hatchling to juvenile")
                 && entry.body.contains("age=3")
+        }));
+    }
+
+    #[test]
+    fn life_cycle_renames_generated_hatchlings_as_they_mature() {
+        let mut s = test_snapshot("adult-growth-test", "Growth", "mock", 7, 1);
+        let cid = first_civ_id(&s);
+        let axo_id = s
+            .world
+            .entities
+            .iter()
+            .find(|e| e.kind == "axolotl")
+            .unwrap()
+            .id
+            .clone();
+        {
+            let axo = s
+                .world
+                .entities
+                .iter_mut()
+                .find(|e| e.id == axo_id)
+                .unwrap();
+            axo.name = "Hatchling 9".to_string();
+            axo.age = 6;
+            axo.stage = "juvenile".to_string();
+            axo.role = "juvenile".to_string();
+            axo.activity = "play".to_string();
+        }
+
+        run_life_cycle(&mut s, &cid);
+
+        let grown = s.world.entities.iter().find(|e| e.id == axo_id).unwrap();
+        assert_eq!(grown.age, 7);
+        assert_eq!(grown.stage, "adult");
+        assert_eq!(grown.role, "worker");
+        assert_eq!(grown.name, "Adult 9");
+        assert_eq!(grown.activity, "");
+        assert!(s.log.iter().any(|entry| {
+            entry.title == "Axolotl grew"
+                && entry.body.contains(&format!("target={axo_id}"))
+                && entry.body.contains("Adult 9 grew from juvenile to adult")
+                && entry.body.contains("age=7")
         }));
     }
 
