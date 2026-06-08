@@ -90,6 +90,7 @@ const FIRST_CIV_ID: &str = "civ-1";
 const CURRENCY_RESOURCE: &str = "pearls";
 const INCUBATE_EGG_PEARL_COST: i32 = 4;
 const INCUBATE_EGG_FOOD_COST: i32 = 2;
+const HATCHLING_FEED_FOOD_COST: i32 = 1;
 
 /// Aquatic biome regions painted left-to-right across the seabed.
 /// `floor_offset` raises (negative) or lowers (positive) the seabed relative to
@@ -3586,6 +3587,64 @@ fn apply_intervention_to_snapshot(
             entity.activity = "player".to_string();
             entity.target_x = None;
             entity.target_y = None;
+        }
+        "feed_hatchling" => {
+            let ci = target_ci.ok_or("no civilization in session")?;
+            let eid = intervention
+                .entity_id
+                .as_deref()
+                .ok_or("entity_id is required for feed_hatchling")?;
+            let entity_idx = snapshot
+                .world
+                .entities
+                .iter()
+                .position(|entity| {
+                    entity.id == eid && entity.kind == "axolotl" && entity.stage == "hatchling"
+                })
+                .ok_or("hatchling not found")?;
+            if let Some(cid) = intervention.civ_id.as_deref() {
+                if snapshot.world.entities[entity_idx]
+                    .civ_id
+                    .as_deref()
+                    .is_some_and(|owner| owner != cid)
+                {
+                    return Err(format!("{eid} does not belong to {cid}"));
+                }
+            }
+            if player_target_used_this_turn(snapshot, "Hatchling fed", eid) {
+                return Ok(());
+            }
+            let food = snapshot.civs[ci]
+                .resources
+                .get("food")
+                .copied()
+                .unwrap_or(0);
+            if food < HATCHLING_FEED_FOOD_COST {
+                return Err(format!(
+                    "not enough food: need {HATCHLING_FEED_FOOD_COST}, have {food}"
+                ));
+            }
+            consume(
+                &mut snapshot.civs[ci].resources,
+                "food",
+                HATCHLING_FEED_FOOD_COST,
+            );
+            snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 1.0).min(100.0);
+            let (name, health, mood) = {
+                let entity = &mut snapshot.world.entities[entity_idx];
+                entity.health = (entity.health + 6.0).min(100.0);
+                entity.mood = (entity.mood + 8.0).min(100.0);
+                entity.activity = "fed".to_string();
+                (entity.name.clone(), entity.health, entity.mood)
+            };
+            push_log(
+                snapshot,
+                "player",
+                "Hatchling fed",
+                &format!(
+                    "target={eid}; Fed {name}; -{HATCHLING_FEED_FOOD_COST} food; care=feed_hatchling; health={health:.0}; mood={mood:.0};"
+                ),
+            );
         }
         "talk_entity" => {
             let ci = target_ci.ok_or("no civilization in session")?;
@@ -7616,6 +7675,95 @@ mod tests {
         .unwrap_err();
 
         assert!(err.contains("not enough pearls"));
+    }
+
+    #[test]
+    fn feed_hatchling_spends_food_and_improves_care() {
+        let mut snapshot = test_snapshot("hatchling-care-session", "Care", "mock-model", 42, 1);
+        let cid = first_civ_id(&snapshot);
+        snapshot.civs[0].resources.insert("food".to_string(), 5);
+        let hatchling_id = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.kind == "axolotl")
+            .unwrap()
+            .id
+            .clone();
+        {
+            let hatchling = snapshot
+                .world
+                .entities
+                .iter_mut()
+                .find(|entity| entity.id == hatchling_id)
+                .unwrap();
+            hatchling.stage = "hatchling".to_string();
+            hatchling.role = "juvenile".to_string();
+            hatchling.health = 70.0;
+            hatchling.mood = 60.0;
+            hatchling.activity = "play".to_string();
+        }
+        let morale_before = snapshot.civs[0].morale;
+
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "feed_hatchling".to_string(),
+                target: "food".to_string(),
+                amount: Some(1),
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: Some(hatchling_id.clone()),
+                accessory: None,
+                civ_id: Some(cid.clone()),
+            },
+        )
+        .unwrap();
+
+        let hatchling = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.id == hatchling_id)
+            .unwrap();
+        assert_eq!(snapshot.civs[0].resources["food"], 4);
+        assert_eq!(hatchling.health, 76.0);
+        assert_eq!(hatchling.mood, 68.0);
+        assert_eq!(hatchling.activity, "fed");
+        assert!(snapshot.civs[0].morale > morale_before);
+        assert!(snapshot.log.iter().any(|entry| {
+            entry.title == "Hatchling fed" && entry.body.contains(&format!("target={hatchling_id}"))
+        }));
+
+        let mood_after_feed = hatchling.mood;
+        let health_after_feed = hatchling.health;
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "feed_hatchling".to_string(),
+                target: "food".to_string(),
+                amount: Some(1),
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: Some(hatchling_id.clone()),
+                accessory: None,
+                civ_id: Some(cid),
+            },
+        )
+        .unwrap();
+        let hatchling_again = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.id == hatchling_id)
+            .unwrap();
+        assert_eq!(snapshot.civs[0].resources["food"], 4);
+        assert_eq!(hatchling_again.mood, mood_after_feed);
+        assert_eq!(hatchling_again.health, health_after_feed);
     }
 
     #[test]

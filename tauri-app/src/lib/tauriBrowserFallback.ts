@@ -1047,6 +1047,30 @@ function applyPreviewCivIntervention(args?: unknown) {
       shouldLog = false;
     }
   }
+  if (kind === "feed_hatchling") {
+    const entityId = typeof intervention.entity_id === "string" ? intervention.entity_id : "";
+    const hatchling = previewCivSession.world.entities.find((item) => (
+      item.id === entityId && item.kind === "axolotl" && item.stage === "hatchling"
+    ));
+    logKind = "player";
+    if (!hatchling) {
+      logTitle = "Hatchling care blocked";
+      logBody = "hatchling not found";
+    } else if (previewPlayerTargetUsedThisTurn("Hatchling fed", entityId)) {
+      shouldLog = false;
+    } else if ((resources.food ?? 0) < 1) {
+      logTitle = "Hatchling care blocked";
+      logBody = `target=${entityId}; not enough food for ${hatchling.name}`;
+    } else {
+      resources.food = Math.max(0, (resources.food ?? 0) - 1);
+      hatchling.health = Math.min(100, (hatchling.health ?? 0) + 6);
+      hatchling.mood = Math.min(100, (hatchling.mood ?? 0) + 8);
+      (hatchling as { activity?: string }).activity = "fed";
+      morale = Math.min(100, morale + 1);
+      logTitle = "Hatchling fed";
+      logBody = `target=${entityId}; Fed ${hatchling.name}; -1 food; care=feed_hatchling; health=${Math.round(hatchling.health ?? 0)}; mood=${Math.round(hatchling.mood ?? 0)};`;
+    }
+  }
   if (kind === "talk_entity") {
     const entityId = typeof intervention.entity_id === "string" ? intervention.entity_id : "";
     const entity = previewCivSession.world.entities.find((item) => item.id === entityId && item.kind === "axolotl");

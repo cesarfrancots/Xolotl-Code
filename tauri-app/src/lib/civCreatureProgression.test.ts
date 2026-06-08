@@ -91,7 +91,7 @@ describe("civ creature progression", () => {
   });
 
   it("falls back to an existing portrait asset for unknown morphs", () => {
-    expect(axolotlMorphAsset("cyber")).toBe("leucistic");
+    expect(axolotlMorphAsset("unknown")).toBe("leucistic");
     expect(rarityLabel("rare")).toBe("Rare");
   });
 });

@@ -129,7 +129,7 @@ const MORPH_DOT: Record<string, number> = {
 export type PlayerInteraction = {
   entityId: string;
   kind: "resource" | "building" | "npc" | "terrain" | "object" | "empty";
-  action?: "mine_tile" | "place_tile" | "repair_object" | "rescue_object";
+  action?: "mine_tile" | "place_tile" | "repair_object" | "rescue_object" | "feed_hatchling";
   label: string;
   x: number;
   y: number;
@@ -143,6 +143,7 @@ export type PlayerInteraction = {
   buildResource?: string;
   yieldsResource?: string;
   objectRole?: string;
+  stage?: string;
   locked?: boolean;
   cycle_index?: number;
   cycle_count?: number;
@@ -1651,6 +1652,8 @@ class CivPhaserScene extends Phaser.Scene {
       ? 0xffc866
       : target.action === "place_tile"
         ? 0x72e6a4
+        : target.action === "feed_hatchling"
+          ? 0xffb9d8
         : target.kind === "resource"
           ? 0xb7f0a4
           : target.kind === "npc"
@@ -2776,16 +2779,19 @@ class CivPhaserScene extends Phaser.Scene {
       if (!sprite) continue;
       const d = dist(axo.renderX, axo.renderY, sprite.renderX, sprite.renderY);
       if (d > radius) continue;
+      const isHatchling = entity.stage === "hatchling";
       options.push({
         entityId: axo.id,
         kind: "npc",
-        label: entity.name || "Axolotl",
+        action: isHatchling ? "feed_hatchling" : undefined,
+        label: isHatchling ? `Feed ${entity.name || "hatchling"}` : entity.name || "Axolotl",
         targetId: entity.id,
         x: sprite.renderX,
         y: sprite.renderY,
         tileX: entity.x,
         tileY: entity.y,
         distance: Math.round(d),
+        stage: entity.stage,
       });
     }
     return options.sort((a, b) => (a.distance ?? 9999) - (b.distance ?? 9999)).slice(0, limit);
@@ -3460,6 +3466,7 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
   const failedCivs = (snapshot.civs ?? []).filter((c) => c.alive === false || (c.population ?? 0) <= 0).length;
   const eggs = snapshot.world.entities.filter((entity) => isEggEntity(entity) && (!entity.civ_id || entity.civ_id === civ.id));
   const recentHatchLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Eggs hatched") ?? null;
+  const recentCareLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Hatchling fed") ?? null;
   const recentDiscoveryLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Rare discovery") ?? null;
   return JSON.stringify({
     coordinate_system: "origin top-left; x right; y down; tiles are 16px",
@@ -3516,6 +3523,10 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
       recent_hatch: recentHatchLog ? {
         turn: recentHatchLog.turn,
         body: recentHatchLog.body,
+      } : null,
+      recent_care: recentCareLog ? {
+        turn: recentCareLog.turn,
+        body: recentCareLog.body,
       } : null,
       eggs: eggs.map((entity) => {
         const hatchesIn = hatchTurnsRemaining(entity);

@@ -6,7 +6,7 @@ export type CivPilotTarget = {
   kind: "resource" | "building" | "npc" | "object" | "terrain";
   label: string;
   targetId?: string;
-  action?: "mine_tile" | "place_tile" | "repair_object" | "rescue_object";
+  action?: "mine_tile" | "place_tile" | "repair_object" | "rescue_object" | "feed_hatchling";
   resource?: string;
   x: number;
   y: number;
@@ -14,6 +14,7 @@ export type CivPilotTarget = {
   tileY?: number;
   distance?: number;
   amount?: number;
+  stage?: string;
 };
 
 export type CivPilotDecision =

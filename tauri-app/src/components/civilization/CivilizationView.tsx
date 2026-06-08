@@ -1281,6 +1281,37 @@ export function CivilizationView() {
       return;
     }
     if (interaction.kind === "npc") {
+      const targetEntity = interaction.targetId
+        ? snapshot?.world.entities.find((entity) => entity.id === interaction.targetId) ?? null
+        : null;
+      const isHatchling = interaction.action === "feed_hatchling"
+        || (targetEntity?.kind === "axolotl" && targetEntity.stage === "hatchling");
+      if (isHatchling) {
+        if (!activeCiv || !interaction.targetId) {
+          setPlayerMessage("No hatchling close enough to feed.");
+          return;
+        }
+        if ((activeCiv.resources?.food ?? 0) < 1) {
+          const name = targetEntity?.name ?? "hatchling";
+          setPlayerMessage(`Need 1 ${resourceLabel("food")} to feed ${name}.`);
+          pushGameAlert("currency", "Need food", `Gather moss before feeding ${name}.`);
+          return;
+        }
+        if (guardActionCooldown("use", "Feed")) return;
+        void applyIntervention({
+          kind: "feed_hatchling",
+          target: "food",
+          amount: 1,
+          entity_id: interaction.targetId,
+          civ_id: activeCiv.id,
+        });
+        startActionCooldown("use");
+        const fallbackName = interaction.label.replace(/^Feed\s+/, "").trim();
+        const name = targetEntity?.name || fallbackName || "hatchling";
+        setPlayerMessage(`Fed ${name}.`);
+        pushGameAlert("world", "Hatchling fed", `-1 ${resourceLabel("food")}. Health and mood improved.`);
+        return;
+      }
       if (guardActionCooldown("use", "Talk")) return;
       if (interaction.targetId && activeCiv) {
         void applyIntervention({

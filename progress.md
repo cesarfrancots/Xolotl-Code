@@ -1204,3 +1204,32 @@ Next TODO:
 - Add a first-hatchling interaction/tutorial beat, such as feeding or assigning the hatchling, so hatching creates a new manual choice.
 - Add a fuller Play-mode shop goal set after the Common Egg path, including Rare Egg and Rare Lure milestones.
 - Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 hatchling care interaction pass:
+- Added a manual hatchling care action:
+  - Hatchlings now appear as Use-mode NPC targets with `action=feed_hatchling` and a `Feed Hatchling ...` target label.
+  - Pressing `E`/`Space` on the hatchling spends 1 food, improves hatchling health/mood, sets activity to `fed`, and raises a Play-mode alert/player message.
+  - The action is guarded once per hatchling per turn, matching existing anti-spam behavior for talk/building/object interactions.
+- Added backend/browser-preview parity:
+  - Rust `feed_hatchling` validates ownership, food, hatchling stage, applies care, and writes a `Hatchling fed` player log.
+  - Browser preview applies the same food/mood/health/activity/log path for local playtests.
+- Extended text-state support:
+  - `window.render_game_to_text().player.active_target` can now report `action=feed_hatchling` and `stage=hatchling`.
+  - `window.render_game_to_text().hatchery.recent_care` reports the latest care log for automation-friendly verification.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatchling-care-smoke/before-feed.png`
+  - `tauri-app/output/web-game/civ-hatchling-care-smoke/after-feed.png`
+  - `summary.json` shows Play mode targeting `action=feed_hatchling`, pressing `E`, food 38 -> 37, and `egg-preview-1` becoming `activity=fed`.
+  - The smoke had no page errors; only Chromium WebGL ReadPixels performance warnings from screenshot capture.
+- Verification passed:
+  - `npm test -- civCreatureProgression.test.ts CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (63 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo check` (existing `TauriPermissionPrompter` dead-code warning)
+  - `cargo test feed_hatchling_spends_food_and_improves_care --no-run`
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add a fuller Play-mode shop goal set after the Common Egg path, including Rare Egg and Rare Lure milestones.
+- Add hatchling follow-up choices beyond feeding, such as assigning a nursery task, naming, or training for a future role.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
