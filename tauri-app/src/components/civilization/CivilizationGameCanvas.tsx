@@ -511,6 +511,7 @@ class CivPhaserScene extends Phaser.Scene {
   private jumpWasDown = false;
   private lastMoveSyncAt = 0;
   private lastMoveSyncTile = "";
+  private playerEntryPlacedKey: string | null = null;
   private readonly handleDomPlayerKeyDown = (event: KeyboardEvent) => {
     if (!this.possessedEntityId || event.repeat || this.domControlFocused()) return;
     if (event.code === "Tab" || event.key === "Tab") {
@@ -691,7 +692,10 @@ class CivPhaserScene extends Phaser.Scene {
     if (entityId) {
       this.following = true;
       const axo = this.axos.get(entityId);
-      if (axo && this.sys?.isActive()) this.cameras.main.pan(axo.renderX, axo.renderY, 220, Phaser.Math.Easing.Sine.Out);
+      if (axo) {
+        if (changed) this.maybePlacePlayerAtPlayableEntry(axo);
+        if (this.sys?.isActive()) this.cameras.main.pan(axo.renderX, axo.renderY, 220, Phaser.Math.Easing.Sine.Out);
+      }
     }
   }
 
@@ -714,6 +718,10 @@ class CivPhaserScene extends Phaser.Scene {
 
   setGameMode(mode: GameViewMode) {
     this.gameMode = mode;
+    if (mode === "play") {
+      const axo = this.playerAxo();
+      if (axo) this.maybePlacePlayerAtPlayableEntry(axo);
+    }
   }
 
   renderToText(): string {
@@ -2761,6 +2769,74 @@ class CivPhaserScene extends Phaser.Scene {
       tileX,
       tileY,
     });
+  }
+
+  private maybePlacePlayerAtPlayableEntry(axo: AxoSprite) {
+    if (axo.isEgg || this.gameMode !== "play") return;
+    const key = `${this.snapshot.id}:${axo.id}`;
+    if (this.playerEntryPlacedKey === key) return;
+    const currentTarget = this.findPreferredPlayerInteraction(axo);
+    const alreadyPlayable = currentTarget.kind !== "empty" && (currentTarget.distance ?? 999) <= 44;
+    const alreadyNearColony = dist(axo.renderX, axo.renderY, this.colony.x, this.colony.y) < 150;
+    if (alreadyPlayable && alreadyNearColony) {
+      this.playerEntryPlacedKey = key;
+      return;
+    }
+
+    const entry = this.playerEntryPoint();
+    if (!entry) return;
+    axo.renderX = entry.x;
+    axo.renderY = entry.y;
+    axo.homeX = entry.x;
+    axo.homeY = entry.y;
+    axo.targetX = undefined;
+    axo.targetY = undefined;
+    this.playerManualVelocityX = 0;
+    this.playerManualVelocityY = 0;
+    this.playerJumpVelocityX = 0;
+    this.playerJumpVelocityY = 0;
+    this.lastPlayerLocomotion = "grounded";
+    this.lastPlayerGroundedAt = this.elapsed;
+    this.lastMoveSyncTile = `${axo.id}:${Math.floor(entry.x / TILE_SIZE)},${Math.floor(entry.y / TILE_SIZE)}`;
+    this.lastMoveSyncAt = this.elapsed;
+    this.playerEntryPlacedKey = key;
+    this.spawnPulse(entry.x, entry.y, 0xf8d36f);
+  }
+
+  private playerEntryPoint(): { x: number; y: number } | null {
+    const resource = this.nearestWorldResourceToColony();
+    if (resource) {
+      return this.clampPlayerPosition(resource.x - 30, resource.y - 12);
+    }
+    const point = this.nearestWorldEntityToColony(["building", "object"]);
+    if (point) {
+      return this.clampPlayerPosition(point.x - 34, point.y - 4);
+    }
+    return this.clampPlayerPosition(this.colony.x - 42, this.playerFloorY(this.colony.x - 42));
+  }
+
+  private nearestWorldResourceToColony(): { x: number; y: number } | null {
+    let best: { x: number; y: number; d: number } | null = null;
+    for (const tile of this.snapshot.world.tiles) {
+      if (!tile.resource || tile.amount <= 0) continue;
+      const x = tile.x * TILE_SIZE + TILE_SIZE / 2;
+      const y = tile.y * TILE_SIZE + TILE_SIZE / 2;
+      const d = dist(this.colony.x, this.colony.y, x, y);
+      if (!best || d < best.d) best = { x, y, d };
+    }
+    return best ? { x: best.x, y: best.y } : null;
+  }
+
+  private nearestWorldEntityToColony(kinds: CivEntity["kind"][]): { x: number; y: number } | null {
+    let best: { x: number; y: number; d: number } | null = null;
+    for (const entity of this.snapshot.world.entities) {
+      if (!kinds.includes(entity.kind)) continue;
+      const x = entity.x * TILE_SIZE + TILE_SIZE / 2;
+      const y = entity.y * TILE_SIZE + TILE_SIZE / 2 - 6;
+      const d = dist(this.colony.x, this.colony.y, x, y);
+      if (!best || d < best.d) best = { x, y, d };
+    }
+    return best ? { x: best.x, y: best.y } : null;
   }
 
   private clampPlayerPosition(x: number, y: number) {
