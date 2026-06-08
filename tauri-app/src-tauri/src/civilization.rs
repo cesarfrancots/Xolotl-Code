@@ -23,6 +23,8 @@ const WATER_FLOOR_Y: u32 = 50;
 const DEEP_WATER_Y: u32 = 34;
 
 const EGG_HATCH_TURNS: u32 = 3;
+const SHOP_BUILDING_INITIAL_HEALTH: f32 = 45.0;
+const SHOP_BUILDING_PROGRESS_PER_TURN: f32 = 30.0;
 const ELDER_BASE_AGE: f32 = 22.0;
 
 // GEN-02 selection-pressure tuning. `gene_mortality_modifier` turns a mismatch
@@ -413,9 +415,9 @@ pub struct CivEntity {
     #[serde(default)]
     pub parents: Vec<String>,
     /// What this entity is doing this turn — drives the renderer's action
-    /// animation. Emitted values: "" (ambient swim) | "gather" | "build" |
-    /// "explore" | "play" | "rest" | "egg". The renderer also handles "eat" if a
-    /// future turn emits it.
+    /// animation. Emitted values include "" (ambient swim), "gather", "build",
+    /// "explore", "play", "rest", "egg", and building-side "construction".
+    /// The renderer also handles "eat" if a future turn emits it.
     #[serde(default)]
     pub activity: String,
     /// Optional tile the entity swims toward while performing its activity.
@@ -984,6 +986,7 @@ pub async fn advance_civ_turn(app_handle: AppHandle, id: String) -> Result<Strin
             }
         }
     }
+    progress_shop_construction(&mut snapshot);
     tick_modifiers(&mut snapshot);
     rescore_all_civs(&mut snapshot);
     snapshot.updated_at = unix_timestamp_secs();
@@ -1865,6 +1868,40 @@ fn assign_activity(
         e.target_x = target.map(|(tx, _)| tx);
         e.target_y = target.map(|(_, ty)| ty);
         assigned += 1;
+    }
+}
+
+fn progress_shop_construction(snapshot: &mut CivSessionSnapshot) {
+    let mut active_sites: Vec<(String, u32, u32)> = Vec::new();
+    let mut completed: Vec<(String, String)> = Vec::new();
+    for entity in snapshot
+        .world
+        .entities
+        .iter_mut()
+        .filter(|entity| entity.kind == "building" && entity.activity == "construction")
+    {
+        entity.health = (entity.health + SHOP_BUILDING_PROGRESS_PER_TURN).min(100.0);
+        if entity.health >= 95.0 {
+            entity.health = 100.0;
+            entity.activity = "built".to_string();
+            if let Some(civ_id) = entity.civ_id.clone() {
+                completed.push((civ_id, entity.name.clone()));
+            }
+        } else if let Some(civ_id) = entity.civ_id.clone() {
+            active_sites.push((civ_id, entity.x, entity.y));
+        }
+    }
+    for (civ_id, x, y) in active_sites {
+        assign_activity(snapshot, &civ_id, 2, "build", Some((x, y)));
+    }
+    for (civ_id, name) in completed {
+        let who = civ_label(snapshot, &civ_id);
+        push_log(
+            snapshot,
+            "construction",
+            "Construction complete",
+            &format!("{who} finished building {name}."),
+        );
     }
 }
 
@@ -5803,13 +5840,14 @@ fn spawn_shop_building(
         name: name.to_string(),
         x,
         y,
-        health: 100.0,
+        health: SHOP_BUILDING_INITIAL_HEALTH,
         mood: 100.0,
         role: role.to_string(),
         civ_id: Some(civ_id.to_string()),
-        activity: "built".to_string(),
+        activity: "construction".to_string(),
         ..Default::default()
     });
+    assign_activity(snapshot, civ_id, 2, "build", Some((x, y)));
     Ok(name.to_string())
 }
 
@@ -7517,11 +7555,45 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(snapshot.world.entities.iter().any(|entity| {
-            entity.kind == "building"
-                && entity.role == "farm"
-                && entity.civ_id.as_deref() == Some(cid.as_str())
-        }));
+        let farm = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| {
+                entity.kind == "building"
+                    && entity.role == "farm"
+                    && entity.civ_id.as_deref() == Some(cid.as_str())
+            })
+            .expect("farm kit should spawn a construction site");
+        assert_eq!(farm.activity, "construction");
+        assert!(farm.health < 100.0);
+        let builders = snapshot
+            .world
+            .entities
+            .iter()
+            .filter(|entity| {
+                entity.kind == "axolotl"
+                    && entity.civ_id.as_deref() == Some(cid.as_str())
+                    && entity.activity == "build"
+                    && entity.target_x == Some(farm.x)
+                    && entity.target_y == Some(farm.y)
+            })
+            .count();
+        assert!(builders >= 1);
+        progress_shop_construction(&mut snapshot);
+        progress_shop_construction(&mut snapshot);
+        let farm = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| {
+                entity.kind == "building"
+                    && entity.role == "farm"
+                    && entity.civ_id.as_deref() == Some(cid.as_str())
+            })
+            .expect("farm site should persist after construction");
+        assert_eq!(farm.activity, "built");
+        assert_eq!(farm.health, 100.0);
     }
 
     #[test]

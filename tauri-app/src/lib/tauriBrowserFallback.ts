@@ -283,6 +283,8 @@ const DEFAULT_PREVIEW_CIV_SESSION = {
 const PREVIEW_CIV_STORAGE_KEY = "xolotl-preview-civ-session-v1";
 const CIV_BROWSER_PREVIEW_SNAPSHOT_KEY = "xolotl-preview-civ-store-snapshot-v1";
 const PREVIEW_CIV_STORAGE_VERSION = 1;
+const PREVIEW_SHOP_BUILDING_INITIAL_HEALTH = 45;
+const PREVIEW_SHOP_BUILDING_PROGRESS_PER_TURN = 30;
 type PreviewCivSession = typeof DEFAULT_PREVIEW_CIV_SESSION & { civs?: Record<string, unknown>[] };
 
 let previewCivSession: PreviewCivSession = loadPreviewCivSession();
@@ -566,10 +568,48 @@ function previewLivingPopulation() {
   )).length;
 }
 
+function assignPreviewBuilders(x: number, y: number) {
+  let assigned = 0;
+  for (const entity of previewCivSession.world.entities) {
+    if (assigned >= 2) break;
+    if (entity.kind !== "axolotl" || entity.stage === "egg") continue;
+    const directed = entity as typeof entity & { activity?: string; target_x?: number; target_y?: number };
+    directed.activity = "build";
+    directed.target_x = x;
+    directed.target_y = y;
+    assigned += 1;
+  }
+}
+
+function advancePreviewConstruction(nextTurn: number, createdAt: number) {
+  const logs: typeof previewCivSession.log = [];
+  const activeSites: Array<{ x: number; y: number }> = [];
+  for (const entity of previewCivSession.world.entities) {
+    if (entity.kind !== "building" || entity.activity !== "construction") continue;
+    entity.health = Math.min(100, entity.health + PREVIEW_SHOP_BUILDING_PROGRESS_PER_TURN);
+    if (entity.health >= 95) {
+      entity.health = 100;
+      entity.activity = "built";
+      logs.push({
+        turn: nextTurn,
+        kind: "construction",
+        title: "Construction complete",
+        body: `${entity.name} is ready.`,
+        created_at: createdAt + logs.length,
+      });
+    } else {
+      activeSites.push({ x: entity.x, y: entity.y });
+    }
+  }
+  for (const site of activeSites) assignPreviewBuilders(site.x, site.y);
+  return logs;
+}
+
 function advancePreviewCiv() {
   const nextTurn = previewCivSession.turn + 1;
   const nextUpdatedAt = previewCivSession.updated_at + 10;
   const lifecycleLog = advancePreviewEggLifecycle(nextTurn, nextUpdatedAt + 1);
+  const constructionLog = advancePreviewConstruction(nextTurn, nextUpdatedAt + 2);
   const population = previewLivingPopulation();
   previewCivSession = {
     ...previewCivSession,
@@ -604,6 +644,7 @@ function advancePreviewCiv() {
         created_at: nextUpdatedAt,
       },
       ...lifecycleLog,
+      ...constructionLog,
     ].slice(-80),
   };
   persistPreviewCivSession();
@@ -1303,18 +1344,22 @@ function applyPreviewCivIntervention(args?: unknown) {
         logBody = `bought ${rare ? "Rare Egg" : "Common Egg"} for ${cost} pearls`;
       } else {
         const role = target === "workshop_kit" ? "workshop" : target === "storage_kit" ? "storage" : "farm";
+        const name = role === "workshop" ? "Tool Workshop" : role === "storage" ? "Shell Cache" : "Moss Farm";
+        const x = Math.min(PREVIEW_WORLD.width - 2, PREVIEW_HOME_X + 5 + previewCivSession.world.entities.length % 5);
+        const y = PREVIEW_HOME_FLOOR - 1;
         previewCivSession.world.entities.push({
           id: `shop-${role}-preview-${previewCivSession.world.entities.length}`,
           kind: "building",
-          name: role === "workshop" ? "Tool Workshop" : role === "storage" ? "Shell Cache" : "Moss Farm",
-          x: Math.min(PREVIEW_WORLD.width - 2, PREVIEW_HOME_X + 5 + previewCivSession.world.entities.length % 5),
-          y: PREVIEW_HOME_FLOOR - 1,
-          health: 100,
+          name,
+          x,
+          y,
+          health: PREVIEW_SHOP_BUILDING_INITIAL_HEALTH,
           mood: 100,
           role,
-          activity: "built",
+          activity: "construction",
         } as (typeof previewCivSession.world.entities)[number]);
-        logBody = `bought ${target} for ${cost} pearls`;
+        assignPreviewBuilders(x, y);
+        logBody = `bought ${name} kit for ${cost} pearls; construction started near ${x},${y}`;
       }
     }
   }

@@ -1367,3 +1367,34 @@ Next TODO:
 - Continue playtesting task/build/shop flow after the new target prompt, especially whether purchased buildings visibly send axolotls to construction sites.
 - Add visible world-space paths for shop/building construction jobs after purchases, so newly bought kits send axolotls to the build site.
 - Add a visible hatch ceremony/tutorial beat after egg hatching so the hatch animation has a clear player-facing movement sequence.
+
+2026-06-08 shop construction gameplay pass:
+- Playtested the Play-mode shop/build flow after the target prompt:
+  - Buying `Farm Kit` spent pearls and spawned `Moss Farm`, but the building was instantly `activity=built`.
+  - No axolotl had a build destination and `animated_entities` reported no build target, so the purchase felt like an admin mutation instead of a civ-building action.
+- Added real construction-state behavior:
+  - Shop building kits now spawn as `activity=construction` at 45 health instead of fully built.
+  - The owning colony immediately assigns builders to the site with `activity=build` and target tile coordinates.
+  - Construction progresses by 30 health on later turns and becomes `activity=built` at 100 health.
+  - Both Rust session logic and the browser-preview fallback implement the same loop.
+- Added player-facing construction visuals and alerts:
+  - Construction buildings render with scaffold/progress overlay.
+  - `render_game_to_text().visible_entities` now exposes entity `health`, so automation can verify construction progress.
+  - New `Construction complete` log entries trigger HUD alerts and player messages.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-shop-construction-playtest/04-farm-construction-started-clean.png`
+  - `tauri-app/output/web-game/civ-shop-construction-playtest/05-farm-construction-progress-clean.png`
+  - `tauri-app/output/web-game/civ-shop-construction-playtest/06-farm-construction-complete-alert.png`
+  - Smoke text-state showed Moss Farm `construction` health 45 after purchase, 75 after one turn, then `built` health 100 after two turns; alert stack showed `Construction complete`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (64 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml shop_purchase_spends_pearls_and_spawns_rewards --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Continue playtesting the hatchery loop: buying/incubating eggs should have a visible hatch ceremony and clearer playable care prompts.
+- Consider adding Play HUD goals for building kits after the first egg/lure milestones, so the player sees construction as part of the main progression rather than only in the drawer shop.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.

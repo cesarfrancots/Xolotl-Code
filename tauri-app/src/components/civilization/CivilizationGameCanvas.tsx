@@ -930,12 +930,33 @@ class CivPhaserScene extends Phaser.Scene {
       const buildingInfo = this.civColorById.get(entity.civ_id ?? "");
       const buildingTint = civTintFor(buildingInfo, GREY_TINT);
       if (buildingTint != null) img.setTint(buildingTint);
+      if (this.isConstructionSite(entity)) this.drawConstructionOverlay(layer, entity, px, py, big);
       if (!this.knownBuildings.has(entity.id)) {
         this.spawnPulse(px, py - 6, 0xaee9ff);
         this.tweens.add({ targets: img, scaleX: img.scaleX * 1.12, scaleY: img.scaleY * 1.12, yoyo: true, duration: 240, ease: "Sine.out" });
       }
     }
     this.knownBuildings = seen;
+  }
+
+  private isConstructionSite(entity: CivEntity) {
+    return entity.kind === "building" && (entity.activity === "construction" || (entity.health ?? 100) < 95);
+  }
+
+  private drawConstructionOverlay(layer: Phaser.GameObjects.Container, entity: CivEntity, px: number, py: number, size: number) {
+    const progress = Phaser.Math.Clamp((entity.health ?? 0) / 100, 0, 1);
+    const g = this.add.graphics();
+    g.setDepth(entity.y * 0.02 + 0.36);
+    g.lineStyle(2, 0x061114, 0.78);
+    g.strokeRoundedRect(px - size * 0.38, py - size * 0.56, size * 0.76, size * 0.68, 5);
+    g.lineStyle(1.6, 0xffd36e, 0.86);
+    g.lineBetween(px - size * 0.36, py - size * 0.46, px + size * 0.36, py - size * 0.12);
+    g.lineBetween(px + size * 0.36, py - size * 0.46, px - size * 0.36, py - size * 0.12);
+    g.fillStyle(0x061114, 0.72);
+    g.fillRoundedRect(px - 18, py + size * 0.04, 36, 6, 3);
+    g.fillStyle(0x72e6a4, 0.92);
+    g.fillRoundedRect(px - 17, py + size * 0.04 + 1, 34 * progress, 4, 2);
+    layer.add(g);
   }
 
   private drawWorldObject(layer: Phaser.GameObjects.Container, entity: CivEntity) {
@@ -4163,6 +4184,7 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
         level: creature ? axolotlLevel(entity) : null,
         gene_potential: creature ? genePotential(entity) : null,
         hatches_in: creature ? hatchTurnsRemaining(entity) : null,
+        health: Math.round(entity.health ?? 0),
         sex: entity.sex,
         age: entity.age,
         accessories: entity.accessories,

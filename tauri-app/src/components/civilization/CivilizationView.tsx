@@ -168,6 +168,11 @@ function isShopItemId(id: string): id is ShopItemId {
   return SHOP_ITEMS.some((item) => item.id === id);
 }
 
+function shopPurchaseAlertDetail(item: NonNullable<ReturnType<typeof shopItemById>>) {
+  if (item.id.endsWith("_kit")) return `-${item.cost} ${resourceLabel(CURRENCY_RESOURCE)}. Construction started near the colony.`;
+  return `-${item.cost} ${resourceLabel(CURRENCY_RESOURCE)}. ${item.detail}.`;
+}
+
 function shopGoalsForPearls(pearls: number): ShopGoal[] {
   const safePearls = Math.max(0, Math.floor(pearls));
   return PLAY_SHOP_GOAL_ITEMS
@@ -388,6 +393,8 @@ export function CivilizationView() {
   const hatchAlertSeenKeyRef = useRef<string | null>(null);
   const discoveryAlertSessionRef = useRef<string | null>(null);
   const discoveryAlertSeenKeyRef = useRef<string | null>(null);
+  const constructionAlertSessionRef = useRef<string | null>(null);
+  const constructionAlertSeenKeyRef = useRef<string | null>(null);
   const liveTargetKeyRef = useRef("");
 
   useEffect(() => {
@@ -499,6 +506,22 @@ export function CivilizationView() {
     const detail = rareDiscoveryAlertDetail(discoveryLog);
     setPlayerMessage(detail);
     pushGameAlert("rare", "Rare discovery", detail);
+  }, [snapshot]);
+  useEffect(() => {
+    const sessionId = snapshot?.id ?? null;
+    if (!snapshot || !sessionId) return;
+    const constructionLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Construction complete") ?? null;
+    const constructionKey = constructionLog ? `${sessionId}:${constructionLog.turn}:${constructionLog.created_at}:${constructionLog.body}` : null;
+    if (constructionAlertSessionRef.current !== sessionId) {
+      constructionAlertSessionRef.current = sessionId;
+      constructionAlertSeenKeyRef.current = constructionKey;
+      return;
+    }
+    if (!constructionLog || !constructionKey || constructionAlertSeenKeyRef.current === constructionKey) return;
+    constructionAlertSeenKeyRef.current = constructionKey;
+    const detail = cleanCivLogBody(constructionLog);
+    setPlayerMessage(detail);
+    pushGameAlert("task", "Construction complete", detail);
   }, [snapshot]);
   // Drive the camera from the selection signal (REN-02): a selected civ (e.g. a
   // leaderboard row click, Phase 1) focuses that civ; clearing it frames all civs.
@@ -1081,7 +1104,7 @@ export function CivilizationView() {
       return;
     }
     sendIntervention({ kind: "shop_purchase", target: item, amount: 1, x: spawnX });
-    pushGameAlert(meta.tone, meta.label, `-${meta.cost} ${resourceLabel(CURRENCY_RESOURCE)}. ${meta.detail}.`);
+    pushGameAlert(meta.tone, meta.label, shopPurchaseAlertDetail(meta));
     recordAdmin(`Bought ${meta.label} for ${meta.cost} ${resourceLabel(CURRENCY_RESOURCE)}.`);
   }
 
