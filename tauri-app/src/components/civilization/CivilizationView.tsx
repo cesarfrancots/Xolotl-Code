@@ -439,6 +439,8 @@ export function CivilizationView() {
   const playModeAutoPossessedSessionRef = useRef<string | null>(null);
   const hatchAlertSessionRef = useRef<string | null>(null);
   const hatchAlertSeenKeyRef = useRef<string | null>(null);
+  const growthAlertSessionRef = useRef<string | null>(null);
+  const growthAlertSeenKeyRef = useRef<string | null>(null);
   const discoveryAlertSessionRef = useRef<string | null>(null);
   const discoveryAlertSeenKeyRef = useRef<string | null>(null);
   const constructionAlertSessionRef = useRef<string | null>(null);
@@ -543,6 +545,22 @@ export function CivilizationView() {
     setPlayerMessage(detail);
     pushGameAlert("world", "Hatchling emerged", detail);
   }, [snapshot, activeCiv]);
+  useEffect(() => {
+    const sessionId = snapshot?.id ?? null;
+    if (!snapshot || !sessionId) return;
+    const growthLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Axolotl grew") ?? null;
+    const growthKey = growthLog ? `${sessionId}:${growthLog.turn}:${growthLog.created_at}:${growthLog.body}` : null;
+    if (growthAlertSessionRef.current !== sessionId) {
+      growthAlertSessionRef.current = sessionId;
+      growthAlertSeenKeyRef.current = growthKey;
+      return;
+    }
+    if (!growthLog || !growthKey || growthAlertSeenKeyRef.current === growthKey) return;
+    growthAlertSeenKeyRef.current = growthKey;
+    const detail = growthAlertDetail(growthLog);
+    setPlayerMessage(detail);
+    pushGameAlert("world", "Axolotl grew", detail);
+  }, [snapshot]);
   useEffect(() => {
     const sessionId = snapshot?.id ?? null;
     if (!snapshot || !sessionId) return;
@@ -3535,6 +3553,17 @@ function rareDiscoveryAlertDetail(entry: CivLogEntry) {
     .replace(/\s*reward_resource=.*$/, "")
     .replace(/;$/, "")
     .trim();
+}
+
+function growthAlertDetail(entry: CivLogEntry) {
+  const detail = cleanCivLogBody(entry)
+    .replace(/^target=[^;]+;\s*/, "")
+    .replace(/;$/, "")
+    .trim();
+  const match = detail.match(/^(.+?) grew from ([a-z_]+) to ([a-z_]+); age=(\d+)/i);
+  if (!match) return detail;
+  const [, name, , nextStage, age] = match;
+  return `${name} became ${STAGE_LABEL[nextStage] ?? nextStage}. Age ${age}.`;
 }
 
 function playerResourceTarget(resource: string) {

@@ -1491,3 +1491,39 @@ Next TODO:
 - Continue playtesting hatchling growth at age 3/7 so the player sees clear stage/level progression from hatchling to juvenile/adult.
 - Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
 - Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 hatchling growth milestone pass:
+- Playtested the hatchling growth lifecycle from the preview egg:
+  - Turn 5 hatches `Hatchling 1` as a mythic level 8 hatchling with feed care available.
+  - Turn 6/7 keeps it as a hatchling in normal `play` activity.
+  - Turn 8 matures it into a juvenile at age 3 and level 12.
+- Fixed silent growth:
+  - Rust lifecycle now logs forward maturation with `Axolotl grew` and target id/body details.
+  - Browser preview mirrors that growth log, including `recent_growth` in `render_game_to_text`.
+  - Play HUD now surfaces a game alert and player message such as `Hatchling 1 became Juvenile. Age 3.`
+- Fixed related lifecycle animation state:
+  - One-turn `hatch` activity now clears on the next lifecycle tick, like `fed`, so young axolotls return to `play`.
+  - Preview elder staging now matches the Rust elder threshold instead of normalizing seeded elders backward to adults.
+  - Growth alerts only fire for forward stage progression, avoiding bogus cleanup/regression alerts.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/01-initial-play.png`
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/02-one-turn-before-hatch.png`
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/03-hatch-ceremony.png`
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/04-hatchling-age1.png`
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/05-hatchling-age2.png`
+  - `tauri-app/output/web-game/civ-growth-milestone-playtest/06-juvenile-growth-alert.png`
+  - Smoke text-state showed turn 8: `stage=juvenile`, `age=3`, `level=12`, `activity=play`, `recent_growth` body containing `grew from hatchling to juvenile`, no elder regression alert, and the seeded elder remained `elder`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (74 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml life_cycle_logs_stage_growth --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+  - `graphify update .` rebuilt the graph after code edits.
+- Known tool limitation:
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for actual browser interaction.
+
+Next TODO:
+- Continue playtesting the adult threshold at age 7 so juvenile -> adult growth is equally clear in HUD/text-state and animation.
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.

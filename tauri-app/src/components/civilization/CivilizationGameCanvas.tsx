@@ -4157,6 +4157,7 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
     });
   const recentHatchLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Eggs hatched") ?? null;
   const recentCareLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Hatchling fed") ?? null;
+  const recentGrowthLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Axolotl grew") ?? null;
   const recentDiscoveryLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Rare discovery") ?? null;
   return JSON.stringify({
     coordinate_system: "origin top-left; x right; y down; tiles are 16px",
@@ -4218,6 +4219,10 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
       recent_care: recentCareLog ? {
         turn: recentCareLog.turn,
         body: recentCareLog.body,
+      } : null,
+      recent_growth: recentGrowthLog ? {
+        turn: recentGrowthLog.turn,
+        body: recentGrowthLog.body,
       } : null,
       eggs: eggs.map((entity) => {
         const hatchesIn = hatchTurnsRemaining(entity);

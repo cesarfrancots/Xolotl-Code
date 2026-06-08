@@ -2869,6 +2869,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
     // selection ones (never an elder death) when it would otherwise wipe the civ.
     let mut deaths: Vec<String> = Vec::new();
     let mut selection_deaths: Vec<String> = Vec::new();
+    let mut growth_events: Vec<(String, String, String, String, u32)> = Vec::new();
     for entity in snapshot
         .world
         .entities
@@ -2877,13 +2878,26 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
     {
         let longevity = entity.genes.as_ref().map_or(1.0, |g| g.longevity);
         let size_gene = entity.genes.as_ref().map_or(1.0, |g| g.size_gene);
+        let previous_stage = entity.stage.clone();
         entity.age = entity.age.saturating_add(1);
         entity.stage = stage_for_age(entity.age, longevity);
         entity.size = size_for_stage(&entity.stage, size_gene);
         entity.role = role_for_stage(&entity.stage);
         entity.health = health;
         entity.mood = morale;
-        if entity.activity == "fed" {
+        if !previous_stage.is_empty()
+            && previous_stage != entity.stage
+            && stage_rank(&entity.stage) > stage_rank(&previous_stage)
+        {
+            growth_events.push((
+                entity.id.clone(),
+                entity.name.clone(),
+                previous_stage,
+                entity.stage.clone(),
+                entity.age,
+            ));
+        }
+        if entity.activity == "fed" || entity.activity == "hatch" {
             entity.activity = String::new();
         }
         // Idle young play; idle elders rest. Working axolotls keep their activity.
@@ -2910,6 +2924,14 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
                 }
             }
         }
+    }
+    for (id, name, from_stage, to_stage, age) in &growth_events {
+        push_log(
+            snapshot,
+            "lifecycle",
+            "Axolotl grew",
+            &format!("target={id}; {name} grew from {from_stage} to {to_stage}; age={age};"),
+        );
     }
     // Survivor floor (T-05-06): selection (plus elders) must never drop this civ's
     // living non-egg axolotls below 1 this turn. Count current living, subtract the
@@ -5644,6 +5666,16 @@ fn stage_for_age(age: u32, longevity: f32) -> String {
     .to_string()
 }
 
+fn stage_rank(stage: &str) -> u8 {
+    match stage {
+        "hatchling" => 1,
+        "juvenile" => 2,
+        "adult" => 3,
+        "elder" => 4,
+        _ => 0,
+    }
+}
+
 fn size_for_stage(stage: &str, size_gene: f32) -> f32 {
     let base = match stage {
         "hatchling" => 0.5,
@@ -8110,6 +8142,49 @@ mod tests {
     }
 
     #[test]
+    fn life_cycle_logs_stage_growth() {
+        let mut s = test_snapshot("growth-test", "Growth", "mock", 7, 1);
+        let cid = first_civ_id(&s);
+        let axo_id = s
+            .world
+            .entities
+            .iter()
+            .find(|e| e.kind == "axolotl")
+            .unwrap()
+            .id
+            .clone();
+        {
+            let axo = s
+                .world
+                .entities
+                .iter_mut()
+                .find(|e| e.id == axo_id)
+                .unwrap();
+            axo.name = "Sprout".to_string();
+            axo.age = 2;
+            axo.stage = "hatchling".to_string();
+            axo.role = "juvenile".to_string();
+            axo.activity = "hatch".to_string();
+        }
+
+        run_life_cycle(&mut s, &cid);
+
+        let grown = s.world.entities.iter().find(|e| e.id == axo_id).unwrap();
+        assert_eq!(grown.age, 3);
+        assert_eq!(grown.stage, "juvenile");
+        assert_eq!(grown.role, "juvenile");
+        assert_eq!(grown.activity, "play");
+        assert!(s.log.iter().any(|entry| {
+            entry.title == "Axolotl grew"
+                && entry.body.contains(&format!("target={axo_id}"))
+                && entry
+                    .body
+                    .contains("Sprout grew from hatchling to juvenile")
+                && entry.body.contains("age=3")
+        }));
+    }
+
+    #[test]
     fn equip_accessory_round_trips() {
         let mut s = test_snapshot("acc-test", "Acc", "mock", 5, 1);
         let id = s
@@ -10031,7 +10106,10 @@ mod tests {
             .find(|e| e.id == "egg-hatch-test")
             .expect("egg entity must still exist");
         assert_eq!(hatched.kind, "axolotl", "egg should have hatched");
-        assert_eq!(hatched.activity, "hatch", "new hatchlings should keep a visible hatch ceremony state");
+        assert_eq!(
+            hatched.activity, "hatch",
+            "new hatchlings should keep a visible hatch ceremony state"
+        );
         assert_eq!(hatched.pattern, expected);
         assert_eq!(hatched.pattern, "marbled");
         assert!(!hatched.pattern.is_empty(), "hatched pattern must be set");

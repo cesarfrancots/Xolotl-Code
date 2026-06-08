@@ -283,6 +283,7 @@ const DEFAULT_PREVIEW_CIV_SESSION = {
 const PREVIEW_CIV_STORAGE_KEY = "xolotl-preview-civ-session-v1";
 const CIV_BROWSER_PREVIEW_SNAPSHOT_KEY = "xolotl-preview-civ-store-snapshot-v1";
 const PREVIEW_CIV_STORAGE_VERSION = 1;
+const PREVIEW_ELDER_BASE_AGE = 22;
 const PREVIEW_SHOP_BUILDING_INITIAL_HEALTH = 45;
 const PREVIEW_SHOP_BUILDING_PROGRESS_PER_TURN = 30;
 type PreviewCivSession = typeof DEFAULT_PREVIEW_CIV_SESSION & { civs?: Record<string, unknown>[] };
@@ -581,9 +582,19 @@ function assignPreviewBuilders(x: number, y: number) {
   }
 }
 
-function advancePreviewAxolotlLifecycle() {
+function previewStageRank(stage: string | null | undefined) {
+  if (stage === "hatchling") return 1;
+  if (stage === "juvenile") return 2;
+  if (stage === "adult") return 3;
+  if (stage === "elder") return 4;
+  return 0;
+}
+
+function advancePreviewAxolotlLifecycle(nextTurn: number, createdAt: number) {
+  const logs: typeof previewCivSession.log = [];
   for (const entity of previewCivSession.world.entities) {
     if (entity.kind !== "axolotl" || entity.stage === "egg") continue;
+    const previousStage = entity.stage ?? "";
     entity.age = Math.max(0, Math.floor(entity.age ?? 0) + 1);
     if (entity.age < 3) {
       entity.stage = "hatchling";
@@ -593,12 +604,25 @@ function advancePreviewAxolotlLifecycle() {
       entity.stage = "juvenile";
       entity.role = "juvenile";
       entity.size = 0.72;
-    } else {
+    } else if (entity.age < PREVIEW_ELDER_BASE_AGE) {
       entity.stage = "adult";
-      entity.role = entity.role === "elder" ? "elder" : "worker";
+      entity.role = "worker";
       entity.size = 1;
+    } else {
+      entity.stage = "elder";
+      entity.role = "elder";
+      entity.size = 1.06;
     }
-    if (entity.activity === "fed") entity.activity = "";
+    if (previousStage && previousStage !== entity.stage && previewStageRank(entity.stage) > previewStageRank(previousStage)) {
+      logs.push({
+        turn: nextTurn,
+        kind: "lifecycle",
+        title: "Axolotl grew",
+        body: `target=${entity.id}; ${entity.name || "Axolotl"} grew from ${previousStage} to ${entity.stage}; age=${entity.age};`,
+        created_at: createdAt + logs.length,
+      });
+    }
+    if (entity.activity === "fed" || entity.activity === "hatch") entity.activity = "";
     if (!entity.activity) {
       entity.activity = entity.stage === "hatchling" || entity.stage === "juvenile"
         ? "play"
@@ -607,6 +631,7 @@ function advancePreviewAxolotlLifecycle() {
           : "";
     }
   }
+  return logs;
 }
 
 function advancePreviewConstruction(nextTurn: number, createdAt: number) {
@@ -636,9 +661,9 @@ function advancePreviewConstruction(nextTurn: number, createdAt: number) {
 function advancePreviewCiv() {
   const nextTurn = previewCivSession.turn + 1;
   const nextUpdatedAt = previewCivSession.updated_at + 10;
-  advancePreviewAxolotlLifecycle();
-  const lifecycleLog = advancePreviewEggLifecycle(nextTurn, nextUpdatedAt + 1);
-  const constructionLog = advancePreviewConstruction(nextTurn, nextUpdatedAt + 2);
+  const growthLog = advancePreviewAxolotlLifecycle(nextTurn, nextUpdatedAt + 1);
+  const lifecycleLog = advancePreviewEggLifecycle(nextTurn, nextUpdatedAt + 1 + growthLog.length);
+  const constructionLog = advancePreviewConstruction(nextTurn, nextUpdatedAt + 2 + growthLog.length + lifecycleLog.length);
   const population = previewLivingPopulation();
   previewCivSession = {
     ...previewCivSession,
@@ -672,6 +697,7 @@ function advancePreviewCiv() {
         body: "The preview model gathered food and kept water reserves stable.",
         created_at: nextUpdatedAt,
       },
+      ...growthLog,
       ...lifecycleLog,
       ...constructionLog,
     ].slice(-80),
