@@ -548,7 +548,7 @@ function advancePreviewEggLifecycle(nextTurn: number, createdAt: number) {
     const patterned = entity as typeof entity & { pattern?: string | null };
     patterned.pattern = patterned.pattern ?? "plain";
     entity.hatches_in = null;
-    entity.activity = "play";
+    entity.activity = "hatch";
     entity.genes = genes;
     hatched += 1;
   }

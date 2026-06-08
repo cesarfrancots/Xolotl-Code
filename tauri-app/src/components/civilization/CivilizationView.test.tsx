@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CivilizationView, playerTargetPrompt } from "./CivilizationView";
+import { CivilizationView, hatchlingCareTarget, playerTargetPrompt } from "./CivilizationView";
 import { normalizeCivSnapshot, useCivStore } from "../../stores/civStore";
-import type { CivLogEntry, CivSessionConfig, CivSessionSnapshot } from "../../bindings";
+import type { CivEntity, CivLogEntry, CivSessionConfig, CivSessionSnapshot } from "../../bindings";
 
 const createCivSession = vi.fn();
 const setCivController = vi.fn();
@@ -451,6 +451,63 @@ describe("CivilizationView Play shop goals", () => {
     expect(within(goals).getByRole("button", { name: "Buy Common Egg" })).toHaveProperty("disabled", false);
     expect(within(goals).getByRole("button", { name: "Buy Rare Lure" })).toHaveProperty("disabled", false);
     expect(within(goals).getByRole("button", { name: "Rare Egg needs 18 more pearls" })).toHaveProperty("disabled", true);
+  });
+});
+
+describe("CivilizationView hatchling care", () => {
+  it("prioritizes a fresh hatch ceremony hatchling and exposes feed readiness", () => {
+    const snapshot = shopSnapshot(4);
+    const civ = snapshot.civs?.[0]!;
+    snapshot.world.entities.push(
+      {
+        id: "older-hatchling",
+        kind: "axolotl",
+        name: "Older Hatchling",
+        x: 8,
+        y: 9,
+        health: 80,
+        mood: 75,
+        role: "juvenile",
+        civ_id: civ.id,
+        morph: "wild",
+        pattern: "plain",
+        stage: "hatchling",
+        sex: "f",
+        age: 3,
+        activity: "play",
+      } as CivEntity,
+      {
+        id: "fresh-hatchling",
+        kind: "axolotl",
+        name: "Fresh Hatchling",
+        x: 10,
+        y: 12,
+        health: 95,
+        mood: 88,
+        role: "juvenile",
+        civ_id: civ.id,
+        morph: "mystic",
+        pattern: "marbled",
+        stage: "hatchling",
+        sex: "m",
+        age: 0,
+        activity: "hatch",
+      } as CivEntity,
+    );
+
+    expect(hatchlingCareTarget(snapshot, civ)).toMatchObject({
+      id: "fresh-hatchling",
+      name: "Fresh Hatchling",
+      rarity: "mythic",
+      rarityLabel: "Mythic",
+      level: 8,
+      health: 95,
+      mood: 88,
+      food: 20,
+      canFeed: true,
+      x: 10,
+      y: 12,
+    });
   });
 });
 

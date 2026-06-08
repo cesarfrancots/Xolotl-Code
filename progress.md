@@ -1398,3 +1398,36 @@ Next TODO:
 - Continue playtesting the hatchery loop: buying/incubating eggs should have a visible hatch ceremony and clearer playable care prompts.
 - Consider adding Play HUD goals for building kits after the first egg/lure milestones, so the player sees construction as part of the main progression rather than only in the drawer shop.
 - Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 hatch ceremony and care prompt pass:
+- Playtested the hatchery loop after construction:
+  - Eggs hatched correctly, but new hatchlings immediately switched to `activity=play`.
+  - The hatch animation expired quickly enough that a human tester could miss it, and the HUD only showed a generic hatch alert.
+- Added a durable hatch ceremony state:
+  - Rust lifecycle and browser-preview lifecycle now set new hatchlings to `activity=hatch`.
+  - Canvas hatch animation lasts longer, emits more hatch particles, and keeps hatchlings near the nest with a `hatch_ceremony` target instead of sending them into normal play patrol immediately.
+  - `render_game_to_text().hatchery.care_targets` now exposes hatchling id, rarity, level, health/mood, food cost, feed readiness, and tile position.
+- Added player-facing hatchling care UI:
+  - Play HUD now shows a compact `HATCHLING CARE` strip for the current hatchling.
+  - Hatch alerts now read as `Hatchling emerged` and direct the player to feed it.
+  - Added a focused helper test for hatchling-care targeting.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatch-ceremony-playtest/01-hatchery-initial.png`
+  - `tauri-app/output/web-game/civ-hatch-ceremony-playtest/02-one-turn-before-hatch.png`
+  - `tauri-app/output/web-game/civ-hatch-ceremony-playtest/03-hatch-ceremony-care.png`
+  - `tauri-app/output/web-game/civ-hatch-ceremony-playtest/04-hatch-ceremony-held.png`
+  - Smoke text-state showed `Hatchling 1` as mythic level 8 with `activity=hatch`, `animation=hatch`, `target_kind=hatch_ceremony`, and HUD `HATCHLING CARE` / `Feed ready`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (73 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml hatch_sets_expressed_pattern --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Known tool limitation:
+  - Direct `cargo test ... hatch_sets_expressed_pattern` compiled but the Windows test executable failed to launch with `STATUS_ENTRYPOINT_NOT_FOUND`; the `--no-run` compile gate passed.
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Continue playtesting hatchling care after pressing `E` near the new hatchling: feeding should visibly move the player/parent to the hatchling, update care logs, and possibly transition the hatchling from ceremony into play/rest.
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.

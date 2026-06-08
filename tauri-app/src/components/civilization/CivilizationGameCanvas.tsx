@@ -1148,6 +1148,9 @@ class CivPhaserScene extends Phaser.Scene {
     const px = entity.x * TILE_SIZE + TILE_SIZE / 2;
     const py = entity.y * TILE_SIZE + TILE_SIZE / 2 - 6;
     const isEgg = entity.kind === "egg" || entity.stage === "egg";
+    const hatchCeremony = !isEgg
+      && entity.stage === "hatchling"
+      && ((entity.activity ?? "") === "hatch" || (entity.age ?? 99) <= 1);
     const container = this.add.container(px, py);
     container.setDepth(8 + entity.y * 0.02);
     this.uiCam?.ignore(container);
@@ -1207,14 +1210,14 @@ class CivPhaserScene extends Phaser.Scene {
       glowMorph,
       born: this.elapsed,
       workSeed: (hashInt(entity.id) % 100) * 0.1,
-      animState: !isEgg && entity.stage === "hatchling" && (entity.age ?? 99) <= 1 ? "hatch" : "idle",
+      animState: hatchCeremony ? "hatch" : "idle",
       animStartedAt: this.elapsed,
-      animUntil: !isEgg && entity.stage === "hatchling" && (entity.age ?? 99) <= 1 ? this.elapsed + 1400 : this.elapsed,
+      animUntil: hatchCeremony ? this.elapsed + 5200 : this.elapsed,
       animHue: 0xffd4ec,
     };
     if (axo.animState === "hatch") {
       this.spawnPulse(px, py, axo.animHue);
-      for (let i = 0; i < 14; i += 1) {
+      for (let i = 0; i < 24; i += 1) {
         this.spawnParticle(px + rand(-8, 8), py + rand(-8, 8), rand(-0.24, 0.24), rand(-0.58, -0.08), i % 2 === 0 ? 0xffd4ec : 0xc7f2ff, true);
       }
     }
@@ -1385,6 +1388,7 @@ class CivPhaserScene extends Phaser.Scene {
     if (axo.activity === "eat") return "eat";
     if (axo.activity === "build") return "build";
     if (axo.activity === "rest") return "rest";
+    if (axo.activity === "hatch") return "hatch";
     if (axo.activity === "play") return "play";
     if (axo.targetX !== undefined && axo.targetY !== undefined) return "swim";
     const visualTarget = this.visualActivityTarget(axo, axo.activity);
@@ -1429,6 +1433,7 @@ class CivPhaserScene extends Phaser.Scene {
       case "eat": return loop(0.021);
       case "build":
       case "repair": return loop(0.024);
+      case "hatch": return loop(0.018);
       case "play": return loop(0.026);
       case "dash": return loop(0.036);
       case "jump": return 2;
@@ -1498,6 +1503,14 @@ class CivPhaserScene extends Phaser.Scene {
   private visualActivityTarget(axo: AxoSprite, activity: string): AxoVisualTarget | null {
     if (axo.isEgg || activity === "player" || activity === "rest") return null;
     const t = this.elapsed * 0.001 + axo.phase;
+    if (activity === "hatch") {
+      return this.clampedAxoTarget(
+        axo.homeX + Math.sin(t * 2.1 + axo.workSeed) * 8,
+        axo.homeY + Math.cos(t * 1.8) * 4,
+        "hatch_ceremony",
+        9,
+      );
+    }
     if (activity === "gather" || activity === "eat") {
       const resource = this.resourceActivityBase(axo);
       if (resource) {
@@ -4078,6 +4091,13 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
   )).length;
   const failedCivs = (snapshot.civs ?? []).filter((c) => c.alive === false || (c.population ?? 0) <= 0).length;
   const eggs = snapshot.world.entities.filter((entity) => isEggEntity(entity) && (!entity.civ_id || entity.civ_id === civ.id));
+  const hatchlingCareTargets = snapshot.world.entities
+    .filter((entity) => entity.kind === "axolotl" && entity.stage === "hatchling" && (!entity.civ_id || entity.civ_id === civ.id))
+    .sort((a, b) => {
+      const bHatching = (b.activity ?? "") === "hatch" ? 1 : 0;
+      const aHatching = (a.activity ?? "") === "hatch" ? 1 : 0;
+      return bHatching - aHatching || (a.age ?? 99) - (b.age ?? 99) || a.id.localeCompare(b.id);
+    });
   const recentHatchLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Eggs hatched") ?? null;
   const recentCareLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Hatchling fed") ?? null;
   const recentDiscoveryLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Rare discovery") ?? null;
@@ -4168,6 +4188,20 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
           y: entity.y,
         };
       }),
+      care_targets: hatchlingCareTargets.slice(0, 5).map((entity) => ({
+        id: entity.id,
+        name: entity.name,
+        rarity: axolotlRarity(entity),
+        rarity_label: rarityLabel(axolotlRarity(entity)),
+        level: axolotlLevel(entity),
+        health: Math.round(entity.health ?? 0),
+        mood: Math.round(entity.mood ?? 0),
+        activity: entity.activity,
+        food_cost: 1,
+        can_feed: (civ.resources?.food ?? 0) >= 1,
+        x: entity.x,
+        y: entity.y,
+      })),
     },
     visible_entities: snapshot.world.entities.map((entity) => {
       const livePlayer = possessedPlayer?.id === entity.id ? possessedPlayer.player : null;

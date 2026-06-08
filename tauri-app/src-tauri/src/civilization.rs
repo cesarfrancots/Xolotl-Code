@@ -2973,7 +2973,7 @@ fn run_life_cycle(snapshot: &mut CivSessionSnapshot, civ_id: &str) {
         entity.name = format!("Hatchling {}", short_id(&entity.id));
         entity.health = health;
         entity.mood = morale;
-        entity.activity = "play".to_string();
+        entity.activity = "hatch".to_string();
         entity.genes = Some(genes);
         hatched += 1;
     }
@@ -10018,6 +10018,7 @@ mod tests {
             .find(|e| e.id == "egg-hatch-test")
             .expect("egg entity must still exist");
         assert_eq!(hatched.kind, "axolotl", "egg should have hatched");
+        assert_eq!(hatched.activity, "hatch", "new hatchlings should keep a visible hatch ceremony state");
         assert_eq!(hatched.pattern, expected);
         assert_eq!(hatched.pattern, "marbled");
         assert!(!hatched.pattern.is_empty(), "hatched pattern must be set");

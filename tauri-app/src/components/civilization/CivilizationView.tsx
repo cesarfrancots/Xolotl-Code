@@ -130,6 +130,7 @@ const RESOURCES = [
 const BUILD_RESOURCES = ["stone", "clay", "wood", "fiber", "coral", "ice"];
 const RARE_RESOURCES = new Set(["glowshards", "ore", "coral", "sulfur", "amber"]);
 const CURRENCY_RESOURCE = "pearls";
+const HATCHLING_FEED_FOOD_COST = 1;
 const ACTION_COOLDOWNS_MS = {
   gather: 1200,
   mine: 1800,
@@ -328,6 +329,50 @@ type PlayerTargetPrompt = {
   keyAction: string;
 };
 
+type HatchlingCareTarget = {
+  id: string;
+  name: string;
+  rarity: AxolotlRarity;
+  rarityLabel: string;
+  level: number;
+  health: number;
+  mood: number;
+  food: number;
+  canFeed: boolean;
+  x: number;
+  y: number;
+};
+
+export function hatchlingCareTarget(
+  snapshot: CivSessionSnapshot | null | undefined,
+  civ: CivCivilization | null | undefined,
+): HatchlingCareTarget | null {
+  if (!snapshot || !civ) return null;
+  const hatchling = snapshot.world.entities
+    .filter((entity) => entity.kind === "axolotl" && entity.stage === "hatchling" && (!entity.civ_id || entity.civ_id === civ.id))
+    .sort((a, b) => {
+      const bHatching = (b.activity ?? "") === "hatch" ? 1 : 0;
+      const aHatching = (a.activity ?? "") === "hatch" ? 1 : 0;
+      return bHatching - aHatching || (a.age ?? 99) - (b.age ?? 99) || a.id.localeCompare(b.id);
+    })[0];
+  if (!hatchling) return null;
+  const rarity = axolotlRarity(hatchling);
+  const food = civ.resources?.food ?? 0;
+  return {
+    id: hatchling.id,
+    name: hatchling.name || "Hatchling",
+    rarity,
+    rarityLabel: rarityLabel(rarity),
+    level: axolotlLevel(hatchling),
+    health: Math.round(hatchling.health ?? 0),
+    mood: Math.round(hatchling.mood ?? 0),
+    food,
+    canFeed: food >= HATCHLING_FEED_FOOD_COST,
+    x: hatchling.x,
+    y: hatchling.y,
+  };
+}
+
 export function CivilizationView() {
   const sessions = useCivStore((s) => s.sessions);
   const activeSessionId = useCivStore((s) => s.activeSessionId);
@@ -468,6 +513,7 @@ export function CivilizationView() {
   const pearlBalance = activeCiv?.resources?.[CURRENCY_RESOURCE] ?? 0;
   const foodBalance = activeCiv?.resources?.food ?? 0;
   const shopGoals = shopGoalsForPearls(pearlBalance);
+  const hatchlingCare = useMemo(() => hatchlingCareTarget(snapshot, activeCiv), [snapshot, activeCiv]);
   // One combined chronological stream; when a civ is selected, scope it to that
   // civ via the robust civ_id field (Plan 01), never name-string matching.
   const recentLog = useMemo(() => {
@@ -487,10 +533,13 @@ export function CivilizationView() {
     }
     if (!hatchLog || !hatchKey || hatchAlertSeenKeyRef.current === hatchKey) return;
     hatchAlertSeenKeyRef.current = hatchKey;
-    const detail = cleanCivLogBody(hatchLog);
+    const care = hatchlingCareTarget(snapshot, activeCiv ?? primaryCiv(snapshot));
+    const detail = care
+      ? `${care.name} hatched near the nest. Feed it.`
+      : cleanCivLogBody(hatchLog);
     setPlayerMessage(detail);
-    pushGameAlert("world", "Eggs hatched", detail);
-  }, [snapshot]);
+    pushGameAlert("world", "Hatchling emerged", detail);
+  }, [snapshot, activeCiv]);
   useEffect(() => {
     const sessionId = snapshot?.id ?? null;
     if (!snapshot || !sessionId) return;
@@ -1568,6 +1617,7 @@ export function CivilizationView() {
           {gameMode === "play" && possessedEntity && (
             <TargetPromptStrip state={liveTargetState} tool={playerTool} />
           )}
+          {gameMode === "play" && hatchlingCare && <HatchlingCareStrip care={hatchlingCare} />}
           {possessedEntity && <ActionCooldownStrip cooldowns={actionCooldowns} now={cooldownNow} />}
           {runStatus && <ObjectiveStrip status={runStatus} />}
           {gameMode === "play" && shopGoals.length > 0 && <ShopGoalStrip goals={shopGoals} onBuy={buyDevShopItem} />}
@@ -2508,6 +2558,24 @@ function RunStatusPanel({ status }: { status: RunStatus }) {
         <div className="civ-progress-fill" style={{ width: `${status.progress}%` }} />
       </div>
       <div className="mt-2 text-[11px] leading-relaxed text-[oklch(0.58_0.014_225)]">{status.detail}</div>
+    </div>
+  );
+}
+
+function HatchlingCareStrip({ care }: { care: HatchlingCareTarget }) {
+  return (
+    <div className={["civ-hatch-care-strip", care.canFeed ? "is-ready" : "is-empty"].join(" ")} aria-label="Hatchling care">
+      <Sparkles className="h-3.5 w-3.5" />
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.12em]">Hatchling care</div>
+        <div className="truncate text-[10.5px]">
+          {care.name} · {care.rarityLabel} Lv {care.level}
+        </div>
+      </div>
+      <div className="civ-hatch-care-chips">
+        <span>{care.canFeed ? "Feed ready" : "Need food"}</span>
+        <span>{care.food} food</span>
+      </div>
     </div>
   );
 }
