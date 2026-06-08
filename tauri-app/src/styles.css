@@ -659,6 +659,100 @@ button {
   border: 1px solid oklch(0.44 0.050 85 / 0.55);
 }
 .civ-player-strip svg { flex: none; color: oklch(0.82 0.065 85); }
+.civ-target-strip {
+  margin-top: 7px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 6px 7px;
+  border-radius: 8px;
+  color: oklch(0.84 0.052 155);
+  background: oklch(0.12 0.026 155 / 0.70);
+  border: 1px solid oklch(0.42 0.060 155 / 0.68);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06);
+}
+.civ-target-strip.is-empty {
+  color: oklch(0.70 0.020 220);
+  background: oklch(0.11 0.010 230 / 0.64);
+  border-color: oklch(0.30 0.018 225 / 0.62);
+}
+.civ-target-strip > svg {
+  flex: none;
+  color: oklch(0.82 0.075 150);
+}
+.civ-target-strip.is-empty > svg { color: oklch(0.55 0.020 220); }
+.civ-target-title {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  line-height: 1.15;
+}
+.civ-target-title span {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.civ-target-title b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 750;
+  color: oklch(0.92 0.025 190);
+}
+.civ-target-detail {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: oklch(0.68 0.030 190);
+}
+.civ-target-keys {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.civ-key-chip {
+  display: grid;
+  min-width: 34px;
+  place-items: center;
+  padding: 3px 5px;
+  border-radius: 7px;
+  color: oklch(0.92 0.028 150);
+  background: oklch(0.24 0.050 150 / 0.76);
+  border: 1px solid oklch(0.55 0.070 150 / 0.70);
+}
+.civ-key-chip.is-subtle {
+  color: oklch(0.80 0.030 200);
+  background: oklch(0.16 0.020 205 / 0.66);
+  border-color: oklch(0.38 0.040 205 / 0.56);
+}
+.civ-key-chip b,
+.civ-key-chip em {
+  display: block;
+  max-width: 45px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.05;
+}
+.civ-key-chip b {
+  font-size: 11px;
+  font-weight: 850;
+}
+.civ-key-chip em {
+  margin-top: 1px;
+  font-size: 8px;
+  font-style: normal;
+}
 .civ-pilot-strip {
   display: flex;
   align-items: center;

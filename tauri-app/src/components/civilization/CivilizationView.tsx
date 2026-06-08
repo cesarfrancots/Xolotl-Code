@@ -58,6 +58,7 @@ import {
   type CivPilotDecision,
   type CivPilotGoal,
   type CivPilotMemory,
+  type CivPilotTextState,
   type CivPilotTarget,
 } from "../../lib/civPilot";
 import {
@@ -294,6 +295,34 @@ type CompletedTaskSummary = {
   detail: string;
 };
 
+type LiveTargetLock = {
+  key?: string;
+  kind?: PlayerInteraction["kind"];
+  label?: string;
+  targetId?: string;
+  action?: PlayerInteraction["action"];
+  index?: number;
+  count?: number;
+};
+
+type LivePlayerTextState = NonNullable<CivPilotTextState["player"]> & {
+  active_target?: PlayerInteraction | null;
+  target_lock?: LiveTargetLock | null;
+};
+
+type LiveTargetState = {
+  target: PlayerInteraction | null;
+  lock: LiveTargetLock | null;
+};
+
+type PlayerTargetPrompt = {
+  state: "active" | "empty";
+  action: string;
+  label: string;
+  detail: string;
+  keyAction: string;
+};
+
 export function CivilizationView() {
   const sessions = useCivStore((s) => s.sessions);
   const activeSessionId = useCivStore((s) => s.activeSessionId);
@@ -342,6 +371,7 @@ export function CivilizationView() {
     use: 0,
   });
   const [cooldownNow, setCooldownNow] = useState(() => Date.now());
+  const [liveTargetState, setLiveTargetState] = useState<LiveTargetState | null>(null);
   const playerMovePendingRef = useRef(false);
   const playerMoveQueuedRef = useRef<PlayerMove | null>(null);
   const pilotMemoryRef = useRef<CivPilotMemory>(createCivPilotMemory());
@@ -358,6 +388,7 @@ export function CivilizationView() {
   const hatchAlertSeenKeyRef = useRef<string | null>(null);
   const discoveryAlertSessionRef = useRef<string | null>(null);
   const discoveryAlertSeenKeyRef = useRef<string | null>(null);
+  const liveTargetKeyRef = useRef("");
 
   useEffect(() => {
     void loadModels();
@@ -588,6 +619,33 @@ export function CivilizationView() {
     }, 650);
     return () => window.clearInterval(timer);
   }, [activeSessionId, snapshot?.id, possessedEntityId, playerTool, pilotGoal, codexPilot]);
+
+  useEffect(() => {
+    if (!snapshot || gameMode !== "play" || !possessedEntityId) {
+      liveTargetKeyRef.current = "";
+      setLiveTargetState(null);
+      return;
+    }
+
+    const syncTarget = () => {
+      const liveState = readCivPilotTextState();
+      const playerState = liveState?.player as LivePlayerTextState | undefined;
+      const next: LiveTargetState = playerState?.possessedEntityId === possessedEntityId
+        ? {
+            target: playerState.active_target ?? null,
+            lock: playerState.target_lock ?? null,
+          }
+        : { target: null, lock: null };
+      const nextKey = liveTargetStateKey(next);
+      if (nextKey === liveTargetKeyRef.current) return;
+      liveTargetKeyRef.current = nextKey;
+      setLiveTargetState(next);
+    };
+
+    syncTarget();
+    const timer = window.setInterval(syncTarget, 180);
+    return () => window.clearInterval(timer);
+  }, [gameMode, possessedEntityId, snapshot?.id]);
 
   useEffect(() => {
     if (!possessedEntityId) return;
@@ -1484,6 +1542,9 @@ export function CivilizationView() {
               detail={codexPilot ? pilotStatus : playerToolLabel(playerTool)}
             />
           )}
+          {gameMode === "play" && possessedEntity && (
+            <TargetPromptStrip state={liveTargetState} tool={playerTool} />
+          )}
           {possessedEntity && <ActionCooldownStrip cooldowns={actionCooldowns} now={cooldownNow} />}
           {runStatus && <ObjectiveStrip status={runStatus} />}
           {gameMode === "play" && shopGoals.length > 0 && <ShopGoalStrip goals={shopGoals} onBuy={buyDevShopItem} />}
@@ -2171,6 +2232,37 @@ function ControlStateStrip({ mode, name, detail }: { mode: "manual" | "codex"; n
   );
 }
 
+function TargetPromptStrip({ state, tool }: { state: LiveTargetState | null; tool: PlayerTool }) {
+  const target = state?.target ?? null;
+  const prompt = playerTargetPrompt(target, tool);
+  const cycle = targetCycleLabel(target, state?.lock ?? null);
+  const Icon = targetPromptIcon(target);
+  return (
+    <div className={["civ-target-strip", prompt.state === "active" ? "is-active" : "is-empty"].join(" ")} aria-label="Active target">
+      <Icon className="h-3.5 w-3.5" />
+      <div className="min-w-0 flex-1">
+        <div className="civ-target-title">
+          <span>{prompt.action}</span>
+          <b>{prompt.label}</b>
+        </div>
+        <div className="civ-target-detail">{prompt.detail}</div>
+      </div>
+      <div className="civ-target-keys">
+        <span className="civ-key-chip">
+          <b>E</b>
+          <em>{prompt.keyAction}</em>
+        </span>
+        {cycle && (
+          <span className="civ-key-chip is-subtle">
+            <b>Tab</b>
+            <em>{cycle}</em>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ActionCooldownStrip({ cooldowns, now }: { cooldowns: Record<ActionCooldownKey, number>; now: number }) {
   return (
     <div className="civ-cooldown-strip" aria-label="Action cooldowns">
@@ -2281,6 +2373,93 @@ function playerToolLabel(tool: PlayerTool) {
   if (tool === "mine") return "Mine";
   if (tool === "build") return "Build";
   return "Use";
+}
+
+export function playerTargetPrompt(interaction: PlayerInteraction | null | undefined, tool: PlayerTool): PlayerTargetPrompt {
+  if (!interaction || interaction.kind === "empty") {
+    return {
+      state: "empty",
+      action: "No target",
+      label: "In reach",
+      detail: `${playerToolLabel(tool)} ready`,
+      keyAction: "Wait",
+    };
+  }
+  const action = targetActionLabel(interaction, tool);
+  return {
+    state: "active",
+    action,
+    label: targetDisplayLabel(interaction),
+    detail: targetDetailLabel(interaction),
+    keyAction: action,
+  };
+}
+
+function targetActionLabel(interaction: PlayerInteraction, tool: PlayerTool) {
+  if (interaction.action === "mine_tile") return "Mine";
+  if (interaction.action === "place_tile") return "Build";
+  if (interaction.action === "repair_object") return "Repair";
+  if (interaction.action === "rescue_object") return "Rescue";
+  if (interaction.action === "feed_hatchling") return "Feed";
+  if (interaction.kind === "resource") return "Gather";
+  if (interaction.kind === "npc") return "Talk";
+  if (interaction.kind === "building" || interaction.kind === "object") return "Use";
+  return playerToolLabel(tool);
+}
+
+function targetPromptIcon(target: PlayerInteraction | null) {
+  if (!target || target.kind === "empty") return LocateFixed;
+  if (target.action === "mine_tile" || target.action === "place_tile" || target.kind === "terrain") return Hammer;
+  if (target.kind === "resource") return Leaf;
+  if (target.kind === "npc") return Gamepad2;
+  if (target.kind === "object" || target.kind === "building") return Sparkles;
+  return LocateFixed;
+}
+
+function targetDisplayLabel(interaction: PlayerInteraction) {
+  if (interaction.kind === "resource" && interaction.resource) return titleTargetLabel(interaction.resource);
+  if (interaction.action === "place_tile" && interaction.buildResource) return titleTargetLabel(interaction.buildResource);
+  if (interaction.action === "mine_tile" && interaction.yieldsResource) return titleTargetLabel(interaction.yieldsResource);
+  const raw = interaction.label || interaction.targetId || interaction.kind;
+  return titleTargetLabel(raw);
+}
+
+function targetDetailLabel(interaction: PlayerInteraction) {
+  const parts: string[] = [];
+  if (typeof interaction.distance === "number") parts.push(`${Math.round(interaction.distance)} px`);
+  if (typeof interaction.tileX === "number" && typeof interaction.tileY === "number") {
+    parts.push(`tile ${interaction.tileX},${interaction.tileY}`);
+  } else if (Number.isFinite(interaction.x) && Number.isFinite(interaction.y)) {
+    parts.push(tileLabel(interaction.x, interaction.y));
+  }
+  if (interaction.kind === "terrain" && interaction.yieldsResource) parts.push(`+${resourceLabel(interaction.yieldsResource)}`);
+  if (interaction.amount && interaction.amount > 1) parts.push(`x${interaction.amount}`);
+  return parts.slice(0, 3).join(" · ") || interaction.kind;
+}
+
+function titleTargetLabel(value: string) {
+  return resourceLabel(value).replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function targetCycleLabel(target: PlayerInteraction | null, lock: LiveTargetLock | null) {
+  const count = target?.cycle_count ?? lock?.count ?? 0;
+  if (count <= 1) return "";
+  const index = target?.cycle_index ?? lock?.index ?? 1;
+  return `${Math.max(1, Math.min(count, index))}/${count}`;
+}
+
+function liveTargetStateKey(state: LiveTargetState) {
+  const target = state.target;
+  const lock = state.lock;
+  return [
+    target?.kind ?? "",
+    target?.action ?? "",
+    target?.targetId ?? "",
+    target?.label ?? "",
+    typeof target?.distance === "number" ? Math.round(target.distance) : "",
+    target?.cycle_index ?? lock?.index ?? "",
+    target?.cycle_count ?? lock?.count ?? "",
+  ].join("|");
 }
 
 function pilotTargetLabel(target: CivPilotTarget | null | undefined) {

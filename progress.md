@@ -1342,3 +1342,28 @@ Next TODO:
 - Continue playtesting from the new entry point and fix the next human-first flow issue, likely task routing/building purchase construction feedback.
 - Add visible world-space paths for shop/building construction jobs after purchases, so newly bought kits send axolotls to the build site.
 - Add a visible hatch ceremony/tutorial beat after egg hatching so the hatch animation has a clear player-facing movement sequence.
+
+2026-06-08 active target HUD pass:
+- Playtest found the next first-human-run issue after the entry fix:
+  - `render_game_to_text()` exposed a reachable `active_target` and seven cycleable nearby interactions.
+  - The visible Play HUD only showed the generic mode alert/message, so a human tester could not immediately tell what pressing `E` would do.
+- Added a compact Play-mode target strip:
+  - Polls the existing `render_game_to_text()` bridge while a player axolotl is possessed.
+  - Shows the current action verb, target label, distance/tile, `E` action chip, and `Tab` cycle count when multiple targets are in reach.
+  - Supports resource, terrain mine/build, NPC, building/object, hatchling feed, repair, rescue, and empty target states.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-target-prompt-playtest/03-target-prompt-visible.png`
+  - `tauri-app/output/web-game/civ-target-prompt-playtest/04-target-prompt-tab-cycle.png`
+  - `tauri-app/output/web-game/civ-target-prompt-playtest/05-target-prompt-after-interact.png`
+  - Smoke text-state showed `Gather Wood` at tile 57,46 before action, `Tab 2/7` after cycling, and resource/pearl progress plus a resource alert after pressing `E`.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (64 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Continue playtesting task/build/shop flow after the new target prompt, especially whether purchased buildings visibly send axolotls to construction sites.
+- Add visible world-space paths for shop/building construction jobs after purchases, so newly bought kits send axolotls to the build site.
+- Add a visible hatch ceremony/tutorial beat after egg hatching so the hatch animation has a clear player-facing movement sequence.

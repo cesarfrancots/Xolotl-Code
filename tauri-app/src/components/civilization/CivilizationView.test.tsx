@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CivilizationView } from "./CivilizationView";
+import { CivilizationView, playerTargetPrompt } from "./CivilizationView";
 import { normalizeCivSnapshot, useCivStore } from "../../stores/civStore";
 import type { CivLogEntry, CivSessionConfig, CivSessionSnapshot } from "../../bindings";
 
@@ -451,5 +451,44 @@ describe("CivilizationView Play shop goals", () => {
     expect(within(goals).getByRole("button", { name: "Buy Common Egg" })).toHaveProperty("disabled", false);
     expect(within(goals).getByRole("button", { name: "Buy Rare Lure" })).toHaveProperty("disabled", false);
     expect(within(goals).getByRole("button", { name: "Rare Egg needs 18 more pearls" })).toHaveProperty("disabled", true);
+  });
+});
+
+describe("CivilizationView Play target prompt", () => {
+  it("formats active resource targets as immediate gather prompts", () => {
+    const prompt = playerTargetPrompt({
+      entityId: "axo-1",
+      kind: "resource",
+      label: "wood",
+      resource: "wood",
+      x: 920,
+      y: 740,
+      tileX: 57,
+      tileY: 46,
+      distance: 30,
+      cycle_index: 2,
+      cycle_count: 7,
+    }, "use");
+
+    expect(prompt).toMatchObject({
+      state: "active",
+      action: "Gather",
+      label: "Wood",
+      keyAction: "Gather",
+    });
+    expect(prompt.detail).toContain("30 px");
+    expect(prompt.detail).toContain("tile 57,46");
+  });
+
+  it("formats empty targets without implying an action will fire", () => {
+    const prompt = playerTargetPrompt(null, "mine");
+
+    expect(prompt).toMatchObject({
+      state: "empty",
+      action: "No target",
+      label: "In reach",
+      detail: "Mine ready",
+      keyAction: "Wait",
+    });
   });
 });
