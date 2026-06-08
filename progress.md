@@ -1079,3 +1079,29 @@ Next TODO:
 - Add a proper hatchery/rarity screen and egg lifecycle UI now that shop eggs can be bought.
 - Expand economy loops beyond the first pearl rewards: richer world drops, rare-object discovery, and cooldown/timer tuning for human play.
 - Consider surfacing the shop as a dedicated game HUD panel in Play mode, not only inside the drawer/God panels.
+
+2026-06-08 hatchery rarity/level UI pass:
+- Added shared creature progression helpers in `tauri-app/src/lib/civCreatureProgression.ts`:
+  - Classifies restored 12-line morphs as common, uncommon, rare, or mythic.
+  - Computes axolotl/egg level, gene potential, hatch turns remaining, and hatch progress.
+  - Falls back unknown morph assets to `leucistic`, so rejected/missing morph names do not request missing portrait files.
+- Added a proper Hatchery panel to the Play-accessible left drawer and observer/admin drawer:
+  - Shows egg count, living rarity counts, Common Egg/Rare Egg purchase buttons, egg cards, rarity pills, predicted level, gene potential, morph/pattern, hatch timer, source, and progress bar.
+  - Uses only the restored existing egg/axolotl assets; no new off-style generated assets were introduced.
+- Upgraded the colony roster so living axolotls show rarity and level alongside morph/stage/age.
+- Extended `window.render_game_to_text()` with:
+  - `hatchery.eggs[]` carrying rarity, rarity label, level, gene potential, hatch timer/progress, source, and tile.
+  - creature-only progression fields on `visible_entities` for axolotls/eggs.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-hatchery-rarity-smoke/01-hatchery-open.png`
+  - `tauri-app/output/web-game/civ-hatchery-rarity-smoke/02-common-egg-bought.png`
+  - `summary.json` shows the hatchery exposed a mythic egg, admin-granted pearls, bought a Common Egg through the Hatchery, increased eggs from 1 to 2, and spent pearls to 24 with no console errors or missing morph-frame warnings.
+- Verification passed:
+  - `npm test -- civCreatureProgression.test.ts CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (63 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+
+Next TODO:
+- Add actual hatch interaction/accelerator gameplay, such as spending pearls or food to reduce `hatches_in`, so timers are not only turn-driven.
+- Add a style-correct generated egg/rarity/civ-level asset set if the next step needs new visuals.
+- Add richer world currency drops and rare-object discovery so human players can earn egg purchases without admin grants.

@@ -4,6 +4,15 @@ import type { CivSessionSnapshot, CivEntity } from "../../bindings";
 import { primaryCiv } from "../../stores/civStore";
 import { activeCivPlayerTask, type CivPlayerTask } from "../../lib/civPlayerTasks";
 import type { CivPilotCommand } from "../../lib/civPilot";
+import {
+  axolotlLevel,
+  axolotlRarity,
+  genePotential,
+  hatchProgressPercent,
+  hatchTurnsRemaining,
+  isEggEntity,
+  rarityLabel,
+} from "../../lib/civCreatureProgression";
 
 declare global {
   interface Window {
@@ -3447,6 +3456,7 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
     /\b(died|death|dead|collapsed|failure|failed|starved|perished)\b/i.test(`${entry.title} ${entry.body}`)
   )).length;
   const failedCivs = (snapshot.civs ?? []).filter((c) => c.alive === false || (c.population ?? 0) <= 0).length;
+  const eggs = snapshot.world.entities.filter((entity) => isEggEntity(entity) && (!entity.civ_id || entity.civ_id === civ.id));
   return JSON.stringify({
     coordinate_system: "origin top-left; x right; y down; tiles are 16px",
     session: { id: snapshot.id, turn: snapshot.turn, model: civ.model ?? "unknown", view_mode: playerState?.view_mode ?? viewMode },
@@ -3485,8 +3495,26 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
       task_interactions: [],
     },
     player_task: activeCivPlayerTask(snapshot, civ),
+    hatchery: {
+      eggs: eggs.map((entity) => ({
+        id: entity.id,
+        name: entity.name,
+        morph: entity.morph,
+        pattern: entity.pattern,
+        rarity: axolotlRarity(entity),
+        rarity_label: rarityLabel(axolotlRarity(entity)),
+        level: axolotlLevel(entity),
+        gene_potential: genePotential(entity),
+        hatches_in: hatchTurnsRemaining(entity),
+        hatch_progress: hatchProgressPercent(entity),
+        source: (entity.parents ?? []).includes("shop") ? "shop" : "nest",
+        x: entity.x,
+        y: entity.y,
+      })),
+    },
     visible_entities: snapshot.world.entities.map((entity) => {
       const livePlayer = possessedPlayer?.id === entity.id ? possessedPlayer.player : null;
+      const creature = entity.kind === "axolotl" || isEggEntity(entity);
       return {
         id: entity.id,
         name: entity.name,
@@ -3495,6 +3523,10 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
         morph: entity.morph,
         pattern: entity.pattern, // GEN-01 visible pattern (ARENA-01 text-state, mirrors morph)
         stage: entity.stage,
+        rarity: creature ? axolotlRarity(entity) : null,
+        level: creature ? axolotlLevel(entity) : null,
+        gene_potential: creature ? genePotential(entity) : null,
+        hatches_in: creature ? hatchTurnsRemaining(entity) : null,
         sex: entity.sex,
         age: entity.age,
         accessories: entity.accessories,

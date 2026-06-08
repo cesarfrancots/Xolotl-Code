@@ -889,7 +889,8 @@ button {
 .civ-mode-switch button:focus-visible,
 .civ-game-alert button:focus-visible,
 .civ-admin-shortcuts button:focus-visible,
-.civ-shop-item:focus-visible {
+.civ-shop-item:focus-visible,
+.civ-hatchery-buy:focus-visible {
   outline: 2px solid oklch(0.76 0.10 195);
   outline-offset: 2px;
 }
@@ -979,6 +980,167 @@ button {
 .civ-acc-chip:focus-visible {
   outline: 2px solid oklch(0.76 0.10 195);
   outline-offset: 2px;
+}
+
+.civ-rarity-pill,
+.civ-level-pill,
+.civ-gene-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.35;
+  border: 1px solid oklch(0.26 0.010 235 / 0.7);
+  background: oklch(0.10 0.004 245 / 0.72);
+}
+.civ-rarity-pill b { font-variant-numeric: tabular-nums; }
+.civ-rarity-pill.is-common { color: oklch(0.70 0.020 220); border-color: oklch(0.30 0.012 230 / 0.7); }
+.civ-rarity-pill.is-uncommon { color: oklch(0.76 0.070 155); border-color: oklch(0.42 0.070 155 / 0.62); background: oklch(0.14 0.025 155 / 0.55); }
+.civ-rarity-pill.is-rare { color: oklch(0.78 0.075 230); border-color: oklch(0.44 0.070 230 / 0.65); background: oklch(0.14 0.024 230 / 0.56); }
+.civ-rarity-pill.is-mythic { color: oklch(0.82 0.080 325); border-color: oklch(0.48 0.080 325 / 0.68); background: oklch(0.15 0.030 325 / 0.58); }
+.civ-level-pill { color: oklch(0.86 0.060 84); border-color: oklch(0.44 0.060 84 / 0.62); background: oklch(0.15 0.025 84 / 0.54); }
+.civ-gene-pill { color: oklch(0.70 0.028 205); border-color: oklch(0.34 0.025 205 / 0.58); }
+
+.civ-hatchery-summary {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 6px;
+  align-items: stretch;
+}
+.civ-hatchery-stat {
+  display: grid;
+  place-items: center;
+  padding: 7px;
+  border-radius: 8px;
+  color: oklch(0.80 0.052 84);
+  background: oklch(0.14 0.020 84 / 0.54);
+  border: 1px solid oklch(0.42 0.052 84 / 0.58);
+}
+.civ-hatchery-stat span {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: oklch(0.56 0.020 84);
+}
+.civ-hatchery-stat b {
+  font-size: 20px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.civ-hatchery-rarities {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 8px;
+  background: oklch(0.09 0.004 245 / 0.66);
+  border: 1px solid oklch(0.23 0.008 240 / 0.72);
+}
+.civ-hatchery-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.civ-hatchery-buy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px;
+  border-radius: 8px;
+  color: oklch(0.84 0.032 200);
+  background: oklch(0.12 0.008 235 / 0.78);
+  border: 1px solid oklch(0.30 0.022 205 / 0.72);
+  font-size: 10.5px;
+  font-weight: 700;
+  transition: color 0.12s, background 0.12s, border-color 0.12s, transform 0.06s;
+}
+.civ-hatchery-buy svg { flex: none; color: oklch(0.84 0.075 84); }
+.civ-hatchery-buy:hover {
+  color: oklch(0.94 0.035 195);
+  background: oklch(0.17 0.014 230 / 0.86);
+  border-color: oklch(0.44 0.045 195 / 0.76);
+}
+.civ-hatchery-buy:active { transform: translateY(1px); }
+.civ-hatchery-buy:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+.civ-hatchery-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.civ-hatchery-empty {
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: oklch(0.52 0.012 225);
+  background: oklch(0.09 0.004 245 / 0.72);
+  border: 1px solid oklch(0.23 0.008 240 / 0.72);
+}
+.civ-egg-card {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px;
+  border-radius: 9px;
+  background: oklch(0.10 0.004 245 / 0.74);
+  border: 1px solid oklch(0.25 0.010 235 / 0.72);
+}
+.civ-egg-card.is-uncommon { border-color: oklch(0.38 0.050 155 / 0.62); }
+.civ-egg-card.is-rare { border-color: oklch(0.42 0.055 230 / 0.66); }
+.civ-egg-card.is-mythic { border-color: oklch(0.48 0.070 325 / 0.70); }
+.civ-egg-visual {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: oklch(0.14 0.012 200 / 0.62);
+  border: 1px solid oklch(0.27 0.014 220 / 0.68);
+  overflow: hidden;
+}
+.civ-egg-visual img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.civ-egg-preview {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  width: 20px !important;
+  height: 20px !important;
+  opacity: 0.92;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.45));
+}
+.civ-hatch-bar {
+  height: 4px;
+  margin-top: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: oklch(0.17 0.008 235 / 0.76);
+}
+.civ-hatch-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, oklch(0.75 0.075 84), oklch(0.78 0.075 190));
 }
 
 .civ-mvp-panel {

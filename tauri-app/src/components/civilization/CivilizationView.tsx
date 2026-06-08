@@ -35,6 +35,17 @@ import { CivilizationGameCanvas, type PlayerInteraction, type PlayerMove, type P
 import { primaryCiv, useCivStore } from "../../stores/civStore";
 import { activeCivPlayerTask, cleanCivLogBody, type CivPlayerTask } from "../../lib/civPlayerTasks";
 import {
+  axolotlLevel,
+  axolotlMorphAsset,
+  axolotlRarity,
+  genePotential,
+  hatchProgressPercent,
+  hatchTurnsRemaining,
+  isEggEntity,
+  rarityLabel,
+  type AxolotlRarity,
+} from "../../lib/civCreatureProgression";
+import {
   chooseCivPilotDecision,
   commandForCivPilotDecision,
   createCivPilotMemory,
@@ -143,6 +154,7 @@ const SHOP_ITEMS: Array<{ id: ShopItemId; label: string; detail: string; cost: n
   { id: "workshop_kit", label: "Workshop Kit", detail: "builds tool crafting", cost: 18, tone: "resource" },
   { id: "rare_egg", label: "Rare Egg", detail: "rare genes", cost: 30, tone: "rare" },
 ];
+const EGG_SHOP_ITEMS: ShopItemId[] = ["common_egg", "rare_egg"];
 function shopItemById(id: string) {
   return SHOP_ITEMS.find((item) => item.id === id) ?? null;
 }
@@ -1444,6 +1456,11 @@ export function CivilizationView() {
               </div>
             </Section>
             {snapshot && activeCiv && (
+              <Section label="Hatchery" icon={<Sparkles className="h-3.5 w-3.5" />}>
+                <HatcheryPanel snapshot={snapshot} civ={activeCiv} pearls={pearlBalance} onBuy={buyDevShopItem} />
+              </Section>
+            )}
+            {snapshot && activeCiv && (
               <Section label="Shop" icon={<Coins className="h-3.5 w-3.5" />}>
                 <DevShopPanel onBuy={buyDevShopItem} pearls={pearlBalance} />
               </Section>
@@ -1493,6 +1510,9 @@ export function CivilizationView() {
                 onPilotGoalChange={setPilotGoal}
                 onTogglePilot={toggleCodexPilot}
               />
+            </Section>
+            <Section label="Hatchery" icon={<Sparkles className="h-3.5 w-3.5" />}>
+              <HatcheryPanel snapshot={snapshot} civ={activeCiv} pearls={pearlBalance} onBuy={buyDevShopItem} />
             </Section>
             <Section label="Score" icon={<FlaskConical className="h-3.5 w-3.5" />}>
               <ScorePanel civ={activeCiv} />
@@ -2581,6 +2601,124 @@ function ScorePanel({ civ }: { civ: CivCivilization | null }) {
   );
 }
 
+const RARITY_LEVELS: AxolotlRarity[] = ["common", "uncommon", "rare", "mythic"];
+
+function HatcheryPanel({
+  snapshot,
+  civ,
+  pearls,
+  onBuy,
+}: {
+  snapshot: CivSessionSnapshot;
+  civ: CivCivilization | null;
+  pearls: number;
+  onBuy: (item: ShopItemId) => void;
+}) {
+  const civId = civ?.id;
+  const eggs = snapshot.world.entities.filter((entity) => isEggEntity(entity) && entityOwnedBy(entity, civId));
+  const living = snapshot.world.entities.filter((entity) => (
+    entity.kind === "axolotl" && !isEggEntity(entity) && entityOwnedBy(entity, civId)
+  ));
+  const rarityCounts = RARITY_LEVELS.map((rarity) => ({
+    rarity,
+    count: living.filter((entity) => axolotlRarity(entity) === rarity).length,
+  }));
+
+  return (
+    <div className="space-y-2">
+      <div className="civ-hatchery-summary">
+        <div className="civ-hatchery-stat">
+          <span>Eggs</span>
+          <b>{eggs.length}</b>
+        </div>
+        <div className="civ-hatchery-rarities">
+          {rarityCounts.map(({ rarity, count }) => (
+            <span key={rarity} className={["civ-rarity-pill", `is-${rarity}`].join(" ")}>
+              {rarityLabel(rarity)} <b>{count}</b>
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="civ-hatchery-actions">
+        {EGG_SHOP_ITEMS.map((id) => {
+          const item = shopItemById(id);
+          if (!item) return null;
+          return (
+            <button
+              key={id}
+              type="button"
+              className="civ-hatchery-buy"
+              disabled={pearls < item.cost}
+              onClick={() => onBuy(id)}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>{item.label}</span>
+              <span className="civ-shop-cost"><Coins className="h-3 w-3" /> {item.cost}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="civ-hatchery-list">
+        {eggs.length === 0 ? (
+          <div className="civ-hatchery-empty">Nest empty.</div>
+        ) : (
+          eggs.map((egg) => <EggCard key={egg.id} egg={egg} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EggCard({ egg }: { egg: CivEntity }) {
+  const morph = axolotlMorphAsset(egg.morph);
+  const rarity = axolotlRarity(egg);
+  const remaining = hatchTurnsRemaining(egg);
+  const hatchLabel = remaining === null
+    ? "Incubating"
+    : remaining <= 0
+      ? "Ready"
+      : remaining === 1
+        ? "Next turn"
+        : `${remaining} turns`;
+  const source = (egg.parents ?? []).includes("shop") ? "Shop" : (egg.parents?.length ? "Nest" : "Wild");
+  const progress = hatchProgressPercent(egg);
+  return (
+    <article className={["civ-egg-card", `is-${rarity}`].join(" ")}>
+      <div className="civ-egg-visual">
+        <img src="/civ/stages/egg-single.png" alt="" />
+        <img src={`/civ/axolotls/axo-${morph}.png`} alt="" className="civ-egg-preview" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-[11px] font-semibold text-[oklch(0.87_0.018_220)]">{egg.name || "Egg"}</span>
+          <RarityPill rarity={rarity} />
+        </div>
+        <div className="mt-0.5 flex flex-wrap gap-1">
+          <span className="civ-level-pill">Lv {axolotlLevel(egg)}</span>
+          <span className="civ-gene-pill">{genePotential(egg)}%</span>
+          <span className="civ-gene-pill">{modifierLabel(morph)}</span>
+          {(egg.pattern ?? "plain") !== "plain" && <span className="civ-gene-pill">{modifierLabel(egg.pattern ?? "plain")}</span>}
+        </div>
+        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[oklch(0.54_0.012_225)]">
+          <span>{hatchLabel}</span>
+          <span>{source}</span>
+        </div>
+        <div className="civ-hatch-bar" aria-label={`Hatch progress ${progress}%`}>
+          <span style={{ width: `${progress}%` }} />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function RarityPill({ rarity }: { rarity: AxolotlRarity }) {
+  return (
+    <span className={["civ-rarity-pill", `is-${rarity}`].join(" ")}>
+      {rarityLabel(rarity)}
+    </span>
+  );
+}
+
 function ColonyPanel({ snapshot, onEquip }: { snapshot: CivSessionSnapshot; onEquip: (entityId: string, accessory: string, equip: boolean) => void }) {
   const axos = snapshot.world.entities.filter((e) => e.kind === "axolotl");
   const eggCount = snapshot.world.entities.filter((e) => e.kind === "egg").length;
@@ -2646,16 +2784,20 @@ function RegionRow({ region, isHome }: { region: CivRegion; isHome: boolean }) {
 
 function RosterRow({ a, onEquip }: { a: CivEntity; onEquip: (entityId: string, accessory: string, equip: boolean) => void }) {
   const [acc, setAcc] = useState(ACCESSORIES[0]);
-  const morph = a.morph || "leucistic";
+  const morph = axolotlMorphAsset(a.morph);
   const sex = a.sex === "f" ? "♀" : a.sex === "m" ? "♂" : "—";
   const worn = a.accessories ?? [];
+  const rarity = axolotlRarity(a);
   return (
     <div className="civ-roster-row">
       <img src={`/civ/axolotls/axo-${morph}.png`} alt={morph} className="civ-roster-img" />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[11px] font-semibold text-[oklch(0.86_0.016_220)]">{a.name}</div>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-[11px] font-semibold text-[oklch(0.86_0.016_220)]">{a.name}</span>
+          <RarityPill rarity={rarity} />
+        </div>
         <div className="truncate text-[10px] text-[oklch(0.56_0.012_225)]">
-          {morph} · {sex} · {STAGE_LABEL[a.stage ?? "adult"] ?? a.stage} · {a.age ?? 0}t
+          Lv {axolotlLevel(a)} - {modifierLabel(morph)} - {sex} - {STAGE_LABEL[a.stage ?? "adult"] ?? a.stage} - {a.age ?? 0}t
         </div>
         {worn.length > 0 && (
           <div className="mt-0.5 flex flex-wrap gap-1">
@@ -2677,6 +2819,10 @@ function RosterRow({ a, onEquip }: { a: CivEntity; onEquip: (entityId: string, a
       </div>
     </div>
   );
+}
+
+function entityOwnedBy(entity: CivEntity, civId: string | null | undefined) {
+  return !civId || !entity.civ_id || entity.civ_id === civId;
 }
 
 function StageChip({ label, n, tone }: { label: string; n: number; tone: string }) {
