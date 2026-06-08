@@ -1184,3 +1184,23 @@ Next TODO:
 - Add a first-hatchling interaction/tutorial beat, such as feeding or assigning the hatchling, so hatching creates a new manual choice.
 - Add a compact Play-mode shop/egg goal surface so discoveries immediately point players toward what they can buy next.
 - Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.
+
+2026-06-08 Play HUD shop-goal pass:
+- Added a compact Play-mode shop goal strip to the top-left HUD:
+  - Shows Common Egg funding progress from current pearl balance.
+  - Shows a disabled `Buy` affordance while underfunded and enables it once affordable.
+  - Buying from the strip uses the same shop purchase path as the drawer/Hatchery purchase controls.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-shop-goal-smoke/01-shop-goal-locked.png`
+  - `tauri-app/output/web-game/civ-shop-goal-smoke/02-shop-goal-ready.png`
+  - `tauri-app/output/web-game/civ-shop-goal-smoke/03-shop-goal-bought.png`
+  - `summary.json` shows locked `6/12`, ready `12/12`, then clicking `Buy` changed eggs 1 -> 2 and pearls 12 -> 0, with no console/page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (59 tests)
+  - `npm run build` (same large Civilization chunk warning)
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add a first-hatchling interaction/tutorial beat, such as feeding or assigning the hatchling, so hatching creates a new manual choice.
+- Add a fuller Play-mode shop goal set after the Common Egg path, including Rare Egg and Rare Lure milestones.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.

@@ -166,6 +166,23 @@ function isShopItemId(id: string): id is ShopItemId {
   return SHOP_ITEMS.some((item) => item.id === id);
 }
 
+function shopGoalForPearls(pearls: number): ShopGoal | null {
+  const commonEgg = shopItemById("common_egg");
+  const rareEgg = shopItemById("rare_egg");
+  const item = commonEgg && pearls < (rareEgg?.cost ?? Number.POSITIVE_INFINITY)
+    ? commonEgg
+    : rareEgg;
+  if (!item) return null;
+  const safePearls = Math.max(0, Math.floor(pearls));
+  const missing = Math.max(0, item.cost - safePearls);
+  return {
+    item,
+    missing,
+    progress: Math.max(0, Math.min(100, (safePearls / item.cost) * 100)),
+    ready: missing === 0,
+  };
+}
+
 const BUFFS = ["abundant_moss", "clear_water", "cooperation_aura", "curiosity_spark"];
 const DEBUFFS = ["drought", "cold_snap", "food_rot", "fatigue", "quarrel_pressure"];
 const ACCESSORIES = [
@@ -264,6 +281,13 @@ type RunStats = {
   livingAxolotls: number;
   eggs: number;
   totalCivs: number;
+};
+
+type ShopGoal = {
+  item: NonNullable<ReturnType<typeof shopItemById>>;
+  missing: number;
+  progress: number;
+  ready: boolean;
 };
 
 type CompletedTaskSummary = {
@@ -405,6 +429,7 @@ export function CivilizationView() {
     : null;
   const pearlBalance = activeCiv?.resources?.[CURRENCY_RESOURCE] ?? 0;
   const foodBalance = activeCiv?.resources?.food ?? 0;
+  const shopGoal = shopGoalForPearls(pearlBalance);
   // One combined chronological stream; when a civ is selected, scope it to that
   // civ via the robust civ_id field (Plan 01), never name-string matching.
   const recentLog = useMemo(() => {
@@ -1430,6 +1455,7 @@ export function CivilizationView() {
           )}
           {possessedEntity && <ActionCooldownStrip cooldowns={actionCooldowns} now={cooldownNow} />}
           {runStatus && <ObjectiveStrip status={runStatus} />}
+          {gameMode === "play" && shopGoal && <ShopGoalStrip goal={shopGoal} onBuy={buyDevShopItem} />}
           {activePlayerTask && <PlayerTaskStrip task={activePlayerTask} />}
           {!activePlayerTask && recentCompletedTask && <PlayerTaskCompleteStrip summary={recentCompletedTask} />}
           {(possessedEntity || playerMessage) && (
@@ -2048,6 +2074,40 @@ function ObjectiveStrip({ status }: { status: RunStatus }) {
       </div>
       <div className="civ-progress">
         <div className="civ-progress-fill" style={{ width: `${status.progress}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ShopGoalStrip({ goal, onBuy }: { goal: ShopGoal; onBuy: (item: ShopItemId) => void }) {
+  const { item, missing, progress, ready } = goal;
+  return (
+    <div className={["civ-shop-goal-strip", ready ? "is-ready" : ""].join(" ")} aria-label="Shop goal">
+      <Sparkles className="h-3.5 w-3.5" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-[10px] font-semibold uppercase tracking-[0.12em]">
+            {ready ? `${item.label} ready` : `Goal: ${item.label}`}
+          </span>
+          <span className="text-[10px] tabular-nums">
+            {ready ? `${item.cost}/${item.cost}` : `${Math.max(0, item.cost - missing)}/${item.cost}`}
+          </span>
+        </div>
+        <div className="civ-progress" aria-label={`${Math.round(progress)}% funded`}>
+          <div className="civ-progress-fill" style={{ width: `${progress}%` }} />
+        </div>
+        <div className="civ-shop-goal-detail">
+          <span>{ready ? item.detail : `${missing} pearls needed`}</span>
+          <button
+            type="button"
+            disabled={!ready}
+            onClick={() => onBuy(item.id)}
+            title={ready ? `Buy ${item.label}` : `${missing} more pearls needed`}
+          >
+            <Coins className="h-3 w-3" />
+            <span>Buy</span>
+          </button>
+        </div>
       </div>
     </div>
   );
