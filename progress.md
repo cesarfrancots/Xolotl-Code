@@ -1293,3 +1293,28 @@ Next TODO:
 - Generate a small style-matched supplemental sprite sheet for mining/gathering/hatching poses only if it is based on the approved README/screenshot axolotl line.
 - Add a visible hatch ceremony/tutorial beat after egg hatching so the new hatch animation has a clear player-facing moment.
 - Add more Play-mode HUD economy goals after purchase, such as farm/workshop/storage kit milestones when the colony needs buildings.
+
+2026-06-08 action movement correction pass:
+- Addressed the playtest issue where axolotls mostly looked like they were hopping in place:
+  - Added live visual destinations for non-player axolotls when the backend snapshot has an activity but no `target_x/target_y`.
+  - Idle and play axolotls now patrol over larger world-space arcs.
+  - Gatherers now commute between home and resource tiles instead of staying parked; build/repair/rescue-style activities can use object/building work destinations.
+  - Manual interactions now store an action target point so mine/build/talk/feed/repair/rescue actions surge toward the target in world space.
+- Extended text-state verification:
+  - `window.render_game_to_text().player.animated_entities` exposes live rendered axolotl positions, animation state, target kind/point, and whether the sprite is moving.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-action-motion-smoke/07-final-workers-travel.png`
+  - `tauri-app/output/web-game/civ-action-motion-smoke/08-final-workers-continue.png`
+  - `tauri-app/output/web-game/civ-action-motion-smoke/09-final-mine-movement.png`
+  - Smoke text-state showed idle/play workers moving ~60-90px, the gather worker moving 92px then another 52px, and manual mining moving the player 29px into the target action.
+  - The smoke had no page errors.
+- Verification passed:
+  - `npm test -- civCanvas.test.ts CivilizationView.test.tsx civStore.test.ts` (62 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+- Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for the actual browser interaction.
+
+Next TODO:
+- Add visible world-space paths for shop/building construction jobs after purchases, so newly bought kits send axolotls to the build site.
+- Add a visible hatch ceremony/tutorial beat after egg hatching so the hatch animation has a clear player-facing movement sequence.
+- Generate a small style-matched supplemental sprite sheet for mining/gathering/hatching poses only if it is based on the approved README/screenshot axolotl line.
