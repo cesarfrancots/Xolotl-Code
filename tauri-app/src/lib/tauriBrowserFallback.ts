@@ -263,6 +263,7 @@ const DEFAULT_PREVIEW_CIV_SESSION = {
       fiber: 12,
       tools: 2,
       glowshards: 1,
+      pearls: 6,
     },
     techs: ["forage", "basic_shelter"],
     policies: ["share_equally"],
@@ -281,12 +282,36 @@ const DEFAULT_PREVIEW_CIV_SESSION = {
 const PREVIEW_CIV_STORAGE_KEY = "xolotl-preview-civ-session-v1";
 const CIV_BROWSER_PREVIEW_SNAPSHOT_KEY = "xolotl-preview-civ-store-snapshot-v1";
 const PREVIEW_CIV_STORAGE_VERSION = 1;
-type PreviewCivSession = typeof DEFAULT_PREVIEW_CIV_SESSION;
+type PreviewCivSession = typeof DEFAULT_PREVIEW_CIV_SESSION & { civs?: Record<string, unknown>[] };
 
 let previewCivSession: PreviewCivSession = loadPreviewCivSession();
 
 function clonePreviewCivSession(session: PreviewCivSession = DEFAULT_PREVIEW_CIV_SESSION): PreviewCivSession {
   return JSON.parse(JSON.stringify(session)) as PreviewCivSession;
+}
+
+function syncPreviewPrimaryCiv(session: PreviewCivSession): PreviewCivSession {
+  if (!Array.isArray(session.civs) || !isRecord(session.civs[0])) return session;
+  const primary = session.civs[0];
+  return {
+    ...session,
+    civs: [
+      {
+        ...primary,
+        name: typeof primary.name === "string" ? primary.name : session.name,
+        model: typeof primary.model === "string" ? primary.model : session.model,
+        era: session.civilization.era,
+        population: session.civilization.population,
+        health: session.civilization.health,
+        morale: session.civilization.morale,
+        resources: session.civilization.resources,
+        techs: session.civilization.techs,
+        policies: session.civilization.policies,
+        score: session.civilization.score,
+      },
+      ...session.civs.slice(1),
+    ],
+  };
 }
 
 function loadPreviewCivSession(): PreviewCivSession {
@@ -310,6 +335,7 @@ function persistPreviewCivSession() {
   const storage = previewBrowserStorage();
   if (!storage) return;
   try {
+    previewCivSession = syncPreviewPrimaryCiv(previewCivSession);
     storage.setItem(PREVIEW_CIV_STORAGE_KEY, JSON.stringify({
       version: PREVIEW_CIV_STORAGE_VERSION,
       session: previewCivSession,
@@ -808,6 +834,7 @@ function applyPreviewCivIntervention(args?: unknown) {
       if (tile.amount === 0) tile.resource = null;
       const gainedKey = gained as keyof typeof resources;
       resources[gainedKey] = (resources[gainedKey] ?? 0) + harvested;
+      resources.pearls = (resources.pearls ?? 0) + previewCurrencyReward(gained, harvested);
       logBody = `harvested ${harvested} ${gained} from ${x},${y}`;
     } else {
       logBody = `found no resource at ${x},${y}`;
@@ -824,6 +851,7 @@ function applyPreviewCivIntervention(args?: unknown) {
       tile.amount = 0;
       const gainedKey = gained as keyof typeof resources;
       resources[gainedKey] = (resources[gainedKey] ?? 0) + 1;
+      resources.pearls = (resources.pearls ?? 0) + previewCurrencyReward(gained, 1);
       const entityId = typeof intervention.entity_id === "string" ? intervention.entity_id : "";
       const entity = previewCivSession.world.entities.find((item) => item.id === entityId && item.kind === "axolotl");
       if (entity) {
@@ -864,6 +892,7 @@ function applyPreviewCivIntervention(args?: unknown) {
         morale = Math.min(100, morale + 3);
         health = Math.min(100, health + 0.8);
         resources.glowshards = (resources.glowshards ?? 0) + 1;
+        resources.pearls = (resources.pearls ?? 0) + 5;
         const object = previewCivSession.world.entities.find((item) => item.id === task.objectId && item.kind === "object");
         if (object) {
           object.health = 100;
@@ -900,6 +929,7 @@ function applyPreviewCivIntervention(args?: unknown) {
       if (have >= required) {
         resources[resourceKey] = Math.max(0, have - task.amount);
         resources.clean_water = (resources.clean_water ?? 0) + 1;
+        resources.pearls = (resources.pearls ?? 0) + 4;
         morale = Math.min(100, morale + 3);
         health = Math.min(100, health + 1.2);
         object.health = 100;
@@ -928,6 +958,7 @@ function applyPreviewCivIntervention(args?: unknown) {
       if (remaining <= 0) {
         morale = Math.min(100, morale + 4);
         health = Math.min(100, health + 1);
+        resources.pearls = (resources.pearls ?? 0) + 6;
         object.health = 100;
         object.mood = 100;
         (object as { activity?: string }).activity = "rescued";
@@ -1014,8 +1045,10 @@ function applyPreviewCivIntervention(args?: unknown) {
             const rewardKey = task.rewardResource as keyof typeof resources;
             resources[rewardKey] = (resources[rewardKey] ?? 0) + Math.max(1, task.rewardAmount);
             morale = Math.min(100, morale + 1);
+            resources.pearls = (resources.pearls ?? 0) + 3;
           } else {
             morale = Math.min(100, morale + 2);
+            resources.pearls = (resources.pearls ?? 0) + 2;
           }
           logKind = "player";
           logTitle = "Task complete";
@@ -1078,10 +1111,11 @@ function applyPreviewCivIntervention(args?: unknown) {
     const building = previewCivSession.world.entities.find((item) => item.id === entityId && item.kind === "building");
     if (building) {
       const task = previewActivePlayerTask();
-      if (task?.kind === "visit_building" && task.buildingId === entityId) {
+        if (task?.kind === "visit_building" && task.buildingId === entityId) {
         morale = Math.min(100, morale + 2);
         health = Math.min(100, health + 0.8);
         if (building.role === "pond") resources.clean_water = (resources.clean_water ?? 0) + 1;
+        resources.pearls = (resources.pearls ?? 0) + 3;
         const npc = previewCivSession.world.entities.find((item) => item.id === task.npcId && item.kind === "axolotl");
         if (npc) {
           npc.mood = Math.min(100, (npc.mood ?? 0) + 5);
@@ -1105,9 +1139,88 @@ function applyPreviewCivIntervention(args?: unknown) {
         } else {
           morale = Math.min(100, morale + 0.4);
         }
+        resources.pearls = (resources.pearls ?? 0) + 1;
         logKind = "player";
         logTitle = "Building used";
         logBody = `target=${entityId}; used ${building.name}`;
+      }
+    }
+  }
+  if (kind === "shop_purchase") {
+    const cost = previewShopCost(target);
+    if (cost <= 0) {
+      logKind = "player";
+      logTitle = "Shop blocked";
+      logBody = `unknown shop item ${target}`;
+    } else if ((resources.pearls ?? 0) < cost) {
+      logKind = "player";
+      logTitle = "Shop blocked";
+      logBody = `not enough pearls for ${target}`;
+    } else {
+      resources.pearls = Math.max(0, (resources.pearls ?? 0) - cost);
+      logKind = "player";
+      logTitle = "Shop purchase";
+      if (target === "supply_cache") {
+        resources.wood = (resources.wood ?? 0) + 8;
+        resources.stone = (resources.stone ?? 0) + 8;
+        resources.clay = (resources.clay ?? 0) + 8;
+        resources.fiber = (resources.fiber ?? 0) + 8;
+        logBody = `bought Supply Cache for ${cost} pearls`;
+      } else if (target === "pond_blessing") {
+        morale = Math.min(100, morale + 3);
+        previewCivSession.modifiers.push({
+          id: `shop-cooperation-aura-preview-${previewCivSession.updated_at}`,
+          kind: "cooperation_aura",
+          label: "Cooperation Aura",
+          polarity: "buff",
+          remaining_turns: 6,
+          intensity: 1,
+        });
+        logBody = `bought Pond Blessing for ${cost} pearls`;
+      } else if (target === "rare_lure") {
+        const x = PREVIEW_HOME_X;
+        const y = PREVIEW_WORLD.floor[x] ?? PREVIEW_HOME_FLOOR;
+        previewPlace("amber", Math.max(1, x - 1), y, 3);
+        previewPlace("glowshards", Math.min(PREVIEW_WORLD.width - 2, x + 1), y, 3);
+        logBody = `bought Rare Lure for ${cost} pearls`;
+      } else if (target === "common_egg" || target === "rare_egg") {
+        const rare = target === "rare_egg";
+        const morph = rare ? "mystic" : "leucistic";
+        previewCivSession.world.entities.push({
+          id: `shop-egg-preview-${previewCivSession.world.entities.length}`,
+          kind: "egg",
+          name: rare ? "Rare Mystic Egg" : "Common Egg",
+          x: PREVIEW_HOME_X - 5,
+          y: PREVIEW_HOME_FLOOR - 3,
+          health: 100,
+          mood: 100,
+          role: "egg",
+          morph,
+          pattern: rare ? "marbled" : "plain",
+          stage: "egg",
+          sex: "",
+          age: 0,
+          size: 0.5,
+          accessories: [],
+          genes: { allele_a: morph, allele_b: rare ? "gfp" : "wild", size_gene: rare ? 1.1 : 1, fertility: 0.8, longevity: 1, vigor: 1 },
+          hatches_in: 3,
+          parents: ["shop"],
+        } as (typeof previewCivSession.world.entities)[number]);
+        logBody = `bought ${rare ? "Rare Egg" : "Common Egg"} for ${cost} pearls`;
+      } else {
+        const role = target === "workshop_kit" ? "workshop" : target === "storage_kit" ? "storage" : "farm";
+        previewCivSession.world.entities.push({
+          id: `shop-${role}-preview-${previewCivSession.world.entities.length}`,
+          kind: "building",
+          name: role === "workshop" ? "Tool Workshop" : role === "storage" ? "Shell Cache" : "Moss Farm",
+          x: Math.min(PREVIEW_WORLD.width - 2, PREVIEW_HOME_X + 5 + previewCivSession.world.entities.length % 5),
+          y: PREVIEW_HOME_FLOOR - 1,
+          health: 100,
+          mood: 100,
+          role,
+          activity: "built",
+        } as (typeof previewCivSession.world.entities)[number]);
+        logBody = `bought ${target} for ${cost} pearls`;
       }
     }
   }
@@ -1147,6 +1260,38 @@ function applyPreviewCivIntervention(args?: unknown) {
 
 function previewHarvestYield(resource: string) {
   return resource === "moss" ? "food" : resource;
+}
+
+function previewCurrencyReward(resource: string, amount: number) {
+  const unit = resource === "glowshards" || resource === "amber"
+    ? 3
+    : ["ore", "sulfur", "coral", "tools"].includes(resource)
+      ? 2
+      : 1;
+  return unit * Math.max(1, amount);
+}
+
+function previewShopCost(item: string) {
+  if (item === "supply_cache") return 6;
+  if (item === "pond_blessing") return 8;
+  if (item === "rare_lure") return 10;
+  if (item === "common_egg") return 12;
+  if (item === "farm_kit" || item === "storage_kit") return 14;
+  if (item === "workshop_kit") return 18;
+  if (item === "rare_egg") return 30;
+  return 0;
+}
+
+function previewPlace(resource: string, x: number, y: number, amount: number) {
+  for (let dy = 0; dy < 2; dy += 1) {
+    for (let dx = 0; dx < 3; dx += 1) {
+      const tile = previewCivSession.world.tiles.find((item) => item.x === x + dx && item.y === y + dy);
+      if (tile && previewIsSubstrate(tile.terrain)) {
+        tile.resource = resource;
+        tile.amount = amount;
+      }
+    }
+  }
 }
 
 function previewIsSubstrate(terrain: string) {

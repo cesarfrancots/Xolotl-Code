@@ -35,7 +35,7 @@ type CivilizationGameCanvasProps = {
 };
 
 const TILE_SIZE = 16;
-const VARIANT_COUNT = 16;
+const VARIANT_COUNT = 12;
 const FRAMES_PER_VARIANT = 4;
 const SURFACE_ROWS = 6; // air band at the very top (matches backend WATER_SURFACE_Y)
 const WATER_FLOOR_Y = 50; // base seabed row where colonies live (matches backend WATER_FLOOR_Y)
@@ -70,7 +70,6 @@ const PILOT_MOVE_ARRIVE_RADIUS = 24;
 const MORPHS = [
   "leucistic", "wild", "melanoid", "gold", "axanthic", "blue",
   "copper", "gfp", "albino", "piebald", "firefly", "mystic",
-  "cyber", "chrome", "volt", "nebula",
 ];
 const ACCESSORIES = [
   "flowercrown", "strawhat", "leafhat", "scarf", "glasses", "wizardhat",
@@ -81,6 +80,7 @@ const RESOURCE_KEYS: Record<string, string> = {
   stone: "res-stone", clay: "res-clay", fiber: "res-fiber", tools: "res-tools",
   glowshards: "res-glowshards", kelp: "res-fiber", ore: "res-stone", ice: "res-water",
   coral: "res-clay", sulfur: "res-glowshards", amber: "res-glowshards", herbs: "res-food",
+  pearls: "res-glowshards",
 };
 const BUILDING_KEYS: Record<string, string> = {
   nest: "bld-nest", storage: "bld-storage", farm: "bld-farm", workshop: "bld-workshop",
@@ -112,7 +112,7 @@ const BIOME_WASH: Record<string, number> = {
 const MORPH_DOT: Record<string, number> = {
   leucistic: 0xffd9e6, wild: 0x6f7d52, melanoid: 0x4a4a55, gold: 0xf2c75b, axanthic: 0xb9b39b,
   blue: 0x8fb8d8, copper: 0xc77f4a, gfp: 0x8effb4, albino: 0xfff0f4, piebald: 0xd8c0cc,
-  firefly: 0xffe27a, mystic: 0xc89bff, cyber: 0x54ffe8, chrome: 0xcbd6df, volt: 0xe9ff5c, nebula: 0xec6aff,
+  firefly: 0xffe27a, mystic: 0xc89bff,
 };
 
 export type PlayerInteraction = {
@@ -796,7 +796,7 @@ class CivPhaserScene extends Phaser.Scene {
       const img = this.add.image(px, py, key).setOrigin(0.5, 0.78);
       img.setDisplaySize(17, 17);
       img.setDepth(tile.y * 0.01);
-      if (tile.resource === "glowshards") {
+      if (tile.resource === "glowshards" || tile.resource === "pearls") {
         img.setData("glow", true);
         img.setBlendMode(Phaser.BlendModes.ADD);
         img.setAlpha(0.92);
@@ -1038,7 +1038,7 @@ class CivPhaserScene extends Phaser.Scene {
 
     let body: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image;
     let glow: Phaser.GameObjects.Sprite | undefined;
-    const glowMorph = ["gfp", "mystic", "firefly", "cyber", "chrome", "volt", "nebula"].includes(entity.morph ?? "");
+    const glowMorph = ["gfp", "mystic", "firefly"].includes(entity.morph ?? "");
 
     if (isEgg) {
       body = this.add.image(0, 0, this.textures.exists("egg") ? "egg" : "civ-water");
@@ -3159,10 +3159,6 @@ function morphVariant(entity: CivEntity, seed: number): number {
 function morphGlowTint(morph: string | undefined): number {
   if (morph === "gfp") return 0x7dffb0;
   if (morph === "firefly") return 0xffe27a;
-  if (morph === "cyber") return 0x54ffe8;
-  if (morph === "chrome") return 0xbef0ff;
-  if (morph === "volt") return 0xe9ff5c;
-  if (morph === "nebula") return 0xec6aff;
   return 0xc89bff;
 }
 
@@ -3195,6 +3191,7 @@ function resourceFeedbackColor(resource: string) {
   if (resource === "clay") return 0xc9855a;
   if (resource === "fiber" || resource === "kelp") return 0x73f0df;
   if (resource === "tools") return 0xf0d27a;
+  if (resource === "pearls") return 0xffdf7a;
   if (resource === "glowshards" || resource === "amber" || resource === "sulfur") return 0xc7a2ff;
   if (resource === "coral") return 0xff8fb4;
   return 0xffd76b;

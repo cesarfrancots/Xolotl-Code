@@ -110,6 +110,22 @@ describe("parseCivSnapshot", () => {
     expect(civ.resources.food).toBe(20);
     expect(parsed.environment?.season).toBe("spring");
   });
+
+  it("treats civs[] as the source of truth when mixed preview snapshots include both shapes", () => {
+    const mixedSnapshot = {
+      ...sampleSnapshot,
+      civilization: {
+        ...sampleSnapshot.civs![0],
+        resources: { food: 99, clean_water: 99, pearls: 99 },
+      },
+    };
+
+    const parsed = parseCivSnapshot(JSON.stringify(mixedSnapshot));
+    const civ = primaryCiv(parsed);
+
+    expect(civ.resources.food).toBe(20);
+    expect(civ.resources.pearls).toBeUndefined();
+  });
 });
 
 describe("activeCivPlayerTask", () => {

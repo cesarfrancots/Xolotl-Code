@@ -40,7 +40,7 @@ const DISEASE_COEFF: f32 = 0.18; // max extra death prob from plague for a 0-res
 const MORTALITY_CAP: f32 = 0.25; // hard ceiling on per-turn selection death prob
 
 // Colour genetics. Order matches the sprite-sheet variant order on the frontend.
-const MORPHS: [&str; 16] = [
+const MORPHS: [&str; 12] = [
     "leucistic",
     "wild",
     "melanoid",
@@ -53,17 +53,11 @@ const MORPHS: [&str; 16] = [
     "piebald",
     "firefly",
     "mystic",
-    "cyber",
-    "chrome",
-    "volt",
-    "nebula",
 ];
 // Morphs that show up in the founding colony / as common recessive alleles.
 const COMMON_MORPHS: [&str; 6] = ["leucistic", "wild", "gold", "axanthic", "copper", "albino"];
 // Rare morphs only reachable through mutation.
-const RARE_MORPHS: [&str; 7] = [
-    "gfp", "firefly", "mystic", "cyber", "chrome", "volt", "nebula",
-];
+const RARE_MORPHS: [&str; 3] = ["gfp", "firefly", "mystic"];
 // Visible coat pattern alleles (second Mendelian trait, parallel to colour morph).
 // "plain" is recessive (lowest pattern_rank); "marbled" is most dominant.
 const PATTERNS: [&str; 4] = ["plain", "spotted", "striped", "marbled"];
@@ -93,6 +87,7 @@ const CIV_COLORS: [&str; 8] = [
 ];
 // The founding colony's civ id (the only civ until multi-spawn lands in W2/W9).
 const FIRST_CIV_ID: &str = "civ-1";
+const CURRENCY_RESOURCE: &str = "pearls";
 
 /// Aquatic biome regions painted left-to-right across the seabed.
 /// `floor_offset` raises (negative) or lowers (positive) the seabed relative to
@@ -1103,6 +1098,7 @@ fn initial_snapshot(
             resources.insert("sulfur".to_string(), 0);
             resources.insert("amber".to_string(), 0);
             resources.insert("herbs".to_string(), 0);
+            resources.insert(CURRENCY_RESOURCE.to_string(), 6);
 
             let color = participant
                 .color
@@ -3190,6 +3186,8 @@ fn apply_intervention_to_snapshot(
                 .resources
                 .entry(gained_resource.clone())
                 .or_insert(0) += harvested;
+            let pearls = currency_reward_for_resource(&gained_resource, harvested);
+            add_currency_reward(snapshot, ci, pearls);
             if let Some(eid) = intervention.entity_id.as_deref() {
                 if let Some(entity) = snapshot
                     .world
@@ -3208,7 +3206,7 @@ fn apply_intervention_to_snapshot(
                 "intervention",
                 "Resource harvested",
                 &format!(
-                    "Player harvested {harvested} {gained_resource} from {tile_resource} near {x},{y} for {who}."
+                    "Player harvested {harvested} {gained_resource} from {tile_resource} near {x},{y} for {who}, earning {pearls} {CURRENCY_RESOURCE}."
                 ),
             );
         }
@@ -3248,6 +3246,8 @@ fn apply_intervention_to_snapshot(
                 .resources
                 .entry(gained_resource.clone())
                 .or_insert(0) += 1;
+            let pearls = currency_reward_for_resource(&gained_resource, 1);
+            add_currency_reward(snapshot, ci, pearls);
             if let Some(eid) = intervention.entity_id.as_deref() {
                 if let Some(entity) = snapshot
                     .world
@@ -3265,7 +3265,7 @@ fn apply_intervention_to_snapshot(
                 snapshot,
                 "player",
                 "Tile mined",
-                &format!("Player mined {terrain} at {x},{y} for 1 {gained_resource} for {who}."),
+                &format!("Player mined {terrain} at {x},{y} for 1 {gained_resource} and {pearls} {CURRENCY_RESOURCE} for {who}."),
             );
         }
         "place_tile" => {
@@ -3345,6 +3345,8 @@ fn apply_intervention_to_snapshot(
                             .resources
                             .entry("glowshards".to_string())
                             .or_insert(0) += 1;
+                        let pearl_bonus = 5;
+                        add_currency_reward(snapshot, ci, pearl_bonus);
                         let object_update = snapshot
                             .world
                             .entities
@@ -3369,7 +3371,7 @@ fn apply_intervention_to_snapshot(
                             "player",
                             "Task complete",
                             &format!(
-                                "target={}; Built {object_name} for {npc_name}. The resource pocket is reachable and the silt vent is sealed; task=build_bridge; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                                "target={}; Built {object_name} for {npc_name}. The resource pocket is reachable and the silt vent is sealed; +{pearl_bonus} {CURRENCY_RESOURCE}; task=build_bridge; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
                                 task.object_id,
                                 task.npc_id,
                                 task.object_id,
@@ -3431,6 +3433,8 @@ fn apply_intervention_to_snapshot(
                 .resources
                 .entry("clean_water".to_string())
                 .or_insert(0) += 1;
+            let pearl_bonus = 4;
+            add_currency_reward(snapshot, ci, pearl_bonus);
             let (object_name, object_x, object_y) = {
                 let object = &mut snapshot.world.entities[object_idx];
                 object.health = 100.0;
@@ -3446,7 +3450,7 @@ fn apply_intervention_to_snapshot(
                 "player",
                 "Task complete",
                 &format!(
-                    "target={}; Repaired {object_name} for {npc_name}. The nest leak is sealed and the nest is safe again; task=repair_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                    "target={}; Repaired {object_name} for {npc_name}. The nest leak is sealed and the nest is safe again; +{pearl_bonus} {CURRENCY_RESOURCE}; task=repair_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
                     task.object_id,
                     task.npc_id,
                     task.object_id,
@@ -3504,6 +3508,8 @@ fn apply_intervention_to_snapshot(
             {
                 snapshot.civs[ci].population = snapshot.civs[ci].population.saturating_add(1);
             }
+            let pearl_bonus = 6;
+            add_currency_reward(snapshot, ci, pearl_bonus);
             let npc_name =
                 celebrate_npc_at(snapshot, &task.npc_id, Some((object_x, object_y)), 7.0)
                     .unwrap_or_else(|| "the scout".to_string());
@@ -3512,7 +3518,7 @@ fn apply_intervention_to_snapshot(
                 "player",
                     "Task complete",
                     &format!(
-                    "target={}; Rescued {object_name} for {npc_name}. The blocked path is clear and the low-oxygen pocket is behind you; task=rescue_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                    "target={}; Rescued {object_name} for {npc_name}. The blocked path is clear and the low-oxygen pocket is behind you; +{pearl_bonus} {CURRENCY_RESOURCE}; task=rescue_object; npc={}; object={}; resource={}; source={}; amount={}; baseline={}; reward={};",
                     task.object_id,
                     task.npc_id,
                     task.object_id,
@@ -3755,6 +3761,8 @@ fn apply_intervention_to_snapshot(
                         } else {
                             snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 2.0).min(100.0);
                         }
+                        let pearl_bonus = if task.kind == "trade_resource" { 3 } else { 2 };
+                        add_currency_reward(snapshot, ci, pearl_bonus);
                         let entity = &mut snapshot.world.entities[entity_idx];
                         entity.mood = (entity.mood
                             + if task.kind == "trade_resource" {
@@ -3766,7 +3774,7 @@ fn apply_intervention_to_snapshot(
                         entity.activity = "celebrate".to_string();
                         let body = if task.kind == "trade_resource" {
                             format!(
-                                "target={}; Traded {} {} with {ename} for {} {}; task=trade_resource; npc={}; resource={}; source={}; amount={}; baseline={}; reward={}; reward_resource={}; reward_amount={};",
+                                "target={}; Traded {} {} with {ename} for {} {}; +{pearl_bonus} {CURRENCY_RESOURCE}; task=trade_resource; npc={}; resource={}; source={}; amount={}; baseline={}; reward={}; reward_resource={}; reward_amount={};",
                                 task.npc_id,
                                 task.amount,
                                 task.resource,
@@ -3783,7 +3791,7 @@ fn apply_intervention_to_snapshot(
                             )
                         } else {
                             format!(
-                                "target={}; Delivered {} {} to {ename}. The pond feels more coordinated; task=fetch_resource; npc={}; resource={}; source={}; amount={}; baseline={}; reward={};",
+                                "target={}; Delivered {} {} to {ename}. The pond feels more coordinated; +{pearl_bonus} {CURRENCY_RESOURCE}; task=fetch_resource; npc={}; resource={}; source={}; amount={}; baseline={}; reward={};",
                                 task.npc_id,
                                 task.amount,
                                 task.resource,
@@ -4013,6 +4021,8 @@ fn apply_intervention_to_snapshot(
                             .entry("clean_water".to_string())
                             .or_insert(0) += 1;
                     }
+                    let pearl_bonus = 3;
+                    add_currency_reward(snapshot, ci, pearl_bonus);
                     if let Some(npc) = snapshot
                         .world
                         .entities
@@ -4027,7 +4037,7 @@ fn apply_intervention_to_snapshot(
                         "player",
                         "Task complete",
                         &format!(
-                            "target={}; Checked {name} for the requester. The {role} feels tended; task=visit_building; npc={}; building={}; reward={};",
+                            "target={}; Checked {name} for the requester. The {role} feels tended; +{pearl_bonus} {CURRENCY_RESOURCE}; task=visit_building; npc={}; building={}; reward={};",
                             task.building_id,
                             task.npc_id,
                             task.building_id,
@@ -4076,11 +4086,118 @@ fn apply_intervention_to_snapshot(
                     snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 0.4).min(100.0);
                 }
             }
+            let pearl_bonus = 1;
+            add_currency_reward(snapshot, ci, pearl_bonus);
             push_log(
                 snapshot,
                 "player",
                 "Building used",
-                &format!("target={eid}; The player used {name}; the {role} helped the colony."),
+                &format!("target={eid}; The player used {name}; the {role} helped the colony; +{pearl_bonus} {CURRENCY_RESOURCE}."),
+            );
+        }
+        "shop_purchase" => {
+            let ci = target_ci.ok_or("no civilization in session")?;
+            let item = intervention.target.as_str();
+            let cost = shop_item_cost(item).ok_or_else(|| format!("unknown shop item: {item}"))?;
+            let available = snapshot.civs[ci]
+                .resources
+                .get(CURRENCY_RESOURCE)
+                .copied()
+                .unwrap_or(0);
+            if available < cost {
+                return Err(format!(
+                    "not enough {CURRENCY_RESOURCE}: need {cost}, have {available}"
+                ));
+            }
+            consume(&mut snapshot.civs[ci].resources, CURRENCY_RESOURCE, cost);
+            let civ_id = snapshot.civs[ci].id.clone();
+            let summary = match item {
+                "supply_cache" => {
+                    for (resource, amount) in [
+                        ("wood", 8),
+                        ("stone", 8),
+                        ("clay", 8),
+                        ("fiber", 8),
+                    ] {
+                        *snapshot.civs[ci]
+                            .resources
+                            .entry(resource.to_string())
+                            .or_insert(0) += amount;
+                    }
+                    "+8 wood, stone, clay, and fiber".to_string()
+                }
+                "rare_lure" => {
+                    let x = intervention
+                        .x
+                        .unwrap_or(snapshot.civs[ci].spawn_x)
+                        .min(snapshot.world.width.saturating_sub(1));
+                    let y = seabed_row_at(&snapshot.world, x);
+                    let right_x = x
+                        .saturating_add(1)
+                        .min(snapshot.world.width.saturating_sub(1));
+                    place_resource_patch(
+                        &mut snapshot.world.tiles,
+                        "amber",
+                        3,
+                        x.saturating_sub(1),
+                        y,
+                        2,
+                        1,
+                    );
+                    place_resource_patch(
+                        &mut snapshot.world.tiles,
+                        "glowshards",
+                        3,
+                        right_x,
+                        y,
+                        2,
+                        1,
+                    );
+                    "amber and glowshards appeared near the colony".to_string()
+                }
+                "pond_blessing" => {
+                    snapshot.modifiers.push(CivModifier {
+                        id: format!("shop-cooperation-aura-{}-{}", civ_id, snapshot.turn),
+                        kind: "cooperation_aura".to_string(),
+                        label: "Cooperation Aura".to_string(),
+                        polarity: "buff".to_string(),
+                        remaining_turns: 6,
+                        intensity: 1.0,
+                    });
+                    snapshot.civs[ci].morale = (snapshot.civs[ci].morale + 3.0).min(100.0);
+                    "cooperation aura for 6 turns".to_string()
+                }
+                "common_egg" => {
+                    let egg = spawn_shop_egg(snapshot, &civ_id, false)?;
+                    format!("{egg} placed in the nest")
+                }
+                "rare_egg" => {
+                    let egg = spawn_shop_egg(snapshot, &civ_id, true)?;
+                    format!("{egg} placed in the nest")
+                }
+                "farm_kit" => {
+                    let building = spawn_shop_building(snapshot, &civ_id, "farm", "Moss Farm")?;
+                    format!("{building} built near the colony")
+                }
+                "storage_kit" => {
+                    let building = spawn_shop_building(snapshot, &civ_id, "storage", "Shell Cache")?;
+                    format!("{building} built near the colony")
+                }
+                "workshop_kit" => {
+                    let building = spawn_shop_building(snapshot, &civ_id, "workshop", "Tool Workshop")?;
+                    format!("{building} built near the colony")
+                }
+                _ => unreachable!("shop_item_cost already validated {item}"),
+            };
+            let who = civ_label(snapshot, &civ_id);
+            push_log(
+                snapshot,
+                "player",
+                "Shop purchase",
+                &format!(
+                    "{who} bought {} for {cost} {CURRENCY_RESOURCE}: {summary}.",
+                    shop_item_label(item)
+                ),
             );
         }
         "trigger_event" | "apply_buff" | "apply_debuff" => {
@@ -4521,7 +4638,55 @@ fn known_resource(resource: &str) -> bool {
             | "sulfur"
             | "amber"
             | "herbs"
+            | CURRENCY_RESOURCE
     )
+}
+
+fn currency_reward_for_resource(resource: &str, amount: i32) -> i32 {
+    let unit = match resource {
+        "glowshards" | "amber" => 3,
+        "ore" | "sulfur" | "coral" | "tools" => 2,
+        _ => 1,
+    };
+    unit * amount.max(1)
+}
+
+fn add_currency_reward(snapshot: &mut CivSessionSnapshot, ci: usize, amount: i32) {
+    if amount <= 0 {
+        return;
+    }
+    *snapshot.civs[ci]
+        .resources
+        .entry(CURRENCY_RESOURCE.to_string())
+        .or_insert(0) += amount;
+}
+
+fn shop_item_cost(item: &str) -> Option<i32> {
+    match item {
+        "supply_cache" => Some(6),
+        "pond_blessing" => Some(8),
+        "rare_lure" => Some(10),
+        "common_egg" => Some(12),
+        "farm_kit" => Some(14),
+        "storage_kit" => Some(14),
+        "workshop_kit" => Some(18),
+        "rare_egg" => Some(30),
+        _ => None,
+    }
+}
+
+fn shop_item_label(item: &str) -> &'static str {
+    match item {
+        "supply_cache" => "Supply Cache",
+        "pond_blessing" => "Pond Blessing",
+        "rare_lure" => "Rare Lure",
+        "common_egg" => "Common Egg",
+        "farm_kit" => "Farm Kit",
+        "storage_kit" => "Storage Kit",
+        "workshop_kit" => "Workshop Kit",
+        "rare_egg" => "Rare Egg",
+        _ => "Unknown Item",
+    }
 }
 
 fn harvest_yield_resource(resource: &str) -> Option<&str> {
@@ -4685,13 +4850,9 @@ fn task_for_npc(
         }
     }
 
-    if matches!(
-        morph,
-        "gold" | "copper" | "firefly" | "blue" | "gfp" | "cyber" | "chrome" | "volt"
-    ) {
+    if matches!(morph, "gold" | "copper" | "firefly" | "blue" | "gfp") {
         let (resource, reward_resource) = match morph {
             "blue" | "gfp" => ("fiber", "clean_water"),
-            "cyber" | "chrome" | "volt" => ("ore", "tools"),
             _ => ("wood", "tools"),
         };
         return PlayerTask {
@@ -4748,7 +4909,7 @@ fn task_for_npc(
         }
     }
 
-    if matches!(morph, "melanoid" | "axanthic" | "mystic" | "nebula") || entity.role == "elder" {
+    if matches!(morph, "melanoid" | "axanthic" | "mystic") || entity.role == "elder" {
         let building_id = task_building_id(
             snapshot,
             if entity.role == "elder" {
@@ -5133,10 +5294,6 @@ fn rand_range(rng: &mut u32, lo: f32, hi: f32) -> f32 {
 /// Higher = more dominant when an axolotl carries two different colour alleles.
 fn morph_rank(morph: &str) -> u8 {
     match morph {
-        "nebula" => 15,
-        "volt" => 14,
-        "chrome" => 13,
-        "cyber" => 12,
         "mystic" => 11,
         "wild" => 10,
         "gfp" | "firefly" => 9,
@@ -5361,6 +5518,113 @@ fn nest_pos(snapshot: &CivSessionSnapshot, civ_id: &str) -> Option<(u32, u32)> {
     civ_entities(snapshot, civ_id)
         .find(|e| e.kind == "building" && e.role == "nest")
         .map(|e| (e.x, e.y.saturating_sub(1)))
+}
+
+fn spawn_shop_building(
+    snapshot: &mut CivSessionSnapshot,
+    civ_id: &str,
+    role: &str,
+    name: &str,
+) -> Result<String, String> {
+    let ci = civ_index(snapshot, civ_id).ok_or_else(|| format!("unknown civ: {civ_id}"))?;
+    let spawn_x = snapshot.civs[ci].spawn_x;
+    let count = civ_entities(snapshot, civ_id)
+        .filter(|entity| entity.kind == "building" && entity.role == role)
+        .count();
+    let offsets: [i32; 8] = [5, -5, 9, -9, 13, -13, 17, -17];
+    let max_x = snapshot.world.width.saturating_sub(2).max(1) as i32;
+    let x = (spawn_x as i32 + offsets[count % offsets.len()] + (count / offsets.len()) as i32)
+        .clamp(1, max_x) as u32;
+    let y = seabed_row_at(&snapshot.world, x).saturating_sub(1);
+    let id = format!(
+        "shop-{role}-{civ_id}-{}-{}",
+        snapshot.turn,
+        snapshot.world.entities.len()
+    );
+    snapshot.world.entities.push(CivEntity {
+        id,
+        kind: "building".to_string(),
+        name: name.to_string(),
+        x,
+        y,
+        health: 100.0,
+        mood: 100.0,
+        role: role.to_string(),
+        civ_id: Some(civ_id.to_string()),
+        activity: "built".to_string(),
+        ..Default::default()
+    });
+    Ok(name.to_string())
+}
+
+fn spawn_shop_egg(
+    snapshot: &mut CivSessionSnapshot,
+    civ_id: &str,
+    rare: bool,
+) -> Result<String, String> {
+    let ci = civ_index(snapshot, civ_id).ok_or_else(|| format!("unknown civ: {civ_id}"))?;
+    let mut rng = snapshot.seed
+        ^ snapshot.turn.wrapping_mul(977)
+        ^ (snapshot.world.entities.len() as u32).wrapping_mul(37);
+    if rng == 0 {
+        rng = 1;
+    }
+    let morph_pool: &[&str] = if rare { &RARE_MORPHS } else { &COMMON_MORPHS };
+    let primary = morph_pool[(next_rng(&mut rng) as usize) % morph_pool.len()];
+    let mut genes = random_genes(&mut rng, primary);
+    if rare {
+        genes.allele_a = primary.to_string();
+        genes.allele_b = RARE_MORPHS[(next_rng(&mut rng) as usize) % RARE_MORPHS.len()].to_string();
+        genes.pattern_a = PATTERNS[(next_rng(&mut rng) as usize) % PATTERNS.len()].to_string();
+        genes.pattern_b = "marbled".to_string();
+        genes.size_gene = genes.size_gene.max(1.05);
+        genes.vigor = genes.vigor.max(1.08);
+    }
+    let nest = nest_pos(snapshot, civ_id).unwrap_or((
+        snapshot.civs[ci].spawn_x,
+        WATER_FLOOR_Y.saturating_sub(1),
+    ));
+    let egg_count = civ_entities(snapshot, civ_id)
+        .filter(|entity| entity.kind == "egg")
+        .count() as u32;
+    let x = (nest.0 + egg_count % 4).min(snapshot.world.width.saturating_sub(1));
+    let y = nest.1.saturating_sub((egg_count / 4).min(1));
+    let morph = expressed_morph(&genes);
+    let pattern = expressed_pattern(&genes);
+    let label = if rare {
+        format!("Rare {} Egg", title_case(&morph))
+    } else {
+        "Common Egg".to_string()
+    };
+    snapshot.world.entities.push(CivEntity {
+        id: format!(
+            "shop-egg-{civ_id}-{}-{}",
+            snapshot.turn,
+            snapshot.world.entities.len()
+        ),
+        kind: "egg".to_string(),
+        name: label.clone(),
+        x,
+        y,
+        health: 100.0,
+        mood: 100.0,
+        role: "egg".to_string(),
+        civ_id: Some(civ_id.to_string()),
+        morph,
+        pattern,
+        stage: "egg".to_string(),
+        sex: String::new(),
+        age: 0,
+        size: 0.5,
+        accessories: Vec::new(),
+        genes: Some(genes),
+        hatches_in: Some(EGG_HATCH_TURNS),
+        parents: vec!["shop".to_string()],
+        activity: "egg".to_string(),
+        target_x: None,
+        target_y: None,
+    });
+    Ok(label)
 }
 
 fn known_accessory(acc: &str) -> bool {
@@ -6749,6 +7013,7 @@ mod tests {
             .cloned()
             .expect("expected a moss tile");
         let before_food = snapshot.civs[0].resources["food"];
+        let before_pearls = snapshot.civs[0].resources[CURRENCY_RESOURCE];
         let before_amount = tile.amount;
         apply_intervention_to_snapshot(
             &mut snapshot,
@@ -6767,6 +7032,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(snapshot.civs[0].resources["food"], before_food + 2);
+        assert_eq!(
+            snapshot.civs[0].resources[CURRENCY_RESOURCE],
+            before_pearls + 2
+        );
         let after_tile = snapshot
             .world
             .tiles
@@ -6802,6 +7071,7 @@ mod tests {
             .get(&expected_gain)
             .copied()
             .unwrap_or(0);
+        let before_pearls = snapshot.civs[0].resources[CURRENCY_RESOURCE];
         apply_intervention_to_snapshot(
             &mut snapshot,
             &CivIntervention {
@@ -6818,6 +7088,7 @@ mod tests {
             },
         )
         .unwrap();
+        let expected_pearls = currency_reward_for_resource(&expected_gain, 1);
         let mined = snapshot
             .world
             .tiles
@@ -6833,6 +7104,10 @@ mod tests {
                 .copied()
                 .unwrap_or(0),
             before_gain + 1
+        );
+        assert_eq!(
+            snapshot.civs[0].resources[CURRENCY_RESOURCE],
+            before_pearls + expected_pearls
         );
 
         let before_stone = snapshot.civs[0].resources["stone"];
@@ -6860,6 +7135,111 @@ mod tests {
             .unwrap();
         assert_eq!(placed.terrain, "stone");
         assert_eq!(snapshot.civs[0].resources["stone"], before_stone - 1);
+    }
+
+    #[test]
+    fn shop_purchase_spends_pearls_and_spawns_rewards() {
+        let mut snapshot = test_snapshot("shop-session", "Shop", "mock-model", 42, 1);
+        let cid = first_civ_id(&snapshot);
+        snapshot.civs[0]
+            .resources
+            .insert(CURRENCY_RESOURCE.to_string(), 80);
+
+        let before_wood = snapshot.civs[0].resources["wood"];
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "shop_purchase".to_string(),
+                target: "supply_cache".to_string(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: None,
+                accessory: None,
+                civ_id: Some(cid.clone()),
+            },
+        )
+        .unwrap();
+        assert_eq!(snapshot.civs[0].resources["wood"], before_wood + 8);
+        assert_eq!(snapshot.civs[0].resources[CURRENCY_RESOURCE], 74);
+
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "shop_purchase".to_string(),
+                target: "rare_egg".to_string(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: None,
+                accessory: None,
+                civ_id: Some(cid.clone()),
+            },
+        )
+        .unwrap();
+        assert_eq!(snapshot.civs[0].resources[CURRENCY_RESOURCE], 44);
+        let egg = snapshot
+            .world
+            .entities
+            .iter()
+            .rev()
+            .find(|entity| entity.kind == "egg" && entity.parents == vec!["shop".to_string()])
+            .expect("shop rare egg should be spawned");
+        assert!(RARE_MORPHS.contains(&egg.morph.as_str()));
+        assert_eq!(egg.civ_id.as_deref(), Some(cid.as_str()));
+        assert_eq!(egg.hatches_in, Some(EGG_HATCH_TURNS));
+
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "shop_purchase".to_string(),
+                target: "farm_kit".to_string(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: None,
+                accessory: None,
+                civ_id: Some(cid.clone()),
+            },
+        )
+        .unwrap();
+        assert!(snapshot.world.entities.iter().any(|entity| {
+            entity.kind == "building"
+                && entity.role == "farm"
+                && entity.civ_id.as_deref() == Some(cid.as_str())
+        }));
+    }
+
+    #[test]
+    fn shop_purchase_requires_enough_pearls() {
+        let mut snapshot = test_snapshot("shop-poor-session", "Shop Poor", "mock-model", 42, 1);
+        let cid = first_civ_id(&snapshot);
+        snapshot.civs[0]
+            .resources
+            .insert(CURRENCY_RESOURCE.to_string(), 2);
+        let err = apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "shop_purchase".to_string(),
+                target: "common_egg".to_string(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: None,
+                accessory: None,
+                civ_id: Some(cid),
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("not enough pearls"));
     }
 
     #[test]

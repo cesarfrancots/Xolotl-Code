@@ -1042,3 +1042,40 @@ Next TODO:
 Remaining MVP audit items:
 - Do a final compact MVP readiness pass across task variety, controls, persistence, fail-state communication, and whether the current demo command is enough for a live user-watched run.
 - Native Tauri save/reload should get a quick smoke separately if the next session runs inside the actual desktop shell rather than browser preview.
+
+2026-06-08 human economy/shop and asset-line correction pass:
+- Reverted the rejected cyber/chrome/volt/nebula asset additions and returned the game to the README/screenshot graphic line:
+  - `tauri-app/public/civ/axolotls/` is back to the 12 existing chibi/painterly morph portraits.
+  - `tauri-app/public/civ/axolotl-animated-seeds.png` and `output/civ-gen/gen_axolotls.py` are back to the 12-variant sheet/generator.
+  - No new pearl icon sheet is used; pearls currently reuse the existing glowshard visual in-game to avoid introducing a mismatched asset.
+- Added the first real human economy/shop loop:
+  - `pearls` are now the player currency.
+  - Manual harvest, mining, task completion, and building use reward pearls.
+  - The shop can buy Supply Cache, Pond Blessing, Rare Lure, Common Egg, Rare Egg, Farm Kit, Storage Kit, and Workshop Kit.
+  - Purchases spend pearls and mutate the backend/browser-preview world/resources instead of being free prototype buttons.
+- Added more human-playable feedback around the economy:
+  - HUD shows Pearls.
+  - Shop lives in the left game drawer and in God mode.
+  - Admin console supports `/buy <item>`.
+  - Manual gather/mine/build/use interactions have visible cooldown readouts and alerts, while Codex pilot remains ungated for automation tests.
+- Found and fixed a browser-preview sync bug:
+  - Fallback interventions updated legacy `civilization.resources`, but the frontend prefers `civs[0].resources` when both shapes are present.
+  - `tauriBrowserFallback.ts` now syncs the primary civ before persisting/returning preview snapshots, so shop, harvest, mine, task, and building rewards all update visible UI/text state after reload-continuity hydration.
+- Fixed a drawer usability/accessibility gap found during Playwright smoke:
+  - Closed Civ drawers are now `inert`, `aria-hidden`, transparent, and pointer-events disabled, so hidden/offscreen shop buttons cannot intercept automation or focus.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-economy-shop-purchase-fixed/01-shop-open.png`
+  - `tauri-app/output/web-game/civ-economy-shop-purchase-fixed/02-supply-cache-bought.png`
+  - `summary.json` shows Supply Cache changed resources from `pearls=6, wood=18, stone=11, clay=8, fiber=12` to `pearls=0, wood=26, stone=19, clay=16, fiber=20`, with no missing morph-frame warnings and no console errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (59 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo check` (existing `TauriPermissionPrompter` dead-code warning)
+  - `cargo test shop_purchase --no-run` (compiled test binaries; still avoid executing Rust test binaries on Windows due the known Tauri `STATUS_ENTRYPOINT_NOT_FOUND` issue)
+- Official `develop-web-game` client is still blocked in this shell because its ESM script cannot resolve the bundled `playwright` package from the skill directory. Targeted Playwright smokes used the bundled Codex runtime package path directly.
+
+Next TODO:
+- Generate any new axolotl/egg/civ-level assets only in the README/screenshot chibi/painterly style, not the rejected cyber/pixel look.
+- Add a proper hatchery/rarity screen and egg lifecycle UI now that shop eggs can be bought.
+- Expand economy loops beyond the first pearl rewards: richer world drops, rare-object discovery, and cooldown/timer tuning for human play.
+- Consider surfacing the shop as a dedicated game HUD panel in Play mode, not only inside the drawer/God panels.

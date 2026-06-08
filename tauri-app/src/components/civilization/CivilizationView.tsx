@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Bot,
   Brain,
+  Coins,
   Eye,
   EyeOff,
   FastForward,
@@ -108,11 +109,48 @@ function biomeAccent(biome: string) {
 }
 
 const RESOURCES = [
-  "food", "clean_water", "wood", "stone", "clay", "fiber", "tools", "glowshards",
+  "food", "clean_water", "pearls", "wood", "stone", "clay", "fiber", "tools", "glowshards",
   "kelp", "ore", "ice", "coral", "sulfur", "amber", "herbs",
 ];
 const BUILD_RESOURCES = ["stone", "clay", "wood", "fiber", "coral", "ice"];
 const RARE_RESOURCES = new Set(["glowshards", "ore", "coral", "sulfur", "amber"]);
+const CURRENCY_RESOURCE = "pearls";
+const ACTION_COOLDOWNS_MS = {
+  gather: 1200,
+  mine: 1800,
+  build: 1600,
+  use: 900,
+} as const;
+type ActionCooldownKey = keyof typeof ACTION_COOLDOWNS_MS;
+const ACTION_COOLDOWN_KEYS = Object.keys(ACTION_COOLDOWNS_MS) as ActionCooldownKey[];
+type GameAlertKind = "resource" | "rare" | "task" | "world" | "admin" | "currency";
+type ShopItemId =
+  | "supply_cache"
+  | "rare_lure"
+  | "pond_blessing"
+  | "common_egg"
+  | "rare_egg"
+  | "farm_kit"
+  | "storage_kit"
+  | "workshop_kit";
+const SHOP_ITEMS: Array<{ id: ShopItemId; label: string; detail: string; cost: number; tone: GameAlertKind }> = [
+  { id: "supply_cache", label: "Supply Cache", detail: "wood, stone, clay, fiber", cost: 6, tone: "resource" },
+  { id: "pond_blessing", label: "Pond Blessing", detail: "cooperation aura", cost: 8, tone: "task" },
+  { id: "rare_lure", label: "Rare Lure", detail: "amber + glowshards", cost: 10, tone: "rare" },
+  { id: "common_egg", label: "Common Egg", detail: "hatches in the nest", cost: 12, tone: "currency" },
+  { id: "farm_kit", label: "Farm Kit", detail: "builds a moss farm", cost: 14, tone: "resource" },
+  { id: "storage_kit", label: "Storage Kit", detail: "builds a shell cache", cost: 14, tone: "resource" },
+  { id: "workshop_kit", label: "Workshop Kit", detail: "builds tool crafting", cost: 18, tone: "resource" },
+  { id: "rare_egg", label: "Rare Egg", detail: "rare genes", cost: 30, tone: "rare" },
+];
+function shopItemById(id: string) {
+  return SHOP_ITEMS.find((item) => item.id === id) ?? null;
+}
+
+function isShopItemId(id: string): id is ShopItemId {
+  return SHOP_ITEMS.some((item) => item.id === id);
+}
+
 const BUFFS = ["abundant_moss", "clear_water", "cooperation_aura", "curiosity_spark"];
 const DEBUFFS = ["drought", "cold_snap", "food_rot", "fatigue", "quarrel_pressure"];
 const ACCESSORIES = [
@@ -157,7 +195,6 @@ const MAX_PARTICIPANTS = 3;
 const ALERT_TTL_MS = 5200;
 
 type GameMode = "play" | "observe" | "god";
-type GameAlertKind = "resource" | "rare" | "task" | "world" | "admin";
 
 type GameAlert = {
   id: number;
@@ -259,6 +296,13 @@ export function CivilizationView() {
   const [pilotCommand, setPilotCommand] = useState<CivPilotCommand>(null);
   const [pilotReadout, setPilotReadout] = useState<PilotReadout | null>(null);
   const [playerTool, setPlayerTool] = useState<PlayerTool>("use");
+  const [actionCooldowns, setActionCooldowns] = useState<Record<ActionCooldownKey, number>>({
+    gather: 0,
+    mine: 0,
+    build: 0,
+    use: 0,
+  });
+  const [cooldownNow, setCooldownNow] = useState(() => Date.now());
   const playerMovePendingRef = useRef(false);
   const playerMoveQueuedRef = useRef<PlayerMove | null>(null);
   const pilotMemoryRef = useRef<CivPilotMemory>(createCivPilotMemory());
@@ -330,9 +374,17 @@ export function CivilizationView() {
     return () => window.clearInterval(timer);
   }, [alerts.length]);
 
+  useEffect(() => {
+    const hasActiveCooldown = ACTION_COOLDOWN_KEYS.some((key) => actionCooldowns[key] > Date.now());
+    if (!hasActiveCooldown) return;
+    const timer = window.setInterval(() => setCooldownNow(Date.now()), 150);
+    return () => window.clearInterval(timer);
+  }, [actionCooldowns]);
+
   const activeCiv = snapshot
     ? (snapshot.civs?.find((c) => c.id === selectedCivId) ?? primaryCiv(snapshot))
     : null;
+  const pearlBalance = activeCiv?.resources?.[CURRENCY_RESOURCE] ?? 0;
   // One combined chronological stream; when a civ is selected, scope it to that
   // civ via the robust civ_id field (Plan 01), never name-string matching.
   const recentLog = useMemo(() => {
@@ -694,10 +746,32 @@ export function CivilizationView() {
   }
 
   function sendIntervention(intervention: CivIntervention) {
-    const scoped = activeCiv?.id && ["grant_resource", "remove_resource", "spawn_resource"].includes(intervention.kind)
+    const scoped = activeCiv?.id && ["grant_resource", "remove_resource", "spawn_resource", "shop_purchase"].includes(intervention.kind)
       ? { ...intervention, civ_id: intervention.civ_id ?? activeCiv.id }
       : intervention;
     void applyIntervention(scoped);
+  }
+
+  function actionCooldownRemaining(key: ActionCooldownKey, now = Date.now()) {
+    return Math.max(0, actionCooldowns[key] - now);
+  }
+
+  function startActionCooldown(key: ActionCooldownKey) {
+    if (codexPilot) return;
+    const readyAt = Date.now() + ACTION_COOLDOWNS_MS[key];
+    setCooldownNow(Date.now());
+    setActionCooldowns((items) => ({ ...items, [key]: readyAt }));
+  }
+
+  function guardActionCooldown(key: ActionCooldownKey, label: string) {
+    if (codexPilot) return false;
+    const remaining = actionCooldownRemaining(key);
+    if (remaining <= 0) return false;
+    const seconds = Math.ceil(remaining / 100) / 10;
+    setCooldownNow(Date.now());
+    setPlayerMessage(`${label} cooling down: ${seconds.toFixed(1)}s.`);
+    pushGameAlert("currency", "Action cooling down", `${label} ready in ${seconds.toFixed(1)}s.`);
+    return true;
   }
 
   async function handleRestartRun() {
@@ -765,7 +839,7 @@ export function CivilizationView() {
     const commandAmount = Number.isFinite(amountArg) ? Math.max(1, Math.min(999, Math.floor(amountArg))) : 1;
     setAdminCommand("");
     if (command === "help") {
-      recordAdmin("Commands: /grant food 10, /spawn amber 3, /buff abundant_moss, /turn, /mode play, /reset.");
+      recordAdmin("Commands: /grant food 10, /spawn amber 3, /buy common_egg, /buff abundant_moss, /turn, /mode play, /reset.");
       return;
     }
     if (command === "grant" && target) {
@@ -797,6 +871,14 @@ export function CivilizationView() {
       });
       recordAdmin(`Applied ${modifierLabel(target)} for ${duration} turn(s).`);
       pushGameAlert("admin", command === "buff" ? "Buff applied" : "Debuff applied", modifierLabel(target));
+      return;
+    }
+    if (command === "buy" && target) {
+      if (!isShopItemId(target)) {
+        recordAdmin(`Unknown shop item: ${target}.`);
+        return;
+      }
+      buyDevShopItem(target);
       return;
     }
     if (command === "turn") {
@@ -838,32 +920,19 @@ export function CivilizationView() {
     recordAdmin(`Unknown command: ${raw}. Try /help.`);
   }
 
-  function buyDevShopItem(item: "supply_cache" | "rare_lure" | "pond_blessing" | "hard_mode") {
-    if (item === "supply_cache") {
-      ["wood", "stone", "clay", "fiber"].forEach((itemResource) => {
-        sendIntervention({ kind: "grant_resource", target: itemResource, amount: 8 });
-      });
-      pushGameAlert("admin", "Supply cache", "+8 wood, stone, clay, and fiber.");
-      recordAdmin("Bought Supply Cache prototype.");
+  function buyDevShopItem(item: ShopItemId) {
+    const meta = shopItemById(item);
+    if (!meta) return;
+    if (pearlBalance < meta.cost) {
+      const missing = meta.cost - pearlBalance;
+      setPlayerMessage(`Need ${missing} more ${resourceLabel(CURRENCY_RESOURCE)} for ${meta.label}.`);
+      pushGameAlert("currency", "Not enough pearls", `${meta.label} costs ${meta.cost}.`);
+      recordAdmin(`Need ${missing} more ${resourceLabel(CURRENCY_RESOURCE)} for ${meta.label}.`);
       return;
     }
-    if (item === "rare_lure") {
-      sendIntervention({ kind: "spawn_resource", target: "amber", amount: 2, x: spawnX });
-      sendIntervention({ kind: "spawn_resource", target: "glowshards", amount: 2, x: spawnX });
-      pushGameAlert("rare", "Rare lure", "Amber and glowshards spawned in the world.");
-      recordAdmin("Bought Rare Lure prototype.");
-      return;
-    }
-    if (item === "pond_blessing") {
-      sendIntervention({ kind: "apply_buff", target: "cooperation_aura", duration: 6, intensity: 1 });
-      pushGameAlert("admin", "Pond blessing", "Cooperation aura applied.");
-      recordAdmin("Bought Pond Blessing prototype.");
-      return;
-    }
-    sendIntervention({ kind: "apply_debuff", target: "fatigue", duration: 4, intensity: 1 });
-    sendIntervention({ kind: "spawn_resource", target: "ore", amount: 3, x: spawnX });
-    pushGameAlert("rare", "Hard mode test", "Fatigue added and ore spawned.");
-    recordAdmin("Bought Hard Mode Test prototype.");
+    sendIntervention({ kind: "shop_purchase", target: item, amount: 1, x: spawnX });
+    pushGameAlert(meta.tone, meta.label, `-${meta.cost} ${resourceLabel(CURRENCY_RESOURCE)}. ${meta.detail}.`);
+    recordAdmin(`Bought ${meta.label} for ${meta.cost} ${resourceLabel(CURRENCY_RESOURCE)}.`);
   }
 
   function focusGameCanvasSoon() {
@@ -916,6 +985,7 @@ export function CivilizationView() {
 
   function handlePlayerInteract(interaction: PlayerInteraction) {
     if (interaction.kind === "terrain" && interaction.action === "mine_tile" && activeCiv) {
+      if (guardActionCooldown("mine", "Mine")) return;
       const task = activePlayerTask;
       void applyIntervention({
         kind: "mine_tile",
@@ -926,6 +996,7 @@ export function CivilizationView() {
         entity_id: interaction.entityId,
         civ_id: activeCiv.id,
       });
+      startActionCooldown("mine");
       if (task && isRescueRubbleInteraction(snapshot, task, interaction)) {
         const nextProgress = Math.min(task.amount, task.progress + 1);
         const rescueReady = nextProgress >= task.amount;
@@ -964,6 +1035,7 @@ export function CivilizationView() {
         setPlayerMessage(`No ${resourceLabel(material)} available to build.`);
         return;
       }
+      if (guardActionCooldown("build", "Build")) return;
       void applyIntervention({
         kind: "place_tile",
         target: material,
@@ -973,6 +1045,7 @@ export function CivilizationView() {
         entity_id: interaction.entityId,
         civ_id: activeCiv.id,
       });
+      startActionCooldown("build");
       const task = activePlayerTask;
       if (task?.kind === "build_bridge") {
         const nextProgress = Math.min(task.amount, task.progress + 1);
@@ -998,6 +1071,7 @@ export function CivilizationView() {
       return;
     }
     if (interaction.kind === "resource" && interaction.resource && activeCiv) {
+      if (guardActionCooldown("gather", "Gather")) return;
       const gained = playerResourceTarget(interaction.resource);
       void applyIntervention({
         kind: "harvest_resource",
@@ -1008,6 +1082,7 @@ export function CivilizationView() {
         entity_id: interaction.entityId,
         civ_id: activeCiv.id,
       });
+      startActionCooldown("gather");
       const task = activePlayerTask;
       const taskResourceMatches = task
         && task.kind !== "visit_building"
@@ -1029,6 +1104,7 @@ export function CivilizationView() {
       return;
     }
     if (interaction.kind === "building") {
+      if (guardActionCooldown("use", "Use")) return;
       if (interaction.targetId && activeCiv) {
         void applyIntervention({
           kind: "use_building",
@@ -1036,6 +1112,7 @@ export function CivilizationView() {
           entity_id: interaction.targetId,
           civ_id: activeCiv.id,
         });
+        startActionCooldown("use");
       }
       if (activePlayerTask?.kind === "visit_building" && activePlayerTask.buildingId === interaction.targetId) {
         setPlayerMessage(`Checked ${interaction.label} for ${activePlayerTask.npcName}.`);
@@ -1054,6 +1131,7 @@ export function CivilizationView() {
         setPlayerMessage(`Mine ${activePlayerTask.remaining} more rubble near ${interaction.label}.`);
         return;
       }
+      if (guardActionCooldown("use", "Use")) return;
       if (interaction.targetId && activeCiv) {
         void applyIntervention({
           kind: interaction.action === "repair_object" ? "repair_object" : interaction.action === "rescue_object" ? "rescue_object" : "use_object",
@@ -1061,6 +1139,7 @@ export function CivilizationView() {
           entity_id: interaction.targetId,
           civ_id: activeCiv.id,
         });
+        startActionCooldown("use");
       }
       if (activePlayerTask?.kind === "repair_object" && activePlayerTask.objectId === interaction.targetId) {
         setPlayerMessage(`Repaired ${interaction.label} for ${activePlayerTask.npcName}.`);
@@ -1074,6 +1153,7 @@ export function CivilizationView() {
       return;
     }
     if (interaction.kind === "npc") {
+      if (guardActionCooldown("use", "Talk")) return;
       if (interaction.targetId && activeCiv) {
         void applyIntervention({
           kind: "talk_entity",
@@ -1081,6 +1161,7 @@ export function CivilizationView() {
           entity_id: interaction.targetId,
           civ_id: activeCiv.id,
         });
+        startActionCooldown("use");
       }
       const task = activePlayerTask;
       if (task && task.npcId === interaction.targetId) {
@@ -1232,6 +1313,7 @@ export function CivilizationView() {
             <Metric icon={<Activity className="h-3 w-3" />} label="Pop" value={String(activeCiv?.population ?? 0)} />
             <Metric icon={<Shield className="h-3 w-3" />} label="HP" value={formatScore(activeCiv?.health)} />
             <Metric icon={<Sprout className="h-3 w-3" />} label="Mood" value={formatScore(activeCiv?.morale)} />
+            <Metric icon={<Coins className="h-3 w-3" />} label="Pearls" value={String(pearlBalance)} tone />
             <Metric icon={<FlaskConical className="h-3 w-3" />} label="Score" value={formatScore(activeCiv?.score.total)} tone />
             {runStats && <Metric icon={<AlertTriangle className="h-3 w-3" />} label="Fail" value={`${runStats.failedCivs}/${runStats.totalCivs}`} />}
             {runStats && <Metric icon={<Activity className="h-3 w-3" />} label="Deaths" value={String(runStats.deathEvents)} />}
@@ -1243,6 +1325,7 @@ export function CivilizationView() {
               detail={codexPilot ? pilotStatus : playerToolLabel(playerTool)}
             />
           )}
+          {possessedEntity && <ActionCooldownStrip cooldowns={actionCooldowns} now={cooldownNow} />}
           {runStatus && <ObjectiveStrip status={runStatus} />}
           {activePlayerTask && <PlayerTaskStrip task={activePlayerTask} />}
           {!activePlayerTask && recentCompletedTask && <PlayerTaskCompleteStrip summary={recentCompletedTask} />}
@@ -1300,7 +1383,11 @@ export function CivilizationView() {
 
       {/* ── LEFT drawer: sessions + create ─────────────────────────────── */}
       {!uiHidden && (
-        <aside className={["civ-drawer civ-drawer-left civ-glass", leftOpen ? "is-open" : ""].join(" ")}>
+        <aside
+          className={["civ-drawer civ-drawer-left civ-glass", leftOpen ? "is-open" : ""].join(" ")}
+          aria-hidden={!leftOpen}
+          inert={!leftOpen ? true : undefined}
+        >
           <DrawerHeader title="Colonies" icon={<Leaf className="h-3.5 w-3.5" />} onClose={() => setLeftOpen(false)} />
           <div className="civ-drawer-body">
             <Section label="New colony" icon={<Plus className="h-3.5 w-3.5" />}>
@@ -1356,13 +1443,22 @@ export function CivilizationView() {
                 )}
               </div>
             </Section>
+            {snapshot && activeCiv && (
+              <Section label="Shop" icon={<Coins className="h-3.5 w-3.5" />}>
+                <DevShopPanel onBuy={buyDevShopItem} pearls={pearlBalance} />
+              </Section>
+            )}
           </div>
         </aside>
       )}
 
       {/* ── RIGHT drawer: observer panels ──────────────────────────────── */}
       {!uiHidden && snapshot && gameMode !== "play" && (
-        <aside className={["civ-drawer civ-drawer-right civ-glass", rightOpen ? "is-open" : ""].join(" ")}>
+        <aside
+          className={["civ-drawer civ-drawer-right civ-glass", rightOpen ? "is-open" : ""].join(" ")}
+          aria-hidden={!rightOpen}
+          inert={!rightOpen ? true : undefined}
+        >
           <DrawerHeader title={gameMode === "god" ? "God Console" : "Observer"} icon={<Hammer className="h-3.5 w-3.5" />} onClose={() => setRightOpen(false)} />
           <div className="civ-drawer-body">
             <Section label="Run Status" icon={<Activity className="h-3.5 w-3.5" />}>
@@ -1420,8 +1516,8 @@ export function CivilizationView() {
                     onRun={runAdminCommand}
                   />
                 </Section>
-                <Section label="Shop Prototype" icon={<Gift className="h-3.5 w-3.5" />}>
-                  <DevShopPanel onBuy={buyDevShopItem} />
+                <Section label="Shop" icon={<Gift className="h-3.5 w-3.5" />}>
+                  <DevShopPanel onBuy={buyDevShopItem} pearls={pearlBalance} />
                 </Section>
                 <Section label="Intervene" icon={<Gift className="h-3.5 w-3.5" />}>
                   <div className="grid gap-2">
@@ -1859,6 +1955,33 @@ function ControlStateStrip({ mode, name, detail }: { mode: "manual" | "codex"; n
   );
 }
 
+function ActionCooldownStrip({ cooldowns, now }: { cooldowns: Record<ActionCooldownKey, number>; now: number }) {
+  return (
+    <div className="civ-cooldown-strip" aria-label="Action cooldowns">
+      {ACTION_COOLDOWN_KEYS.map((key) => {
+        const remaining = Math.max(0, cooldowns[key] - now);
+        return (
+          <span key={key} className={remaining > 0 ? "is-cooling" : "is-ready"}>
+            <b>{actionCooldownLabel(key)}</b>
+            <em>{remaining > 0 ? formatCooldownTime(remaining) : "Ready"}</em>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function actionCooldownLabel(key: ActionCooldownKey) {
+  if (key === "gather") return "Gather";
+  if (key === "mine") return "Mine";
+  if (key === "build") return "Build";
+  return "Use";
+}
+
+function formatCooldownTime(ms: number) {
+  return `${(Math.ceil(ms / 100) / 10).toFixed(1)}s`;
+}
+
 function PlayerTaskStrip({ task }: { task: CivPlayerTask }) {
   const chips = taskHudChips(task);
   return (
@@ -2024,7 +2147,7 @@ function AdminConsole({
         </Button>
       </form>
       <div className="civ-admin-shortcuts">
-        {["/help", "/turn", "/mode play", "/reset"].map((item) => (
+        {["/help", "/buy common_egg", "/turn", "/mode play", "/reset"].map((item) => (
           <button key={item} type="button" onClick={() => onRun(item)}>{item}</button>
         ))}
       </div>
@@ -2039,24 +2162,34 @@ function AdminConsole({
   );
 }
 
-function DevShopPanel({ onBuy }: { onBuy: (item: "supply_cache" | "rare_lure" | "pond_blessing" | "hard_mode") => void }) {
-  const items: Array<{ id: "supply_cache" | "rare_lure" | "pond_blessing" | "hard_mode"; label: string; detail: string }> = [
-    { id: "supply_cache", label: "Supply Cache", detail: "wood, stone, clay, fiber" },
-    { id: "rare_lure", label: "Rare Lure", detail: "amber + glowshards" },
-    { id: "pond_blessing", label: "Pond Blessing", detail: "cooperation aura" },
-    { id: "hard_mode", label: "Hard Mode", detail: "fatigue + ore" },
-  ];
+function DevShopPanel({ onBuy, pearls }: { onBuy: (item: ShopItemId) => void; pearls: number }) {
   return (
-    <div className="civ-shop-grid">
-      {items.map((item) => (
-        <button key={item.id} type="button" className="civ-shop-item" onClick={() => onBuy(item.id)}>
-          <Gift className="h-3.5 w-3.5" />
-          <span className="min-w-0">
-            <span className="block truncate font-semibold">{item.label}</span>
-            <span className="block truncate">{item.detail}</span>
-          </span>
-        </button>
-      ))}
+    <div className="space-y-2">
+      <div className="civ-shop-balance">
+        <Coins className="h-3.5 w-3.5" />
+        <span>{pearls} {resourceLabel(CURRENCY_RESOURCE)}</span>
+      </div>
+      <div className="civ-shop-grid">
+        {SHOP_ITEMS.map((item) => {
+          const canAfford = pearls >= item.cost;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={["civ-shop-item", canAfford ? "" : "is-locked"].join(" ")}
+              disabled={!canAfford}
+              onClick={() => onBuy(item.id)}
+            >
+              {item.id.includes("egg") ? <Sparkles className="h-3.5 w-3.5" /> : <Gift className="h-3.5 w-3.5" />}
+              <span className="min-w-0">
+                <span className="block truncate font-semibold">{item.label}</span>
+                <span className="block truncate">{item.detail}</span>
+                <span className="civ-shop-cost"><Coins className="h-3 w-3" /> {item.cost}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -2084,6 +2217,7 @@ function alertIcon(kind: GameAlertKind) {
   if (kind === "rare") return <Sparkles className="h-3.5 w-3.5" />;
   if (kind === "task") return <Gamepad2 className="h-3.5 w-3.5" />;
   if (kind === "admin") return <Brain className="h-3.5 w-3.5" />;
+  if (kind === "currency") return <Coins className="h-3.5 w-3.5" />;
   if (kind === "world") return <Waves className="h-3.5 w-3.5" />;
   return <Hammer className="h-3.5 w-3.5" />;
 }
