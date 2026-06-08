@@ -606,7 +606,7 @@ function previewMatureAxolotlName(name: string | null | undefined, stage: string
           : "Axolotl";
   const trimmed = (name ?? "").trim();
   if (!trimmed) return `${prefix} ${id.split("-").pop() || id.slice(-4)}`;
-  for (const oldPrefix of ["Hatchling", "Juvenile", "Adult", "Elder"]) {
+  for (const oldPrefix of ["Hatchling", "Juvenile", "Adult", "Elder", "Axolotl"]) {
     if (trimmed === oldPrefix) return `${prefix} ${id.split("-").pop() || id.slice(-4)}`;
     const marker = `${oldPrefix} `;
     if (trimmed.startsWith(marker)) return `${prefix} ${trimmed.slice(marker.length)}`;

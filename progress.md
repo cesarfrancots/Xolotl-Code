@@ -1562,3 +1562,31 @@ Next TODO:
 - Batch or throttle founder-cohort growth alerts so long turn bursts do not stack several `Axolotl grew` toasts over the playfield.
 - Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
 - Add stronger worker travel staging for construction when builders start too close to the bought site.
+
+2026-06-08 growth alert batching pass:
+- Reproduced the alert overload from a long Play-mode turn burst:
+  - Advancing preview turns 4 -> 12 left five visible `Axolotl grew` labels in page text before the fix.
+  - Screenshot: `tauri-app/output/web-game/civ-growth-alert-stack-playtest/01-before-alert-stack.png`.
+- Fixed growth alert stacking:
+  - Growth milestones now replace the previous visible growth toast instead of stacking.
+  - Multiple growth logs from the latest turn are summarized into one compact detail line.
+  - Generic founder names like `Axolotl 4` now mature into stage names like `Elder 4`, matching `Hatchling N` -> `Adult N` behavior.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-growth-alert-stack-playtest/02-after-alert-batching.png`
+  - `tauri-app/output/web-game/civ-growth-alert-stack-playtest/03-after-short-alert-summary.png`
+  - Final smoke text-state at turn 12 showed one visible growth alert: `2 growth milestones: Elder 4, Adult 1`.
+  - Final smoke confirmed `Elder 4` and `Adult 1` were visible entity names, and page text contained only one `Axolotl grew` label.
+  - Browser smoke had only WebGL `ReadPixels` performance warnings from screenshots, no page errors.
+- Verification passed:
+  - `npm test -- CivilizationView.test.tsx civCanvas.test.ts civPilot.test.ts` (74 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo test --manifest-path tauri-app/src-tauri/Cargo.toml life_cycle_renames_generated_hatchlings_as_they_mature --no-run` (compiled; existing dead-code warning only)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula or old rejected generated asset references.
+  - `graphify update .` rebuilt the graph after code edits.
+- Known tool limitation:
+  - Official `develop-web-game` client still cannot resolve `playwright`; bundled Playwright smoke was used for actual browser interaction.
+
+Next TODO:
+- Add Play HUD goals for building kits after egg/lure milestones so construction becomes part of visible progression.
+- Add stronger worker travel staging for construction when builders start too close to the bought site.
+- Continue manual playtest passes on gather/shop/build loops to find the next human-first progression gap.

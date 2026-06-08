@@ -5697,7 +5697,7 @@ fn mature_axolotl_name(name: &str, stage: &str, id: &str) -> String {
     if trimmed.is_empty() {
         return format!("{prefix} {}", short_id(id));
     }
-    for old in ["Hatchling", "Juvenile", "Adult", "Elder"] {
+    for old in ["Hatchling", "Juvenile", "Adult", "Elder", "Axolotl"] {
         if trimmed == old {
             return format!("{prefix} {}", short_id(id));
         }
@@ -8256,6 +8256,11 @@ mod tests {
                 && entry.body.contains("Adult 9 grew from juvenile to adult")
                 && entry.body.contains("age=7")
         }));
+        assert_eq!(
+            mature_axolotl_name("Axolotl 4", "elder", "axo-4"),
+            "Elder 4"
+        );
+        assert_eq!(mature_axolotl_name("Sprout", "adult", "axo-4"), "Sprout");
     }
 
     #[test]

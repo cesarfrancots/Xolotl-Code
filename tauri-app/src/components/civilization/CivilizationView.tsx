@@ -548,8 +548,12 @@ export function CivilizationView() {
   useEffect(() => {
     const sessionId = snapshot?.id ?? null;
     if (!snapshot || !sessionId) return;
-    const growthLog = [...(snapshot.log ?? [])].reverse().find((entry) => entry.title === "Axolotl grew") ?? null;
-    const growthKey = growthLog ? `${sessionId}:${growthLog.turn}:${growthLog.created_at}:${growthLog.body}` : null;
+    const growthLogs = (snapshot.log ?? []).filter((entry) => entry.title === "Axolotl grew");
+    const growthLog = growthLogs[growthLogs.length - 1] ?? null;
+    const latestTurnLogs = growthLog ? growthLogs.filter((entry) => entry.turn === growthLog.turn) : [];
+    const growthKey = growthLog
+      ? `${sessionId}:${growthLog.turn}:${latestTurnLogs.map((entry) => `${entry.created_at}:${entry.body}`).join("|")}`
+      : null;
     if (growthAlertSessionRef.current !== sessionId) {
       growthAlertSessionRef.current = sessionId;
       growthAlertSeenKeyRef.current = growthKey;
@@ -557,9 +561,9 @@ export function CivilizationView() {
     }
     if (!growthLog || !growthKey || growthAlertSeenKeyRef.current === growthKey) return;
     growthAlertSeenKeyRef.current = growthKey;
-    const detail = growthAlertDetail(growthLog);
+    const detail = growthAlertDetail(latestTurnLogs);
     setPlayerMessage(detail);
-    pushGameAlert("world", "Axolotl grew", detail);
+    pushGameAlert("world", "Axolotl grew", detail, { replaceTitle: "Axolotl grew" });
   }, [snapshot]);
   useEffect(() => {
     const sessionId = snapshot?.id ?? null;
@@ -943,12 +947,12 @@ export function CivilizationView() {
 
   const canFound = !loading && participants.every((p) => Boolean(p.model));
 
-  function pushGameAlert(kind: GameAlertKind, title: string, detail: string) {
+  function pushGameAlert(kind: GameAlertKind, title: string, detail: string, options?: { replaceTitle?: string }) {
     const id = nextAlertIdRef.current;
     nextAlertIdRef.current += 1;
     setAlerts((items) => [
       { id, kind, title, detail, createdAt: Date.now() },
-      ...items,
+      ...(options?.replaceTitle ? items.filter((item) => item.title !== options.replaceTitle) : items),
     ].slice(0, 5));
   }
 
@@ -3555,7 +3559,15 @@ function rareDiscoveryAlertDetail(entry: CivLogEntry) {
     .trim();
 }
 
-function growthAlertDetail(entry: CivLogEntry) {
+function growthAlertDetail(entries: CivLogEntry[]) {
+  const parsed = entries.map(parseGrowthLog).filter((item): item is GrowthLogSummary => Boolean(item));
+  if (parsed.length > 1) {
+    const names = parsed.slice(0, 2).map((item) => item.name).join(", ");
+    const more = parsed.length > 2 ? ` +${parsed.length - 2}` : "";
+    return `${parsed.length} growth milestones: ${names}${more}`;
+  }
+  const entry = entries[0];
+  if (!entry) return "Axolotls reached new stages.";
   const detail = cleanCivLogBody(entry)
     .replace(/^target=[^;]+;\s*/, "")
     .replace(/;$/, "")
@@ -3563,8 +3575,29 @@ function growthAlertDetail(entry: CivLogEntry) {
   const match = detail.match(/^(.+?) grew from ([a-z_]+) to ([a-z_]+); age=(\d+)/i);
   if (!match) return detail;
   const [, name, , nextStage, age] = match;
-  const reached = nextStage === "adult" ? "adulthood" : `${STAGE_LABEL[nextStage] ?? nextStage} stage`;
+  const reached = growthStageLabel(nextStage);
   return `${name} reached ${reached}. Age ${age}.`;
+}
+
+type GrowthLogSummary = {
+  name: string;
+  stage: string;
+  age: string;
+};
+
+function parseGrowthLog(entry: CivLogEntry): GrowthLogSummary | null {
+  const detail = cleanCivLogBody(entry)
+    .replace(/^target=[^;]+;\s*/, "")
+    .replace(/;$/, "")
+    .trim();
+  const match = detail.match(/^(.+?) grew from ([a-z_]+) to ([a-z_]+); age=(\d+)/i);
+  if (!match) return null;
+  const [, name, , stage, age] = match;
+  return { name, stage, age };
+}
+
+function growthStageLabel(stage: string) {
+  return stage === "adult" ? "adulthood" : `${STAGE_LABEL[stage] ?? stage} stage`;
 }
 
 function playerResourceTarget(resource: string) {
