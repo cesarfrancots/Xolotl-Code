@@ -2,6 +2,9 @@ import type { CivEntity } from "../bindings";
 
 export type AxolotlRarity = "common" | "uncommon" | "rare" | "mythic";
 
+export const EGG_INCUBATE_PEARL_COST = 4;
+export const EGG_INCUBATE_FOOD_COST = 2;
+
 const RARITY_ORDER: AxolotlRarity[] = ["common", "uncommon", "rare", "mythic"];
 const COMMON_MORPHS = new Set(["leucistic", "wild", "gold", "axanthic", "copper", "albino"]);
 const UNCOMMON_MORPHS = new Set(["blue", "melanoid", "piebald"]);

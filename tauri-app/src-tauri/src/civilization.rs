@@ -88,6 +88,8 @@ const CIV_COLORS: [&str; 8] = [
 // The founding colony's civ id (the only civ until multi-spawn lands in W2/W9).
 const FIRST_CIV_ID: &str = "civ-1";
 const CURRENCY_RESOURCE: &str = "pearls";
+const INCUBATE_EGG_PEARL_COST: i32 = 4;
+const INCUBATE_EGG_FOOD_COST: i32 = 2;
 
 /// Aquatic biome regions painted left-to-right across the seabed.
 /// `floor_offset` raises (negative) or lowers (positive) the seabed relative to
@@ -4113,12 +4115,8 @@ fn apply_intervention_to_snapshot(
             let civ_id = snapshot.civs[ci].id.clone();
             let summary = match item {
                 "supply_cache" => {
-                    for (resource, amount) in [
-                        ("wood", 8),
-                        ("stone", 8),
-                        ("clay", 8),
-                        ("fiber", 8),
-                    ] {
+                    for (resource, amount) in [("wood", 8), ("stone", 8), ("clay", 8), ("fiber", 8)]
+                    {
                         *snapshot.civs[ci]
                             .resources
                             .entry(resource.to_string())
@@ -4180,11 +4178,13 @@ fn apply_intervention_to_snapshot(
                     format!("{building} built near the colony")
                 }
                 "storage_kit" => {
-                    let building = spawn_shop_building(snapshot, &civ_id, "storage", "Shell Cache")?;
+                    let building =
+                        spawn_shop_building(snapshot, &civ_id, "storage", "Shell Cache")?;
                     format!("{building} built near the colony")
                 }
                 "workshop_kit" => {
-                    let building = spawn_shop_building(snapshot, &civ_id, "workshop", "Tool Workshop")?;
+                    let building =
+                        spawn_shop_building(snapshot, &civ_id, "workshop", "Tool Workshop")?;
                     format!("{building} built near the colony")
                 }
                 _ => unreachable!("shop_item_cost already validated {item}"),
@@ -4197,6 +4197,77 @@ fn apply_intervention_to_snapshot(
                 &format!(
                     "{who} bought {} for {cost} {CURRENCY_RESOURCE}: {summary}.",
                     shop_item_label(item)
+                ),
+            );
+        }
+        "incubate_egg" => {
+            let ci = target_ci.ok_or("no civilization in session")?;
+            let egg_id = intervention
+                .entity_id
+                .as_deref()
+                .ok_or("entity_id is required for incubate_egg")?;
+            let egg_idx = snapshot
+                .world
+                .entities
+                .iter()
+                .position(|entity| entity.id == egg_id && entity.kind == "egg")
+                .ok_or("egg not found")?;
+            let civ_id = snapshot.civs[ci].id.clone();
+            if snapshot.world.entities[egg_idx]
+                .civ_id
+                .as_deref()
+                .is_some_and(|owner| owner != civ_id)
+            {
+                return Err(format!("{egg_id} does not belong to {civ_id}"));
+            }
+            let remaining = snapshot.world.entities[egg_idx].hatches_in.unwrap_or(0);
+            if remaining <= 1 {
+                return Err("egg is already ready to hatch".to_string());
+            }
+            let pearls = snapshot.civs[ci]
+                .resources
+                .get(CURRENCY_RESOURCE)
+                .copied()
+                .unwrap_or(0);
+            if pearls < INCUBATE_EGG_PEARL_COST {
+                return Err(format!(
+                    "not enough {CURRENCY_RESOURCE}: need {INCUBATE_EGG_PEARL_COST}, have {pearls}"
+                ));
+            }
+            let food = snapshot.civs[ci]
+                .resources
+                .get("food")
+                .copied()
+                .unwrap_or(0);
+            if food < INCUBATE_EGG_FOOD_COST {
+                return Err(format!(
+                    "not enough food: need {INCUBATE_EGG_FOOD_COST}, have {food}"
+                ));
+            }
+            consume(
+                &mut snapshot.civs[ci].resources,
+                CURRENCY_RESOURCE,
+                INCUBATE_EGG_PEARL_COST,
+            );
+            consume(
+                &mut snapshot.civs[ci].resources,
+                "food",
+                INCUBATE_EGG_FOOD_COST,
+            );
+            let egg_name = {
+                let egg = &mut snapshot.world.entities[egg_idx];
+                egg.hatches_in = Some(remaining - 1);
+                egg.activity = "incubating".to_string();
+                egg.name.clone()
+            };
+            let who = civ_label(snapshot, &civ_id);
+            push_log(
+                snapshot,
+                "player",
+                "Egg incubated",
+                &format!(
+                    "{who} warmed {egg_name}; hatch timer is now {} turn(s). Cost {INCUBATE_EGG_PEARL_COST} {CURRENCY_RESOURCE} and {INCUBATE_EGG_FOOD_COST} food.",
+                    remaining - 1
                 ),
             );
         }
@@ -5580,10 +5651,8 @@ fn spawn_shop_egg(
         genes.size_gene = genes.size_gene.max(1.05);
         genes.vigor = genes.vigor.max(1.08);
     }
-    let nest = nest_pos(snapshot, civ_id).unwrap_or((
-        snapshot.civs[ci].spawn_x,
-        WATER_FLOOR_Y.saturating_sub(1),
-    ));
+    let nest = nest_pos(snapshot, civ_id)
+        .unwrap_or((snapshot.civs[ci].spawn_x, WATER_FLOOR_Y.saturating_sub(1)));
     let egg_count = civ_entities(snapshot, civ_id)
         .filter(|entity| entity.kind == "egg")
         .count() as u32;
@@ -7239,6 +7308,133 @@ mod tests {
             },
         )
         .unwrap_err();
+        assert!(err.contains("not enough pearls"));
+    }
+
+    #[test]
+    fn incubate_egg_spends_resources_and_reduces_timer() {
+        let mut snapshot = test_snapshot("incubate-session", "Incubate", "mock-model", 42, 1);
+        let cid = first_civ_id(&snapshot);
+        snapshot.civs[0]
+            .resources
+            .insert(CURRENCY_RESOURCE.to_string(), 20);
+        snapshot.civs[0].resources.insert("food".to_string(), 20);
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "shop_purchase".to_string(),
+                target: "common_egg".to_string(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: None,
+                accessory: None,
+                civ_id: Some(cid.clone()),
+            },
+        )
+        .unwrap();
+        let egg_id = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.kind == "egg" && entity.parents == vec!["shop".to_string()])
+            .unwrap()
+            .id
+            .clone();
+        snapshot.civs[0]
+            .resources
+            .insert(CURRENCY_RESOURCE.to_string(), 10);
+        let before_food = snapshot.civs[0].resources["food"];
+
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "incubate_egg".to_string(),
+                target: "warm".to_string(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: Some(egg_id.clone()),
+                accessory: None,
+                civ_id: Some(cid),
+            },
+        )
+        .unwrap();
+
+        let egg = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.id == egg_id)
+            .unwrap();
+        assert_eq!(egg.hatches_in, Some(EGG_HATCH_TURNS - 1));
+        assert_eq!(egg.activity, "incubating");
+        assert_eq!(snapshot.civs[0].resources[CURRENCY_RESOURCE], 6);
+        assert_eq!(snapshot.civs[0].resources["food"], before_food - 2);
+    }
+
+    #[test]
+    fn incubate_egg_requires_resources() {
+        let mut snapshot = test_snapshot(
+            "incubate-poor-session",
+            "Incubate Poor",
+            "mock-model",
+            42,
+            1,
+        );
+        let cid = first_civ_id(&snapshot);
+        snapshot.civs[0]
+            .resources
+            .insert(CURRENCY_RESOURCE.to_string(), 20);
+        apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "shop_purchase".to_string(),
+                target: "common_egg".to_string(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: None,
+                accessory: None,
+                civ_id: Some(cid.clone()),
+            },
+        )
+        .unwrap();
+        snapshot.civs[0]
+            .resources
+            .insert(CURRENCY_RESOURCE.to_string(), 1);
+        let egg_id = snapshot
+            .world
+            .entities
+            .iter()
+            .find(|entity| entity.kind == "egg" && entity.parents == vec!["shop".to_string()])
+            .unwrap()
+            .id
+            .clone();
+
+        let err = apply_intervention_to_snapshot(
+            &mut snapshot,
+            &CivIntervention {
+                kind: "incubate_egg".to_string(),
+                target: "warm".to_string(),
+                amount: None,
+                x: None,
+                y: None,
+                duration: None,
+                intensity: None,
+                entity_id: Some(egg_id),
+                accessory: None,
+                civ_id: Some(cid),
+            },
+        )
+        .unwrap_err();
+
         assert!(err.contains("not enough pearls"));
     }
 

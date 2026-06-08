@@ -7,6 +7,8 @@ import type { CivPilotCommand } from "../../lib/civPilot";
 import {
   axolotlLevel,
   axolotlRarity,
+  EGG_INCUBATE_FOOD_COST,
+  EGG_INCUBATE_PEARL_COST,
   genePotential,
   hatchProgressPercent,
   hatchTurnsRemaining,
@@ -3496,21 +3498,32 @@ export function renderSnapshotToText(snapshot: CivSessionSnapshot, playerState?:
     },
     player_task: activeCivPlayerTask(snapshot, civ),
     hatchery: {
-      eggs: eggs.map((entity) => ({
-        id: entity.id,
-        name: entity.name,
-        morph: entity.morph,
-        pattern: entity.pattern,
-        rarity: axolotlRarity(entity),
-        rarity_label: rarityLabel(axolotlRarity(entity)),
-        level: axolotlLevel(entity),
-        gene_potential: genePotential(entity),
-        hatches_in: hatchTurnsRemaining(entity),
-        hatch_progress: hatchProgressPercent(entity),
-        source: (entity.parents ?? []).includes("shop") ? "shop" : "nest",
-        x: entity.x,
-        y: entity.y,
-      })),
+      eggs: eggs.map((entity) => {
+        const hatchesIn = hatchTurnsRemaining(entity);
+        return {
+          id: entity.id,
+          name: entity.name,
+          morph: entity.morph,
+          pattern: entity.pattern,
+          rarity: axolotlRarity(entity),
+          rarity_label: rarityLabel(axolotlRarity(entity)),
+          level: axolotlLevel(entity),
+          gene_potential: genePotential(entity),
+          hatches_in: hatchesIn,
+          hatch_progress: hatchProgressPercent(entity),
+          incubation_cost: {
+            pearls: EGG_INCUBATE_PEARL_COST,
+            food: EGG_INCUBATE_FOOD_COST,
+          },
+          can_incubate: hatchesIn !== null
+            && hatchesIn > 1
+            && (civ.resources?.pearls ?? 0) >= EGG_INCUBATE_PEARL_COST
+            && (civ.resources?.food ?? 0) >= EGG_INCUBATE_FOOD_COST,
+          source: (entity.parents ?? []).includes("shop") ? "shop" : "nest",
+          x: entity.x,
+          y: entity.y,
+        };
+      }),
     },
     visible_entities: snapshot.world.entities.map((entity) => {
       const livePlayer = possessedPlayer?.id === entity.id ? possessedPlayer.player : null;

@@ -10,6 +10,7 @@ import {
   EyeOff,
   FastForward,
   FlaskConical,
+  Flame,
   Gamepad2,
   Gift,
   Hammer,
@@ -38,6 +39,8 @@ import {
   axolotlLevel,
   axolotlMorphAsset,
   axolotlRarity,
+  EGG_INCUBATE_FOOD_COST,
+  EGG_INCUBATE_PEARL_COST,
   genePotential,
   hatchProgressPercent,
   hatchTurnsRemaining,
@@ -397,6 +400,7 @@ export function CivilizationView() {
     ? (snapshot.civs?.find((c) => c.id === selectedCivId) ?? primaryCiv(snapshot))
     : null;
   const pearlBalance = activeCiv?.resources?.[CURRENCY_RESOURCE] ?? 0;
+  const foodBalance = activeCiv?.resources?.food ?? 0;
   // One combined chronological stream; when a civ is selected, scope it to that
   // civ via the robust civ_id field (Plan 01), never name-string matching.
   const recentLog = useMemo(() => {
@@ -758,7 +762,7 @@ export function CivilizationView() {
   }
 
   function sendIntervention(intervention: CivIntervention) {
-    const scoped = activeCiv?.id && ["grant_resource", "remove_resource", "spawn_resource", "shop_purchase"].includes(intervention.kind)
+    const scoped = activeCiv?.id && ["grant_resource", "remove_resource", "spawn_resource", "shop_purchase", "incubate_egg"].includes(intervention.kind)
       ? { ...intervention, civ_id: intervention.civ_id ?? activeCiv.id }
       : intervention;
     void applyIntervention(scoped);
@@ -851,7 +855,7 @@ export function CivilizationView() {
     const commandAmount = Number.isFinite(amountArg) ? Math.max(1, Math.min(999, Math.floor(amountArg))) : 1;
     setAdminCommand("");
     if (command === "help") {
-      recordAdmin("Commands: /grant food 10, /spawn amber 3, /buy common_egg, /buff abundant_moss, /turn, /mode play, /reset.");
+      recordAdmin("Commands: /grant food 10, /spawn amber 3, /buy common_egg, /warm, /buff abundant_moss, /turn, /mode play, /reset.");
       return;
     }
     if (command === "grant" && target) {
@@ -891,6 +895,21 @@ export function CivilizationView() {
         return;
       }
       buyDevShopItem(target);
+      return;
+    }
+    if (command === "warm" || command === "incubate") {
+      const query = target.toLowerCase();
+      const eggs = (snapshot?.world.entities ?? []).filter((entity) => (
+        isEggEntity(entity) && entityOwnedBy(entity, activeCiv?.id)
+      ));
+      const egg = query
+        ? eggs.find((entity) => entity.id.toLowerCase() === query || (entity.name ?? "").toLowerCase().includes(query))
+        : (eggs.find((entity) => (hatchTurnsRemaining(entity) ?? 0) > 1) ?? eggs[0]);
+      if (!egg) {
+        recordAdmin(query ? `No egg matched ${target}.` : "No egg available to warm.");
+        return;
+      }
+      incubateEgg(egg);
       return;
     }
     if (command === "turn") {
@@ -945,6 +964,42 @@ export function CivilizationView() {
     sendIntervention({ kind: "shop_purchase", target: item, amount: 1, x: spawnX });
     pushGameAlert(meta.tone, meta.label, `-${meta.cost} ${resourceLabel(CURRENCY_RESOURCE)}. ${meta.detail}.`);
     recordAdmin(`Bought ${meta.label} for ${meta.cost} ${resourceLabel(CURRENCY_RESOURCE)}.`);
+  }
+
+  function incubateEgg(egg: CivEntity) {
+    if (!activeCiv) return;
+    const remaining = hatchTurnsRemaining(egg);
+    if (remaining === null || remaining <= 1) {
+      setPlayerMessage(`${egg.name || "Egg"} is already ready for the next hatch cycle.`);
+      pushGameAlert("currency", "Egg already warm", "This egg is ready to hatch on the next turn.");
+      return;
+    }
+    if (pearlBalance < EGG_INCUBATE_PEARL_COST || foodBalance < EGG_INCUBATE_FOOD_COST) {
+      const missingPearls = Math.max(0, EGG_INCUBATE_PEARL_COST - pearlBalance);
+      const missingFood = Math.max(0, EGG_INCUBATE_FOOD_COST - foodBalance);
+      const shortage = [
+        missingPearls > 0 ? `${missingPearls} ${resourceLabel(CURRENCY_RESOURCE)}` : null,
+        missingFood > 0 ? `${missingFood} ${resourceLabel("food")}` : null,
+      ].filter(Boolean).join(" and ");
+      setPlayerMessage(`Need ${shortage} to warm ${egg.name || "this egg"}.`);
+      pushGameAlert("currency", "Incubator needs supplies", `Warm egg costs ${EGG_INCUBATE_PEARL_COST} pearls and ${EGG_INCUBATE_FOOD_COST} food.`);
+      return;
+    }
+    sendIntervention({
+      kind: "incubate_egg",
+      target: "warm",
+      amount: 1,
+      entity_id: egg.id,
+    });
+    const nextRemaining = remaining - 1;
+    const hatchText = nextRemaining <= 1 ? "next turn" : `in ${nextRemaining} turns`;
+    setPlayerMessage(`Warmed ${egg.name || "egg"}; it hatches ${hatchText}.`);
+    pushGameAlert(
+      "currency",
+      "Egg warmed",
+      `-${EGG_INCUBATE_PEARL_COST} ${resourceLabel(CURRENCY_RESOURCE)}, -${EGG_INCUBATE_FOOD_COST} food. Hatch timer -1 turn.`,
+    );
+    recordAdmin(`Warmed ${egg.name || egg.id}: hatch timer ${remaining} -> ${nextRemaining}.`);
   }
 
   function focusGameCanvasSoon() {
@@ -1457,7 +1512,7 @@ export function CivilizationView() {
             </Section>
             {snapshot && activeCiv && (
               <Section label="Hatchery" icon={<Sparkles className="h-3.5 w-3.5" />}>
-                <HatcheryPanel snapshot={snapshot} civ={activeCiv} pearls={pearlBalance} onBuy={buyDevShopItem} />
+                <HatcheryPanel snapshot={snapshot} civ={activeCiv} pearls={pearlBalance} food={foodBalance} onBuy={buyDevShopItem} onIncubate={incubateEgg} />
               </Section>
             )}
             {snapshot && activeCiv && (
@@ -1512,7 +1567,7 @@ export function CivilizationView() {
               />
             </Section>
             <Section label="Hatchery" icon={<Sparkles className="h-3.5 w-3.5" />}>
-              <HatcheryPanel snapshot={snapshot} civ={activeCiv} pearls={pearlBalance} onBuy={buyDevShopItem} />
+              <HatcheryPanel snapshot={snapshot} civ={activeCiv} pearls={pearlBalance} food={foodBalance} onBuy={buyDevShopItem} onIncubate={incubateEgg} />
             </Section>
             <Section label="Score" icon={<FlaskConical className="h-3.5 w-3.5" />}>
               <ScorePanel civ={activeCiv} />
@@ -2607,12 +2662,16 @@ function HatcheryPanel({
   snapshot,
   civ,
   pearls,
+  food,
   onBuy,
+  onIncubate,
 }: {
   snapshot: CivSessionSnapshot;
   civ: CivCivilization | null;
   pearls: number;
+  food: number;
   onBuy: (item: ShopItemId) => void;
+  onIncubate: (egg: CivEntity) => void;
 }) {
   const civId = civ?.id;
   const eggs = snapshot.world.entities.filter((entity) => isEggEntity(entity) && entityOwnedBy(entity, civId));
@@ -2662,14 +2721,32 @@ function HatcheryPanel({
         {eggs.length === 0 ? (
           <div className="civ-hatchery-empty">Nest empty.</div>
         ) : (
-          eggs.map((egg) => <EggCard key={egg.id} egg={egg} />)
+          eggs.map((egg) => (
+            <EggCard
+              key={egg.id}
+              egg={egg}
+              pearls={pearls}
+              food={food}
+              onIncubate={onIncubate}
+            />
+          ))
         )}
       </div>
     </div>
   );
 }
 
-function EggCard({ egg }: { egg: CivEntity }) {
+function EggCard({
+  egg,
+  pearls,
+  food,
+  onIncubate,
+}: {
+  egg: CivEntity;
+  pearls: number;
+  food: number;
+  onIncubate: (egg: CivEntity) => void;
+}) {
   const morph = axolotlMorphAsset(egg.morph);
   const rarity = axolotlRarity(egg);
   const remaining = hatchTurnsRemaining(egg);
@@ -2682,6 +2759,15 @@ function EggCard({ egg }: { egg: CivEntity }) {
         : `${remaining} turns`;
   const source = (egg.parents ?? []).includes("shop") ? "Shop" : (egg.parents?.length ? "Nest" : "Wild");
   const progress = hatchProgressPercent(egg);
+  const canIncubate = remaining !== null
+    && remaining > 1
+    && pearls >= EGG_INCUBATE_PEARL_COST
+    && food >= EGG_INCUBATE_FOOD_COST;
+  const incubateTitle = remaining !== null && remaining <= 1
+    ? "Ready to hatch next turn"
+    : pearls < EGG_INCUBATE_PEARL_COST || food < EGG_INCUBATE_FOOD_COST
+      ? `Needs ${EGG_INCUBATE_PEARL_COST} pearls and ${EGG_INCUBATE_FOOD_COST} food`
+      : "Warm egg";
   return (
     <article className={["civ-egg-card", `is-${rarity}`].join(" ")}>
       <div className="civ-egg-visual">
@@ -2705,6 +2791,22 @@ function EggCard({ egg }: { egg: CivEntity }) {
         </div>
         <div className="civ-hatch-bar" aria-label={`Hatch progress ${progress}%`}>
           <span style={{ width: `${progress}%` }} />
+        </div>
+        <div className="civ-egg-actions">
+          <button
+            type="button"
+            className="civ-egg-incubate"
+            disabled={!canIncubate}
+            title={incubateTitle}
+            onClick={() => onIncubate(egg)}
+          >
+            <Flame className="h-3 w-3" />
+            <span>Warm</span>
+            <span className="civ-egg-cost">
+              <Coins className="h-3 w-3" /> {EGG_INCUBATE_PEARL_COST}
+              <Leaf className="h-3 w-3" /> {EGG_INCUBATE_FOOD_COST}
+            </span>
+          </button>
         </div>
       </div>
     </article>

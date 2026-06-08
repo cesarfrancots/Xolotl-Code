@@ -1105,3 +1105,30 @@ Next TODO:
 - Add actual hatch interaction/accelerator gameplay, such as spending pearls or food to reduce `hatches_in`, so timers are not only turn-driven.
 - Add a style-correct generated egg/rarity/civ-level asset set if the next step needs new visuals.
 - Add richer world currency drops and rare-object discovery so human players can earn egg purchases without admin grants.
+
+2026-06-08 egg incubation action pass:
+- Added a real manual hatchery accelerator:
+  - Hatchery egg cards now include a Warm action with flame/pearl/food controls.
+  - Warming an egg costs 4 pearls and 2 food, reduces `hatches_in` by 1, and disables once the egg is ready for the next turn.
+  - Admin console now supports `/warm` or `/incubate`, defaulting to the first warmable egg or targeting by id/name.
+- Added backend/browser-preview parity:
+  - Rust `incubate_egg` validates ownership, egg readiness, pearls, and food before mutating the timer and logging the action.
+  - Browser preview applies the same resource cost/timer mutation for local playtests.
+- Extended text-state parity:
+  - `window.render_game_to_text().hatchery.eggs[]` now includes `incubation_cost` and `can_incubate`, matching the UI button state.
+- Browser playtest evidence:
+  - `tauri-app/output/web-game/civ-egg-incubation-smoke/01-hatchery-before.png`
+  - `tauri-app/output/web-game/civ-egg-incubation-smoke/02-incubated.png`
+  - `summary.json` shows `hatches_in` 2 -> 1, pearls 6 -> 2, food 45 -> 43, and the Warm button disabled afterward with no console/page errors.
+- Verification passed:
+  - `npm test -- civCreatureProgression.test.ts CivilizationView.test.tsx civCanvas.test.ts civStore.test.ts` (63 tests)
+  - `npm run build` (same large Civilization chunk warning)
+  - `cargo check` (existing `TauriPermissionPrompter` dead-code warning)
+  - `cargo test incubate_egg --no-run` (compiled test binaries; still avoid executing Rust test binaries on Windows due the known Tauri `STATUS_ENTRYPOINT_NOT_FOUND` issue)
+  - Strict rejected-asset grep found no cyber/chrome/volt/nebula asset references.
+- Official `develop-web-game` client remains blocked in this shell because its ESM script cannot resolve `playwright`; the smoke used the bundled Codex Playwright runtime directly.
+
+Next TODO:
+- Add visible hatch completion feedback and a first-hatchling tutorial beat so warming eggs feels like a complete loop.
+- Add richer world currency drops and rare-object discovery, including rare object alerts that connect directly to shop/egg goals.
+- Generate any new egg/rarity/civ-level assets only in the README/screenshot chibi/painterly style.

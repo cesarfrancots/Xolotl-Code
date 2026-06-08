@@ -1,4 +1,5 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { EGG_INCUBATE_FOOD_COST, EGG_INCUBATE_PEARL_COST } from "./civCreatureProgression";
 
 declare global {
   interface Window {
@@ -1221,6 +1222,42 @@ function applyPreviewCivIntervention(args?: unknown) {
           activity: "built",
         } as (typeof previewCivSession.world.entities)[number]);
         logBody = `bought ${target} for ${cost} pearls`;
+      }
+    }
+  }
+  if (kind === "incubate_egg") {
+    const entityId = typeof intervention.entity_id === "string" ? intervention.entity_id : "";
+    const egg = previewCivSession.world.entities.find((entity) => (
+      entity.id === entityId && (entity.kind === "egg" || entity.stage === "egg")
+    ));
+    if (!egg) {
+      logKind = "player";
+      logTitle = "Incubation blocked";
+      logBody = "egg not found";
+    } else {
+      const remaining = typeof egg.hatches_in === "number" && Number.isFinite(egg.hatches_in)
+        ? Math.max(0, Math.floor(egg.hatches_in))
+        : 0;
+      if (remaining <= 1) {
+        logKind = "player";
+        logTitle = "Incubation blocked";
+        logBody = `${egg.name} is ready to hatch next turn`;
+      } else if ((resources.pearls ?? 0) < EGG_INCUBATE_PEARL_COST) {
+        logKind = "player";
+        logTitle = "Incubation blocked";
+        logBody = `not enough pearls for ${egg.name}`;
+      } else if ((resources.food ?? 0) < EGG_INCUBATE_FOOD_COST) {
+        logKind = "player";
+        logTitle = "Incubation blocked";
+        logBody = `not enough food for ${egg.name}`;
+      } else {
+        resources.pearls = Math.max(0, (resources.pearls ?? 0) - EGG_INCUBATE_PEARL_COST);
+        resources.food = Math.max(0, (resources.food ?? 0) - EGG_INCUBATE_FOOD_COST);
+        egg.hatches_in = remaining - 1;
+        egg.activity = "incubating";
+        logKind = "player";
+        logTitle = "Egg incubated";
+        logBody = `${egg.name} warmed; hatch timer is now ${remaining - 1} turn(s). Cost ${EGG_INCUBATE_PEARL_COST} pearls and ${EGG_INCUBATE_FOOD_COST} food.`;
       }
     }
   }
