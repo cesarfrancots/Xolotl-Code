@@ -20,7 +20,7 @@ import {
 import type { PathContextHandoffOptions } from "./lib/pathActions";
 
 const loadEvalView = () => import("./components/eval/EvalView");
-const loadCivilizationView = () => import("./components/civilization/CivilizationView");
+const loadPondView = () => import("./components/pond/PondView");
 const loadChatPane = () => import("./components/chat/ChatPane");
 const loadAgentPanel = () => import("./components/agent/AgentPanel");
 const loadMacRuntimeBridge = () => import("./components/mac/MacRuntimeBridge");
@@ -38,9 +38,9 @@ const LazyEvalView = lazy(async () => {
   return { default: module.EvalView };
 });
 
-const LazyCivilizationView = lazy(async () => {
-  const module = await loadCivilizationView();
-  return { default: module.CivilizationView };
+const LazyPondView = lazy(async () => {
+  const module = await loadPondView();
+  return { default: module.PondView };
 });
 
 const LazyTerminalDock = lazy(async () => {
@@ -159,6 +159,7 @@ export default function App() {
   const mergeCheckpointGroupId = useAgentStore((s) => s.mergeCheckpointGroupId);
   const showAgentView = expandedAgentId || mergeCheckpointGroupId;
   const terminalPanelOpen = useUiStore((s) => s.terminalPanelOpen);
+  const gameFullscreen = useUiStore((s) => s.gameFullscreen);
   const terminalTabCount = useTerminalStore((s) => s.tabs.length);
   // Keep the dock mounted (and shells alive) while it is open or has tabs.
   const terminalDockMounted = terminalPanelOpen || terminalTabCount > 0;
@@ -618,7 +619,7 @@ export default function App() {
       return;
     }
     if (action === "tab-civ") {
-      void loadCivilizationView();
+      void loadPondView();
       selectCenterTab("civ");
     }
   }, [addActiveProjectTerminalTab, addTerminalTab, closeActiveTerminalTab, openEmbeddedTerminalAtPath, openLatestAgentOutput, runActiveProjectHandoff, runLatestAgentWorktreeHandoff, selectAdjacentTerminalTab, selectCenterTab]);
@@ -690,8 +691,8 @@ export default function App() {
     }
     if (centerTab === "civ") {
       return (
-        <Suspense fallback={<CivLoading />}>
-          <LazyCivilizationView />
+        <Suspense fallback={<PondLoading />}>
+          <LazyPondView />
         </Suspense>
       );
     }
@@ -701,6 +702,9 @@ export default function App() {
       </Suspense>
     );
   }
+
+  // The Pond game can take over the whole window, hiding all app chrome.
+  const immersiveGame = gameFullscreen && centerTab === "civ" && !showAgentView;
 
   return (
     <div className="min-h-0 w-screen flex flex-row overflow-hidden xolotl-shell">
@@ -713,9 +717,9 @@ export default function App() {
           onBridgeStatus={setMacAppStatus}
         />
       </Suspense>
-      <SessionSidebar forceCollapsed={compactShell} />
+      {!immersiveGame && <SessionSidebar forceCollapsed={compactShell} />}
       <div className="xolotl-workbench flex-1 min-w-0 min-h-0 flex flex-col">
-        {!showAgentView && (
+        {!showAgentView && !immersiveGame && (
           <div className="xolotl-workbench-bar">
             <div className="xolotl-workbench-brand" data-tauri-drag-region>
               <div className="xolotl-mark flex-none" aria-hidden="true" />
@@ -747,9 +751,9 @@ export default function App() {
               <PillTab
                 active={centerTab === "civ"}
                 onClick={() => selectCenterTab("civ")}
-                onPreload={loadCivilizationView}
+                onPreload={loadPondView}
                 icon={<Sprout className="w-3.5 h-3.5" />}
-                label="Civ"
+                label="Pond"
                 shortcut="Cmd+3"
               />
             </div>
@@ -774,7 +778,7 @@ export default function App() {
           <div
             className={[
               "xolotl-workspace-content flex-1 min-h-0 flex flex-col",
-              showAgentView ? "xolotl-workspace-content-titlebar-safe" : "",
+              showAgentView || immersiveGame ? "xolotl-workspace-content-titlebar-safe" : "",
             ].join(" ")}
           >
             {renderCenter()}
@@ -791,9 +795,11 @@ export default function App() {
           </Suspense>
         )}
       </div>
-      <Suspense fallback={<AgentPanelLoading forceCollapsed={compactShell} />}>
-        <LazyAgentPanel forceCollapsed={compactShell} />
-      </Suspense>
+      {!immersiveGame && (
+        <Suspense fallback={<AgentPanelLoading forceCollapsed={compactShell} />}>
+          <LazyAgentPanel forceCollapsed={compactShell} />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -884,16 +890,16 @@ function EvalLoading() {
   );
 }
 
-function CivLoading() {
+function PondLoading() {
   return (
     <div className="flex flex-1 items-center justify-center bg-[oklch(0.105_0.004_250)]">
       <div className="flex items-center gap-3 rounded-md border border-[oklch(0.24_0.010_235)] bg-[oklch(0.12_0.004_245)] px-4 py-3 text-sm text-[oklch(0.66_0.025_210)] shadow-[0_18px_48px_oklch(0_0_0_/_0.18)]">
         <div className="xolotl-mark scale-90" aria-hidden="true" />
         <div>
-          <div className="font-semibold text-[oklch(0.88_0.025_220)]">Preparing Civilization Lab</div>
+          <div className="font-semibold text-[oklch(0.88_0.025_220)]">Preparing the Pond</div>
           <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[oklch(0.55_0.018_205)]">
             <Loader2 className="h-3 w-3 animate-spin" />
-            Loading simulator
+            Loading village
           </div>
         </div>
       </div>

@@ -11,7 +11,10 @@ interface UiState {
   terminalPanelOpen: boolean;
   /** Height of the terminal dock in pixels. */
   terminalPanelHeight: number;
+  /** Immersive game mode: hides sidebars and the workbench bar. Not persisted. */
+  gameFullscreen: boolean;
   toggleSessions: () => void;
+  setGameFullscreen: (on: boolean) => void;
   toggleAgents: () => void;
   toggleSkill: (name: string) => void;
   setEnabledSkills: (names: string[]) => void;
@@ -31,7 +34,9 @@ export const useUiStore = create<UiState>()(
       enabledSkills: [],
       terminalPanelOpen: false,
       terminalPanelHeight: 280,
+      gameFullscreen: false,
       toggleSessions: () => set((s) => ({ sessionsCollapsed: !s.sessionsCollapsed })),
+      setGameFullscreen: (on) => set({ gameFullscreen: on }),
       toggleAgents: () => set((s) => ({ agentsCollapsed: !s.agentsCollapsed })),
       toggleSkill: (name) =>
         set((s) => ({
@@ -53,6 +58,10 @@ export const useUiStore = create<UiState>()(
     {
       name: "xolotl-ui-state",
       storage: createJSONStorage(getPersistStorage),
+      partialize: (state) =>
+        Object.fromEntries(
+          Object.entries(state).filter(([key]) => key !== "gameFullscreen")
+        ) as UiState,
     }
   )
 );

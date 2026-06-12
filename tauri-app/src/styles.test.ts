@@ -14,7 +14,7 @@ describe("macOS accessibility stylesheet", () => {
   it("respects reduced-motion users across custom and Tailwind animations", () => {
     expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
     expect(styles).toContain(".eval-creature-active");
-    expect(styles).toContain(".civ-thinking");
+    expect(styles).toContain(".pond-pulse");
     expect(styles).toContain(".animate-spin");
     expect(styles).toContain("transition-duration: 0.001ms !important");
   });

@@ -46,7 +46,7 @@ Xolotl Code ships as **two surfaces that share one engine and one config file**:
 
 | Surface | What it is |
 | --- | --- |
-| 🖥️ **Tauri desktop app** | The primary surface — a chat pane, an agent/team worktree orchestrator, an eval lab (incl. **Goal Eval**), and a living **Axolotl Civilization** arena. |
+| 🖥️ **Tauri desktop app** | The primary surface — a chat pane, an agent/team worktree orchestrator, an eval lab (incl. **Goal Eval**), and **Pondfall**, the axolotl base-builder. |
 | ⌨️ **`xolotl` CLI** | The same engine without the UI — multi-provider routing, slash commands, sessions, planning, tools, and memory. |
 
 Both read `~/.xolotl-code/config.json`, so a key you set in either tool works in both. The core bet: a **chat-first UI with an agent-swarm layer underneath**, where an orchestrator coordinates cheaper specialized agents across parallel git worktrees — **without locking you into OpenAI or Anthropic.**
@@ -142,25 +142,25 @@ All runs persist to `~/.xolotl-code/evals/<id>.json` and reload from the History
 
 <a id="the-game"></a>
 
-## 🦎 The Axolotl Civilization
+## 🦎 Pondfall — the axolotl base-builder
 
-> **One artifact, two jobs.** It's a cute, watchable colony-sim — _and_ a **deterministic, seeded arena** where LLMs play whole civilizations against each other on a shared scoreboard. Every "game" feature is also an agent-eval feature: the same world renders to a canvas for you and to **text** for an agent.
+> **Clash-style, pond-sized.** Pondfall is a Clash of Clans-inspired base-builder living in the **Pond** tab: grow your kelp economy, fortify the village, hatch an axolotl army, and raid procedurally generated enemy ponds for loot, stars and trophies.
 
 <table>
   <tr>
     <td align="center" width="50%">
       <img src="assets/game/axolotls.png" width="380" alt="Axolotl morphs"><br/>
-      <sub><b>12 Mendelian morphs</b> — genetics + environmental selection drive measurable evolution</sub>
+      <sub><b>Axolotl troops</b> — morphs become units: Wildling, Finling, Pilfer, Boomtail, Pebbleback, Riptide, Sparkfin, Glowmender, Tidelord</sub>
     </td>
     <td align="center" width="50%">
       <img src="assets/game/buildings.png" width="380" alt="Buildings, resources & life stages"><br/>
-      <sub><b>Build & gather</b> — nests, farms, workshops, canals · 15 resources · eggs → babies → elders</sub>
+      <sub><b>Build & defend</b> — Pondheart, farms & mines, vats & vaults, hatchery, geysers, spires, elder dens, canal walls</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
       <img src="assets/game/terrain.png" width="380" alt="Terrain biomes"><br/>
-      <sub><b>Multi-biome terrain</b> — water, deep water, mud, earth, sand, moss, crystal strata</sub>
+      <sub><b>Pixel pond world</b> — a mossy shelf ringed by sand and deep water, rendered tile by tile</sub>
     </td>
     <td align="center" width="50%">
       <img src="assets/game/accessories.png" width="380" alt="Cosmetic accessories"><br/>
@@ -171,44 +171,33 @@ All runs persist to `~/.xolotl-code/evals/<id>.json` and reload from the History
 
 <sub>🎨 All art is generated through the in-repo Gemini image pipeline (`output/civ-gen/gemini/`) and rendered with **Phaser 4**.</sub>
 
-### What the engine already does (v2.0, shipped)
+### The loop
 
-- 🧬 **Genetics** — expanded visible Mendelian inheritance across 12 morphs, with environmental selection producing measurable evolution over generations.
-- 🌦️ **Living world** — seasons drift temperature, disasters physically reshape terrain, and resources regrow on renewable-only rules.
-- ⚔️ **Politics** — combat, raids, territory ownership, diplomacy & trades, and wild predators — all **deterministic and seeded** (reproducible runs).
-- 🏆 **Multi-model worlds** — 1–3 AI-model civs, each with its own colour and controller tag, on a **live leaderboard** scored on survival, ethics, and intelligence.
+- 🌿 **Economy** — Kelp Farms and Shard Mines produce in real time (even while the app is closed, up to a buffer); harvest into Kelp Vats and Shard Vaults that gate how much you can hoard.
+- 🔨 **Construction** — every building costs the opposite resource and takes real time to build; each Builder Workshop houses a named **tadpole worker** (level 1–5 — train them with shards to build faster) that swims to its job site and splashes while it works. Extra workshops are bought with **pearls** (250 → 500), exactly like CoC builders cost gems. The **Pondheart** level gates what you can place and how far you can upgrade.
+- 👑 **The Supreme Axolotl** — build the **Sovereign Throne** (Pondheart 3) to summon your hero: it lounges crowned on its throne, joins every raid for free, rages and self-heals when wounded (**Sovereign Wrath**), levels up to 2× your Pondheart level, and regenerates after being knocked out — the Barbarian King, axolotl-style.
+- 💣 **Defense depth** — the **Mudspitter** mortar shells raiders from afar but is blind up close, and hidden **Tide Traps** stay invisible to attackers (yours and the enemy's) until someone swims over one.
+- 🥚 **Army** — the Hatchery trains seven axolotl morph troops with CoC-style housing costs into Mossy Camps; higher hatchery levels unlock stronger morphs, and the **Glow Lab** researches troop levels that scale their combat stats.
+- 🦪 **Pearls** — a premium currency earned from raid stars and clearing obstacles (driftwood, boulders, glowblooms drift into your pond over time); spend pearls to finish any build or research timer instantly.
+- ✨ **Spells** — the Spell Spring brews **Heal Rain** (mends troops under its radius) and **Tide Surge** (damage + speed boost); cast them anywhere mid-raid from the deploy tray.
+- 🖥️ **Fullscreen** — one click (or Esc to exit) hides the whole workbench chrome so the pond takes over the window, CoC-style HUD and all.
+- ⚔️ **Raids** — attack procedurally generated enemy ponds scaled to your trophies: scout the available loot, pay glowshards to skip to another pond, then deploy around the walls. Troops pick targets by preference (Pebblebacks hunt defenses, Pilfers beeline for loot), defenses shoot back, and stars are earned at 50%, Pondheart down, and 100% destruction.
+- 🛡️ **Defense** — Bubble Geysers, Crystal Spires and Elder Dens guard your loot while you're away; lose a raid and you get a 12-hour shield, win on defense and you take trophies instead.
 
-### The arena bridge — why it doubles as an eval
+### Where it lives in the code
 
-```mermaid
-flowchart LR
-    subgraph LOOP["🔁 Deterministic turn loop (per civ)"]
-      direction TB
-      OBS["build_observation"] --> DEC["model decides<br/>CivDecisionAction"]
-      DEC --> APP["apply_model_decision"]
-      APP --> WORLD["combat · predators · environment"]
-      WORLD --> SCORE["rescore + save"]
-    end
-    HUMAN["🧑 Human / 🤖 Agent"] -- "possess · civPilotControls" --> LOOP
-    LOOP -- "render_game_to_text()" --> HUMAN
-```
+The whole game is a self-contained TypeScript module — a pure, unit-tested simulation with a thin Phaser/React shell on top:
 
-The world exposes `render_game_to_text()` (full text state) and `civPilotControls` (drive commands), so a coding agent can **observe and play the same game a human watches** — a self-contained, reproducible benchmark for planning and decision-making under uncertainty.
+| Layer | Path |
+| --- | --- |
+| Balance & data model | `tauri-app/src/lib/pond/config.ts`, `types.ts` |
+| Village economy (pure functions) | `tauri-app/src/lib/pond/village.ts` |
+| Battle simulation (fixed-step, headless-testable) | `tauri-app/src/lib/pond/battle.ts` |
+| Enemy base generation + away-raids (seeded RNG) | `tauri-app/src/lib/pond/enemy.ts` |
+| Phaser 4 renderer | `tauri-app/src/components/pond/PondCanvas.tsx` |
+| HUD / shop / army / battle UI | `tauri-app/src/components/pond/PondView.tsx` |
 
-### 🚧 Currently building — Milestone v2.1 "Living World & Economy"
-
-Turning the simulation into a **fully playable game** where every human-play feature also deepens agentic playability:
-
-| # | Phase | Status |
-| :-: | --- | --- |
-| **1** | **Human Takeover (Possession)** — possess a whole civ and play it directly; the LLM never fires for a possessed civ | 🛠️ **in progress** |
-| 2 | Economy & Currency — ≥5 currencies (Shells · Pearls · Tidewardens' Favor · Spawn-tokens · Ancient Amberglass), fixed-price selling | ⏳ planned |
-| 3 | Shop / Store + UI — a game-native catalog you buy buffs/buildings/items from | ⏳ planned |
-| 4 | Items, Crafting & NPCs — tools, a recipe cascade, and trader / quest-giver / fauna-handler NPCs | ⏳ planned |
-| 5 | Infinite / Chunked Procedural World — deterministic fBm terrain, prospecting, terraform | ⏳ planned |
-| 6 | Assets & Game-native UI — Gemini art + a HUD restyle | ⏳ planned |
-
-<sub>Planning artifacts live in `.planning/` (GSD phase plans, roadmap, decisions). Zero new runtime dependencies across the milestone.</sub>
+Saves persist to `localStorage`, so the pond works identically in the desktop app and the browser dev preview.
 
 ---
 
@@ -364,16 +353,16 @@ CI runs the `rust/` workspace on **Linux + Windows + macOS** (Rust **1.95.0**): 
 │       └── tools/                   # Built-in tool specs + dispatch
 ├── tauri-app/                       # Desktop app (React 19 + Tauri v2)
 │   ├── src-tauri/                   # Rust side: commands, MCP, skills,
-│   │                                #   eval runner, goal-grade judge,
-│   │                                #   civilization sim engine
+│   │                                #   eval runner, goal-grade judge
 │   └── src/
 │       ├── components/
 │       │   ├── chat/                # Chat pane, message input, palette
 │       │   ├── agent/               # Agent roster, spawn, team launcher
 │       │   ├── eval/                # Eval lab + Goal Eval mode
-│       │   ├── civilization/        # Axolotl Civilization (Phaser canvas)
+│       │   ├── pond/                # Pondfall base-builder (Phaser canvas)
 │       │   ├── settings/            # Providers / Skills / MCP tabs
 │       │   └── sidebar/             # Session sidebar
+│       ├── lib/pond/                # Pondfall pure game engine (tested)
 │       └── stores/                  # Zustand stores
 ├── output/civ-gen/gemini/           # Game art pipeline (Gemini, build-time)
 ├── assets/game/                     # Showcase art (this README)

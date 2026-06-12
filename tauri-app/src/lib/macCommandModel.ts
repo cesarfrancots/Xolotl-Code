@@ -85,9 +85,9 @@ export const MAC_COMMANDS = [
   {
     id: "tab-civ",
     action: "tab-civ",
-    label: "Go to Civ",
+    label: "Go to Pond",
     shortcut: "Cmd+3",
-    description: "Switch the center workbench to Civ.",
+    description: "Switch the center workbench to the Pond game.",
     context: "global",
   },
   {

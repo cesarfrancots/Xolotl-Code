@@ -92,8 +92,8 @@ vi.mock("./components/eval/EvalView", () => ({
   EvalView: () => <main>Eval workspace</main>,
 }));
 
-vi.mock("./components/civilization/CivilizationView", () => ({
-  CivilizationView: () => <main>Civilization workspace</main>,
+vi.mock("./components/pond/PondView", () => ({
+  PondView: () => <main>Pond workspace</main>,
 }));
 
 vi.mock("./components/terminal/TerminalDock", () => ({
@@ -185,7 +185,7 @@ describe("App tab navigation", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Civilization workspace")).toBeTruthy();
+    expect(await screen.findByText("Pond workspace")).toBeTruthy();
     expect(window.location.search).toBe("");
   });
 
@@ -198,12 +198,12 @@ describe("App tab navigation", () => {
     expect(await screen.findByText("Eval workspace")).toBeTruthy();
   });
 
-  it("opens the civilization workspace from the tab query", async () => {
+  it("opens the pond workspace from the tab query", async () => {
     window.history.replaceState(null, "", "/?tab=civ");
 
     render(<App />);
 
-    expect(await screen.findByText("Civilization workspace")).toBeTruthy();
+    expect(await screen.findByText("Pond workspace")).toBeTruthy();
   });
 
   it("keeps the tab query in sync with workspace selection", async () => {
@@ -221,9 +221,9 @@ describe("App tab navigation", () => {
     expect(await screen.findByText("Eval workspace")).toBeTruthy();
     expect(window.location.search).toBe("?tab=eval");
 
-    await user.click(screen.getByRole("button", { name: /civ/i }));
+    await user.click(screen.getByRole("button", { name: /pond/i }));
 
-    expect(await screen.findByText("Civilization workspace")).toBeTruthy();
+    expect(await screen.findByText("Pond workspace")).toBeTruthy();
     expect(window.location.search).toBe("?tab=civ");
   });
 
@@ -585,13 +585,13 @@ describe("App tab navigation", () => {
 
     const chat = screen.getByRole("button", { name: "Chat" });
     const evalTab = screen.getByRole("button", { name: "Eval" });
-    const civ = screen.getByRole("button", { name: "Civ" });
+    const civ = screen.getByRole("button", { name: "Pond" });
 
     expect(chat.getAttribute("aria-pressed")).toBe("true");
     expect(evalTab.getAttribute("aria-pressed")).toBe("false");
     expect(chat.getAttribute("title")).toBe("Chat (⌘1)");
     expect(evalTab.getAttribute("title")).toBe("Eval (⌘2)");
-    expect(civ.getAttribute("title")).toBe("Civ (⌘3)");
+    expect(civ.getAttribute("title")).toBe("Pond (⌘3)");
 
     await user.click(evalTab);
 
@@ -618,7 +618,7 @@ describe("App tab navigation", () => {
 
     fireEvent.keyDown(window, { key: "3", metaKey: true });
 
-    expect(await screen.findByText("Civilization workspace")).toBeTruthy();
+    expect(await screen.findByText("Pond workspace")).toBeTruthy();
     expect(window.location.search).toBe("?tab=civ");
   });
 

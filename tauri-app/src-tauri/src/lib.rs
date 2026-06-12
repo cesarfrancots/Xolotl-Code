@@ -11,13 +11,6 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
 use tauri_specta::{collect_commands, Builder};
 
-use crate::civilization::{
-    advance_civ_turn, apply_civ_intervention, create_civ_session, delete_civ_session,
-    list_civ_sessions, load_civ_session, set_civ_controller, CivCivilization, CivDecisionAction,
-    CivEntity, CivGenes, CivIntervention, CivLogEntry, CivModelDecision, CivModifier,
-    CivParticipant, CivRegion, CivScore, CivSessionConfig, CivSessionMeta, CivSessionSnapshot,
-    CivTile, CivWorld,
-};
 use crate::commands::{
     add_project, browse_directory, build_hint_proposals, build_reliability_profiles,
     cancel_chat_turn, chat_turn, cleanup_eval_processes, convert_pdf, delete_eval, delete_session,
@@ -54,7 +47,6 @@ use runtime::{
     ReliabilityProfile,
 };
 
-mod civilization;
 mod commands;
 mod permission_prompter;
 pub mod skills_mcp;
@@ -219,13 +211,6 @@ fn make_builder() -> Builder<tauri::Wry> {
             terminal_kill,
             terminal_kill_all,
             terminal_list,
-            create_civ_session,
-            list_civ_sessions,
-            load_civ_session,
-            delete_civ_session,
-            apply_civ_intervention,
-            set_civ_controller,
-            advance_civ_turn,
         ])
         .typ::<AgentId>()
         .typ::<AgentState>()
@@ -272,22 +257,6 @@ fn make_builder() -> Builder<tauri::Wry> {
         .typ::<McpServerConfig>()
         .typ::<McpTestResult>()
         .typ::<TerminalInfo>()
-        .typ::<CivSessionConfig>()
-        .typ::<CivParticipant>()
-        .typ::<CivSessionMeta>()
-        .typ::<CivSessionSnapshot>()
-        .typ::<CivWorld>()
-        .typ::<CivRegion>()
-        .typ::<CivTile>()
-        .typ::<CivEntity>()
-        .typ::<CivGenes>()
-        .typ::<CivCivilization>()
-        .typ::<CivScore>()
-        .typ::<CivModifier>()
-        .typ::<CivLogEntry>()
-        .typ::<CivIntervention>()
-        .typ::<CivModelDecision>()
-        .typ::<CivDecisionAction>()
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -1104,7 +1073,7 @@ fn build_native_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> 
     let eval_tab = MenuItemBuilder::with_id(MENU_TAB_EVAL, "Eval")
         .accelerator("CmdOrCtrl+Digit2")
         .build(app)?;
-    let civ_tab = MenuItemBuilder::with_id(MENU_TAB_CIV, "Civ")
+    let civ_tab = MenuItemBuilder::with_id(MENU_TAB_CIV, "Pond")
         .accelerator("CmdOrCtrl+Digit3")
         .build(app)?;
     let latest_agent_output =

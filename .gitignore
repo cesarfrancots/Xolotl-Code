@@ -33,3 +33,6 @@ C*Tempciv_orig.rs
 config.json
 !rust/**/config.json
 !.planning/config.json
+
+# Node
+node_modules/
